@@ -118,8 +118,9 @@ stored on disk.
 - order flow and activity log feeds
 
 Use `--demo` to inspect the offline demo run, `--port` to change the port.
-The UI is a single self-contained HTML file (SVG + vanilla JS, no CDN, no
-external assets), so it works fully offline.
+The UI is a single HTML file (SVG + vanilla JS, no CDN) and every asset —
+including the bundled Inter and JetBrains Mono typefaces (both SIL OFL
+licensed) — is served locally, so it works fully offline.
 
 ## Layout
 

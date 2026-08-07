@@ -86,6 +86,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(content)
 
+    FONTS = {"InterVariable.woff2", "JetBrainsMono-Regular.woff2"}
+
     def do_GET(self):
         path = self.path.split("?")[0]
         if path in ("/", "/index.html"):
@@ -95,6 +97,10 @@ class Handler(BaseHTTPRequestHandler):
         elif path == "/api/status":
             payload = json.dumps(self.reader.snapshot()).encode()
             self._send(200, payload, "application/json")
+        elif path.startswith("/fonts/") and os.path.basename(path) in self.FONTS:
+            fp = os.path.join(STATIC_DIR, os.path.basename(path))
+            with open(fp, "rb") as f:
+                self._send(200, f.read(), "font/woff2")
         else:
             self._send(404, b"not found", "text/plain")
 
