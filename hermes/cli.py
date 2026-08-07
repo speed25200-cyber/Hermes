@@ -75,7 +75,21 @@ def cmd_demo(args) -> None:
         max_drawdown_pct=r["max_drawdown_pct"],
         min_trade_notional=r["min_trade_notional"],
         max_order_notional=r["max_order_notional"])
-    trader = Trader(cfg, broker, registry, allocator, risk, log=lambda m: None)
+    registry.researched_at = time.time()
+    registry.save()
+    for stale in ("journal.jsonl", "hermes.log", "risk.json"):
+        p = os.path.join(state_dir, stale)
+        if os.path.exists(p):
+            os.remove(p)
+    risk.state_path = os.path.join(state_dir, "risk.json")
+    log_path = os.path.join(state_dir, "hermes.log")
+
+    def file_log(msg: str) -> None:
+        with open(log_path, "a") as f:
+            f.write(f"[demo] {msg}\n")
+
+    trader = Trader(cfg, broker, registry, allocator, risk, log=file_log,
+                    journal_path=os.path.join(state_dir, "journal.jsonl"))
 
     print(f"[demo] replaying {replay_bars} held-out bars through the paper trader...")
     eq_curve = []
@@ -151,6 +165,15 @@ def cmd_run(args) -> None:
     LiveRunner(cfg).run_forever()
 
 
+def cmd_dashboard(args) -> None:
+    from .dashboard.server import serve
+
+    cfg = Config.load(args.config)
+    state_dir = os.path.join(cfg["state_dir"], "demo") if args.demo else cfg["state_dir"]
+    serve(state_dir, port=args.port, mode_hint="demo" if args.demo
+          else cfg["live"]["mode"], open_browser=not args.no_browser)
+
+
 def cmd_status(args) -> None:
     cfg = Config.load(args.config)
     state_dir = cfg["state_dir"]
@@ -187,6 +210,13 @@ def main(argv: list[str] | None = None) -> None:
 
     s = sub.add_parser("status", help="show state")
     s.set_defaults(fn=cmd_status)
+
+    b = sub.add_parser("dashboard", help="local web console (live monitoring)")
+    b.add_argument("--port", type=int, default=8899)
+    b.add_argument("--demo", action="store_true",
+                   help="point at the demo state dir (state/demo)")
+    b.add_argument("--no-browser", action="store_true")
+    b.set_defaults(fn=cmd_dashboard)
 
     args = p.parse_args(argv)
     args.fn(args)

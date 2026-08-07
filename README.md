@@ -66,6 +66,11 @@ python -m hermes research
 # 4. Paper-trade the deployed strategies against live OKX prices
 python -m hermes run --mode paper
 
+# Dashboard — local web console (equity curve, book, allocation, risk, logs)
+python -m hermes dashboard            # opens http://127.0.0.1:8899
+python -m hermes dashboard --demo     # inspect the offline demo run
+# Windows: double-click hermes-dashboard.bat
+
 # 5. Live trading (only after you are satisfied with paper results)
 export OKX_API_KEY=...       OKX_API_SECRET=...     OKX_API_PASSPHRASE=...
 # optional: export OKX_SIMULATED=1   # OKX demo-trading environment first!
@@ -100,6 +105,22 @@ stored on disk.
   margin. Never trade money you cannot afford to lose. This software is
   provided as-is, without warranty; nothing here is financial advice.
 
+## Dashboard
+
+`python -m hermes dashboard` starts a zero-dependency local web console
+(Python stdlib only) and opens it in your browser. On Windows, double-click
+`hermes-dashboard.bat`. It reads the state directory and refreshes live:
+
+- animated equity curve with crosshair inspection and session P&L
+- risk envelope: drawdown gauge against the kill-switch limit, daily loss
+- allocation constellation: deployed strategies orbiting by capital weight
+- book (positions vs targets), deployed-strategy table with OOS Sharpe/DSR
+- order flow and activity log feeds
+
+Use `--demo` to inspect the offline demo run, `--port` to change the port.
+The UI is a single self-contained HTML file (SVG + vanilla JS, no CDN, no
+external assets), so it works fully offline.
+
 ## Layout
 
 ```
@@ -120,7 +141,9 @@ hermes/
   exchange/okx_client.py OKX v5 REST (signed), retries, demo-trading support
            broker.py     Broker interface: PaperBroker + OKXBroker
   live/trader.py         decision cycle + autonomous runner (auto re-research)
-  cli.py                 demo / fetch / research / run / status
+  dashboard/server.py    zero-dependency local web console (stdlib http)
+           index.html    single-file UI: SVG charts, animated console
+  cli.py                 demo / fetch / research / run / status / dashboard
 tests/                   39 tests: no-lookahead, costs, risk, e2e replay
 ```
 

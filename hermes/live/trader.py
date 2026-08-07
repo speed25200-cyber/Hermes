@@ -111,9 +111,18 @@ class Trader:
     allocator: Allocator
     risk: RiskEngine
     log: object = print
+    journal_path: str | None = None
     last_positions: dict[str, np.ndarray] = field(default_factory=dict)  # sid -> last pos value
     last_close: dict[str, float] = field(default_factory=dict)
     last_ts: dict[str, int] = field(default_factory=dict)
+
+    def _journal(self, entry: dict) -> None:
+        """Append one cycle record to the JSONL journal (dashboard feed)."""
+        if not self.journal_path:
+            return
+        os.makedirs(os.path.dirname(self.journal_path) or ".", exist_ok=True)
+        with open(self.journal_path, "a") as f:
+            f.write(json.dumps(entry) + "\n")
 
     def run_cycle(self, candles_by_inst: dict[str, Candles], now_ts: float) -> dict:
         """One decision cycle at the close of the newest bar. Returns a report."""
@@ -149,6 +158,9 @@ class Trader:
             reason = self.risk.state.kill_reason or "daily loss limit"
             self.log(f"RISK HALT ({reason}) -> flattening all positions")
             self._flatten(prices)
+            self._journal({"ts": now_ts, "equity": equity, "halted": True,
+                           "reason": reason, "prices": prices, "targets": {},
+                           "orders": [], "weights": {}, "positions": {}})
             return {"equity": equity, "halted": True, "targets": {}}
 
         # ---- compute per-strategy target positions --------------------------
@@ -172,8 +184,17 @@ class Trader:
         targets = self.risk.clamp_targets(targets)
         orders = self._reconcile(targets, prices, equity)
 
+        weights = self.allocator.weights(list(per_strategy))
+        self._journal({
+            "ts": now_ts, "equity": equity, "halted": False,
+            "prices": prices, "targets": targets, "orders": orders,
+            "weights": weights,
+            "strat_pos": {sid: v for sid, v in
+                          ((s, list(p.values())[0]) for s, p in per_strategy.items())},
+            "positions": self.broker.positions(),
+        })
         return {"equity": equity, "halted": False, "targets": targets,
-                "orders": orders, "weights": self.allocator.weights(list(per_strategy))}
+                "orders": orders, "weights": weights}
 
     # ------------------------------------------------------------------ #
 
@@ -290,7 +311,8 @@ class LiveRunner:
         )
         self.risk.load()
         self.trader = Trader(cfg, self.broker, self.registry, self.allocator,
-                             self.risk, self.log)
+                             self.risk, self.log,
+                             journal_path=os.path.join(state_dir, "journal.jsonl"))
         self.trader.load_state(state_dir)
 
     # ------------------------------------------------------------------ #
