@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+/data/
+/state/
+config.json
+config.local.json
+.pytest_cache/
