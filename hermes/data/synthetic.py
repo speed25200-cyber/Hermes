@@ -82,9 +82,35 @@ def generate(
     return candles
 
 
-def generate_universe(bar: str = "1H", n: int = 12000, seed: int = 7) -> list[Candles]:
-    """A small correlated universe of synthetic perpetuals."""
+def _rebuild_prices(candles: Candles, ret: np.ndarray, s0: float,
+                    rng: np.random.Generator) -> None:
+    """Rewrite o/h/l/c from a per-bar log-return series, keeping ts/v/funding."""
+    logp = np.log(s0) + np.cumsum(ret)
+    c = np.exp(logp)
+    n = len(c)
+    o = np.empty(n)
+    o[0] = s0
+    o[1:] = c[:-1]
+    wick = np.abs(rng.normal(0, 0.4, n)) * np.abs(ret + 1e-6) * c
+    candles.o, candles.c = o, c
+    candles.h = np.maximum(o, c) + wick
+    candles.l = np.minimum(o, c) - wick
+
+
+def generate_universe(bar: str = "1H", n: int = 12000, seed: int = 7,
+                      lead_lag: float = 0.25) -> list[Candles]:
+    """A small universe of synthetic perpetuals. The first instrument (SYNA)
+    is the leader: SYNB's returns partially follow SYNA's previous bar, an
+    exploitable cross-asset lead-lag like BTC leading alts."""
     out = []
     for k, name in enumerate(["SYNA-USDT-SWAP", "SYNB-USDT-SWAP", "SYNC-USDT-SWAP"]):
         out.append(generate(inst=name, bar=bar, n=n, seed=seed + 100 * k, s0=50.0 * (k + 1)))
+    if lead_lag > 0 and len(out) >= 2:
+        leader, follower = out[0], out[1]
+        rng = np.random.default_rng(seed + 999)
+        r_lead = np.concatenate(([0.0], np.diff(np.log(leader.c))))
+        r_fol = np.concatenate(([0.0], np.diff(np.log(follower.c))))
+        blended = r_fol.copy()
+        blended[1:] = r_fol[1:] * (1 - lead_lag * 0.5) + lead_lag * r_lead[:-1]
+        _rebuild_prices(follower, blended, 100.0, rng)
     return out

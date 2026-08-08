@@ -27,8 +27,8 @@ class Candidate:
 
 
 def _fitness(candles_is: Candles, g: Genome, fee_bps: float, slip_bps: float,
-             n_windows: int = 3) -> tuple[float, dict]:
-    pos = compute_position(candles_is, g)
+             n_windows: int = 3, ctx: dict | None = None) -> tuple[float, dict]:
+    pos = compute_position(candles_is, g, ctx)
     res = engine.run(candles_is, pos, fee_bps, slip_bps)
     n = len(candles_is)
     if n < n_windows * 100:
@@ -59,6 +59,7 @@ def evolve(
     slip_bps: float = 2.0,
     seed: int | None = None,
     elite_frac: float = 0.1,
+    ctx: dict | None = None,
     log=None,
 ) -> tuple[list[Candidate], int]:
     """Returns (final population sorted by fitness desc, total genomes evaluated)."""
@@ -71,7 +72,7 @@ def evolve(
         cached = seen.get(g.gid)
         if cached is not None:
             return Candidate(g, cached)
-        fit, stats = _fitness(candles_is, g, fee_bps, slip_bps)
+        fit, stats = _fitness(candles_is, g, fee_bps, slip_bps, ctx=ctx)
         seen[g.gid] = fit
         evaluated += 1
         return Candidate(g, fit, stats)

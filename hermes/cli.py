@@ -94,9 +94,10 @@ def cmd_demo(args) -> None:
     print(f"[demo] replaying {replay_bars} held-out bars through the paper trader...")
     eq_curve = []
     start = n_bars - replay_bars
-    window = 4000  # rolling history window fed to strategies
+    # expanding history (like live trading, where the store only grows):
+    # keeps the ML/regime incremental caches hot bar over bar
     for i in range(start, n_bars):
-        candle_map = {c.inst: c.slice(max(0, i + 1 - window), i + 1) for c in universe}
+        candle_map = {c.inst: c.slice(0, i + 1) for c in universe}
         now_ts = universe[0].ts[i] / 1000.0
         # funding applied on positions held into this bar
         for c in universe:

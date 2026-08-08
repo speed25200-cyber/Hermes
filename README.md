@@ -16,30 +16,56 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
 
 ## How it "finds the edge alone"
 
-1. **Alpha search** (`hermes/research/evolve.py`) — an evolutionary algorithm
-   explores a parameterised space of strategy genomes: time-series momentum,
-   moving-average cross, z-score mean reversion, Donchian breakout, RSI
-   reversal, funding-rate carry — each optionally gated by a volatility-regime
-   filter and scaled by per-strategy volatility targeting. Fitness is measured
-   **only on in-sample data**, and averaged across sub-windows so a strategy
-   must work in every sub-period, not one lucky stretch.
+1. **Prediction engine** (`hermes/ml/`) — a genuine forecasting layer, all
+   implemented from scratch in numpy:
+   - a causal **feature matrix** per instrument: multi-horizon vol-scaled
+     momentum, volatility structure, oscillators, channel position, candle
+     shape, volume pressure, funding carry, intraday/weekly seasonality, and
+     **cross-asset lead-lag features** from the universe leader (BTC leads
+     alts);
+   - two learners fit under a strict **walk-forward protocol** (train only on
+     the past, horizon-length embargo before every refit, periodic
+     re-training): closed-form **ridge regression** and **gradient-boosted
+     stumps** whose split search is vectorised into BLAS matrix products;
+   - predictions carry a causal **confidence score** (rolling hit rate) that
+     scales position size — conviction sizing, not binary bets;
+   - an incremental cache extends the walk-forward state bar by bar in live
+     trading with bit-identical results to the batch computation (tested).
 
-2. **Validation gate** (`hermes/research/validate.py`) — survivors are scored
+2. **Regime detection** (`hermes/ml/regime.py`) — a Gaussian-mixture EM
+   (hand-written) classifies every bar as quiet / normal / turbulent from
+   vol-normalised returns and volatility structure, refit on a trailing
+   window and applied strictly causally. Strategies can gate themselves to
+   the regimes where their edge exists.
+
+3. **Alpha search** (`hermes/research/evolve.py`) — an evolutionary algorithm
+   explores a parameterised space of strategy genomes: the two ML predictor
+   families (horizon, threshold, regularisation, cross-asset on/off) plus
+   time-series momentum, moving-average cross, z-score mean reversion,
+   Donchian breakout, RSI reversal and funding-rate carry — each optionally
+   gated by a volatility- or regime-filter and scaled by per-strategy
+   volatility targeting. Fitness is measured **only on in-sample data**,
+   averaged across sub-windows so a strategy must work in every sub-period.
+
+4. **Validation gate** (`hermes/research/validate.py`) — survivors are scored
    once on out-of-sample data separated by an embargo gap. A strategy deploys
-   only if its OOS Sharpe, **Deflated Sharpe Ratio** (Bailey & López de Prado
-   — the bar rises with every genome the search evaluated, killing
-   selection-bias artifacts), and OOS drawdown all clear thresholds.
+   only if it clears the OOS Sharpe floor, the **Deflated Sharpe Ratio**
+   (Bailey & López de Prado — the bar rises with every genome the search
+   evaluated, killing selection-bias artifacts), the OOS drawdown cap, AND
+   **purged multi-fold consistency**: the OOS window is cut into embargoed
+   sub-folds and the majority must be individually profitable (CPCV spirit).
 
-3. **Online adaptation** (`hermes/portfolio/allocator.py`) — deployed
+5. **Online adaptation** (`hermes/portfolio/allocator.py`) — deployed
    strategies are tracked bar by bar. Capital flows multiplicatively toward
-   what is working *now* and drains from what has stopped working. A
-   portfolio-level volatility target scales the whole book.
+   what is working *now*, an EWMA **correlation matrix downweights crowded
+   strategies** so the book spreads across genuinely independent edges, and
+   a portfolio-level volatility target scales the whole book.
 
-4. **Re-research** — the live loop automatically re-runs the whole research
+6. **Re-research** — the live loop automatically re-runs the whole research
    pass when the deployed set is stale (weekly by default) or empty, on fresh
    data. The edge is re-derived continuously, not fitted once.
 
-5. **Risk engine** (`hermes/risk.py`) — hard caps on per-instrument and gross
+7. **Risk engine** (`hermes/risk.py`) — hard caps on per-instrument and gross
    leverage, a daily loss limit (flatten + halt until next UTC day), and a max
    drawdown **kill switch** (flatten + halt until manual reset; survives
    restarts). This is the last line of defence and cannot be overridden by
@@ -132,6 +158,10 @@ hermes/
   data/    store.py      SQLite candle/funding store
            fetcher.py    OKX history backfill (public endpoints)
            synthetic.py  regime-switching market generator (offline tests)
+  ml/      models.py     ridge + gradient-boosted stumps (pure numpy)
+           feature_matrix.py  causal features incl. cross-asset lead-lag
+           predictor.py  walk-forward engine, confidence, incremental cache
+           regime.py     Gaussian-mixture EM regime detection (causal)
   strategy/genome.py     strategy search space (mutate/crossover)
            signals.py    genome -> target exposure series
   backtest/engine.py     vectorized backtester (fees, slippage, funding)
@@ -145,7 +175,7 @@ hermes/
   dashboard/server.py    zero-dependency local web console (stdlib http)
            index.html    single-file UI: SVG charts, animated console
   cli.py                 demo / fetch / research / run / status / dashboard
-tests/                   39 tests: no-lookahead, costs, risk, e2e replay
+tests/                   54 tests: no-lookahead, ML causality, regimes, e2e
 ```
 
 ## Tests

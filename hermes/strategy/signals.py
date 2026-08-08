@@ -1,8 +1,13 @@
 """Turn a Genome into a target-exposure series for a candle history.
 
-`compute_position(candles, genome)` returns pos[i] = exposure decided at the
-close of bar i (fraction of equity, signed). Strictly causal: only data up to
-bar i is used for pos[i]. The backtest engine applies the 1-bar execution lag.
+`compute_position(candles, genome, ctx)` returns pos[i] = exposure decided at
+the close of bar i (fraction of equity, signed). Strictly causal: only data
+up to bar i is used for pos[i]. The backtest engine applies the 1-bar
+execution lag.
+
+`ctx` (optional dict) provides cross-asset context:
+    {"leader": Candles}  — the universe leader (e.g. BTC) whose lagged
+    returns feed the ML models' lead-lag features.
 """
 
 from __future__ import annotations
@@ -11,10 +16,43 @@ import numpy as np
 
 from .. import features as F
 from ..data.store import BARS_PER_YEAR, Candles
+from ..ml.predictor import predict_series
+from ..ml.regime import regime_series
 from .genome import Genome
 
 
-def _raw_signal(candles: Candles, g: Genome) -> np.ndarray:
+ML_HORIZONS = (2, 4, 8, 16, 32, 48)
+
+
+def _ml_position(candles: Candles, g: Genome, ctx: dict | None) -> np.ndarray:
+    p = g.params
+    leader = (ctx or {}).get("leader")
+    # snap horizon to a coarse grid: prediction caches are shared across the
+    # evolutionary search, and horizon resolution beyond this is noise anyway
+    horizon = min(ML_HORIZONS, key=lambda h: abs(h - int(p["horizon"])))
+    cfg: dict = {"horizon": horizon, "cross": bool(int(p["cross"]))}
+    if g.signal == "ml_ridge":
+        cfg["model"] = "ridge"
+        cfg["l2"] = float(10.0 ** int(p["l2_exp"]))
+    else:
+        cfg["model"] = "boost"
+        cfg["n_trees"] = 10 * int(p["n_trees"])
+    pred, conf = predict_series(candles, cfg, leader=leader)
+
+    # standardise predictions causally so the threshold is scale-free
+    ps = F.rolling_std(pred, 500)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        z = pred / np.where(ps > 1e-6, ps, np.nan)
+    z = np.nan_to_num(z, nan=0.0)
+
+    thr = p["thresh"]
+    raw = np.where(np.abs(z) > thr, np.clip(z / (2.0 * max(thr, 1e-6)), -1, 1), 0.0)
+    # confidence tilt: scale toward 0 when recent hit rate is poor
+    edge = np.clip((conf - 0.45) / 0.15, 0.0, 1.5)
+    return raw * edge
+
+
+def _raw_signal(candles: Candles, g: Genome, ctx: dict | None = None) -> np.ndarray:
     c = candles.c
     n = len(c)
     p = g.params
@@ -73,12 +111,20 @@ def _raw_signal(candles: Candles, g: Genome) -> np.ndarray:
         out = np.where(np.abs(f) > p["threshold"], -np.sign(f), 0.0)
         return np.nan_to_num(out)
 
+    if g.signal in ("ml_ridge", "ml_boost"):
+        return _ml_position(candles, g, ctx)
+
     raise ValueError(f"unknown signal {g.signal!r}")
 
 
 def _apply_filter(candles: Candles, g: Genome, pos: np.ndarray) -> np.ndarray:
     if g.filter == "none":
         return pos
+    if g.filter == "regime":
+        mask_bits = int(g.filter_params["mask"])
+        reg = regime_series(candles)
+        allowed = (mask_bits >> reg) & 1     # bit r of mask == regime r allowed
+        return np.where(allowed.astype(bool), pos, 0.0)
     pct = F.vol_percentile(candles.c, w=48, rank_w=480)
     if g.filter == "vol_below":
         mask = pct <= g.filter_params["pct"]
@@ -89,8 +135,8 @@ def _apply_filter(candles: Candles, g: Genome, pos: np.ndarray) -> np.ndarray:
     return np.where(np.nan_to_num(mask, nan=0.0).astype(bool), pos, 0.0)
 
 
-def compute_position(candles: Candles, g: Genome) -> np.ndarray:
-    pos = _raw_signal(candles, g)
+def compute_position(candles: Candles, g: Genome, ctx: dict | None = None) -> np.ndarray:
+    pos = _raw_signal(candles, g, ctx)
     pos = _apply_filter(candles, g, pos)
 
     # per-strategy volatility targeting: scale so the position's annualised

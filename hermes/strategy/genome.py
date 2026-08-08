@@ -45,12 +45,25 @@ SIGNAL_SPECS: dict[str, dict[str, tuple]] = {
         "lookback": (24, 400, True, True),
         "threshold": (0.00003, 0.0006, False, True),  # per-8h rate
     },
+    "ml_ridge": {  # walk-forward ridge prediction engine
+        "horizon": (2, 48, True, True),
+        "thresh": (0.1, 1.2, False, False),     # entry threshold on |pred| z
+        "l2_exp": (-1, 3, True, False),         # l2 = 10^l2_exp
+        "cross": (0, 1, True, False),           # use leader lead-lag features
+    },
+    "ml_boost": {  # walk-forward gradient-boosted stumps
+        "horizon": (2, 48, True, True),
+        "thresh": (0.1, 1.2, False, False),
+        "n_trees": (1, 4, True, False),         # trees = 10 * n_trees
+        "cross": (0, 1, True, False),
+    },
 }
 
 FILTER_SPECS: dict[str, dict[str, tuple]] = {
     "none": {},
     "vol_below": {"pct": (0.3, 0.95, False, False)},
     "vol_above": {"pct": (0.05, 0.7, False, False)},
+    "regime": {"mask": (1, 6, True, False)},   # bitmask over {quiet,normal,turbulent}
 }
 
 GLOBAL_SPECS: dict[str, tuple] = {

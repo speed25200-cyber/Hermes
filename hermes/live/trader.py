@@ -21,6 +21,7 @@ import numpy as np
 
 from ..config import Config
 from ..data.store import BAR_MS, BARS_PER_YEAR, Candles, DataStore
+from ..ml.regime import regime_series
 from ..portfolio.allocator import Allocator
 from ..research.evolve import evolve
 from ..research.validate import ValidatedStrategy, split_is_oos, validate_candidates
@@ -73,10 +74,20 @@ class Registry:
         return f"{s.inst}:{s.genome.gid}"
 
 
+def make_ctx(candles_by_inst: dict[str, Candles], inst: str,
+             leader_inst: str | None) -> dict:
+    """Cross-asset context for signal computation: the universe leader whose
+    lagged returns feed lead-lag ML features (not used for itself)."""
+    if leader_inst and leader_inst != inst and leader_inst in candles_by_inst:
+        return {"leader": candles_by_inst[leader_inst]}
+    return {}
+
+
 def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log) -> list[ValidatedStrategy]:
     """Full autonomous research pass over every instrument."""
     r = cfg["research"]
     c = cfg["costs"]
+    leader_inst = cfg["instruments"][0] if cfg["instruments"] else None
     all_survivors: list[ValidatedStrategy] = []
     for inst, candles in candles_by_inst.items():
         if len(candles) < 2000:
@@ -84,19 +95,26 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log) -> list[
             continue
         log(f"research {inst}: evolving population={r['population']} "
             f"generations={r['generations']} on {len(candles)} bars")
+        ctx = make_ctx(candles_by_inst, inst, leader_inst)
+        if ctx.get("leader") is not None:
+            # evolution only sees the in-sample slice of the leader too
+            cut = int(len(ctx["leader"]) * r["is_fraction"])
+            ctx_is = {"leader": ctx["leader"].slice(0, cut)}
+        else:
+            ctx_is = ctx
         candles_is, _ = split_is_oos(candles, r["is_fraction"], r["embargo_bars"])
         pop, n_trials = evolve(
             candles_is,
             population=r["population"], generations=r["generations"],
             fee_bps=c["taker_fee_bps"], slip_bps=c["slippage_bps"],
-            seed=r.get("seed"), log=log,
+            seed=r.get("seed"), ctx=ctx_is, log=log,
         )
         survivors = validate_candidates(
             pop, candles, n_trials=n_trials,
             is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
             min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
             fee_bps=c["taker_fee_bps"], slip_bps=c["slippage_bps"],
-            max_deployed=r["max_deployed"], log=log,
+            max_deployed=r["max_deployed"], ctx=ctx, log=log,
         )
         log(f"research {inst}: {len(survivors)} strategies passed OOS validation")
         all_survivors.extend(survivors)
@@ -164,12 +182,14 @@ class Trader:
             return {"equity": equity, "halted": True, "targets": {}}
 
         # ---- compute per-strategy target positions --------------------------
+        leader_inst = self.cfg["instruments"][0] if self.cfg["instruments"] else None
         per_strategy: dict[str, dict[str, float]] = {}
         for s in self.registry.strategies:
             c = candles_by_inst.get(s.inst)
             if c is None or len(c) < 600:
                 continue
-            pos_series = compute_position(c, s.genome)
+            ctx = make_ctx(candles_by_inst, s.inst, leader_inst)
+            pos_series = compute_position(c, s.genome, ctx)
             pos_now = float(pos_series[-1])
             sid = self.registry.sid(s)
             per_strategy[sid] = {s.inst: pos_now}
@@ -185,10 +205,17 @@ class Trader:
         orders = self._reconcile(targets, prices, equity)
 
         weights = self.allocator.weights(list(per_strategy))
+        regimes = {}
+        for inst, c in candles_by_inst.items():
+            if len(c) >= 900:
+                try:
+                    regimes[inst] = int(regime_series(c)[-1])
+                except Exception:
+                    pass
         self._journal({
             "ts": now_ts, "equity": equity, "halted": False,
             "prices": prices, "targets": targets, "orders": orders,
-            "weights": weights,
+            "weights": weights, "regimes": regimes,
             "strat_pos": {sid: v for sid, v in
                           ((s, list(p.values())[0]) for s, p in per_strategy.items())},
             "positions": self.broker.positions(),

@@ -94,7 +94,10 @@
 
   /* ---------- chart ---------- */
   #chartbox{display:flex;flex-direction:column;min-height:400px}
-  #chart{width:100%;flex:1;min-height:310px;display:block;cursor:crosshair}
+  /* the svg is absolutely positioned so its viewBox can never feed back
+     into the flex layout and inflate the panel */
+  .chartwrap{flex:1;min-height:320px;position:relative}
+  #chart{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
   .axis{font-family:var(--sans);font-size:10.5px;font-weight:450;fill:var(--faint);
     letter-spacing:0}
   .gridline{stroke:rgba(255,255,255,.05);stroke-width:1}
@@ -256,7 +259,7 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 17l6-6 4 4 8-9" stroke="#e6ac58" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         Equity curve <span class="sub num" id="chartrange"></span>
       </div>
-      <svg id="chart" preserveAspectRatio="none"></svg>
+      <div class="chartwrap"><svg id="chart" preserveAspectRatio="none"></svg></div>
     </div>
 
     <div class="rightcol">
@@ -601,11 +604,19 @@ function renderLog(lines){
   }).join("");
 }
 
+const REGIMES = [["Quiet","#64d2ff"],["Normal","#9ba1af"],["Turbulent","#ff9f0a"]];
+function regimeTag(r){
+  if(r===undefined||r===null) return "";
+  const [name,col] = REGIMES[r]||REGIMES[1];
+  return `<span style="display:inline-block;margin-left:8px;padding:1px 8px;border-radius:6px;
+    font-size:10px;font-weight:560;background:${col}1c;color:${col}">${name}</span>`;
+}
 function renderPositions(last, equity){
   const tbody = $("postable").querySelector("tbody");
   const pos = (last && last.positions) || {};
   const targets = (last && last.targets) || {};
   const prices = (last && last.prices) || {};
+  const regimes = (last && last.regimes) || {};
   const insts = [...new Set([...Object.keys(pos),...Object.keys(targets)])].sort()
     .filter(inst=>{
       const notional = Math.abs((pos[inst]||0)*(prices[inst]||0));
@@ -620,7 +631,7 @@ function renderPositions(last, equity){
     const sideLbl = side==="flat"? "Flat" : side==="long"? "Long":"Short";
     const w = clamp(Math.abs(expo),0,1)*50;
     return `<tr>
-      <td style="color:${colorFor(inst)};font-weight:560">${shortInst(inst)}</td>
+      <td style="color:${colorFor(inst)};font-weight:560">${shortInst(inst)}${regimeTag(regimes[inst])}</td>
       <td><span class="badge ${side}">${sideLbl}</span></td>
       <td>${fmtQty(q)}</td>
       <td>${px?fmtUsd(px):"—"}</td>
