@@ -83,15 +83,17 @@ def make_ctx(candles_by_inst: dict[str, Candles], inst: str,
     return {}
 
 
-def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log) -> list[ValidatedStrategy]:
+def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
+                 min_bars: int = 2000) -> list[ValidatedStrategy]:
     """Full autonomous research pass over every instrument."""
     r = cfg["research"]
     c = cfg["costs"]
     leader_inst = cfg["instruments"][0] if cfg["instruments"] else None
     all_survivors: list[ValidatedStrategy] = []
     for inst, candles in candles_by_inst.items():
-        if len(candles) < 2000:
-            log(f"research {inst}: only {len(candles)} bars, skipping (need 2000+)")
+        if len(candles) < min_bars:
+            log(f"research {inst}: only {len(candles)} bars, skipping "
+                f"(need {min_bars}+)")
             continue
         log(f"research {inst}: evolving population={r['population']} "
             f"generations={r['generations']} on {len(candles)} bars")

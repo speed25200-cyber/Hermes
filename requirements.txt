@@ -1,3 +1,4 @@
 numpy>=1.26
 requests>=2.31
 pytest>=7.4
+backtesting>=0.3   # bundled real market candles for `python -m hermes realtest`

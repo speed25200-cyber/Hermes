@@ -37,16 +37,18 @@ def _ml_position(candles: Candles, g: Genome, ctx: dict | None) -> np.ndarray:
     else:
         cfg["model"] = "boost"
         cfg["n_trees"] = 10 * int(p["n_trees"])
-    pred, conf = predict_series(candles, cfg, leader=leader)
+    pred, conf, width = predict_series(candles, cfg, leader=leader)
 
-    # standardise predictions causally so the threshold is scale-free
-    ps = F.rolling_std(pred, 500)
+    # conformal sizing: trade only when the prediction exceeds a multiple of
+    # its own typical realised error (distribution-free interval width), and
+    # size with the prediction/uncertainty ratio
     with np.errstate(invalid="ignore", divide="ignore"):
-        z = pred / np.where(ps > 1e-6, ps, np.nan)
-    z = np.nan_to_num(z, nan=0.0)
+        ratio = pred / np.where(np.isfinite(width) & (width > 1e-9), width, np.inf)
+    ratio = np.nan_to_num(ratio, nan=0.0, posinf=0.0, neginf=0.0)
 
     thr = p["thresh"]
-    raw = np.where(np.abs(z) > thr, np.clip(z / (2.0 * max(thr, 1e-6)), -1, 1), 0.0)
+    raw = np.where(np.abs(ratio) > thr,
+                   np.clip(ratio / (2.0 * max(thr, 1e-6)), -1, 1), 0.0)
     # confidence tilt: scale toward 0 when recent hit rate is poor
     edge = np.clip((conf - 0.45) / 0.15, 0.0, 1.5)
     return raw * edge

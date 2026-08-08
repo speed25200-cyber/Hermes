@@ -62,8 +62,8 @@ def test_predictor_causality():
     b.h[2400:] *= 2.0
     b.l[2400:] *= 2.0
     cfg = {"model": "ridge", "horizon": 8, "cross": False, "l2": 1.0}
-    pa, _ = predictor.predict_series(a, cfg, min_train=750, refit_every=500)
-    pb, _ = predictor.predict_series(b, cfg, min_train=750, refit_every=500)
+    pa, _, _ = predictor.predict_series(a, cfg, min_train=750, refit_every=500)
+    pb, _, _ = predictor.predict_series(b, cfg, min_train=750, refit_every=500)
     # predictions strictly before the tamper point and before the next refit
     # that could see tampered data must be identical
     np.testing.assert_allclose(pa[:2250], pb[:2250], atol=1e-10)
@@ -73,9 +73,9 @@ def test_predictor_cache_hit():
     predictor.clear_cache()
     candles = generate(n=2000, seed=8)
     cfg = {"model": "ridge", "horizon": 4, "cross": False, "l2": 1.0}
-    p1, c1 = predictor.predict_series(candles, cfg)
+    p1, c1, w1 = predictor.predict_series(candles, cfg)
     assert len(predictor._BATCH_CACHE) == 1
-    p2, _ = predictor.predict_series(candles, cfg)
+    p2, _, _ = predictor.predict_series(candles, cfg)
     assert p1 is p2  # same array object -> served from cache
 
 
@@ -86,12 +86,12 @@ def test_incremental_extension_matches_batch():
     cfg = {"model": "boost", "horizon": 4, "cross": False, "n_trees": 10}
 
     predictor.clear_cache()
-    batch, _ = predictor.predict_series(candles, cfg)
+    batch, _, _ = predictor.predict_series(candles, cfg)
 
     predictor.clear_cache()
     incr = None
     for n in range(2300, 2401):          # replay the last 100 bars one by one
-        incr, _ = predictor.predict_series(candles.slice(0, n), cfg)
+        incr, _, _ = predictor.predict_series(candles.slice(0, n), cfg)
     np.testing.assert_allclose(batch, incr, atol=1e-12)
 
 
@@ -107,6 +107,31 @@ def test_regime_incremental_matches_batch():
     np.testing.assert_array_equal(batch, incr)
 
 
+def test_conformal_width_calibrated_and_causal():
+    """The conformal interval must (a) be causal, (b) achieve empirical
+    coverage close to the nominal quantile on live bars."""
+    predictor.clear_cache()
+    candles = generate(n=4000, seed=31)
+    cfg = {"model": "ridge", "horizon": 4, "cross": False, "l2": 1.0}
+    pred, _, width = predictor.predict_series(candles, cfg)
+
+    # causality: tampering the future does not change past widths
+    predictor.clear_cache()
+    t = generate(n=4000, seed=31)
+    t.c[3600:] *= 2.0; t.h[3600:] *= 2.0; t.l[3600:] *= 2.0
+    _, _, width_t = predictor.predict_series(t, cfg)
+    np.testing.assert_allclose(width[:3450], width_t[:3450], atol=1e-10)
+
+    # empirical coverage on bars with a live model and calibrated width
+    from hermes.ml.feature_matrix import build_target
+    y = build_target(candles, 4)
+    live = (pred != 0) & np.isfinite(width)
+    live[-4:] = False
+    err = np.abs(y - pred)
+    cov = float(np.mean(err[live] <= width[live]))
+    assert 0.65 <= cov <= 0.95  # nominal 0.8, tolerance for drift
+
+
 def test_predictor_finds_lead_lag_edge():
     """With a strong leader->follower relationship, the cross-asset model's
     predictions must correlate positively with realised forward returns."""
@@ -114,7 +139,7 @@ def test_predictor_finds_lead_lag_edge():
     universe = generate_universe(n=6000, seed=9, lead_lag=0.6)
     leader, follower = universe[0], universe[1]
     cfg = {"model": "ridge", "horizon": 2, "cross": True, "l2": 1.0}
-    pred, conf = predictor.predict_series(follower, cfg, leader=leader)
+    pred, conf, width = predictor.predict_series(follower, cfg, leader=leader)
     fwd = np.zeros(len(follower))
     fwd[:-2] = follower.c[2:] / follower.c[:-2] - 1.0
     live = slice(1000, len(follower) - 2)

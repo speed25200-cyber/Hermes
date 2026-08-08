@@ -7,9 +7,17 @@ bars in [r_i, r_{i+1}) the model is trained ONLY on rows [0, r_i - horizon):
 the `horizon`-bar gap is an embargo that prevents target leakage (the last
 training targets need bars up to r_i - 1 and no further).
 
-Predictions come with a confidence proxy: the rolling agreement between past
-predictions and realised moves (hit rate), computed causally; the signal
-layer uses it to size positions.
+Predictions come with two causal uncertainty measures the signal layer uses
+for sizing:
+
+  * confidence — rolling agreement between past predictions and realised
+    moves (hit rate);
+  * conformal width — split-conformal prediction interval: the rolling
+    quantile of realised nonconformity |target - prediction|, using only
+    residuals whose outcome was already observable (horizon-lagged). A
+    position is only taken when the prediction exceeds a multiple of its own
+    typical error, and its size scales with that ratio —
+    distribution-free uncertainty quantification, not a Gaussian assumption.
 
 Caching
 -------
@@ -77,6 +85,42 @@ def _cfg_key(cfg: dict, leader_inst: str | None, min_train: int,
             leader_inst, min_train, refit_every)
 
 
+CONFORMAL_WINDOW = 300
+CONFORMAL_Q = 0.8
+
+
+def _conformal_width(pred: np.ndarray, y: np.ndarray, horizon: int,
+                     n_valid_targets: int, t0: int = 0,
+                     prev: np.ndarray | None = None) -> np.ndarray:
+    """Causal conformal interval width per bar.
+
+    Nonconformity e[s] = |y[s] - pred[s]| becomes observable at bar s+horizon.
+    width[t] = trailing-window quantile of the nonconformities observable at
+    or before t. Rows before enough residuals exist fall back to the running
+    expanding quantile; rows with no residuals get +inf (no trade).
+    `t0`/`prev` support incremental extension (fill only [t0, n))."""
+    n = len(pred)
+    out = np.full(n, np.inf) if prev is None else prev.copy()
+    if prev is not None and len(prev) < n:
+        out = np.concatenate([prev, np.full(n - len(prev), np.inf)])
+    # f[t] = nonconformity that became observable at t
+    f = np.full(n, np.nan)
+    valid_end = min(n_valid_targets, n - horizon)
+    if valid_end > 0:
+        e = np.abs(y[:valid_end] - pred[:valid_end])
+        active = pred[:valid_end] != 0.0     # only score bars with a live model
+        idx = np.arange(valid_end) + horizon
+        f[idx[active]] = e[active]
+    w, q = CONFORMAL_WINDOW, CONFORMAL_Q
+    for t in range(max(t0, horizon), n):
+        lo = max(0, t - w + 1)
+        window = f[lo:t + 1]
+        vals = window[~np.isnan(window)]
+        if len(vals) >= 30:
+            out[t] = float(np.quantile(vals, q))
+    return out
+
+
 def _confidence(pred: np.ndarray, close: np.ndarray, horizon: int) -> np.ndarray:
     """Causal rolling hit-rate of sign(pred[t-h]) vs the realised move."""
     n = len(pred)
@@ -127,11 +171,12 @@ def predict_series(
     leader: Candles | None = None,
     min_train: int = 750,
     refit_every: int = 500,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Returns (pred, conf), arrays of length n. pred[t] is the vol-scaled
-    expected forward return decided at the close of bar t; conf[t] the causal
-    rolling hit rate. cfg keys: model ("ridge"|"boost"), horizon, cross,
-    l2 / n_trees."""
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Returns (pred, conf, width), arrays of length n. pred[t] is the
+    vol-scaled expected forward return decided at the close of bar t; conf[t]
+    the causal rolling hit rate; width[t] the causal conformal interval width
+    (+inf where uncalibrated). cfg keys: model ("ridge"|"boost"), horizon,
+    cross, l2 / n_trees."""
     n = len(candles)
     horizon = int(cfg["horizon"])
     use_leader = leader if cfg.get("cross") else None
@@ -146,8 +191,7 @@ def predict_series(
         return hit
 
     if n < min_train + horizon + 50:
-        out = (np.zeros(n), np.full(n, 0.5))
-        return out
+        return (np.zeros(n), np.full(n, 0.5), np.full(n, np.inf))
 
     incr_key = (candles.inst, candles.bar, ts0, ck)
     st = _INCR_CACHE.get(incr_key)
@@ -161,13 +205,16 @@ def predict_series(
         pred[: st["n"]] = st["pred"]
         _walk_forward_range(pred, X, y, cfg, st["wf"], st["n"], n,
                             min_train, refit_every)
+        width = _conformal_width(pred, y, horizon, n - horizon,
+                                 t0=st["n"], prev=st.get("width"))
     else:
         pred = np.zeros(n)
         st = {"wf": {}}
         _walk_forward_range(pred, X, y, cfg, st["wf"], min_train, n,
                             min_train, refit_every)
+        width = _conformal_width(pred, y, horizon, n - horizon)
 
-    st.update({"n": n, "last_ts": last_ts, "pred": pred})
+    st.update({"n": n, "last_ts": last_ts, "pred": pred, "width": width})
     if len(_INCR_CACHE) >= _INCR_MAX:
         _INCR_CACHE.pop(next(iter(_INCR_CACHE)))
     _INCR_CACHE[incr_key] = st
@@ -175,6 +222,6 @@ def predict_series(
     conf = _confidence(pred, candles.c, horizon)
     if len(_BATCH_CACHE) >= _BATCH_MAX:
         _BATCH_CACHE.pop(next(iter(_BATCH_CACHE)))
-    result = (pred, conf)
+    result = (pred, conf, width)
     _BATCH_CACHE[batch_key] = result
     return result

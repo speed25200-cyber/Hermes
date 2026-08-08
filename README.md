@@ -27,8 +27,13 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
      the past, horizon-length embargo before every refit, periodic
      re-training): closed-form **ridge regression** and **gradient-boosted
      stumps** whose split search is vectorised into BLAS matrix products;
-   - predictions carry a causal **confidence score** (rolling hit rate) that
-     scales position size — conviction sizing, not binary bets;
+   - predictions carry a causal **confidence score** (rolling hit rate) and a
+     **conformal prediction interval** — the rolling quantile of realised
+     |target − prediction| nonconformity, using only outcomes already
+     observable. A position opens only when the prediction exceeds a multiple
+     of its own typical error and its size scales with that ratio:
+     distribution-free uncertainty quantification (empirical coverage is
+     tested), not a Gaussian assumption;
    - an incremental cache extends the walk-forward state bar by bar in live
      trading with bit-identical results to the batch computation (tested).
 
@@ -82,6 +87,11 @@ pip install -r requirements.txt
 # 1. Offline proof (no network, no keys): synthetic market -> research ->
 #    out-of-sample paper replay through the full trading stack
 python -m hermes demo --fast
+
+# 1b. Research + OOS replay on REAL bundled candles (EURUSD 1H, GOOG 1D),
+#     including the naive-optimiser comparison the validation gate protects
+#     against. Deploying nothing is the correct outcome when no edge holds.
+python -m hermes realtest
 
 # 2. Real data: backfill OKX candles + funding history (public API, no keys)
 python -m hermes fetch

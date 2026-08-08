@@ -124,6 +124,136 @@ def cmd_demo(args) -> None:
               f"(OOS sharpe {s.oos_stats['sharpe']:.2f}, dsr {s.oos_stats['dsr']:.2f})")
 
 
+def cmd_realtest(args) -> None:
+    """Research + OOS paper replay on bundled REAL market candles."""
+    from .backtest import metrics
+    from .data.real import load_bundled
+    from .exchange.broker import PaperBroker
+    from .live.trader import Registry, Trader, run_research
+    from .portfolio.allocator import Allocator
+    from .risk import RiskEngine
+
+    cfg = Config.load(args.config)
+    r = cfg.raw["research"]
+    if args.fast:
+        r["population"] = 48
+        r["generations"] = 10
+    r["seed"] = args.seed
+    datasets = load_bundled()
+    print("[realtest] real candles loaded:")
+    for c in datasets:
+        t0 = time.strftime("%Y-%m-%d", time.gmtime(c.ts[0] / 1000))
+        t1 = time.strftime("%Y-%m-%d", time.gmtime(c.ts[-1] / 1000))
+        print(f"  {c.inst} ({c.bar}): {len(c)} bars, {t0} -> {t1}")
+    print("[realtest] note: annualised figures overstate FX/equity Sharpe by "
+          "~15-20% (24/7 bar count); relative comparisons are unaffected\n")
+
+    from .backtest import engine as bt_engine
+    from .research.evolve import evolve
+    from .research.validate import split_is_oos, validate_candidates
+    from .strategy.signals import compute_position
+
+    for candles in datasets:
+        inst, bar = candles.inst, candles.bar
+        n = len(candles)
+        replay_bars = max(200, int(n * 0.15))
+        research_data = candles.slice(0, n - replay_bars)
+        cfg.raw["instruments"] = [inst]
+        cfg.raw["bar"] = bar
+        print(f"===== {inst} ({bar}) — research on {len(research_data)} bars, "
+              f"replay on final {replay_bars} =====")
+        candles_is, _ = split_is_oos(research_data, r["is_fraction"],
+                                     r["embargo_bars"])
+        pop, n_trials = evolve(
+            candles_is, population=r["population"],
+            generations=r["generations"],
+            fee_bps=cfg["costs"]["taker_fee_bps"],
+            slip_bps=cfg["costs"]["slippage_bps"], seed=r.get("seed"),
+            log=lambda m: print(f"[research] {m}"))
+        survivors = validate_candidates(
+            pop, research_data, n_trials=n_trials,
+            is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
+            min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
+            fee_bps=cfg["costs"]["taker_fee_bps"],
+            slip_bps=cfg["costs"]["slippage_bps"],
+            max_deployed=r["max_deployed"],
+            log=lambda m: print(f"[research] {m}"))
+
+        # what a NAIVE optimiser (no validation gate) would have deployed:
+        # the best in-sample genome, run on the untouched replay segment
+        naive = pop[0].genome
+        naive_pos = compute_position(candles, naive)
+        replay_slice = candles.slice(n - replay_bars, n)
+        naive_res = bt_engine.run(replay_slice, naive_pos[n - replay_bars:],
+                                  cfg["costs"]["taker_fee_bps"],
+                                  cfg["costs"]["slippage_bps"])
+        print(f"[naive] best in-sample genome ({naive.describe()}) on the "
+              f"untouched replay segment: {naive_res.stats['total_return'] * 100:+.2f}%, "
+              f"sharpe {naive_res.stats['sharpe']:.2f}, "
+              f"mdd {naive_res.stats['max_drawdown']:.1%}")
+
+        if not survivors:
+            print(f"[realtest] {inst}: NOTHING passed the validation gate — "
+                  "the honest outcome when no robust edge exists in this "
+                  "sample. Hermes deploys no capital here, while a naive "
+                  "optimiser would have traded the genome above.\n")
+            continue
+
+        state_dir = os.path.join(cfg["state_dir"], "realtest", inst)
+        os.makedirs(state_dir, exist_ok=True)
+        registry = Registry(state_dir)
+        registry.strategies = survivors
+        registry.researched_at = time.time()
+        registry.save()
+        broker = PaperBroker(cash=cfg["live"]["paper_equity"],
+                             fee_bps=cfg["costs"]["taker_fee_bps"],
+                             slippage_bps=cfg["costs"]["slippage_bps"])
+        bpy = BARS_PER_YEAR[bar]
+        allocator = Allocator(
+            ewma_halflife_bars=cfg["allocator"]["ewma_halflife_bars"],
+            eta=cfg["allocator"]["eta"], max_weight=cfg["allocator"]["max_weight"],
+            portfolio_vol_target=cfg["risk"]["portfolio_vol_target"],
+            bars_per_year=bpy)
+        rk = cfg["risk"]
+        risk = RiskEngine(
+            max_gross_leverage=rk["max_gross_leverage"],
+            max_instrument_leverage=rk["max_instrument_leverage"],
+            daily_loss_limit_pct=rk["daily_loss_limit_pct"],
+            max_drawdown_pct=rk["max_drawdown_pct"],
+            min_trade_notional=rk["min_trade_notional"],
+            max_order_notional=rk["max_order_notional"])
+        journal = os.path.join(state_dir, "journal.jsonl")
+        if os.path.exists(journal):
+            os.remove(journal)
+        trader = Trader(cfg, broker, registry, allocator, risk,
+                        log=lambda m: None, journal_path=journal)
+
+        eq_curve = []
+        for i in range(n - replay_bars, n):
+            window = {inst: candles.slice(0, i + 1)}
+            report = trader.run_cycle(window, candles.ts[i] / 1000.0)
+            eq_curve.append(report["equity"])
+            if risk.state.killed:
+                print(f"[realtest] kill switch at bar {i}: {risk.state.kill_reason}")
+                break
+        eq = np.array(eq_curve)
+        rets = np.diff(eq) / eq[:-1]
+        bh = candles.c[-1] / candles.c[n - replay_bars] - 1.0
+        print(f"\n----- {inst} OOS replay ({len(eq)} bars, never seen by research) -----")
+        print(f"strategy return    : {(eq[-1] / eq[0] - 1) * 100:+.2f}%")
+        print(f"buy & hold return  : {bh * 100:+.2f}%")
+        print(f"annualised sharpe  : {metrics.sharpe(rets, bpy):.2f}")
+        print(f"max drawdown       : {metrics.max_drawdown(eq):.2%}")
+        print(f"time in market     : {np.mean(np.abs(np.diff(eq)) > 1e-9) * 100:.0f}% of bars")
+        print("deployed:")
+        for s in survivors:
+            print(f"  {s.genome.gid} {s.genome.describe()} "
+                  f"(OOS sharpe {s.oos_stats['sharpe']:.2f}, "
+                  f"dsr {s.oos_stats['dsr']:.2f}, "
+                  f"folds+ {s.oos_stats.get('oos_folds_positive', '?')})")
+        print()
+
+
 def cmd_fetch(args) -> None:
     from .data.fetcher import fetch_candles, fetch_funding
     from .exchange.okx_client import OKXClient
@@ -201,6 +331,12 @@ def main(argv: list[str] | None = None) -> None:
 
     f = sub.add_parser("fetch", help="backfill market data from OKX")
     f.set_defaults(fn=cmd_fetch)
+
+    rt = sub.add_parser("realtest",
+                        help="research + OOS replay on bundled REAL candles")
+    rt.add_argument("--fast", action="store_true")
+    rt.add_argument("--seed", type=int, default=7)
+    rt.set_defaults(fn=cmd_realtest)
 
     r = sub.add_parser("research", help="run alpha search on stored data")
     r.set_defaults(fn=cmd_research)
