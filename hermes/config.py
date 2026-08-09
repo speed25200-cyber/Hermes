@@ -18,7 +18,12 @@ from dataclasses import dataclass, field
 from typing import Any
 
 DEFAULTS: dict[str, Any] = {
-    "instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"],
+    # a wider liquid universe gives the research more independent chances to
+    # find a real edge (funding carry and BTC lead-lag are alt-heavy);
+    # instruments[0] is the cross-asset leader
+    "instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP",
+                    "XRP-USDT-SWAP", "DOGE-USDT-SWAP", "BNB-USDT-SWAP",
+                    "AVAX-USDT-SWAP", "LINK-USDT-SWAP"],
     "bar": "1H",
     "data_dir": "data",
     "state_dir": "state",
