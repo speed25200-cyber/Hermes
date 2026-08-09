@@ -46,7 +46,7 @@ def cmd_demo(args) -> None:
     # research only sees data up to the replay start — replay is true OOS
     research_data = {c.inst: c.slice(0, n_bars - replay_bars) for c in universe}
     t0 = time.time()
-    survivors = run_research(research_data, cfg, log=lambda m: print(f"[research] {m}"))
+    survivors, _n_trials = run_research(research_data, cfg, log=lambda m: print(f"[research] {m}"))
     print(f"[demo] research took {time.time() - t0:.1f}s, "
           f"{len(survivors)} strategies deployed")
     if not survivors:
@@ -272,7 +272,7 @@ def cmd_research(args) -> None:
     cfg = Config.load(args.config)
     store = DataStore(cfg["data_dir"])
     candles = {inst: store.load(inst, cfg["bar"]) for inst in cfg["instruments"]}
-    survivors = run_research(candles, cfg, log=print)
+    survivors, n_trials = run_research(candles, cfg, log=print)
     registry = Registry(cfg["state_dir"])
     registry.strategies = survivors
     registry.researched_at = time.time()
@@ -306,11 +306,12 @@ def cmd_dashboard(args) -> None:
     if not args.demo:
         from .exchange.okx_client import OKXClient
         instruments = cfg["instruments"]
-        ticker_fn = OKXClient(cfg.credentials).tickers  # public endpoint
+        ticker_fn = OKXClient(cfg.credentials).tickers_full  # public endpoint
     serve(state_dir, host=args.host, port=args.port,
           mode_hint="demo" if args.demo else cfg["live"]["mode"],
           open_browser=not args.no_browser, token=args.token or "",
-          instruments=instruments, ticker_fn=ticker_fn)
+          instruments=instruments, ticker_fn=ticker_fn,
+          meta={"refresh_hours": cfg["research"]["refresh_hours"]})
 
 
 def cmd_cycle(args) -> None:

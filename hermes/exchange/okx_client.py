@@ -123,12 +123,21 @@ class OKXClient:
 
     def tickers(self, inst_ids: list[str]) -> dict[str, float]:
         """Live last prices for the given SWAP instruments (public)."""
+        return {inst: t["last"] for inst, t in self.tickers_full(inst_ids).items()}
+
+    def tickers_full(self, inst_ids: list[str]) -> dict[str, dict]:
+        """Live last price + 24h change for the given SWAP instruments."""
         data = self._request("GET", "/api/v5/market/tickers", {"instType": "SWAP"})
         want = set(inst_ids)
-        out: dict[str, float] = {}
+        out: dict[str, dict] = {}
         for row in data:
             if row.get("instId") in want and row.get("last"):
-                out[row["instId"]] = float(row["last"])
+                last = float(row["last"])
+                open24 = float(row.get("open24h") or 0.0)
+                out[row["instId"]] = {
+                    "last": last,
+                    "chg24h": (last / open24 - 1.0) if open24 > 0 else 0.0,
+                }
         return out
 
     def funding_rate(self, inst_id: str) -> dict:
