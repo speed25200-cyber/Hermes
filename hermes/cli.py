@@ -303,7 +303,7 @@ def cmd_dashboard(args) -> None:
     state_dir = os.path.join(cfg["state_dir"], "demo") if args.demo else cfg["state_dir"]
     serve(state_dir, host=args.host, port=args.port,
           mode_hint="demo" if args.demo else cfg["live"]["mode"],
-          open_browser=not args.no_browser)
+          open_browser=not args.no_browser, token=args.token or "")
 
 
 def cmd_cycle(args) -> None:
@@ -378,6 +378,9 @@ def main(argv: list[str] | None = None) -> None:
     b.add_argument("--demo", action="store_true",
                    help="point at the demo state dir (state/demo)")
     b.add_argument("--no-browser", action="store_true")
+    b.add_argument("--token", default=None,
+                   help="access key required from clients (or env "
+                        "HERMES_DASH_TOKEN); use when exposing beyond localhost")
     b.set_defaults(fn=cmd_dashboard)
 
     args = p.parse_args(argv)
