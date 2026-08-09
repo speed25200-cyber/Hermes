@@ -104,7 +104,7 @@ jobs:
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
             "command -v rsync >/dev/null || (apt-get update -qq && apt-get -y -qq install rsync); mkdir -p /root/hermes"
           sshpass -e rsync -az --delete \
-            --exclude '.git' --exclude 'state' --exclude 'data' \
+            --exclude '/.git' --exclude '/state' --exclude '/data' \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             ./ "root@$VPS:/root/hermes/"
 
