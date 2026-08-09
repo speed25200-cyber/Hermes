@@ -117,6 +117,31 @@ Configuration lives in `config.json` (see `config.example.json`; defaults in
 `hermes/config.py`). API keys are **environment variables only** — never
 stored on disk.
 
+## Running on GitHub Actions (no server needed)
+
+Hermes trades 1H bars, so one decision per hour matches the Actions
+execution model: wake, decide, persist, exit. Two workflows are included:
+
+- `.github/workflows/trade.yml` — hourly trading cycle (`hermes cycle`).
+  Market data lives in the Actions cache; registry/risk/journal state is
+  committed back to the repo so each run resumes exactly where the last
+  ended.
+- `.github/workflows/research.yml` — weekly alpha research; commits the
+  deployed-strategy registry the hourly cycle trades.
+
+Setup: use a **private repo**, add `OKX_API_KEY` / `OKX_API_SECRET` /
+`OKX_API_PASSPHRASE` as Actions secrets (trade-only permission, never
+withdrawal), then run the research workflow once. Defaults are safe: paper
+mode and OKX demo-trading until you set the `HERMES_MODE=live` and
+`OKX_SIMULATED=0` repository variables. Scheduled workflows run from the
+default branch.
+
+Honest limits vs an always-on VPS: cron fires with minutes of jitter and
+occasionally skips; nobody watches positions *between* hourly runs (the
+kill switch evaluates only when a cycle runs, vs every 20 s on a VPS); and
+runner IPs rotate, so the OKX key cannot be IP-allowlisted. Fine for paper
+and cautious small live sizes — prefer a VPS beyond that.
+
 ## Recommended path to live capital
 
 1. `demo` — verify the pipeline end to end.

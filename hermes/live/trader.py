@@ -375,6 +375,42 @@ class LiveRunner:
             self.registry.save()
             self.log(f"research done: {len(self.registry.strategies)} deployed")
 
+    def run_once(self, allow_research: bool = False) -> dict | None:
+        """One decision cycle then return — the execution model for scheduled
+        runners (GitHub Actions cron): wake, decide, persist, exit.
+        Research is opt-in so an hourly cycle never blocks on a long search."""
+        try:
+            self.ensure_data()
+        except Exception as exc:
+            self.log(f"cycle: backfill failed ({type(exc).__name__}: {exc}); "
+                     "continuing with cached data")
+        if allow_research:
+            self.ensure_research()
+        if not self.registry.strategies:
+            self.log("cycle: no deployed strategies — run `hermes research` "
+                     "(or the research workflow) first; nothing to trade")
+            return None
+        from ..data.fetcher import update_latest
+        for inst in self.cfg["instruments"]:
+            try:
+                update_latest(self.client, self.store, inst, self.cfg["bar"])
+            except Exception as exc:
+                self.log(f"cycle: data refresh {inst} failed: "
+                         f"{type(exc).__name__}: {exc}")
+        candles = self._load_candles()
+        newest = max((int(c.ts[-1]) for c in candles.values() if len(c)), default=0)
+        if not newest:
+            self.log("cycle: no candle data available, aborting")
+            return None
+        report = self.trader.run_cycle(candles, time.time())
+        self.trader.save_state(self.cfg["state_dir"])
+        self.log(f"cycle @ {newest}: equity={report['equity']:.2f} "
+                 f"targets={ {k: round(v, 3) for k, v in report['targets'].items()} }")
+        if self.risk.state.killed:
+            self.log("KILL SWITCH TRIPPED - positions flattened. Review, then "
+                     "delete state/risk.json (or reset_kill) to resume.")
+        return report
+
     def run_forever(self) -> None:
         self.log(f"Hermes starting: mode={self.cfg['live']['mode']} "
                  f"bar={self.cfg['bar']} instruments={self.cfg['instruments']}")

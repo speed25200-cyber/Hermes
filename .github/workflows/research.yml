@@ -1,0 +1,66 @@
+# Hermes — weekly autonomous research pass on GitHub Actions.
+#
+# Backfills OKX history (public endpoints, no keys needed), runs the full
+# evolutionary + ML alpha search with out-of-sample validation, and commits
+# the deployed-strategy registry. The hourly trade workflow then trades
+# whatever survived the gate. Deploying NOTHING is a legitimate outcome —
+# the trade cycle simply stays flat until an edge passes validation.
+#
+# Run it manually (workflow_dispatch) once after setup, then weekly cron
+# keeps the edge fresh.
+
+name: Hermes research
+
+on:
+  schedule:
+    - cron: "23 2 * * 1"    # Mondays 02:23 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: hermes-trading      # research and trading never overlap
+  cancel-in-progress: false
+
+jobs:
+  research:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Restore market data cache
+        uses: actions/cache@v4
+        with:
+          path: data
+          key: hermes-market-${{ github.run_id }}
+          restore-keys: |
+            hermes-market-
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Backfill market data (public API)
+        run: python -m hermes fetch
+
+      - name: Run alpha research + OOS validation
+        run: python -m hermes research
+
+      - name: Persist registry
+        run: |
+          git config user.name "hermes-bot"
+          git config user.email "hermes-bot@users.noreply.github.com"
+          git add -f state/registry.json 2>/dev/null || true
+          if ! git diff --cached --quiet; then
+            git commit -m "state: research refresh $(date -u +%FT%TZ) [skip ci]"
+            for i in 1 2 3 4; do
+              git push && break
+              git pull --rebase --autostash && sleep $((2 ** i))
+            done
+          fi

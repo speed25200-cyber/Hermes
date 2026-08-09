@@ -306,6 +306,20 @@ def cmd_dashboard(args) -> None:
           open_browser=not args.no_browser)
 
 
+def cmd_cycle(args) -> None:
+    """Single trading cycle, then exit (for cron / GitHub Actions)."""
+    from .live.trader import LiveRunner
+
+    cfg = Config.load(args.config)
+    if args.mode:
+        cfg.raw["live"]["mode"] = args.mode
+    if cfg["live"]["mode"] == "live" and not cfg.credentials.present:
+        raise SystemExit("live mode requires OKX_API_KEY, OKX_API_SECRET, "
+                         "OKX_API_PASSPHRASE environment variables")
+    runner = LiveRunner(cfg)
+    runner.run_once(allow_research=args.research)
+
+
 def cmd_status(args) -> None:
     cfg = Config.load(args.config)
     state_dir = cfg["state_dir"]
@@ -345,6 +359,13 @@ def main(argv: list[str] | None = None) -> None:
     u = sub.add_parser("run", help="autonomous trading loop")
     u.add_argument("--mode", choices=["paper", "live"], default=None)
     u.set_defaults(fn=cmd_run)
+
+    cy = sub.add_parser("cycle",
+                        help="one trading cycle then exit (cron/CI runners)")
+    cy.add_argument("--mode", choices=["paper", "live"], default=None)
+    cy.add_argument("--research", action="store_true",
+                    help="also refresh research if stale (long)")
+    cy.set_defaults(fn=cmd_cycle)
 
     s = sub.add_parser("status", help="show state")
     s.set_defaults(fn=cmd_status)
