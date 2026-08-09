@@ -51,18 +51,47 @@ jobs:
           echo "::add-mask::$PW"
           echo "::add-mask::$ALT"
           SSHOPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
-          try() { sshpass -p "$1" ssh $SSHOPTS "root@$VPS" "echo __ok__" 2>/dev/null | grep -q __ok__; }
+          try() { timeout 25 sshpass -p "$1" ssh $SSHOPTS "root@$VPS" "echo __ok__" 2>/dev/null | grep -q __ok__; }
           if try "$PW"; then
             CUR="$PW"; echo "auth: original password works"
           elif try "$ALT"; then
             CUR="$ALT"; echo "auth: rotated password works"
           else
-            echo "auth: attempting forced expired-password change..."
-            printf '%s\n%s\n%s\n' "$PW" "$ALT" "$ALT" | \
-              sshpass -p "$PW" ssh -tt $SSHOPTS "root@$VPS" || true
+            echo "auth: attempting forced expired-password change (pexpect)..."
+            pip install -q pexpect
+            python3 - "$VPS" "$PW" "$ALT" <<'PYEOF'
+          import sys, pexpect
+          host, pw, alt = sys.argv[1], sys.argv[2], sys.argv[3]
+          c = pexpect.spawn(
+              f"ssh -tt -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 root@{host}",
+              encoding="utf-8", timeout=40)
+          c.logfile_read = None  # never echo remote output (may contain prompts)
+          sent_new = 0
+          while True:
+              i = c.expect([
+                  r"[Pp]assword:",                  # 0 login or current password
+                  r"[Cc]urrent.*password.*?:",      # 1 current password (chauthtok)
+                  r"[Nn]ew.*password.*?:",          # 2 new password (and retype)
+                  r"[#$]\s*$",                      # 3 shell prompt -> done
+                  pexpect.EOF,                      # 4
+              ])
+              if i in (0, 1):
+                  c.sendline(pw)
+              elif i == 2:
+                  c.sendline(alt); sent_new += 1
+              elif i == 3:
+                  c.sendline("exit")
+                  c.expect(pexpect.EOF)
+                  break
+              else:
+                  break
+          print(f"dialogue done (new password sent {sent_new}x)")
+          PYEOF
             sleep 3
             if try "$ALT"; then
               CUR="$ALT"; echo "auth: password rotated successfully"
+            elif try "$PW"; then
+              CUR="$PW"; echo "auth: original password still valid"
             else
               echo "::error::cannot authenticate to $VPS with any known form"
               exit 1
