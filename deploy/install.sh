@@ -47,12 +47,14 @@ RestartSec=30
 WantedBy=multi-user.target
 EOF
 
-# one-shot: backfill data + run research, then (re)start the engine
+# one-shot: backfill data + run research, then (re)start the engine.
+# OnFailure guarantees the engine comes back even when research crashes.
 cat > /etc/systemd/system/hermes-research.service <<EOF
 [Unit]
 Description=Hermes data backfill + alpha research (one-shot)
 After=network-online.target
 Wants=network-online.target
+OnFailure=hermes.service
 
 [Service]
 Type=oneshot
