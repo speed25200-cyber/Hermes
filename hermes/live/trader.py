@@ -214,6 +214,10 @@ class Trader:
                     regimes[inst] = int(regime_series(c)[-1])
                 except Exception:
                     pass
+        # remembered for heartbeat journal entries between bars
+        self._last_targets = targets
+        self._last_weights = weights
+        self._last_regimes = regimes
         self._journal({
             "ts": now_ts, "equity": equity, "halted": False,
             "prices": prices, "targets": targets, "orders": orders,
@@ -224,6 +228,28 @@ class Trader:
         })
         return {"equity": equity, "halted": False, "targets": targets,
                 "orders": orders, "weights": weights}
+
+    def heartbeat(self, prices: dict[str, float], now_ts: float) -> float:
+        """Light between-bars update: mark positions to live ticker prices,
+        refresh the risk state, journal a point for the dashboard. Returns
+        current equity. No trading decisions are made here."""
+        self.broker.mark_prices(prices)
+        equity = self.broker.equity()
+        self.risk.update_equity(equity, now_ts)
+        if self.risk.must_flatten and self.broker.positions():
+            self.log("risk tripped between bars -> flattening")
+            self._flatten(prices)
+        self._journal({
+            "ts": now_ts, "equity": equity, "halted": self.risk.must_flatten,
+            "prices": prices,
+            "targets": getattr(self, "_last_targets", {}),
+            "orders": [],
+            "weights": getattr(self, "_last_weights", {}),
+            "regimes": getattr(self, "_last_regimes", {}),
+            "positions": self.broker.positions(),
+            "hb": True,
+        })
+        return equity
 
     # ------------------------------------------------------------------ #
 
@@ -365,7 +391,10 @@ class LiveRunner:
     def ensure_research(self, force: bool = False) -> None:
         age_h = (time.time() - self.registry.researched_at) / 3600.0
         stale = age_h > self.cfg["research"]["refresh_hours"]
-        if force or stale or not self.registry.strategies:
+        never_ran = self.registry.researched_at == 0
+        # NB: an empty deployed set after a completed research is a legitimate
+        # outcome (no robust edge) — it must NOT trigger an immediate re-run
+        if force or stale or never_ran:
             self.log(f"research pass starting (stale={stale}, "
                      f"deployed={len(self.registry.strategies)})")
             survivors = run_research(self._load_candles(), self.cfg, self.log)
@@ -437,6 +466,16 @@ class LiveRunner:
                                  "delete state/risk.json (or reset_kill) to resume.")
                         return
                     self.ensure_research()  # refresh when stale
+                else:
+                    # between bars: live mark-to-market heartbeat for the
+                    # dashboard and the risk engine (no trading decisions)
+                    try:
+                        ticks = self.client.tickers(self.cfg["instruments"])
+                        if ticks:
+                            self.trader.heartbeat(ticks, time.time())
+                    except Exception as exc:
+                        self.log(f"heartbeat: ticker refresh failed: "
+                                 f"{type(exc).__name__}: {exc}")
             except KeyboardInterrupt:
                 self.log("interrupted, exiting cleanly")
                 return

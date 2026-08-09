@@ -301,9 +301,16 @@ def cmd_dashboard(args) -> None:
 
     cfg = Config.load(args.config)
     state_dir = os.path.join(cfg["state_dir"], "demo") if args.demo else cfg["state_dir"]
+    ticker_fn = None
+    instruments = None
+    if not args.demo:
+        from .exchange.okx_client import OKXClient
+        instruments = cfg["instruments"]
+        ticker_fn = OKXClient(cfg.credentials).tickers  # public endpoint
     serve(state_dir, host=args.host, port=args.port,
           mode_hint="demo" if args.demo else cfg["live"]["mode"],
-          open_browser=not args.no_browser, token=args.token or "")
+          open_browser=not args.no_browser, token=args.token or "",
+          instruments=instruments, ticker_fn=ticker_fn)
 
 
 def cmd_cycle(args) -> None:
