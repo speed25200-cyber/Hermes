@@ -36,7 +36,9 @@ DEFAULTS: dict[str, Any] = {
     "bar": "15m",
     "data_dir": "data",
     "state_dir": "state",
-    "history_days": 365,
+    # two years of 15m bars (~70k/instrument) doubles the statistical power
+    # of every validation gate; newer listings contribute what they have
+    "history_days": 730,
     "research": {
         "population": 96,
         "generations": 25,
