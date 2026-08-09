@@ -68,6 +68,22 @@ def test_carry_edge_is_found_and_validated():
     assert s.oos_stats["sharpe"] >= 0.5
 
 
+def test_zero_funding_prefix_is_trimmed():
+    """Exchanges expose only a few months of funding history: earlier bars
+    carry funding=0. The gate must research the covered window instead of
+    letting the dead prefix zero-out the whole in-sample period (the bug
+    that silently rejected every carry config on real OKX data)."""
+    uni = make_universe(seed=1, funding_spread=True)
+    for c in uni.values():
+        c.funding[:2500] = 0.0          # first ~40% of history uncovered
+    fee, slip = effective_costs({"taker_fee_bps": 5, "maker_fee_bps": 2,
+                                 "slippage_bps": 2, "prefer_maker": True,
+                                 "maker_miss_rate": 0.3})
+    out = research_xs(uni, fee_bps=fee, slip_bps=slip, log=None)
+    assert len(out) == 1
+    assert out[0].oos_stats["sharpe"] >= 0.5
+
+
 def test_no_spread_means_no_deploy():
     """Without a structural funding spread the gate should almost always
     reject (we tolerate nothing less: reject expected)."""

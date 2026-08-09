@@ -38,6 +38,43 @@ def research_xs(
         if log:
             log("xs research: needs >= 4 instruments, skipping")
         return []
+
+    # ---- trim to the funding-covered window ---------------------------
+    # Exchanges expose only a few months of funding history; earlier bars
+    # carry funding=0, which would silently kill the carry signal across
+    # most of the sample. Research only where the data actually exists.
+    starts = []
+    covered = {}
+    for inst in insts:
+        c = candles_map[inst]
+        nz = np.nonzero(c.funding)[0]
+        if not len(nz):
+            if log:
+                log(f"xs research: {inst} has no funding history, dropping")
+            continue
+        covered[inst] = c
+        starts.append(c.ts[nz[0]])
+    if len(covered) < 4:
+        if log:
+            log("xs research: <4 instruments with funding history, skipping")
+        return []
+    start_ts = max(starts)
+    trimmed = {}
+    for inst, c in covered.items():
+        i0 = int(np.searchsorted(c.ts, start_ts))
+        trimmed[inst] = c.slice(i0, len(c))
+    candles_map = trimmed
+    insts = sorted(candles_map)
+    min_len = min(len(c) for c in candles_map.values())
+    if min_len < 3000:
+        if log:
+            log(f"xs research: only {min_len} funding-covered bars "
+                f"(need 3000+), rejecting")
+        return []
+    if log:
+        log(f"xs research: funding coverage window = {min_len} bars "
+            f"x {len(insts)} instruments")
+
     bar = candles_map[insts[0]].bar
     bpy = BARS_PER_YEAR[bar]
 

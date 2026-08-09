@@ -283,6 +283,7 @@ def cmd_research(args) -> None:
     registry = Registry(cfg["state_dir"])
     registry.strategies = survivors
     registry.researched_at = time.time()
+    registry.n_trials = n_trials
     registry.save()
     print(f"deployed {len(survivors)} strategies -> {registry.path}")
 
