@@ -47,6 +47,8 @@ DEFAULTS: dict[str, Any] = {
         "min_dsr": 0.05,             # deflated Sharpe probability threshold
         "max_deployed": 6,           # max strategies live at once
         "refresh_hours": 168,        # re-run research weekly
+        "refresh_hours_empty": 24,   # ...but daily while nothing is deployed:
+                                     # the hunt escalates instead of sleeping
     },
     "costs": {
         "taker_fee_bps": 5.0,        # OKX swap taker ~0.05%

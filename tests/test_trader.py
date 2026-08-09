@@ -81,3 +81,47 @@ def test_state_persistence_roundtrip(tmp_path):
     assert broker2.cash == broker.cash
     assert broker2.pos == broker.pos
     assert trader2.last_close == trader.last_close
+
+
+def test_registry_tracks_empty_streak(tmp_path):
+    """The hunt escalates while research keeps coming back empty: the
+    registry counts consecutive empty passes (persisted) and resets on the
+    first deploy."""
+    reg = Registry(str(tmp_path))
+    reg.record_outcome([])
+    reg.record_outcome([])
+    reg.save()
+    reg2 = Registry(str(tmp_path))
+    assert reg2.consecutive_empty == 2
+    reg2.record_outcome([trend_strategy("BTC-USDT-SWAP")])
+    assert reg2.consecutive_empty == 0
+
+
+def test_empty_book_uses_fast_research_cadence(tmp_path):
+    """With no deployed strategies, research goes stale after
+    refresh_hours_empty (daily), not the weekly refresh_hours."""
+    import time as _t
+    from unittest import mock
+
+    from hermes.live.trader import LiveRunner
+
+    def make_runner(strategies):
+        lr = LiveRunner.__new__(LiveRunner)   # no network / broker needed
+        lr.cfg = Config()
+        lr.registry = Registry(str(tmp_path))
+        lr.registry.strategies = strategies
+        lr.registry.researched_at = _t.time() - 30 * 3600   # 30h ago
+        lr.log = lambda m: None
+        lr._load_candles = lambda: {}
+        return lr
+
+    with mock.patch("hermes.live.trader.run_research",
+                    return_value=([], 0)) as rr:
+        make_runner([]).ensure_research()
+    assert rr.called, "empty book after 30h must re-run research"
+
+    # a non-empty book at the same age must NOT re-run (weekly cadence)
+    with mock.patch("hermes.live.trader.run_research",
+                    return_value=([], 0)) as rr2:
+        make_runner([trend_strategy("BTC-USDT-SWAP")]).ensure_research()
+    assert not rr2.called, "deployed book at 30h is fresh on weekly cadence"

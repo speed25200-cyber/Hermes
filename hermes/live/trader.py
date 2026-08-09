@@ -51,6 +51,7 @@ class Registry:
         self.strategies: list[ValidatedStrategy] = []
         self.researched_at: float = 0.0
         self.n_trials: int = 0
+        self.consecutive_empty: int = 0   # empty research passes in a row
         self.load()
 
     def load(self) -> None:
@@ -60,6 +61,7 @@ class Registry:
             self.strategies = [ValidatedStrategy.from_dict(s) for s in d.get("strategies", [])]
             self.researched_at = d.get("researched_at", 0.0)
             self.n_trials = d.get("n_trials", 0)
+            self.consecutive_empty = d.get("consecutive_empty", 0)
 
     def save(self) -> None:
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
@@ -68,7 +70,13 @@ class Registry:
                 "strategies": [s.to_dict() for s in self.strategies],
                 "researched_at": self.researched_at,
                 "n_trials": self.n_trials,
+                "consecutive_empty": self.consecutive_empty,
             }, f, indent=2)
+
+    def record_outcome(self, survivors: list) -> None:
+        """Track how many consecutive passes came back empty — the hunt
+        escalates its search budget and cadence while the book is empty."""
+        self.consecutive_empty = 0 if survivors else self.consecutive_empty + 1
 
     def sid(self, s: ValidatedStrategy) -> str:
         return f"{s.inst}:{s.genome.gid}"
@@ -113,11 +121,23 @@ def _research_one(inst: str, candles: Candles, leader: Candles | None,
 
 
 def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
-                 min_bars: int = 2000) -> tuple[list[ValidatedStrategy], int]:
+                 min_bars: int = 2000, escalation: int = 0
+                 ) -> tuple[list[ValidatedStrategy], int]:
     """Full autonomous research pass over every instrument, parallelised
     across CPU cores (each instrument is independent).
+
+    escalation > 0 (consecutive empty passes) widens the evolutionary
+    search — more population and generations — so the hunt digs deeper
+    each time it comes back empty-handed. Validation thresholds NEVER move.
     Returns (survivors, total genomes evaluated)."""
-    r = cfg["research"]
+    r = dict(cfg["research"])
+    if escalation > 0:
+        boost = 1.0 + 0.5 * min(escalation, 2)
+        r["population"] = int(r["population"] * boost)
+        r["generations"] = int(r["generations"] * boost)
+        log(f"research: escalation x{boost:.1f} after {escalation} empty "
+            f"pass(es) -> population={r['population']} "
+            f"generations={r['generations']}")
     fee_bps, slip_bps = effective_costs(cfg["costs"])
     leader_inst = cfg["instruments"][0] if cfg["instruments"] else None
     all_survivors: list[ValidatedStrategy] = []
@@ -476,16 +496,26 @@ class LiveRunner:
 
     def ensure_research(self, force: bool = False) -> None:
         age_h = (time.time() - self.registry.researched_at) / 3600.0
-        stale = age_h > self.cfg["research"]["refresh_hours"]
+        r = self.cfg["research"]
+        # adaptive cadence: while the book is empty the hunt re-runs daily
+        # (on fresh data, with an escalating search budget) instead of
+        # sleeping the full weekly interval
+        refresh_h = (r.get("refresh_hours_empty", 24)
+                     if not self.registry.strategies else r["refresh_hours"])
+        stale = age_h > refresh_h
         never_ran = self.registry.researched_at == 0
         # NB: an empty deployed set after a completed research is a legitimate
         # outcome (no robust edge) — it must NOT trigger an immediate re-run
         if force or stale or never_ran:
             self.log(f"research pass starting (stale={stale}, "
-                     f"deployed={len(self.registry.strategies)})")
-            survivors, n_trials = run_research(self._load_candles(), self.cfg, self.log)
+                     f"deployed={len(self.registry.strategies)}, "
+                     f"empty_streak={self.registry.consecutive_empty})")
+            survivors, n_trials = run_research(
+                self._load_candles(), self.cfg, self.log,
+                escalation=self.registry.consecutive_empty)
             if survivors or not self.registry.strategies:
                 self.registry.strategies = survivors
+            self.registry.record_outcome(survivors)
             self.registry.researched_at = time.time()
             self.registry.n_trials = n_trials
             self.registry.save()

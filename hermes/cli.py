@@ -279,9 +279,11 @@ def cmd_research(args) -> None:
     cfg = Config.load(args.config)
     store = DataStore(cfg["data_dir"])
     candles = {inst: store.load(inst, cfg["bar"]) for inst in cfg["instruments"]}
-    survivors, n_trials = run_research(candles, cfg, log=print)
     registry = Registry(cfg["state_dir"])
+    survivors, n_trials = run_research(
+        candles, cfg, log=print, escalation=registry.consecutive_empty)
     registry.strategies = survivors
+    registry.record_outcome(survivors)
     registry.researched_at = time.time()
     registry.n_trials = n_trials
     registry.save()
