@@ -50,6 +50,12 @@ XS_KINDS = {"funding_xs": "carry", "xs_mom": "mom", "xs_rev": "rev"}
 # skip the most recent day when ranking momentum (dodges 1-day reversal)
 MOM_SKIP_FRAC = 0.05
 
+# no-trade band, as a fraction of the per-name cap: a position only moves
+# when its target drifts at least this far from what is held. Chosen a
+# priori (NOT searched) — it exists to tame turnover costs, identically for
+# every family, and adds zero trials to the deflated-Sharpe penalty.
+REBALANCE_BAND_FRAC = 0.25
+
 
 def align_universe(candles_map: dict[str, Candles]) -> tuple[np.ndarray, dict[str, np.ndarray]]:
     """Common timestamp grid (intersection) and per-instrument row indices."""
@@ -167,7 +173,19 @@ def xs_positions(
 
     # warm-up guard
     w[:, : max(lb, 200)] = 0.0
-    return common, insts, {inst: w[k] for k, inst in enumerate(insts)}
+
+    # no-trade band (hysteresis): hold the current position until the target
+    # drifts at least band away — kills the per-bar churn that lets costs
+    # eat high-frequency families alive, without touching the signal itself
+    band = REBALANCE_BAND_FRAC * max_w
+    held = np.zeros(len(insts))
+    out = np.empty_like(w)
+    for t in range(n):
+        tgt = w[:, t]
+        move = np.abs(tgt - held) >= band
+        held = np.where(move, tgt, held)
+        out[:, t] = held
+    return common, insts, {inst: out[k] for k, inst in enumerate(insts)}
 
 
 def funding_xs_positions(
