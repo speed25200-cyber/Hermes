@@ -47,8 +47,11 @@ jobs:
             echo "===== research / engine journal (last 50 lines) ====="
             journalctl -u hermes-research -u hermes -n 50 --no-pager || true
             echo
+            echo "===== deployed book (registry summary) ====="
+            grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
+            echo
             echo "===== hermes state ====="
-            cd /root/hermes 2>/dev/null && /root/venv/bin/python -m hermes status 2>/dev/null | head -80 || echo "no state yet"
+            cd /root/hermes 2>/dev/null && /root/venv/bin/python -m hermes status 2>/dev/null | head -40 || echo "no state yet"
             echo
             echo "===== disk / memory ====="
             df -h / | tail -1; free -m | head -2
