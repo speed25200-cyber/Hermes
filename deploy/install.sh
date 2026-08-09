@@ -19,8 +19,9 @@ if [ ! -f /swapfile ]; then
     swapon /swapfile
     echo '/swapfile none swap sw 0 0' >> /etc/fstab
 fi
-# firewall: SSH only
+# firewall: SSH + dashboard (dashboard is token-protected, see below)
 ufw allow OpenSSH
+ufw allow 8899/tcp
 ufw --force enable
 
 # --- python environment ----------------------------------------------------
@@ -63,6 +64,27 @@ ExecStartPost=/bin/systemctl restart hermes
 TimeoutStartSec=4h
 EOF
 
+# dashboard: token-protected console reachable from the owner's phone (PWA).
+# The token gates every request; rotate it by editing this unit + restart.
+DASH_TOKEN="de15975f4de2eb8bdafe2ff3"
+cat > /etc/systemd/system/hermes-dashboard.service <<EOF
+[Unit]
+Description=Hermes dashboard (token-protected web console)
+After=network-online.target
+
+[Service]
+WorkingDirectory=$HERMES_DIR
+Environment=HERMES_DASH_TOKEN=$DASH_TOKEN
+ExecStart=$VENV/bin/python -m hermes dashboard --host 0.0.0.0 --port 8899 --no-browser
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
 systemctl daemon-reload
 systemctl enable hermes >/dev/null 2>&1 || true
+systemctl enable --now hermes-dashboard >/dev/null 2>&1 || true
+systemctl restart hermes-dashboard || true
 echo "install: OK"
