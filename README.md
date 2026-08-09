@@ -37,13 +37,21 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
    - an incremental cache extends the walk-forward state bar by bar in live
      trading with bit-identical results to the batch computation (tested).
 
-2. **Cross-sectional funding carry** (`hermes/strategy/xs.py`) — a
-   hedge-fund-style market-neutral portfolio spanning the whole universe:
-   rank perpetuals by smoothed funding, short the richest funding, long the
-   cheapest, dollar-neutral, inverse-vol weighted, portfolio-vol targeted.
-   It harvests the structural funding spread while market direction cancels
-   out. Validated by the same gates as everything else (small IS grid, OOS
-   Sharpe + DSR + purged folds) and executed as one multi-asset book.
+2. **Cross-sectional stat-arb books** (`hermes/strategy/xs.py`) — three
+   hedge-fund-style market-neutral portfolios spanning the whole universe,
+   sharing one construction (rank → z-score → inverse-vol → dollar-neutral
+   → portfolio-vol target):
+   - **funding carry** (`funding_xs`): short the richest funding, long the
+     cheapest — harvests the structural funding spread (researched only on
+     the window where funding history actually exists);
+   - **momentum** (`xs_mom`): long the strongest multi-week vol-adjusted
+     winners, short the losers, with a one-day skip against reversal;
+   - **reversal** (`xs_rev`): long the short-horizon losers, short the
+     winners — classic stat-arb mean reversion.
+   Each family searches its own small grid, but the Deflated Sharpe is
+   charged with the total number of configs searched across all families —
+   selection bias is paid for the whole sweep. Survivors are executed as
+   multi-asset books beside the per-instrument strategies.
 
 3. **Maker-first execution** (`hermes/exchange/broker.py`) — live orders try
    a post-only limit at the touch first (OKX maker ~0.02%) with a timed
