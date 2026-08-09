@@ -164,14 +164,13 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
     # ---- cross-sectional portfolio strategies (funding carry) ----------
     eligible = {i: c for i, c in candles_by_inst.items() if len(c) >= min_bars}
     if len(eligible) >= 4:
-        from ..research.xs import research_xs
-        from ..strategy.xs import XS_GRID
+        from ..research.xs import XS_TOTAL_TRIALS, research_xs
         xs_survivors = research_xs(
             eligible, fee_bps=fee_bps, slip_bps=slip_bps,
             is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
             min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"], log=log)
         all_survivors.extend(xs_survivors)
-        total_trials += len(XS_GRID)
+        total_trials += XS_TOTAL_TRIALS
         log(f"research XS: {len(xs_survivors)} portfolio strategies deployed")
     return all_survivors, total_trials
 
@@ -257,11 +256,12 @@ class Trader:
         per_strategy: dict[str, dict[str, float]] = {}
         for s in self.registry.strategies:
             sid = self.registry.sid(s)
-            if s.genome.signal == "funding_xs":
-                from ..strategy.xs import funding_xs_positions
+            from ..strategy.xs import XS_KINDS, xs_positions
+            if s.genome.signal in XS_KINDS:
                 eligible = {i: c for i, c in candles_by_inst.items()
                             if len(c) >= 600}
-                _, _, pos_map = funding_xs_positions(eligible, s.genome.params)
+                _, _, pos_map = xs_positions(eligible, s.genome.params,
+                                             kind=XS_KINDS[s.genome.signal])
                 if pos_map:
                     book = {inst: float(arr[-1]) for inst, arr in pos_map.items()
                             if len(arr)}

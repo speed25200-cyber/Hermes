@@ -26,7 +26,11 @@ DEFAULTS: dict[str, Any] = {
                     "AVAX-USDT-SWAP", "LINK-USDT-SWAP", "ADA-USDT-SWAP",
                     "LTC-USDT-SWAP", "DOT-USDT-SWAP", "BCH-USDT-SWAP",
                     "NEAR-USDT-SWAP", "SUI-USDT-SWAP", "APT-USDT-SWAP",
-                    "TRX-USDT-SWAP"],
+                    "TRX-USDT-SWAP", "UNI-USDT-SWAP", "ATOM-USDT-SWAP",
+                    "FIL-USDT-SWAP", "ETC-USDT-SWAP", "XLM-USDT-SWAP",
+                    "ARB-USDT-SWAP", "OP-USDT-SWAP", "INJ-USDT-SWAP",
+                    "TIA-USDT-SWAP", "SEI-USDT-SWAP", "CRV-USDT-SWAP",
+                    "AAVE-USDT-SWAP", "PEPE-USDT-SWAP", "SHIB-USDT-SWAP"],
     # 15m bars: ~35k bars/year per instrument -> 4x the statistical power of
     # 1H for the validation gates, and intraday seasonality becomes usable
     "bar": "15m",
