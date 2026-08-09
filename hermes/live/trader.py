@@ -188,7 +188,8 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
         xs_survivors = research_xs(
             eligible, fee_bps=fee_bps, slip_bps=slip_bps,
             is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
-            min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"], log=log)
+            min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"], log=log,
+            leader=leader_inst)
         all_survivors.extend(xs_survivors)
         total_trials += XS_TOTAL_TRIALS
         log(f"research XS: {len(xs_survivors)} portfolio strategies deployed")
@@ -284,7 +285,8 @@ class Trader:
                 eligible = {i: c for i, c in candles_by_inst.items()
                             if len(c) >= 600}
                 _, _, pos_map = xs_positions(eligible, s.genome.params,
-                                             kind=XS_KINDS[s.genome.signal])
+                                             kind=XS_KINDS[s.genome.signal],
+                                             leader=leader_inst)
                 if pos_map:
                     book = {inst: float(arr[-1]) for inst, arr in pos_map.items()
                             if len(arr)}

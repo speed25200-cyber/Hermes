@@ -139,3 +139,37 @@ def test_portfolio_backtest_charges_costs():
     r_free = portfolio_backtest(uni, pos, common, 0.0, 0.0)
     r_cost = portfolio_backtest(uni, pos, common, 5.0, 2.0)
     assert r_cost.sum() < r_free.sum()
+
+
+def test_xs_lead_lag_finds_planted_followers():
+    """Followers whose returns partially echo the leader's PREVIOUS bar (with
+    differing sensitivities) are a real catch-up trade: the lead-lag book
+    must pass the gate. Without a leader argument the family is skipped."""
+    rng = np.random.default_rng(21)
+    n = 6000
+    lead_ret = rng.normal(0, 0.004, n)
+    uni = {}
+    lc = 100 * np.exp(np.cumsum(lead_ret))
+    c = generate(inst="LEAD-USDT-SWAP", bar="1H", n=n, seed=500)
+    c.c = lc
+    c.funding = np.zeros(n)
+    uni[c.inst] = c
+    for k, coef in enumerate([0.5, 0.35, 0.2, 0.1, 0.0]):
+        own = rng.normal(0, 0.004, n)
+        r = own.copy()
+        r[1:] += coef * lead_ret[:-1]
+        ci = generate(inst=f"F{k}-USDT-SWAP", bar="1H", n=n, seed=600 + k)
+        ci.c = (50 + 10 * k) * np.exp(np.cumsum(r))
+        ci.funding = np.zeros(n)
+        uni[ci.inst] = ci
+    fee, slip = effective_costs({"taker_fee_bps": 5, "maker_fee_bps": 2,
+                                 "slippage_bps": 2, "prefer_maker": True,
+                                 "maker_miss_rate": 0.3})
+    out = research_xs(uni, fee_bps=fee, slip_bps=slip, log=None,
+                      leader="LEAD-USDT-SWAP")
+    leads = [s for s in out if s.genome.signal == "xs_lead"]
+    assert len(leads) == 1
+    assert leads[0].oos_stats["sharpe"] >= 0.5
+    # no leader passed -> family skipped, never crashes
+    out2 = research_xs(uni, fee_bps=fee, slip_bps=slip, log=None)
+    assert all(s.genome.signal != "xs_lead" for s in out2)
