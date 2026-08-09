@@ -258,6 +258,11 @@
     <span id="haltmsg"></span>
   </div>
 
+  <!-- live markets strip -->
+  <div class="panel" id="marketsbox" style="display:none;padding:13px 20px;margin-bottom:16px">
+    <div id="markets" style="display:flex;flex-wrap:wrap;gap:8px 30px;align-items:baseline"></div>
+  </div>
+
   <!-- KPI row -->
   <div class="grid kpis">
     <div class="panel kpi">
@@ -628,6 +633,43 @@ function renderOrders(journal){
   }).join("");
 }
 
+const mkt = {};   /* inst -> {el, priceEl} persistent DOM for smooth tweens */
+function renderMarkets(data, last){
+  const live = data.tickers || {};
+  const journalPrices = (last && last.prices) || {};
+  const regimes = (last && last.regimes) || {};
+  const insts = (data.instruments && data.instruments.length)
+    ? data.instruments
+    : Object.keys({...journalPrices, ...live});
+  const box = $("marketsbox");
+  if(!insts.length){ box.style.display="none"; return; }
+  box.style.display="block";
+  const wrap = $("markets");
+  for(const inst of insts){
+    const px = live[inst] !== undefined ? live[inst] : journalPrices[inst];
+    if(px === undefined) continue;
+    if(!mkt[inst]){
+      const el = document.createElement("div");
+      el.style.cssText = "display:flex;align-items:baseline;gap:8px";
+      el.innerHTML = `<span style="font-weight:600;color:${colorFor(inst)};font-size:13px">${shortInst(inst)}</span>
+        <span class="num" style="font-size:15px;font-weight:600;letter-spacing:-0.01em"></span>
+        <span class="mreg"></span>`;
+      wrap.appendChild(el);
+      mkt[inst] = {el, priceEl: el.children[1], regEl: el.children[2]};
+    }
+    const m = mkt[inst];
+    const prev = m.priceEl._v;
+    tweenNum(m.priceEl, px, v=>fmtUsd(v), 600);
+    if(prev !== undefined && px !== prev)
+      m.priceEl.style.color = px > prev ? "var(--green)" : "var(--red)";
+    else if(prev === undefined)
+      m.priceEl.style.color = "var(--txt)";
+    clearTimeout(m._fade);
+    m._fade = setTimeout(()=>{ m.priceEl.style.color = "var(--txt)"; }, 1600);
+    m.regEl.innerHTML = regimeTag(regimes[inst]);
+  }
+}
+
 let lastLogKey="";
 function renderLog(lines){
   $("logempty").style.display = lines.length? "none":"block";
@@ -798,6 +840,7 @@ async function refresh(){
   $("k_strats_d").textContent = age!==null? "research age "+(age<1? Math.round(age*60)+"m" : age.toFixed(1)+"h") : "no research yet";
   $("researchage").textContent = age!==null? "refreshed "+(age<1? Math.round(age*60)+"m ago" : age.toFixed(1)+"h ago"):"";
 
+  renderMarkets(data, last);
   const weights = (last&&last.weights)||{};
   renderStrategies(registry, weights);
   const stratsById = {}; /* sid -> strategy (same matching as the table) */

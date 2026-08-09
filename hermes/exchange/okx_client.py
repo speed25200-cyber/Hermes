@@ -121,6 +121,16 @@ class OKXClient:
             params["after"] = str(after)
         return self._request("GET", path, params)
 
+    def tickers(self, inst_ids: list[str]) -> dict[str, float]:
+        """Live last prices for the given SWAP instruments (public)."""
+        data = self._request("GET", "/api/v5/market/tickers", {"instType": "SWAP"})
+        want = set(inst_ids)
+        out: dict[str, float] = {}
+        for row in data:
+            if row.get("instId") in want and row.get("last"):
+                out[row["instId"]] = float(row["last"])
+        return out
+
     def funding_rate(self, inst_id: str) -> dict:
         return self._request("GET", "/api/v5/public/funding-rate",
                              {"instId": inst_id})[0]

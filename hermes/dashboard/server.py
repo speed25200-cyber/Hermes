@@ -11,10 +11,12 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
+TICKER_TTL = 5.0  # seconds between live-price fetches
 
 
 def _tail_lines(path: str, max_lines: int, max_bytes: int = 2_000_000) -> list[str]:
@@ -40,9 +42,28 @@ def _read_json(path: str) -> dict:
 
 
 class StateReader:
-    def __init__(self, state_dir: str, mode_hint: str = ""):
+    def __init__(self, state_dir: str, mode_hint: str = "",
+                 instruments: list[str] | None = None, ticker_fn=None):
         self.state_dir = state_dir
         self.mode_hint = mode_hint
+        self.instruments = instruments or []
+        self.ticker_fn = ticker_fn  # callable(inst_ids) -> {inst: last_price}
+        self._tick_at = 0.0
+        self._ticks: dict = {}
+        self._tick_lock = threading.Lock()
+
+    def _live_tickers(self) -> dict:
+        if not (self.ticker_fn and self.instruments):
+            return {}
+        with self._tick_lock:
+            now = time.time()
+            if now - self._tick_at >= TICKER_TTL:
+                self._tick_at = now
+                try:
+                    self._ticks = self.ticker_fn(self.instruments)
+                except Exception:
+                    pass  # keep last known prices on transient failures
+            return dict(self._ticks)
 
     def snapshot(self, journal_points: int = 1500) -> dict:
         sd = self.state_dir
@@ -64,6 +85,8 @@ class StateReader:
         return {
             "mode": self.mode_hint,
             "state_dir": sd,
+            "instruments": self.instruments,
+            "tickers": self._live_tickers(),
             "registry": registry,
             "risk": _read_json(os.path.join(sd, "risk.json")),
             "trader": _read_json(os.path.join(sd, "trader.json")),
@@ -144,8 +167,10 @@ class Handler(BaseHTTPRequestHandler):
 
 def serve(state_dir: str, host: str = "127.0.0.1", port: int = 8899,
           mode_hint: str = "", open_browser: bool = True,
-          token: str = "") -> None:
-    Handler.reader = StateReader(state_dir, mode_hint)
+          token: str = "", instruments: list[str] | None = None,
+          ticker_fn=None) -> None:
+    Handler.reader = StateReader(state_dir, mode_hint,
+                                 instruments=instruments, ticker_fn=ticker_fn)
     Handler.token = token or os.environ.get("HERMES_DASH_TOKEN", "")
     httpd = ThreadingHTTPServer((host, port), Handler)
     url = f"http://{host}:{port}/"
