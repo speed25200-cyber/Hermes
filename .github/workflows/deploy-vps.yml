@@ -1,0 +1,67 @@
+# Deploy Hermes to the VPS over SSH, from a GitHub runner.
+#
+# Required repository secret:
+#   VPS_PASSWORD — root password of the server (set after the first console
+#                  login forced you to change it)
+# Optional repository variable:
+#   VPS_HOST     — server IP (defaults to the value below)
+#
+# Trigger manually (workflow_dispatch). Steps: rsync the repo to
+# /root/hermes, run deploy/install.sh, then start the one-shot
+# data-backfill + research service which launches the paper-trading engine
+# when it finishes. Use the "VPS status" workflow to check progress.
+
+name: Deploy Hermes to VPS
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: vps-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      VPS: ${{ vars.VPS_HOST || '178.104.191.79' }}
+      SSHPASS: ${{ secrets.VPS_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ssh tooling
+        run: sudo apt-get update -qq && sudo apt-get -y -qq install sshpass rsync
+
+      - name: Check secret is configured
+        run: |
+          if [ -z "$SSHPASS" ]; then
+            echo "::error::VPS_PASSWORD secret is not set (repo Settings > Secrets and variables > Actions)"
+            exit 1
+          fi
+
+      - name: Copy repository to VPS
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" "mkdir -p /root/hermes"
+          sshpass -e rsync -az --delete \
+            --exclude '.git' --exclude 'state' --exclude 'data' \
+            -e "ssh -o StrictHostKeyChecking=accept-new" \
+            ./ "root@$VPS:/root/hermes/"
+
+      - name: Run installer
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+            "bash /root/hermes/deploy/install.sh"
+
+      - name: Start data backfill + research (runs on the VPS, detached)
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+            "systemctl start --no-block hermes-research && echo research started"
+
+      - name: Snapshot status
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            echo "=== research unit ==="; systemctl is-active hermes-research || true
+            echo "=== engine unit ===";   systemctl is-active hermes || true
+            echo "=== last log lines ==="; journalctl -u hermes-research -n 20 --no-pager || true
+          '
