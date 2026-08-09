@@ -25,6 +25,9 @@ concurrency:
 
 jobs:
   research:
+    # inert until you set the HERMES_ACTIONS_ENABLED=1 repository variable —
+    # avoids double-trading when the engine runs on a VPS instead
+    if: ${{ vars.HERMES_ACTIONS_ENABLED == '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
