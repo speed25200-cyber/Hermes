@@ -24,7 +24,7 @@ DEFAULTS: dict[str, Any] = {
     "instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP",
                     "XRP-USDT-SWAP", "DOGE-USDT-SWAP", "BNB-USDT-SWAP",
                     "AVAX-USDT-SWAP", "LINK-USDT-SWAP", "ADA-USDT-SWAP",
-                    "LTC-USDT-SWAP", "DOT-USDT-SWAP", "TON-USDT-SWAP",
+                    "LTC-USDT-SWAP", "DOT-USDT-SWAP", "BCH-USDT-SWAP",
                     "NEAR-USDT-SWAP", "SUI-USDT-SWAP", "APT-USDT-SWAP",
                     "TRX-USDT-SWAP"],
     # 15m bars: ~35k bars/year per instrument -> 4x the statistical power of

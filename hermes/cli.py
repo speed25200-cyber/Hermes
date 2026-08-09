@@ -258,9 +258,19 @@ def cmd_fetch(args) -> None:
     cfg = Config.load(args.config)
     store = DataStore(cfg["data_dir"])
     client = OKXClient(cfg.credentials)
+    failed = []
     for inst in cfg["instruments"]:
-        fetch_candles(client, store, inst, cfg["bar"], cfg["history_days"], log=print)
-        fetch_funding(client, store, inst, cfg["history_days"], log=print)
+        # one bad/unlisted instrument must never sink the whole backfill —
+        # research simply skips instruments without enough bars
+        try:
+            fetch_candles(client, store, inst, cfg["bar"], cfg["history_days"],
+                          log=print)
+            fetch_funding(client, store, inst, cfg["history_days"], log=print)
+        except Exception as exc:
+            failed.append(inst)
+            print(f"fetch {inst}: FAILED ({type(exc).__name__}: {exc}) — skipping")
+    if failed:
+        print(f"fetch: {len(failed)} instrument(s) skipped: {', '.join(failed)}")
 
 
 def cmd_research(args) -> None:
