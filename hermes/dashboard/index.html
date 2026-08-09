@@ -824,11 +824,15 @@ function renderResearch(registry, meta){
   $("r_trials").textContent = registry.n_trials? registry.n_trials.toLocaleString("en-US") : "—";
   const n = (registry.strategies||[]).length;
   $("r_deployed").textContent = n;
-  const rh = (meta && meta.refresh_hours) || 168;
+  const empty = registry.consecutive_empty || 0;
+  const rhFull = (meta && meta.refresh_hours) || 168;
+  const rh = (n===0 && at) ? Math.min(rhFull, 24) : rhFull;  /* adaptive hunt */
   const next = at? at + rh*3600 - now : 0;
   $("r_next").textContent = at? (next>0? "in "+rel(next) : "due now") : "—";
+  const boost = empty>0 ? " Search budget escalated ×"+(1+0.5*Math.min(empty,2)).toFixed(1)
+    +" after "+empty+" empty pass"+(empty>1?"es":"")+" — daily hunts until an edge survives." : "";
   $("r_verdict").textContent = n===0 && at
-    ? "No edge passed out-of-sample validation — the engine stays flat rather than trade noise. It keeps watching."
+    ? "No edge passed out-of-sample validation — the engine stays flat rather than trade noise."+boost
     : "";
 }
 function renderFreshness(journal){
