@@ -83,44 +83,81 @@ def make_ctx(candles_by_inst: dict[str, Candles], inst: str,
     return {}
 
 
+def _research_one(inst: str, candles: Candles, leader: Candles | None,
+                  r: dict, fee_bps: float, slip_bps: float
+                  ) -> tuple[str, list[ValidatedStrategy], int, list[str]]:
+    """Evolve + validate a single instrument (worker-safe: no shared state,
+    returns log lines instead of printing)."""
+    lines: list[str] = []
+    ctx = {"leader": leader} if leader is not None else {}
+    if leader is not None:
+        cut = int(len(leader) * r["is_fraction"])
+        ctx_is = {"leader": leader.slice(0, cut)}
+    else:
+        ctx_is = ctx
+    candles_is, _ = split_is_oos(candles, r["is_fraction"], r["embargo_bars"])
+    pop, n_trials = evolve(
+        candles_is,
+        population=r["population"], generations=r["generations"],
+        fee_bps=fee_bps, slip_bps=slip_bps,
+        seed=r.get("seed"), ctx=ctx_is, log=None,
+    )
+    survivors = validate_candidates(
+        pop, candles, n_trials=n_trials,
+        is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
+        min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
+        fee_bps=fee_bps, slip_bps=slip_bps,
+        max_deployed=r["max_deployed"], ctx=ctx, log=lines.append,
+    )
+    return inst, survivors, n_trials, lines
+
+
 def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
                  min_bars: int = 2000) -> tuple[list[ValidatedStrategy], int]:
-    """Full autonomous research pass over every instrument.
+    """Full autonomous research pass over every instrument, parallelised
+    across CPU cores (each instrument is independent).
     Returns (survivors, total genomes evaluated)."""
     r = cfg["research"]
     fee_bps, slip_bps = effective_costs(cfg["costs"])
     leader_inst = cfg["instruments"][0] if cfg["instruments"] else None
     all_survivors: list[ValidatedStrategy] = []
     total_trials = 0
+
+    eligible_list = []
     for inst, candles in candles_by_inst.items():
         if len(candles) < min_bars:
             log(f"research {inst}: only {len(candles)} bars, skipping "
                 f"(need {min_bars}+)")
             continue
-        log(f"research {inst}: evolving population={r['population']} "
-            f"generations={r['generations']} on {len(candles)} bars")
-        ctx = make_ctx(candles_by_inst, inst, leader_inst)
-        if ctx.get("leader") is not None:
-            # evolution only sees the in-sample slice of the leader too
-            cut = int(len(ctx["leader"]) * r["is_fraction"])
-            ctx_is = {"leader": ctx["leader"].slice(0, cut)}
-        else:
-            ctx_is = ctx
-        candles_is, _ = split_is_oos(candles, r["is_fraction"], r["embargo_bars"])
-        pop, n_trials = evolve(
-            candles_is,
-            population=r["population"], generations=r["generations"],
-            fee_bps=fee_bps, slip_bps=slip_bps,
-            seed=r.get("seed"), ctx=ctx_is, log=log,
-        )
-        survivors = validate_candidates(
-            pop, candles, n_trials=n_trials,
-            is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
-            min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
-            fee_bps=fee_bps, slip_bps=slip_bps,
-            max_deployed=r["max_deployed"], ctx=ctx, log=log,
-        )
-        log(f"research {inst}: {len(survivors)} strategies passed OOS validation")
+        leader = candles_by_inst.get(leader_inst) if (
+            leader_inst and leader_inst != inst) else None
+        eligible_list.append((inst, candles, leader))
+
+    # worker count: leave one core for the OS/dashboard, cap memory usage
+    workers = max(1, min(len(eligible_list), (os.cpu_count() or 1) - 1, 6))
+    log(f"research: {len(eligible_list)} instruments on {workers} worker(s), "
+        f"population={r['population']} generations={r['generations']}")
+
+    if workers == 1:
+        results = [_research_one(i, c, ld, r, fee_bps, slip_bps)
+                   for i, c, ld in eligible_list]
+    else:
+        import concurrent.futures as cf
+        with cf.ProcessPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(_research_one, i, c, ld, r, fee_bps, slip_bps)
+                       for i, c, ld in eligible_list]
+            results = []
+            for fut in cf.as_completed(futures):
+                try:
+                    results.append(fut.result())
+                except Exception as exc:
+                    log(f"research worker failed: {type(exc).__name__}: {exc}")
+
+    for inst, survivors, n_trials, lines in sorted(results, key=lambda t: t[0]):
+        for line in lines:
+            log(line)
+        log(f"research {inst}: {len(survivors)} strategies passed OOS "
+            f"validation ({n_trials} genomes)")
         all_survivors.extend(survivors)
         total_trials += n_trials
 
