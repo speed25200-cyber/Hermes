@@ -5,6 +5,10 @@ name: VPS status
 
 on:
   workflow_dispatch:
+    inputs:
+      root_password:
+        description: "Root password (optional if VPS_PASSWORD secret is set)"
+        required: false
 
 jobs:
   status:
@@ -12,20 +16,34 @@ jobs:
     timeout-minutes: 10
     env:
       VPS: ${{ vars.VPS_HOST || '178.104.191.79' }}
-      SSHPASS: ${{ secrets.VPS_PASSWORD }}
     steps:
       - name: Install ssh tooling
         run: sudo apt-get update -qq && sudo apt-get -y -qq install sshpass
+
+      - name: Resolve SSH access
+        env:
+          PW_INPUT: ${{ inputs.root_password }}
+          PW_SECRET: ${{ secrets.VPS_PASSWORD }}
+        run: |
+          PW="${PW_INPUT:-$PW_SECRET}"
+          [ -z "$PW" ] && { echo "::error::no credentials"; exit 1; }
+          ALT="${PW}.Hermes1"
+          echo "::add-mask::$PW"; echo "::add-mask::$ALT"
+          SSHOPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
+          try() { sshpass -p "$1" ssh $SSHOPTS "root@$VPS" "echo __ok__" 2>/dev/null | grep -q __ok__; }
+          if try "$PW"; then CUR="$PW"; elif try "$ALT"; then CUR="$ALT"; else
+            echo "::error::cannot authenticate"; exit 1; fi
+          echo "SSHPASS=$CUR" >> "$GITHUB_ENV"
 
       - name: Status report
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
             echo "===== services ====="
-            systemctl is-active hermes-research && echo "(research still running)" || echo "(research unit idle/done)"
+            systemctl is-active hermes-research && echo "(research running)" || echo "(research idle/done)"
             systemctl is-active hermes || true
             echo
-            echo "===== research / engine journal (last 40 lines) ====="
-            journalctl -u hermes-research -u hermes -n 40 --no-pager || true
+            echo "===== research / engine journal (last 50 lines) ====="
+            journalctl -u hermes-research -u hermes -n 50 --no-pager || true
             echo
             echo "===== hermes state ====="
             cd /root/hermes 2>/dev/null && /root/venv/bin/python -m hermes status 2>/dev/null | head -80 || echo "no state yet"
