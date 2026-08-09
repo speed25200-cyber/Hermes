@@ -12,7 +12,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Hermes">
 <meta name="theme-color" content="#08090d">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='34' r='9' stroke='%23e8b45a' stroke-width='3' fill='none'/%3E%3Ccircle cx='32' cy='34' r='4' fill='%23e8b45a'/%3E%3Cpath d='M22 30C15 30 9 25 7 18c5 1.5 8 2 11.5 5M42 30c7 0 13-5 15-12-5 1.5-8 2-11.5 5' stroke='%23e8b45a' stroke-width='3' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none'%3E%3Cpath d='M8 46h16M12 35h18M16 24h10' stroke='%23e8b45a' stroke-width='8' stroke-linecap='round'/%3E%3Cpath d='M20 52 48 19' stroke='%23e8b45a' stroke-width='8' stroke-linecap='round'/%3E%3Cpath d='M38.5 16.5 49.5 16.5 49.5 27.5' stroke='%23e8b45a' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
   @font-face{
     font-family:"Inter var";
@@ -86,6 +86,14 @@
     letter-spacing:-0.01em;color:var(--txt2);margin-bottom:14px}
   .ptitle svg{flex:none;opacity:.9}
   .ptitle .sub{margin-left:auto;font-size:12px;color:var(--faint);font-weight:450}
+  .ranges{display:inline-flex;gap:2px;margin-left:14px;background:rgba(255,255,255,.05);
+    border:1px solid var(--stroke);border-radius:9px;padding:2px}
+  .ranges button{all:unset;cursor:pointer;font:inherit;font-size:11px;font-weight:560;
+    color:var(--faint);padding:3px 10px;border-radius:7px;transition:all .2s}
+  .ranges button.on{background:rgba(230,172,88,.16);color:var(--gold2)}
+  .ranges button:hover:not(.on){color:var(--txt2)}
+  .spark{display:block}
+  .spark polyline{fill:none;stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
 
   .kpi .label{font-size:12.5px;font-weight:510;color:var(--dim)}
   .kpi .value{font-size:28px;font-weight:620;letter-spacing:-0.022em;margin-top:6px;
@@ -224,28 +232,23 @@
 
   <header>
     <div class="logo">
-      <!-- Hermes winged-orb mark -->
-      <svg width="44" height="44" viewBox="0 0 64 64" fill="none">
+      <!-- Hermes mark: wing strokes propelling the ascending arrow -->
+      <svg width="42" height="42" viewBox="0 0 64 64" fill="none">
         <defs>
-          <linearGradient id="gw" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#f4d192"/><stop offset="1" stop-color="#c9913c"/>
+          <linearGradient id="gw" x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0" stop-color="#c08a38"/><stop offset="1" stop-color="#f6d99a"/>
           </linearGradient>
         </defs>
-        <circle cx="32" cy="34" r="9" stroke="url(#gw)" stroke-width="2.2"/>
-        <circle cx="32" cy="34" r="3.2" fill="url(#gw)"/>
-        <path d="M22 30C15 30 9 25 7 18c5 1.5 8 2 11.5 5" stroke="url(#gw)" stroke-width="2" stroke-linecap="round"/>
-        <path d="M20.5 35.5C13.5 36 7.5 33 4 27.5c5 .3 9 .8 13.4 3.6" stroke="url(#gw)" stroke-width="2" stroke-linecap="round" opacity=".75"/>
-        <path d="M21 41c-6 1.6-12 .4-16-3.6 4.6-.9 8.7-1 13.6.4" stroke="url(#gw)" stroke-width="2" stroke-linecap="round" opacity=".5"/>
-        <path d="M42 30c7 0 13-5 15-12-5 1.5-8 2-11.5 5" stroke="url(#gw)" stroke-width="2" stroke-linecap="round"/>
-        <path d="M43.5 35.5c7 .5 13-2.5 16.5-8-5 .3-9 .8-13.4 3.6" stroke="url(#gw)" stroke-width="2" stroke-linecap="round" opacity=".75"/>
-        <path d="M43 41c6 1.6 12 .4 16-3.6-4.6-.9-8.7-1-13.6.4" stroke="url(#gw)" stroke-width="2" stroke-linecap="round" opacity=".5"/>
-        <path d="M32 45v12M28.5 53l3.5 4 3.5-4" stroke="url(#gw)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" opacity=".9"/>
+        <path d="M8 46h16M12 35h18M16 24h10" stroke="url(#gw)" stroke-width="6.5" stroke-linecap="round"/>
+        <path d="M20 52 48 19" stroke="url(#gw)" stroke-width="6.5" stroke-linecap="round"/>
+        <path d="M38.5 16.5 49.5 16.5 49.5 27.5" stroke="url(#gw)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
       <div class="wordmark">Hermes<small>Autonomous trading console</small></div>
     </div>
     <div class="spacer"></div>
     <div class="pill"><span class="dot" id="livedot"></span><span id="modelbl"><b>—</b></span></div>
     <div class="pill">Risk&nbsp;<b id="risklbl">—</b></div>
+    <div class="pill" id="freshpill" style="display:none"><span id="freshlbl" class="num">—</span></div>
     <div class="clock num" id="clock">— UTC</div>
   </header>
 
@@ -297,7 +300,11 @@
     <div class="panel" id="chartbox">
       <div class="ptitle">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 17l6-6 4 4 8-9" stroke="#e6ac58" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Equity curve <span class="sub num" id="chartrange"></span>
+        Equity curve
+        <span class="ranges" id="ranges">
+          <button data-h="3">3H</button><button data-h="24">24H</button><button data-h="168">7D</button><button data-h="0" class="on">All</button>
+        </span>
+        <span class="sub num" id="chartrange"></span>
       </div>
       <div class="chartwrap"><svg id="chart" preserveAspectRatio="none"></svg></div>
     </div>
@@ -323,6 +330,20 @@
           Allocation constellation <span class="sub">capital-weight orbits</span>
         </div>
         <svg id="orbit" viewBox="0 0 380 252"></svg>
+      </div>
+
+      <div class="panel">
+        <div class="ptitle">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6.5" stroke="#e6ac58" stroke-width="1.8"/><path d="M16 16l4.5 4.5" stroke="#e6ac58" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Alpha research
+        </div>
+        <div id="research" style="display:flex;flex-direction:column;gap:9px;font-size:12.5px;color:var(--dim)">
+          <div>Last pass <b class="num" id="r_when" style="color:var(--txt)">—</b></div>
+          <div>Genomes evaluated <b class="num" id="r_trials" style="color:var(--txt)">—</b></div>
+          <div>Deployed <b class="num" id="r_deployed" style="color:var(--txt)">—</b></div>
+          <div>Next pass <b class="num" id="r_next" style="color:var(--txt)">—</b></div>
+          <div id="r_verdict" style="font-size:11.5px;color:var(--faint);line-height:1.55"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -633,8 +654,25 @@ function renderOrders(journal){
   }).join("");
 }
 
-const mkt = {};   /* inst -> {el, priceEl} persistent DOM for smooth tweens */
-function renderMarkets(data, last){
+const mkt = {};   /* inst -> persistent DOM for smooth tweens */
+const fmtPx = v => v >= 100 ? fmtUsd(v) : v >= 1 ? v.toFixed(3) : v.toFixed(5);
+function sparkPoints(journal, inst, w, h){
+  const pts = [];
+  for(const j of journal){
+    const p = j.prices && j.prices[inst];
+    if(p !== undefined) pts.push(p);
+  }
+  const tail = pts.slice(-120);
+  if(tail.length < 3) return null;
+  let lo = Math.min(...tail), hi = Math.max(...tail);
+  if(hi - lo < 1e-12){ hi = lo * 1.0001 + 1e-9; }
+  const step = w / (tail.length - 1);
+  return {
+    str: tail.map((p,i)=>`${(i*step).toFixed(1)},${(h - 2 - (p-lo)/(hi-lo)*(h-4)).toFixed(1)}`).join(" "),
+    up: tail[tail.length-1] >= tail[0],
+  };
+}
+function renderMarkets(data, last, journal){
   const live = data.tickers || {};
   const journalPrices = (last && last.prices) || {};
   const regimes = (last && last.regimes) || {};
@@ -646,28 +684,70 @@ function renderMarkets(data, last){
   box.style.display="block";
   const wrap = $("markets");
   for(const inst of insts){
-    const px = live[inst] !== undefined ? live[inst] : journalPrices[inst];
+    const t = live[inst];
+    const px = (t && t.last !== undefined) ? t.last
+             : (typeof t === "number" ? t : journalPrices[inst]);
     if(px === undefined) continue;
     if(!mkt[inst]){
       const el = document.createElement("div");
-      el.style.cssText = "display:flex;align-items:baseline;gap:8px";
+      el.style.cssText = "display:flex;align-items:center;gap:9px";
       el.innerHTML = `<span style="font-weight:600;color:${colorFor(inst)};font-size:13px">${shortInst(inst)}</span>
         <span class="num" style="font-size:15px;font-weight:600;letter-spacing:-0.01em"></span>
+        <span class="num mchg" style="font-size:11.5px;font-weight:560"></span>
+        <svg class="spark" width="54" height="20" viewBox="0 0 54 20"><polyline points=""/></svg>
         <span class="mreg"></span>`;
       wrap.appendChild(el);
-      mkt[inst] = {el, priceEl: el.children[1], regEl: el.children[2]};
+      mkt[inst] = {el, priceEl: el.children[1], chgEl: el.children[2],
+                   sparkEl: el.children[3].firstElementChild, regEl: el.children[4]};
     }
     const m = mkt[inst];
     const prev = m.priceEl._v;
-    tweenNum(m.priceEl, px, v=>fmtUsd(v), 600);
+    tweenNum(m.priceEl, px, fmtPx, 600);
     if(prev !== undefined && px !== prev)
       m.priceEl.style.color = px > prev ? "var(--green)" : "var(--red)";
     else if(prev === undefined)
       m.priceEl.style.color = "var(--txt)";
     clearTimeout(m._fade);
     m._fade = setTimeout(()=>{ m.priceEl.style.color = "var(--txt)"; }, 1600);
+    if(t && t.chg24h !== undefined){
+      const c = t.chg24h;
+      m.chgEl.textContent = (c>=0?"+":"")+fmtPct(c,2);
+      m.chgEl.style.color = c>=0 ? "var(--green)" : "var(--red)";
+    } else m.chgEl.textContent = "";
+    const sp = sparkPoints(journal||[], inst, 54, 20);
+    if(sp){
+      m.sparkEl.setAttribute("points", sp.str);
+      m.sparkEl.style.stroke = sp.up ? "var(--green)" : "var(--red)";
+      m.sparkEl.style.opacity = ".85";
+    }
     m.regEl.innerHTML = regimeTag(regimes[inst]);
   }
+}
+
+/* ---- research panel + data freshness ---- */
+function renderResearch(registry, meta){
+  const at = registry.researched_at || 0;
+  const now = Date.now()/1000;
+  const rel = s => s<3600? Math.round(s/60)+" min" : s<86400? (s/3600).toFixed(1)+" h" : (s/86400).toFixed(1)+" d";
+  $("r_when").textContent = at? rel(now-at)+" ago" : "never";
+  $("r_trials").textContent = registry.n_trials? registry.n_trials.toLocaleString("en-US") : "—";
+  const n = (registry.strategies||[]).length;
+  $("r_deployed").textContent = n;
+  const rh = (meta && meta.refresh_hours) || 168;
+  const next = at? at + rh*3600 - now : 0;
+  $("r_next").textContent = at? (next>0? "in "+rel(next) : "due now") : "—";
+  $("r_verdict").textContent = n===0 && at
+    ? "No edge passed out-of-sample validation — the engine stays flat rather than trade noise. It keeps watching."
+    : "";
+}
+function renderFreshness(journal){
+  const pill = $("freshpill");
+  const last = journal.length? journal[journal.length-1].ts : 0;
+  const age = Date.now()/1000 - last;
+  if(!last || age > 3600){ pill.style.display="none"; return; }
+  pill.style.display="flex";
+  $("freshlbl").textContent = age<90? Math.round(age)+"s" : Math.round(age/60)+"min";
+  $("freshlbl").style.color = age<90? "var(--green)" : age<600? "var(--amber)" : "var(--red)";
 }
 
 let lastLogKey="";
@@ -763,6 +843,15 @@ function instSlot(s){
 }
 
 /* ============================ polling ============================ */
+let rangeHours = 0;   /* 0 = all */
+$("ranges").addEventListener("click", ev=>{
+  const btn = ev.target.closest("button");
+  if(!btn) return;
+  rangeHours = +btn.dataset.h;
+  for(const b of $("ranges").children) b.classList.toggle("on", b===btn);
+  refresh();
+});
+
 let stratsCache = null;
 async function refresh(){
   let data;
@@ -798,11 +887,18 @@ async function refresh(){
   if(halted) $("haltmsg").textContent = risk.kill_reason ||
     "Daily loss limit reached — trading paused until next UTC day. Positions flattened.";
 
-  /* series + KPIs */
-  series = journal.filter(j=>j.equity>0).map(j=>({ts:j.ts, eq:j.equity}));
-  if(series.length){
-    const eq = series[series.length-1].eq, eq0 = series[0].eq;
-    let peak=0, ddNow=0; for(const p of series){ peak=Math.max(peak,p.eq); }
+  /* series + KPIs (range filter applies to the chart only) */
+  const fullSeries = journal.filter(j=>j.equity>0).map(j=>({ts:j.ts, eq:j.equity}));
+  if(rangeHours > 0 && fullSeries.length){
+    const cut = fullSeries[fullSeries.length-1].ts - rangeHours*3600;
+    series = fullSeries.filter(p=>p.ts >= cut);
+    if(series.length < 2) series = fullSeries.slice(-2);
+  } else {
+    series = fullSeries;
+  }
+  if(fullSeries.length){
+    const eq = fullSeries[fullSeries.length-1].eq, eq0 = fullSeries[0].eq;
+    let peak=0, ddNow=0; for(const p of fullSeries){ peak=Math.max(peak,p.eq); }
     ddNow = risk.peak_equity? 1-eq/risk.peak_equity : 1-eq/peak;
     tweenNum($("k_equity"), eq, v=>fmtUsd(v));
     $("k_equity_d").innerHTML = `<span class="goldc">USDT</span> · peak ${fmtUsd(risk.peak_equity||peak)}`;
@@ -824,8 +920,8 @@ async function refresh(){
     $("g_dd").className = "big num "+(ddNow>cap*0.6?"down":"up");
     let dayStart = risk.day_start_equity;
     if(!dayStart){ /* fallback: first journal point of the last UTC day */
-      const lastDay = new Date(series[series.length-1].ts*1000).toISOString().slice(0,10);
-      const first = series.find(p=>new Date(p.ts*1000).toISOString().slice(0,10)===lastDay);
+      const lastDay = new Date(fullSeries[fullSeries.length-1].ts*1000).toISOString().slice(0,10);
+      const first = fullSeries.find(p=>new Date(p.ts*1000).toISOString().slice(0,10)===lastDay);
       dayStart = first? first.eq : 0;
     }
     const dayRet = dayStart? eq/dayStart-1 : 0;
@@ -840,7 +936,9 @@ async function refresh(){
   $("k_strats_d").textContent = age!==null? "research age "+(age<1? Math.round(age*60)+"m" : age.toFixed(1)+"h") : "no research yet";
   $("researchage").textContent = age!==null? "refreshed "+(age<1? Math.round(age*60)+"m ago" : age.toFixed(1)+"h ago"):"";
 
-  renderMarkets(data, last);
+  renderMarkets(data, last, journal);
+  renderResearch(registry, data.meta);
+  renderFreshness(journal);
   const weights = (last&&last.weights)||{};
   renderStrategies(registry, weights);
   const stratsById = {}; /* sid -> strategy (same matching as the table) */

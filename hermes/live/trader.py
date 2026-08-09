@@ -84,12 +84,14 @@ def make_ctx(candles_by_inst: dict[str, Candles], inst: str,
 
 
 def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
-                 min_bars: int = 2000) -> list[ValidatedStrategy]:
-    """Full autonomous research pass over every instrument."""
+                 min_bars: int = 2000) -> tuple[list[ValidatedStrategy], int]:
+    """Full autonomous research pass over every instrument.
+    Returns (survivors, total genomes evaluated)."""
     r = cfg["research"]
     c = cfg["costs"]
     leader_inst = cfg["instruments"][0] if cfg["instruments"] else None
     all_survivors: list[ValidatedStrategy] = []
+    total_trials = 0
     for inst, candles in candles_by_inst.items():
         if len(candles) < min_bars:
             log(f"research {inst}: only {len(candles)} bars, skipping "
@@ -120,7 +122,8 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
         )
         log(f"research {inst}: {len(survivors)} strategies passed OOS validation")
         all_survivors.extend(survivors)
-    return all_survivors
+        total_trials += n_trials
+    return all_survivors, total_trials
 
 
 @dataclass
@@ -397,10 +400,11 @@ class LiveRunner:
         if force or stale or never_ran:
             self.log(f"research pass starting (stale={stale}, "
                      f"deployed={len(self.registry.strategies)})")
-            survivors = run_research(self._load_candles(), self.cfg, self.log)
+            survivors, n_trials = run_research(self._load_candles(), self.cfg, self.log)
             if survivors or not self.registry.strategies:
                 self.registry.strategies = survivors
             self.registry.researched_at = time.time()
+            self.registry.n_trials = n_trials
             self.registry.save()
             self.log(f"research done: {len(self.registry.strategies)} deployed")
 
