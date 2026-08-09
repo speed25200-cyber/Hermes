@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from ..config import Config
+from ..config import Config, effective_costs
 from ..data.store import BAR_MS, BARS_PER_YEAR, Candles, DataStore
 from ..ml.regime import regime_series
 from ..portfolio.allocator import Allocator
@@ -88,7 +88,7 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
     """Full autonomous research pass over every instrument.
     Returns (survivors, total genomes evaluated)."""
     r = cfg["research"]
-    c = cfg["costs"]
+    fee_bps, slip_bps = effective_costs(cfg["costs"])
     leader_inst = cfg["instruments"][0] if cfg["instruments"] else None
     all_survivors: list[ValidatedStrategy] = []
     total_trials = 0
@@ -110,19 +110,32 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
         pop, n_trials = evolve(
             candles_is,
             population=r["population"], generations=r["generations"],
-            fee_bps=c["taker_fee_bps"], slip_bps=c["slippage_bps"],
+            fee_bps=fee_bps, slip_bps=slip_bps,
             seed=r.get("seed"), ctx=ctx_is, log=log,
         )
         survivors = validate_candidates(
             pop, candles, n_trials=n_trials,
             is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
             min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
-            fee_bps=c["taker_fee_bps"], slip_bps=c["slippage_bps"],
+            fee_bps=fee_bps, slip_bps=slip_bps,
             max_deployed=r["max_deployed"], ctx=ctx, log=log,
         )
         log(f"research {inst}: {len(survivors)} strategies passed OOS validation")
         all_survivors.extend(survivors)
         total_trials += n_trials
+
+    # ---- cross-sectional portfolio strategies (funding carry) ----------
+    eligible = {i: c for i, c in candles_by_inst.items() if len(c) >= min_bars}
+    if len(eligible) >= 4:
+        from ..research.xs import research_xs
+        from ..strategy.xs import XS_GRID
+        xs_survivors = research_xs(
+            eligible, fee_bps=fee_bps, slip_bps=slip_bps,
+            is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
+            min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"], log=log)
+        all_survivors.extend(xs_survivors)
+        total_trials += len(XS_GRID)
+        log(f"research XS: {len(xs_survivors)} portfolio strategies deployed")
     return all_survivors, total_trials
 
 
@@ -157,12 +170,28 @@ class Trader:
         strat_rets: dict[str, float] = {}
         for s in self.registry.strategies:
             sid = self.registry.sid(s)
+            last_pos = self.last_positions.get(sid)
+            if last_pos is None:
+                continue
+            if isinstance(last_pos, dict):
+                # cross-sectional book: sum exposure * per-instrument return
+                total = 0.0
+                seen = False
+                for inst, p in last_pos.items():
+                    c = candles_by_inst.get(inst)
+                    prev_close = self.last_close.get(inst)
+                    if c is None or len(c) < 2 or not prev_close:
+                        continue
+                    total += float(p) * (float(c.c[-1]) / prev_close - 1.0)
+                    seen = True
+                if seen:
+                    strat_rets[sid] = total
+                continue
             c = candles_by_inst.get(s.inst)
             if c is None or len(c) < 2:
                 continue
             prev_close = self.last_close.get(s.inst)
-            last_pos = self.last_positions.get(sid)
-            if prev_close and last_pos is not None:
+            if prev_close:
                 bar_ret = float(c.c[-1]) / prev_close - 1.0
                 strat_rets[sid] = float(last_pos) * bar_ret
 
@@ -190,13 +219,24 @@ class Trader:
         leader_inst = self.cfg["instruments"][0] if self.cfg["instruments"] else None
         per_strategy: dict[str, dict[str, float]] = {}
         for s in self.registry.strategies:
+            sid = self.registry.sid(s)
+            if s.genome.signal == "funding_xs":
+                from ..strategy.xs import funding_xs_positions
+                eligible = {i: c for i, c in candles_by_inst.items()
+                            if len(c) >= 600}
+                _, _, pos_map = funding_xs_positions(eligible, s.genome.params)
+                if pos_map:
+                    book = {inst: float(arr[-1]) for inst, arr in pos_map.items()
+                            if len(arr)}
+                    per_strategy[sid] = book
+                    self.last_positions[sid] = book
+                continue
             c = candles_by_inst.get(s.inst)
             if c is None or len(c) < 600:
                 continue
             ctx = make_ctx(candles_by_inst, s.inst, leader_inst)
             pos_series = compute_position(c, s.genome, ctx)
             pos_now = float(pos_series[-1])
-            sid = self.registry.sid(s)
             per_strategy[sid] = {s.inst: pos_now}
             self.last_positions[sid] = pos_now
         for inst, c in candles_by_inst.items():
@@ -310,7 +350,10 @@ class Trader:
         with open(path) as f:
             d = json.load(f)
         self.allocator.restore(d.get("allocator", {}))
-        self.last_positions = {k: float(v) for k, v in d.get("last_positions", {}).items()}
+        self.last_positions = {
+            k: (v if isinstance(v, dict) else float(v))
+            for k, v in d.get("last_positions", {}).items()
+        }
         self.last_close = d.get("last_close", {})
         self.last_ts = {k: int(v) for k, v in d.get("last_ts", {}).items()}
         if isinstance(self.broker, PaperBroker) and "paper_broker" in d:
@@ -341,12 +384,15 @@ class LiveRunner:
                     "live mode requires OKX_API_KEY / OKX_API_SECRET / "
                     "OKX_API_PASSPHRASE in the environment")
             from ..exchange.broker import OKXBroker
-            self.broker: Broker = OKXBroker(self.client, cfg["live"]["td_mode"], self.log)
+            self.broker: Broker = OKXBroker(
+                self.client, cfg["live"]["td_mode"], self.log,
+                prefer_maker=cfg["costs"].get("prefer_maker", True),
+                maker_wait_s=cfg["live"].get("maker_wait_s", 20))
         else:
+            pb_fee, pb_slip = effective_costs(cfg["costs"])
             self.broker = PaperBroker(
                 cash=cfg["live"]["paper_equity"],
-                fee_bps=cfg["costs"]["taker_fee_bps"],
-                slippage_bps=cfg["costs"]["slippage_bps"],
+                fee_bps=pb_fee, slippage_bps=pb_slip,
             )
 
         bpy = BARS_PER_YEAR[cfg["bar"]]

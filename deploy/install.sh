@@ -87,6 +87,7 @@ systemctl daemon-reload
 systemctl enable hermes >/dev/null 2>&1 || true
 systemctl enable --now hermes-dashboard >/dev/null 2>&1 || true
 systemctl restart hermes-dashboard || true
-# pick up new engine code if it is already running (no-op when stopped)
-systemctl try-restart hermes || true
+# stop the engine during research (avoids duplicate backfills and sqlite
+# write races); hermes-research restarts it when it finishes
+systemctl stop hermes || true
 echo "install: OK"

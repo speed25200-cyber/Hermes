@@ -17,7 +17,7 @@ import time
 
 import numpy as np
 
-from .config import Config
+from .config import Config, effective_costs
 from .data.store import BARS_PER_YEAR, DataStore
 
 
@@ -59,9 +59,9 @@ def cmd_demo(args) -> None:
     os.makedirs(state_dir, exist_ok=True)
     registry = Registry(state_dir)
     registry.strategies = survivors
+    demo_fee, demo_slip = effective_costs(cfg["costs"])
     broker = PaperBroker(cash=cfg["live"]["paper_equity"],
-                         fee_bps=cfg["costs"]["taker_fee_bps"],
-                         slippage_bps=cfg["costs"]["slippage_bps"])
+                         fee_bps=demo_fee, slippage_bps=demo_slip)
     bpy = BARS_PER_YEAR[bar]
     allocator = Allocator(
         ewma_halflife_bars=cfg["allocator"]["ewma_halflife_bars"],
@@ -164,18 +164,17 @@ def cmd_realtest(args) -> None:
               f"replay on final {replay_bars} =====")
         candles_is, _ = split_is_oos(research_data, r["is_fraction"],
                                      r["embargo_bars"])
+        rt_fee, rt_slip = effective_costs(cfg["costs"])
         pop, n_trials = evolve(
             candles_is, population=r["population"],
             generations=r["generations"],
-            fee_bps=cfg["costs"]["taker_fee_bps"],
-            slip_bps=cfg["costs"]["slippage_bps"], seed=r.get("seed"),
+            fee_bps=rt_fee, slip_bps=rt_slip, seed=r.get("seed"),
             log=lambda m: print(f"[research] {m}"))
         survivors = validate_candidates(
             pop, research_data, n_trials=n_trials,
             is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
             min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
-            fee_bps=cfg["costs"]["taker_fee_bps"],
-            slip_bps=cfg["costs"]["slippage_bps"],
+            fee_bps=rt_fee, slip_bps=rt_slip,
             max_deployed=r["max_deployed"],
             log=lambda m: print(f"[research] {m}"))
 
@@ -185,8 +184,7 @@ def cmd_realtest(args) -> None:
         naive_pos = compute_position(candles, naive)
         replay_slice = candles.slice(n - replay_bars, n)
         naive_res = bt_engine.run(replay_slice, naive_pos[n - replay_bars:],
-                                  cfg["costs"]["taker_fee_bps"],
-                                  cfg["costs"]["slippage_bps"])
+                                  rt_fee, rt_slip)
         print(f"[naive] best in-sample genome ({naive.describe()}) on the "
               f"untouched replay segment: {naive_res.stats['total_return'] * 100:+.2f}%, "
               f"sharpe {naive_res.stats['sharpe']:.2f}, "
@@ -206,8 +204,7 @@ def cmd_realtest(args) -> None:
         registry.researched_at = time.time()
         registry.save()
         broker = PaperBroker(cash=cfg["live"]["paper_equity"],
-                             fee_bps=cfg["costs"]["taker_fee_bps"],
-                             slippage_bps=cfg["costs"]["slippage_bps"])
+                             fee_bps=rt_fee, slippage_bps=rt_slip)
         bpy = BARS_PER_YEAR[bar]
         allocator = Allocator(
             ewma_halflife_bars=cfg["allocator"]["ewma_halflife_bars"],

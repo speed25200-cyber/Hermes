@@ -180,10 +180,20 @@ class OKXClient:
 
     def market_order(self, inst_id: str, side: str, sz: str, td_mode: str = "cross",
                      reduce_only: bool = False, cl_ord_id: str | None = None) -> dict:
+        return self.place_order(inst_id, side, sz, "market", td_mode=td_mode,
+                                reduce_only=reduce_only, cl_ord_id=cl_ord_id)
+
+    def place_order(self, inst_id: str, side: str, sz: str, ord_type: str,
+                    px: str | None = None, td_mode: str = "cross",
+                    reduce_only: bool = False,
+                    cl_ord_id: str | None = None) -> dict:
+        """ord_type: market | limit | post_only. px required for non-market."""
         body = {
             "instId": inst_id, "tdMode": td_mode, "side": side,
-            "ordType": "market", "sz": sz,
+            "ordType": ord_type, "sz": sz,
         }
+        if px is not None:
+            body["px"] = px
         if reduce_only:
             body["reduceOnly"] = "true"
         if cl_ord_id:
@@ -193,3 +203,13 @@ class OKXClient:
         if str(result.get("sCode", "0")) != "0":
             raise OKXError(str(result["sCode"]), str(result.get("sMsg", "")), result)
         return result
+
+    def order_status(self, inst_id: str, ord_id: str) -> dict:
+        data = self._request("GET", "/api/v5/trade/order",
+                             {"instId": inst_id, "ordId": ord_id}, auth=True)
+        return data[0]
+
+    def cancel_order(self, inst_id: str, ord_id: str) -> dict:
+        data = self._request("POST", "/api/v5/trade/cancel-order",
+                             body={"instId": inst_id, "ordId": ord_id}, auth=True)
+        return data[0]
