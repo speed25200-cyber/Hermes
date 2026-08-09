@@ -41,6 +41,8 @@ jobs:
             echo "===== services ====="
             systemctl is-active hermes-research && echo "(research running)" || echo "(research idle/done)"
             systemctl is-active hermes || true
+            echo -n "dashboard: "; systemctl is-active hermes-dashboard || true
+            ss -tln | grep -q ":8899 " && echo "port 8899: LISTENING" || echo "port 8899: NOT listening"
             echo
             echo "===== research / engine journal (last 50 lines) ====="
             journalctl -u hermes-research -u hermes -n 50 --no-pager || true
