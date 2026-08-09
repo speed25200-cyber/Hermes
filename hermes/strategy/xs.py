@@ -43,9 +43,19 @@ XS_REV_GRID = [  # 4h / 12h / 1 day of 15m bars
     for lb in (16, 48, 96)
     for mw in (0.15, 0.25)
 ]
+XS_LEAD_GRID = [  # leader-move window: 2h / 4h / 8h of 15m bars
+    {"lookback": lb, "max_w": mw}
+    for lb in (8, 16, 32)
+    for mw in (0.15, 0.25)
+]
 
 # genome signal name -> scoring kind
-XS_KINDS = {"funding_xs": "carry", "xs_mom": "mom", "xs_rev": "rev"}
+XS_KINDS = {"funding_xs": "carry", "xs_mom": "mom", "xs_rev": "rev",
+            "xs_lead": "lead"}
+
+# trailing window (bars) for estimating each name's lead-lag beta to the
+# universe leader's previous-bar return (fixed a priori, not searched)
+LEAD_BETA_WINDOW = 2000
 
 # skip the most recent day when ranking momentum (dodges 1-day reversal)
 MOM_SKIP_FRAC = 0.05
@@ -100,11 +110,55 @@ def _scores(kind: str, c: np.ndarray, funding: np.ndarray, rv: np.ndarray,
     raise ValueError(f"unknown xs kind: {kind}")
 
 
+def _lead_scores(candles_map: dict[str, Candles], insts: list[str],
+                 idx: dict[str, np.ndarray], n: int, lb: int,
+                 leader: str) -> np.ndarray | None:
+    """Follow-the-leader continuation: each name's score is its causally
+    estimated beta to the LEADER's previous-bar return, times the leader's
+    recent move. High-beta laggards go long after the leader rallies (they
+    tend to catch up), low-beta names fund the short side. Cross-sectional
+    demeaning cannot wash this out because the betas differ per name."""
+    if not leader or leader not in candles_map:
+        return None
+    lc = candles_map[leader].c[idx[leader]]
+    lret = np.zeros(n)
+    lret[1:] = lc[1:] / lc[:-1] - 1.0
+    # leader's recent move over lb bars, scaled by its own typical move
+    L = np.zeros(n)
+    if lb >= n:
+        return None
+    L[lb:] = lc[lb:] / lc[:-lb] - 1.0
+    lsd = F.rolling_std(lret, 96) * np.sqrt(lb)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        L = L / np.where(lsd > 1e-9, lsd, np.nan)
+    L = np.clip(np.nan_to_num(L, nan=0.0), -3.0, 3.0)
+
+    x = np.concatenate(([0.0], lret[:-1]))          # leader ret, lagged 1 bar
+    W = LEAD_BETA_WINDOW
+    cs_xx = np.cumsum(x * x)
+    smat = np.zeros((len(insts), n))
+    for k, inst in enumerate(insts):
+        c = candles_map[inst].c[idx[inst]]
+        y = np.zeros(n)
+        y[1:] = c[1:] / c[:-1] - 1.0
+        cs_xy = np.cumsum(x * y)
+        sxy = cs_xy.copy()
+        sxx = cs_xx.copy()
+        sxy[W:] = cs_xy[W:] - cs_xy[:-W]
+        sxx[W:] = cs_xx[W:] - cs_xx[:-W]
+        with np.errstate(invalid="ignore", divide="ignore"):
+            beta = sxy / np.where(sxx > 1e-12, sxx, np.nan)
+        beta = np.clip(np.nan_to_num(beta, nan=0.0), -3.0, 3.0)
+        smat[k] = beta * L
+    return smat
+
+
 def xs_positions(
     candles_map: dict[str, Candles],
     params: dict,
     kind: str = "carry",
     vol_target: float = 0.15,
+    leader: str | None = None,
 ) -> tuple[np.ndarray, list[str], dict[str, np.ndarray]]:
     """Returns (common_ts, insts, {inst: pos array on the common grid}).
 
@@ -125,14 +179,22 @@ def xs_positions(
     bar = candles_map[insts[0]].bar
     bpy = BARS_PER_YEAR[bar]
 
-    smat = np.zeros((len(insts), n))
     vmat = np.zeros((len(insts), n))
     for k, inst in enumerate(insts):
         c = candles_map[inst]
         rv = F.realized_vol(c.c, w=96, bars_per_year=bpy)
-        rv = np.nan_to_num(rv, nan=0.0)
-        smat[k] = _scores(kind, c.c, c.funding, rv, lb)[idx[inst]]
-        vmat[k] = rv[idx[inst]]
+        vmat[k] = np.nan_to_num(rv, nan=0.0)[idx[inst]]
+    if kind == "lead":
+        smat = _lead_scores(candles_map, insts, idx, n, lb, leader)
+        if smat is None:
+            return common, insts, {}
+    else:
+        smat = np.zeros((len(insts), n))
+        for k, inst in enumerate(insts):
+            c = candles_map[inst]
+            rv = F.realized_vol(c.c, w=96, bars_per_year=bpy)
+            rv = np.nan_to_num(rv, nan=0.0)
+            smat[k] = _scores(kind, c.c, c.funding, rv, lb)[idx[inst]]
 
     # cross-sectional z-score of the raw score at each bar (causal)
     mu = smat.mean(axis=0, keepdims=True)
@@ -141,8 +203,9 @@ def xs_positions(
         z = (smat - mu) / np.where(sd > 1e-12, sd, np.nan)
     z = np.nan_to_num(z, nan=0.0)
 
-    # sign per family: carry & reversal fade the score, momentum follows it
-    signed = z if kind == "mom" else -z
+    # sign per family: carry & reversal fade the score, momentum and
+    # lead-lag continuation follow it
+    signed = z if kind in ("mom", "lead") else -z
 
     # inverse-vol tilt; demean so the book stays dollar-neutral after clipping
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -171,8 +234,9 @@ def xs_positions(
     scale = np.clip(np.nan_to_num(scale, nan=1.0), 0.0, 3.0)
     w = w * scale[None, :]
 
-    # warm-up guard
-    w[:, : max(lb, 200)] = 0.0
+    # warm-up guard (lead-lag also needs its beta-estimation window)
+    warm = max(lb, 200, LEAD_BETA_WINDOW if kind == "lead" else 0)
+    w[:, :warm] = 0.0
 
     # no-trade band (hysteresis): hold the current position until the target
     # drifts at least band away — kills the per-bar churn that lets costs

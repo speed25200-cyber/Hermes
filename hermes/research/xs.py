@@ -16,8 +16,8 @@ import numpy as np
 from ..backtest import metrics
 from ..data.store import BARS_PER_YEAR, Candles
 from ..strategy.genome import Genome
-from ..strategy.xs import (XS_GRID, XS_MOM_GRID, XS_REV_GRID, portfolio_backtest,
-                           xs_positions)
+from ..strategy.xs import (XS_GRID, XS_LEAD_GRID, XS_MOM_GRID, XS_REV_GRID,
+                           portfolio_backtest, xs_positions)
 from .validate import ValidatedStrategy
 
 XS_INST = "XS-PORTFOLIO"
@@ -27,6 +27,7 @@ XS_FAMILIES = [
     ("funding_xs", "carry", XS_GRID, True),
     ("xs_mom", "mom", XS_MOM_GRID, False),
     ("xs_rev", "rev", XS_REV_GRID, False),
+    ("xs_lead", "lead", XS_LEAD_GRID, False),
 ]
 
 XS_TOTAL_TRIALS = sum(len(grid) for _, _, grid, _ in XS_FAMILIES)
@@ -83,6 +84,7 @@ def _validate_family(
     max_oos_drawdown: float,
     n_folds: int,
     log,
+    leader: str | None = None,
 ) -> ValidatedStrategy | None:
     insts = sorted(candles_map)
     bar = candles_map[insts[0]].bar
@@ -99,7 +101,7 @@ def _validate_family(
     is_map = slice_map(0.0, is_fraction)
     best = None
     for params in grid:
-        common, _, pos = xs_positions(is_map, params, kind=kind)
+        common, _, pos = xs_positions(is_map, params, kind=kind, leader=leader)
         if not pos:
             continue
         rets = portfolio_backtest(is_map, pos, common, fee_bps, slip_bps)
@@ -116,7 +118,8 @@ def _validate_family(
 
     # ---- out-of-sample validation (embargoed, warm-started) -----------
     _, params = best
-    common_full, _, pos_full = xs_positions(candles_map, params, kind=kind)
+    common_full, _, pos_full = xs_positions(candles_map, params, kind=kind,
+                                            leader=leader)
     if not pos_full:
         return None
     n = len(common_full)
@@ -167,6 +170,7 @@ def research_xs(
     max_oos_drawdown: float = 0.35,
     n_folds: int = 3,
     log=None,
+    leader: str | None = None,
 ) -> list[ValidatedStrategy]:
     """Run every XS family through the gate; return the survivors."""
     if len(candles_map) < 4:
@@ -178,9 +182,14 @@ def research_xs(
         data = _trim_to_funding(candles_map, log) if needs_funding else candles_map
         if data is None:
             continue
+        if kind == "lead" and (not leader or leader not in candles_map):
+            if log:
+                log("xs research [xs_lead]: leader unavailable, skipping")
+            continue
         s = _validate_family(name, kind, grid, data, fee_bps, slip_bps,
                              is_fraction, embargo_bars, min_oos_sharpe,
-                             min_dsr, max_oos_drawdown, n_folds, log)
+                             min_dsr, max_oos_drawdown, n_folds, log,
+                             leader=leader)
         if s is not None:
             out.append(s)
     return out
