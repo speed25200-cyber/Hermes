@@ -88,9 +88,16 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
    strategies** so the book spreads across genuinely independent edges, and
    a portfolio-level volatility target scales the whole book.
 
-8. **Re-research** — the live loop automatically re-runs the whole research
-   pass when the deployed set is stale (weekly by default) or empty, on fresh
-   data. The edge is re-derived continuously, not fitted once.
+8. **The adaptive hunt** — the live loop re-runs the whole research pass on
+   fresh data when the deployed set goes stale (weekly by default). While
+   the book is **empty**, the hunt does not sleep: it re-runs **daily**, and
+   every consecutive empty pass widens the evolutionary search budget
+   (population and generations ×1.5, then ×2). Validation thresholds never
+   move — the system digs deeper, it does not lower the bar. Conversely, a
+   deployed strategy whose **live** shadow returns turn clearly negative
+   (annualised Sharpe below −0.5 over 1000+ live bars) is **retired
+   autonomously** and the hunt resumes. The full loop — hunt → validate →
+   trade → monitor → retire → hunt again — closes with no human in it.
 
 9. **Risk engine** (`hermes/risk.py`) — hard caps on per-instrument and gross
    leverage, a daily loss limit (flatten + halt until next UTC day), and a max
