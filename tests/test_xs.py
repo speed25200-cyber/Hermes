@@ -62,10 +62,9 @@ def test_carry_edge_is_found_and_validated():
                                  "slippage_bps": 2, "prefer_maker": True,
                                  "maker_miss_rate": 0.3})
     out = research_xs(uni, fee_bps=fee, slip_bps=slip, log=None)
-    assert len(out) == 1
-    s = out[0]
-    assert s.genome.signal == "funding_xs"
-    assert s.oos_stats["sharpe"] >= 0.5
+    carrys = [s for s in out if s.genome.signal == "funding_xs"]
+    assert len(carrys) == 1
+    assert carrys[0].oos_stats["sharpe"] >= 0.5
 
 
 def test_zero_funding_prefix_is_trimmed():
@@ -80,8 +79,9 @@ def test_zero_funding_prefix_is_trimmed():
                                  "slippage_bps": 2, "prefer_maker": True,
                                  "maker_miss_rate": 0.3})
     out = research_xs(uni, fee_bps=fee, slip_bps=slip, log=None)
-    assert len(out) == 1
-    assert out[0].oos_stats["sharpe"] >= 0.5
+    carrys = [s for s in out if s.genome.signal == "funding_xs"]
+    assert len(carrys) == 1
+    assert carrys[0].oos_stats["sharpe"] >= 0.5
 
 
 def test_no_spread_means_no_deploy():
@@ -89,7 +89,48 @@ def test_no_spread_means_no_deploy():
     reject (we tolerate nothing less: reject expected)."""
     uni = make_universe(seed=2, funding_spread=False)
     out = research_xs(uni, fee_bps=2.9, slip_bps=0.6, log=None)
-    assert out == [] or out[0].oos_stats["dsr"] >= 0.05
+    assert all(s.oos_stats["dsr"] >= 0.05 for s in out)
+
+
+def test_xs_momentum_finds_planted_trends():
+    """Half the universe trends up, half trends down, persistently. The
+    cross-sectional momentum book (long winners / short losers) must pass
+    the gate and earn the spread out-of-sample."""
+    uni = make_universe(seed=4, funding_spread=False)
+    for k, inst in enumerate(sorted(uni)):
+        c = uni[inst]
+        drift = 0.0004 if k < 3 else -0.0004
+        c.c = c.c * np.exp(drift * np.arange(len(c)))
+    fee, slip = effective_costs({"taker_fee_bps": 5, "maker_fee_bps": 2,
+                                 "slippage_bps": 2, "prefer_maker": True,
+                                 "maker_miss_rate": 0.3})
+    out = research_xs(uni, fee_bps=fee, slip_bps=slip, log=None)
+    moms = [s for s in out if s.genome.signal == "xs_mom"]
+    assert len(moms) == 1
+    assert moms[0].oos_stats["sharpe"] >= 0.5
+
+
+def test_xs_reversal_finds_mean_reverting_shocks():
+    """Prices oscillate around a common base via AR(1) idiosyncratic spreads:
+    short-horizon losers rebound. The reversal book must pass the gate."""
+    rng = np.random.default_rng(11)
+    base = generate(inst="BASE", bar="1H", n=6000, seed=99, s0=100.0).c
+    uni = {}
+    for k in range(6):
+        s = np.zeros(6000)
+        for t in range(1, 6000):
+            s[t] = 0.985 * s[t - 1] + rng.normal(0, 0.004)
+        c = generate(inst=f"R{k}-USDT-SWAP", bar="1H", n=6000, seed=200 + k)
+        c.c = base * np.exp(s) * (1 + 0.1 * k)
+        c.funding = np.zeros(6000)
+        uni[c.inst] = c
+    fee, slip = effective_costs({"taker_fee_bps": 5, "maker_fee_bps": 2,
+                                 "slippage_bps": 2, "prefer_maker": True,
+                                 "maker_miss_rate": 0.3})
+    out = research_xs(uni, fee_bps=fee, slip_bps=slip, log=None)
+    revs = [s for s in out if s.genome.signal == "xs_rev"]
+    assert len(revs) == 1
+    assert revs[0].oos_stats["sharpe"] >= 0.5
 
 
 def test_portfolio_backtest_charges_costs():
