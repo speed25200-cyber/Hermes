@@ -53,18 +53,34 @@ class StateReader:
         self._tick_at = 0.0
         self._ticks: dict = {}
         self._tick_lock = threading.Lock()
+        self._tick_busy = False
+
+    def _refresh_tickers(self) -> None:
+        try:
+            ticks = self.ticker_fn(self.instruments)
+            with self._tick_lock:
+                self._ticks = ticks
+                self._tick_at = time.time()
+        except Exception:
+            # exchange unreachable: keep last known prices and back off so
+            # request threads never queue behind a slow/failing fetch
+            with self._tick_lock:
+                self._tick_at = time.time() + 25.0
+        finally:
+            with self._tick_lock:
+                self._tick_busy = False
 
     def _live_tickers(self) -> dict:
+        """Serve the cached tickers immediately; refresh them in a background
+        thread when stale. Requests are never blocked by exchange latency."""
         if not (self.ticker_fn and self.instruments):
             return {}
         with self._tick_lock:
-            now = time.time()
-            if now - self._tick_at >= TICKER_TTL:
-                self._tick_at = now
-                try:
-                    self._ticks = self.ticker_fn(self.instruments)
-                except Exception:
-                    pass  # keep last known prices on transient failures
+            stale = time.time() - self._tick_at >= TICKER_TTL
+            if stale and not self._tick_busy:
+                self._tick_busy = True
+                threading.Thread(target=self._refresh_tickers,
+                                 daemon=True).start()
             return dict(self._ticks)
 
     def snapshot(self, journal_points: int = 1500) -> dict:
