@@ -105,10 +105,15 @@ class PaperBroker(Broker):
 
 
 class OKXBroker(Broker):
-    def __init__(self, client: OKXClient, td_mode: str = "cross", log=None):
+    def __init__(self, client: OKXClient, td_mode: str = "cross", log=None,
+                 prefer_maker: bool = True, maker_wait_s: float = 20.0,
+                 sleep_fn=time.sleep):
         self.client = client
         self.td_mode = td_mode
         self.log = log or (lambda m: None)
+        self.prefer_maker = prefer_maker
+        self.maker_wait_s = maker_wait_s
+        self._sleep = sleep_fn
         self._specs: dict[str, dict] = {}
 
     def _spec(self, inst: str) -> dict:
@@ -150,9 +155,59 @@ class OKXBroker(Broker):
         cur = self.positions().get(inst, 0.0)
         reduce_only = (cur > 0 and qty < 0 and abs(qty) <= cur + 1e-12) or \
                       (cur < 0 and qty > 0 and qty <= -cur + 1e-12)
-        sz = f"{contracts:.10f}".rstrip("0").rstrip(".")
-        result = self.client.market_order(inst, side, sz, self.td_mode,
-                                          reduce_only=reduce_only)
-        self.log(f"{inst}: {side} {sz} contracts (ordId={result.get('ordId')})")
-        filled_qty = contracts * spec["ctVal"]
-        return Fill(inst, side, filled_qty, price_hint, 0.0, time.time())
+        def fmt(c: float) -> str:
+            return f"{c:.10f}".rstrip("0").rstrip(".")
+
+        filled = 0.0
+        if self.prefer_maker:
+            filled = self._maker_fill(inst, side, fmt(contracts), reduce_only)
+        remaining = math.floor((contracts - filled) / lot) * lot
+        if remaining >= spec["minSz"]:
+            result = self.client.market_order(inst, side, fmt(remaining),
+                                              self.td_mode,
+                                              reduce_only=reduce_only)
+            self.log(f"{inst}: {side} {fmt(remaining)} contracts TAKER "
+                     f"(ordId={result.get('ordId')})")
+            filled += remaining
+        if filled <= 0:
+            return None
+        return Fill(inst, side, filled * spec["ctVal"], price_hint, 0.0,
+                    time.time())
+
+    def _maker_fill(self, inst: str, side: str, sz: str,
+                    reduce_only: bool) -> float:
+        """Post-only limit at the touch. Returns contracts filled (possibly
+        partial); the caller sends the remainder as a taker order."""
+        try:
+            tick = self.client.ticker(inst)
+            px = tick.get("bidPx") if side == "buy" else tick.get("askPx")
+            if not px:
+                return 0.0
+            result = self.client.place_order(inst, side, sz, "post_only",
+                                             px=str(px), td_mode=self.td_mode,
+                                             reduce_only=reduce_only)
+            ord_id = result.get("ordId", "")
+            deadline = time.time() + self.maker_wait_s
+            st: dict = {}
+            while time.time() < deadline:
+                self._sleep(min(2.0, self.maker_wait_s / 4))
+                st = self.client.order_status(inst, ord_id)
+                state = st.get("state", "")
+                if state == "filled":
+                    self.log(f"{inst}: {side} {sz} contracts MAKER @ {px}")
+                    return float(st.get("accFillSz") or sz)
+                if state in ("canceled", "mmp_canceled"):
+                    # post-only rejected (would have crossed) or external cancel
+                    return float(st.get("accFillSz") or 0.0)
+            try:
+                self.client.cancel_order(inst, ord_id)
+            except OKXError:
+                pass  # cancel can race a fill; final status below decides
+            st = self.client.order_status(inst, ord_id)
+            acc = float(st.get("accFillSz") or 0.0)
+            if acc > 0:
+                self.log(f"{inst}: {side} {acc} contracts MAKER @ {px} (partial)")
+            return acc
+        except OKXError as exc:
+            self.log(f"{inst}: maker attempt failed ({exc}), falling back")
+            return 0.0

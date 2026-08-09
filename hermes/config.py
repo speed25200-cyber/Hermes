@@ -18,16 +18,21 @@ from dataclasses import dataclass, field
 from typing import Any
 
 DEFAULTS: dict[str, Any] = {
-    # a wider liquid universe gives the research more independent chances to
+    # a wide liquid universe gives the research more independent chances to
     # find a real edge (funding carry and BTC lead-lag are alt-heavy);
     # instruments[0] is the cross-asset leader
     "instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP",
                     "XRP-USDT-SWAP", "DOGE-USDT-SWAP", "BNB-USDT-SWAP",
-                    "AVAX-USDT-SWAP", "LINK-USDT-SWAP"],
-    "bar": "1H",
+                    "AVAX-USDT-SWAP", "LINK-USDT-SWAP", "ADA-USDT-SWAP",
+                    "LTC-USDT-SWAP", "DOT-USDT-SWAP", "TON-USDT-SWAP",
+                    "NEAR-USDT-SWAP", "SUI-USDT-SWAP", "APT-USDT-SWAP",
+                    "TRX-USDT-SWAP"],
+    # 15m bars: ~35k bars/year per instrument -> 4x the statistical power of
+    # 1H for the validation gates, and intraday seasonality becomes usable
+    "bar": "15m",
     "data_dir": "data",
     "state_dir": "state",
-    "history_days": 730,
+    "history_days": 365,
     "research": {
         "population": 96,
         "generations": 25,
@@ -41,7 +46,11 @@ DEFAULTS: dict[str, Any] = {
     },
     "costs": {
         "taker_fee_bps": 5.0,        # OKX swap taker ~0.05%
-        "slippage_bps": 2.0,
+        "maker_fee_bps": 2.0,        # OKX swap maker ~0.02%
+        "slippage_bps": 2.0,         # paid on taker fills only
+        "prefer_maker": True,        # post-only limit first, market fallback
+        "maker_miss_rate": 0.30,     # fraction of maker attempts that fall
+                                     # back to taker (modelled in backtests)
     },
     "risk": {
         "portfolio_vol_target": 0.20,   # annualised
@@ -62,8 +71,22 @@ DEFAULTS: dict[str, Any] = {
         "poll_seconds": 20,
         "td_mode": "cross",
         "paper_equity": 10000.0,
+        "maker_wait_s": 20,          # post-only resting time before fallback
     },
 }
+
+
+def effective_costs(costs: dict[str, Any]) -> tuple[float, float]:
+    """(fee_bps, slip_bps) equivalent used by every backtest, modelling
+    post-only maker execution with a taker fallback on misses. With maker
+    preference off, this is plain taker + slippage."""
+    taker = float(costs["taker_fee_bps"])
+    slip = float(costs["slippage_bps"])
+    if not costs.get("prefer_maker", False):
+        return taker, slip
+    miss = float(costs.get("maker_miss_rate", 0.3))
+    maker = float(costs.get("maker_fee_bps", 2.0))
+    return (1.0 - miss) * maker + miss * taker, miss * slip
 
 
 def _merge(base: dict, override: dict) -> dict:
