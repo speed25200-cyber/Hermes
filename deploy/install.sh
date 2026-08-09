@@ -66,6 +66,21 @@ ExecStartPost=/bin/systemctl restart hermes
 TimeoutStartSec=4h
 EOF
 
+# OS-level backstop: even if the engine process (which normally schedules
+# re-research in-process) is down or wedged, the hunt still runs weekly.
+# Persistent=true replays a missed window after downtime.
+cat > /etc/systemd/system/hermes-research.timer <<EOF
+[Unit]
+Description=Hermes weekly research backstop
+
+[Timer]
+OnCalendar=Sun 03:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+EOF
+
 # dashboard: token-protected console reachable from the owner's phone (PWA).
 # The token gates every request; rotate it by editing this unit + restart.
 DASH_TOKEN="de15975f4de2eb8bdafe2ff3"
@@ -87,6 +102,7 @@ EOF
 
 systemctl daemon-reload
 systemctl enable hermes >/dev/null 2>&1 || true
+systemctl enable --now hermes-research.timer >/dev/null 2>&1 || true
 systemctl enable --now hermes-dashboard >/dev/null 2>&1 || true
 systemctl restart hermes-dashboard || true
 # stop the engine during research (avoids duplicate backfills and sqlite
