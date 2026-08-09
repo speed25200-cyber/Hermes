@@ -1,0 +1,54 @@
+# "Update dashboard only" — pushes hermes/dashboard/ to the VPS and restarts
+# the dashboard service. Never touches the engine or a running research pass.
+name: Update dashboard on VPS
+
+on:
+  workflow_dispatch:
+    inputs:
+      root_password:
+        description: "VPS root password (fallback: VPS_PASSWORD secret)"
+        required: false
+        type: string
+
+env:
+  VPS: 178.104.191.79
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ssh tooling
+        run: sudo apt-get update -qq && sudo apt-get -y -qq install sshpass rsync
+
+      - name: Resolve SSH access
+        env:
+          PW_INPUT: ${{ inputs.root_password }}
+          PW_SECRET: ${{ secrets.VPS_PASSWORD }}
+        run: |
+          PW="${PW_INPUT:-$PW_SECRET}"
+          [ -z "$PW" ] && { echo "::error::no credentials"; exit 1; }
+          ALT="${PW}.Hermes1"
+          echo "::add-mask::$PW"; echo "::add-mask::$ALT"
+          SSHOPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
+          try() { sshpass -p "$1" ssh $SSHOPTS "root@$VPS" "echo __ok__" 2>/dev/null | grep -q __ok__; }
+          if try "$PW"; then CUR="$PW"; elif try "$ALT"; then CUR="$ALT"; else
+            echo "::error::cannot authenticate"; exit 1; fi
+          echo "SSHPASS=$CUR" >> "$GITHUB_ENV"
+
+      - name: Push dashboard files
+        run: |
+          sshpass -e rsync -az --delete \
+            -e "ssh -o StrictHostKeyChecking=accept-new" \
+            hermes/dashboard/ "root@$VPS:/root/hermes/hermes/dashboard/"
+
+      - name: Restart dashboard service
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            systemctl restart hermes-dashboard
+            sleep 2
+            systemctl is-active hermes-dashboard
+            ss -tln | grep -q ":8899 " && echo "port 8899: LISTENING"
+          '

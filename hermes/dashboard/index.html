@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Hermes — Autonomous Trading Console</title>
+<title>Hermes — Autonomous Trading</title>
 <!-- iOS home-screen app (PWA): Safari > Share > Add to Home Screen -->
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
@@ -11,8 +11,8 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Hermes">
-<meta name="theme-color" content="#08090d">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none'%3E%3Cpath d='M8 46h16M12 35h18M16 24h10' stroke='%23e8b45a' stroke-width='8' stroke-linecap='round'/%3E%3Cpath d='M20 52 48 19' stroke='%23e8b45a' stroke-width='8' stroke-linecap='round'/%3E%3Cpath d='M38.5 16.5 49.5 16.5 49.5 27.5' stroke='%23e8b45a' stroke-width='7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#08090c">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' fill='none'%3E%3Ccircle cx='32' cy='32' r='28.5' stroke='%23d9b06a' stroke-width='1.6' opacity='.55'/%3E%3Cpath d='M23 21v22M41 21v22' stroke='%23e8c886' stroke-width='2.8' stroke-linecap='round'/%3E%3Cpath d='M23 35.5 47 27' stroke='%23e8c886' stroke-width='2.8' stroke-linecap='round'/%3E%3Cpath d='M43.6 23.7 47.6 26.8 44 30.6' stroke='%23e8c886' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M23 21c-3.4 1.2-5.7 3.5-6.7 6.6' stroke='%23e8c886' stroke-width='1.7' stroke-linecap='round' opacity='.85'/%3E%3Cpath d='M23 25.8c-2.5.9-4.2 2.4-5 4.4' stroke='%23e8c886' stroke-width='1.5' stroke-linecap='round' opacity='.55'/%3E%3C/svg%3E">
 <style>
   @font-face{
     font-family:"Inter var";
@@ -25,205 +25,288 @@
     font-weight:400; font-style:normal; font-display:swap;
   }
   :root{
-    --bg:#08090d;
-    --card:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.022));
-    --stroke:rgba(255,255,255,.075); --stroke2:rgba(255,255,255,.12);
-    --txt:#f4f5f8; --txt2:#c9cdd6; --dim:#9ba1af; --faint:#62687a;
-    --gold:#e6ac58; --gold2:#f4d192;
-    --green:#30d158; --red:#ff453a; --amber:#ffd60a; --blue:#64d2ff; --purple:#bf9ffb;
+    --bg:#08090c;
+    --panel:rgba(255,255,255,.022);
+    --stroke:rgba(255,255,255,.06); --stroke2:rgba(255,255,255,.11);
+    --hair:rgba(255,255,255,.05);
+    --txt:#edeef2; --txt2:#c3c7d1; --dim:#8b909d; --faint:#5a5f6d;
+    --gold:#d3a24f; --gold2:#ecd29b; --gold-dim:rgba(211,162,79,.14);
+    --green:#3ecf8e; --red:#f0544f; --amber:#e8b04b; --blue:#7aa7d8;
     --sans:"Inter var","Inter",-apple-system,"SF Pro Text","Segoe UI Variable","Segoe UI",system-ui,sans-serif;
     --mono:"JetBrains Mono","SF Mono","Cascadia Mono",Consolas,monospace;
-    --r:22px;
+    --r:16px;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html,body{height:100%}
   body{
-    background:
-      radial-gradient(1100px 520px at 75% -12%, rgba(230,172,88,.05) 0%, transparent 55%),
-      radial-gradient(900px 600px at -5% 108%, rgba(100,210,255,.04) 0%, transparent 55%),
-      var(--bg);
+    background:var(--bg);
     color:var(--txt);
     font-family:var(--sans);
-    font-size:14px; line-height:1.5;
-    letter-spacing:-0.008em;
+    font-size:13.5px; line-height:1.5;
+    letter-spacing:-0.006em;
     font-feature-settings:"cv11","ss01";
     -webkit-font-smoothing:antialiased;
     overflow-x:hidden;
   }
+  /* slow-drifting ambient light, barely there */
+  body::before{
+    content:"";position:fixed;inset:-20%;z-index:-1;pointer-events:none;
+    background:
+      radial-gradient(52rem 30rem at 78% 6%, rgba(211,162,79,.045), transparent 62%),
+      radial-gradient(46rem 34rem at 8% 96%, rgba(122,167,216,.03), transparent 60%);
+    animation:drift 46s ease-in-out infinite alternate;
+  }
+  @keyframes drift{from{transform:translate3d(0,0,0)}to{transform:translate3d(2.5%,1.8%,0)}}
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.001s !important;transition-duration:.001s !important}
+  }
   .num{font-variant-numeric:tabular-nums lining-nums}
-  .wrap{max-width:1560px;margin:0 auto;padding:22px 28px 44px}
+  .wrap{max-width:1560px;margin:0 auto;padding:20px 28px 48px}
 
-  /* ---------- header ---------- */
-  header{display:flex;align-items:center;gap:16px;padding:8px 4px 22px}
-  .logo{display:flex;align-items:center;gap:14px}
-  .wordmark{font-size:19px;font-weight:660;letter-spacing:-0.015em;color:var(--txt)}
-  .wordmark small{display:block;font-size:12px;font-weight:450;letter-spacing:-0.005em;color:var(--faint);margin-top:1px}
+  /* ================= header ================= */
+  header{display:flex;align-items:center;gap:18px;padding:6px 2px 20px}
+  .logo{display:flex;align-items:center;gap:13px}
+  .logo svg{flex:none}
+  .wordmark{font-size:15.5px;font-weight:600;letter-spacing:.34em;color:var(--txt);
+    text-transform:uppercase;line-height:1.15}
+  .wordmark small{display:block;font-size:10px;font-weight:480;letter-spacing:.14em;
+    color:var(--faint);text-transform:uppercase;margin-top:3px}
   .spacer{flex:1}
-  .pill{display:flex;align-items:center;gap:9px;
-    background:rgba(255,255,255,.055);border:1px solid var(--stroke);
-    border-radius:999px;padding:8px 16px;font-size:12.5px;font-weight:500;color:var(--dim);
-    backdrop-filter:blur(20px)}
-  .pill b{color:var(--txt);font-weight:600;letter-spacing:0}
-  .dot{width:8px;height:8px;border-radius:50%;background:var(--green);
-    box-shadow:0 0 0 0 rgba(48,209,88,.5);animation:pulse 2.2s infinite}
-  .dot.halt{background:var(--red);animation:pulsered 2.2s infinite}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(48,209,88,.45)}70%{box-shadow:0 0 0 9px rgba(48,209,88,0)}100%{box-shadow:0 0 0 0 rgba(48,209,88,0)}}
-  @keyframes pulsered{0%{box-shadow:0 0 0 0 rgba(255,69,58,.45)}70%{box-shadow:0 0 0 9px rgba(255,69,58,0)}100%{box-shadow:0 0 0 0 rgba(255,69,58,0)}}
-  .clock{font-size:12.5px;font-weight:480;color:var(--faint)}
+  .status{display:flex;align-items:stretch;background:var(--panel);
+    border:1px solid var(--stroke);border-radius:12px;overflow:hidden;
+    backdrop-filter:blur(18px)}
+  .status .seg{display:flex;align-items:center;gap:8px;padding:8px 15px;
+    font-size:11.5px;font-weight:520;color:var(--dim);white-space:nowrap}
+  .status .seg + .seg{border-left:1px solid var(--hair)}
+  .status b{color:var(--txt);font-weight:600;letter-spacing:.02em}
+  .dot{width:6.5px;height:6.5px;border-radius:50%;background:var(--green);
+    box-shadow:0 0 0 0 rgba(62,207,142,.5);animation:pulse 2.4s infinite}
+  .dot.halt{background:var(--red);animation:pulsered 2.4s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(62,207,142,.4)}70%{box-shadow:0 0 0 8px rgba(62,207,142,0)}100%{box-shadow:0 0 0 0 rgba(62,207,142,0)}}
+  @keyframes pulsered{0%{box-shadow:0 0 0 0 rgba(240,84,79,.4)}70%{box-shadow:0 0 0 8px rgba(240,84,79,0)}100%{box-shadow:0 0 0 0 rgba(240,84,79,0)}}
 
-  /* ---------- panels ---------- */
-  .grid{display:grid;gap:16px}
-  .kpis{grid-template-columns:repeat(5,1fr);margin-bottom:16px}
+  /* ================= panels ================= */
+  .grid{display:grid;gap:14px}
   .panel{
     position:relative;border-radius:var(--r);border:1px solid var(--stroke);
-    background:var(--card);
-    box-shadow:0 24px 60px -36px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.045);
-    padding:20px 22px;overflow:hidden;
-    transition:border-color .3s ease;
+    background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.014));
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.04);
+    padding:18px 20px;overflow:hidden;
+    opacity:0;transform:translateY(12px);
+    transition:opacity .7s cubic-bezier(.22,1,.36,1),transform .7s cubic-bezier(.22,1,.36,1),border-color .3s;
   }
+  .panel.in{opacity:1;transform:none}
   .panel:hover{border-color:var(--stroke2)}
-  .ptitle{display:flex;align-items:center;gap:10px;font-size:13.5px;font-weight:600;
-    letter-spacing:-0.01em;color:var(--txt2);margin-bottom:14px}
-  .ptitle svg{flex:none;opacity:.9}
-  .ptitle .sub{margin-left:auto;font-size:12px;color:var(--faint);font-weight:450}
-  .ranges{display:inline-flex;gap:2px;margin-left:14px;background:rgba(255,255,255,.05);
-    border:1px solid var(--stroke);border-radius:9px;padding:2px}
-  .ranges button{all:unset;cursor:pointer;font:inherit;font-size:11px;font-weight:560;
-    color:var(--faint);padding:3px 10px;border-radius:7px;transition:all .2s}
-  .ranges button.on{background:rgba(230,172,88,.16);color:var(--gold2)}
-  .ranges button:hover:not(.on){color:var(--txt2)}
-  .spark{display:block}
-  .spark polyline{fill:none;stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
+  /* cursor spotlight */
+  .panel::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+    background:radial-gradient(420px circle at var(--mx,-200px) var(--my,-200px),
+      rgba(255,255,255,.045), transparent 42%);
+    opacity:0;transition:opacity .35s}
+  .panel:hover::after{opacity:1}
+  .ptitle{display:flex;align-items:center;gap:10px;margin-bottom:14px;
+    font-size:10.5px;font-weight:620;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--dim)}
+  .ptitle .tick{width:3px;height:12px;border-radius:2px;flex:none;
+    background:linear-gradient(180deg,var(--gold),rgba(211,162,79,.25))}
+  .ptitle .sub{margin-left:auto;font-size:10.5px;color:var(--faint);font-weight:480;
+    letter-spacing:.04em;text-transform:none}
 
-  .kpi .label{font-size:12.5px;font-weight:510;color:var(--dim)}
-  .kpi .value{font-size:28px;font-weight:620;letter-spacing:-0.022em;margin-top:6px;
-    font-variant-numeric:tabular-nums;color:var(--txt)}
-  .kpi .delta{font-size:12px;font-weight:460;margin-top:4px;color:var(--faint);
-    font-variant-numeric:tabular-nums}
+  /* ================= markets tape ================= */
+  .tape{display:flex;overflow-x:auto;scrollbar-width:none;gap:0;align-items:stretch;
+    margin:0 -20px;padding:0 12px}
+  .tape::-webkit-scrollbar{display:none}
+  .tk{flex:none;display:flex;flex-direction:column;gap:3px;padding:4px 18px 2px;
+    border-left:1px solid var(--hair)}
+  .tk:first-child{border-left:none}
+  .tk .sym{display:flex;align-items:center;gap:7px;font-size:10px;font-weight:620;
+    letter-spacing:.1em;color:var(--dim);text-transform:uppercase}
+  .tk .reg{width:5px;height:5px;border-radius:50%;background:var(--faint);flex:none}
+  .tk .px{font-size:16px;font-weight:520;letter-spacing:-0.015em;color:var(--txt);
+    transition:color .45s}
+  .tk .row2{display:flex;align-items:center;gap:9px}
+  .tk .chg{font-size:10.5px;font-weight:580}
+  .tk svg{display:block;opacity:.8}
+  .tk polyline{fill:none;stroke-width:1.3;stroke-linejoin:round;stroke-linecap:round}
+
+  /* ================= metrics bar ================= */
+  .metrics{display:grid;grid-template-columns:1.35fr 1fr 1fr 1fr 1fr;padding:0}
+  .metric{padding:18px 22px;border-left:1px solid var(--hair);position:relative}
+  .metric:first-child{border-left:none}
+  .metric .label{font-size:10px;font-weight:600;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--faint)}
+  .metric .value{font-size:27px;font-weight:430;letter-spacing:-0.028em;margin-top:7px;
+    font-variant-numeric:tabular-nums;color:var(--txt);line-height:1.1}
+  .metric.hero .value{font-size:34px;font-weight:400}
+  .metric .delta{font-size:11px;font-weight:480;margin-top:6px;color:var(--faint);
+    font-variant-numeric:tabular-nums;letter-spacing:0}
   .up{color:var(--green)} .down{color:var(--red)} .goldc{color:var(--gold)}
-  .kpi .value.up{color:var(--green)} .kpi .value.down{color:var(--red)}
+  .metric .value.up{color:var(--green)} .metric .value.down{color:var(--red)}
 
-  .main{grid-template-columns:1fr 400px}
-  .row2{grid-template-columns:1fr 1fr;margin-top:16px}
-  .row3{grid-template-columns:1fr 1fr;margin-top:16px}
-  .rightcol{display:flex;flex-direction:column;gap:16px}
+  .main{grid-template-columns:1fr 392px;margin-top:14px}
+  .row2{grid-template-columns:1fr 1fr;margin-top:14px}
+  .rightcol{display:flex;flex-direction:column;gap:14px}
 
-  /* ---------- chart ---------- */
-  #chartbox{display:flex;flex-direction:column;min-height:400px}
-  /* the svg is absolutely positioned so its viewBox can never feed back
-     into the flex layout and inflate the panel */
-  .chartwrap{flex:1;min-height:320px;position:relative}
-  #chart{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
-  .axis{font-family:var(--sans);font-size:10.5px;font-weight:450;fill:var(--faint);
-    letter-spacing:0}
-  .gridline{stroke:rgba(255,255,255,.05);stroke-width:1}
-  .eqline{fill:none;stroke:url(#gl);stroke-width:2;stroke-linejoin:round;
-    filter:drop-shadow(0 2px 10px rgba(230,172,88,.3))}
-  .eqarea{opacity:0;transition:opacity 1.4s ease .4s}
-  .xh{stroke:rgba(255,255,255,.22);stroke-width:1;opacity:0}
-  .xhdot{fill:var(--gold2);stroke:#08090d;stroke-width:2;opacity:0}
+  /* ================= chart ================= */
+  #chartbox{display:flex;flex-direction:column;min-height:430px}
+  .ranges{display:inline-flex;gap:14px;margin-left:16px}
+  .ranges button{all:unset;cursor:pointer;font:inherit;font-size:10.5px;font-weight:600;
+    letter-spacing:.1em;color:var(--faint);padding:2px 1px 5px;position:relative;
+    transition:color .25s}
+  .ranges button::after{content:"";position:absolute;left:0;right:100%;bottom:0;height:1.5px;
+    background:var(--gold);transition:right .3s cubic-bezier(.22,1,.36,1)}
+  .ranges button.on{color:var(--gold2)}
+  .ranges button.on::after{right:0}
+  .ranges button:hover:not(.on){color:var(--txt2)}
+  .chartwrap{flex:1;min-height:330px;position:relative}
+  #chart{position:absolute;inset:0;width:100%;height:100%;display:block;
+    cursor:crosshair;touch-action:pan-y}
+  .axis{font-family:var(--sans);font-size:10px;font-weight:470;fill:var(--faint);letter-spacing:.01em}
+  .gridline{stroke:rgba(255,255,255,.042);stroke-width:1}
+  .eqline{fill:none;stroke:url(#gl);stroke-width:1.8;stroke-linejoin:round;
+    filter:drop-shadow(0 3px 12px rgba(211,162,79,.28))}
+  .eqarea{opacity:0;transition:opacity 1.5s ease .35s}
+  .xh{stroke:rgba(255,255,255,.2);stroke-width:1;opacity:0}
+  .xhdot{fill:var(--gold2);stroke:#08090c;stroke-width:2;opacity:0}
+  .flag{opacity:0}
+  .flag rect{fill:#16181e;stroke:rgba(255,255,255,.14)}
+  .flag text{font-family:var(--sans);font-size:10px;font-weight:560;fill:var(--txt2)}
+  .livedot-outer{fill:none;stroke:var(--gold);opacity:.5;animation:ping 2.2s ease-out infinite}
+  @keyframes ping{0%{stroke-width:1.5;opacity:.55;r:3}100%{stroke-width:.4;opacity:0;r:11}}
   #tip{position:fixed;pointer-events:none;z-index:50;
-    background:rgba(24,26,32,.82);backdrop-filter:blur(24px) saturate(1.4);
-    border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:11px 14px;
-    font-size:12.5px;font-weight:500;opacity:0;transition:opacity .18s;
+    background:rgba(20,22,27,.86);backdrop-filter:blur(22px) saturate(1.3);
+    border:1px solid rgba(255,255,255,.11);border-radius:12px;padding:10px 13px;
+    font-size:12.5px;font-weight:500;opacity:0;transition:opacity .16s;
     font-variant-numeric:tabular-nums;
-    box-shadow:0 16px 40px -12px rgba(0,0,0,.8)}
-  #tip .t{color:var(--faint);font-size:11px;font-weight:460;margin-bottom:4px}
+    box-shadow:0 18px 44px -14px rgba(0,0,0,.85)}
+  #tip .t{color:var(--faint);font-size:10.5px;font-weight:480;margin-bottom:3px}
 
-  /* ---------- gauge ---------- */
-  .gaugebox{display:flex;align-items:center;gap:10px}
-  .gmeta{flex:1}
-  .gmeta .big{font-size:22px;font-weight:620;letter-spacing:-0.02em;font-variant-numeric:tabular-nums}
-  .gmeta .cap{font-size:11.5px;color:var(--faint);font-weight:460;margin-top:2px}
-  .gmeta .row{margin-bottom:14px}
+  /* ================= risk meters ================= */
+  .meter{margin-bottom:16px}
+  .meter:last-child{margin-bottom:2px}
+  .meter .mrow{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px}
+  .meter .mlabel{font-size:11px;font-weight:520;color:var(--dim);letter-spacing:.02em}
+  .meter .mval{font-size:16px;font-weight:560;letter-spacing:-0.015em}
+  .meter .track{position:relative;height:5px;border-radius:3px;background:rgba(255,255,255,.06)}
+  .meter .fill{position:absolute;inset:0 auto 0 0;width:0%;border-radius:3px;
+    background:linear-gradient(90deg,#a9803a,var(--gold2));
+    transition:width 1s cubic-bezier(.22,1,.36,1)}
+  .meter .fill.hot{background:linear-gradient(90deg,#b3583f,var(--red))}
+  .meter .tickmark{position:absolute;top:-3px;bottom:-3px;width:1px;background:rgba(255,255,255,.22)}
+  .meter .mcap{display:flex;justify-content:space-between;margin-top:6px;
+    font-size:9.5px;font-weight:520;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
 
-  /* ---------- constellation ---------- */
-  #orbit{width:100%;height:252px;display:block}
-  .orbitring{fill:none;stroke:rgba(255,255,255,.06);stroke-width:1;stroke-dasharray:1 6;stroke-linecap:round}
-  .spoke{stroke:var(--gold);opacity:.14}
-  .nodelbl{font-family:var(--sans);font-size:9.5px;font-weight:520;fill:var(--dim);text-anchor:middle}
+  /* ================= allocation ================= */
+  #allocbar{display:flex;height:9px;border-radius:5px;overflow:hidden;
+    background:rgba(255,255,255,.05);margin-bottom:14px}
+  #allocbar i{display:block;height:100%;transition:width 1s cubic-bezier(.22,1,.36,1);
+    border-right:1.5px solid #08090c}
+  #allocbar i:last-child{border-right:none}
+  .arow{display:flex;align-items:center;gap:11px;padding:8px 2px;
+    border-bottom:1px solid var(--hair);font-size:12.5px}
+  .arow:last-child{border-bottom:none}
+  .arow .swatch{width:7px;height:7px;border-radius:2px;flex:none}
+  .arow .aname{font-weight:580;color:var(--txt2);min-width:52px;flex:none;white-space:nowrap}
+  .arow .asig{color:var(--faint);font-size:11px;flex:1;overflow:hidden;
+    text-overflow:ellipsis;white-space:nowrap}
+  .arow .apct{font-weight:560;font-variant-numeric:tabular-nums;color:var(--txt)}
 
-  /* ---------- tables & bars ---------- */
+  /* ================= research ================= */
+  .rstat{display:flex;justify-content:space-between;align-items:baseline;
+    padding:7px 2px;border-bottom:1px solid var(--hair);font-size:12px;color:var(--dim)}
+  .rstat:last-of-type{border-bottom:none}
+  .rstat b{font-weight:560;color:var(--txt);font-variant-numeric:tabular-nums;letter-spacing:0}
+  #r_verdict{font-size:11px;color:var(--faint);line-height:1.6;margin-top:10px}
+
+  /* ================= tables ================= */
   table{width:100%;border-collapse:collapse}
-  th{font-size:11.5px;font-weight:520;color:var(--faint);letter-spacing:0;
-    text-align:left;padding:4px 10px 10px;border-bottom:1px solid var(--stroke)}
-  td{padding:10px;font-size:13px;font-weight:470;border-bottom:1px solid rgba(255,255,255,.04);
+  th{font-size:9.5px;font-weight:620;color:var(--faint);letter-spacing:.1em;
+    text-transform:uppercase;text-align:left;padding:2px 10px 9px;
+    border-bottom:1px solid var(--stroke)}
+  th.r{text-align:right}
+  td{padding:10px;font-size:12.5px;font-weight:470;border-bottom:1px solid var(--hair);
     font-variant-numeric:tabular-nums;vertical-align:middle}
+  td.r{text-align:right}
   tr:last-child td{border-bottom:none}
-  tr{transition:background .2s}
-  tbody tr:hover{background:rgba(255,255,255,.028)}
-  .idc{font-family:var(--mono);font-size:11px;color:var(--faint)}
-  .wbar{position:relative;height:6px;border-radius:3px;background:rgba(255,255,255,.07);min-width:90px;overflow:hidden}
-  .wbar i{position:absolute;inset:0 auto 0 0;border-radius:3px;width:0%;
-    background:linear-gradient(90deg,#cf9848,var(--gold2));
+  tbody tr{transition:background .2s}
+  tbody tr:hover{background:rgba(255,255,255,.024)}
+  .idc{font-family:var(--mono);font-size:10.5px;color:var(--faint);letter-spacing:0}
+  .side{display:inline-flex;align-items:center;gap:6px;font-weight:560;font-size:12px}
+  .side::before{content:"";width:5px;height:5px;border-radius:50%;background:currentColor}
+  .side.long{color:var(--green)} .side.short{color:var(--red)}
+  .side.flat{color:var(--faint)}
+  .wbar{position:relative;height:4px;border-radius:2px;background:rgba(255,255,255,.06);
+    min-width:80px;overflow:hidden}
+  .wbar i{position:absolute;inset:0 auto 0 0;border-radius:2px;width:0%;
+    background:linear-gradient(90deg,#a9803a,var(--gold2));
     transition:width .9s cubic-bezier(.22,1,.36,1)}
-  .expo{position:relative;height:16px;min-width:150px}
-  .expo .mid{position:absolute;left:50%;top:-1px;bottom:-1px;width:1px;background:rgba(255,255,255,.14)}
-  .expo i{position:absolute;top:4px;bottom:4px;border-radius:3px;
+  .expo{position:relative;height:14px;min-width:140px}
+  .expo .mid{position:absolute;left:50%;top:-2px;bottom:-2px;width:1px;background:rgba(255,255,255,.14)}
+  .expo i{position:absolute;top:4.5px;bottom:4.5px;border-radius:2px;
     transition:all .8s cubic-bezier(.22,1,.36,1)}
-  .subnum{font-size:11px;color:var(--faint);font-weight:460;margin-top:3px;
+  .subnum{font-size:10.5px;color:var(--faint);font-weight:470;margin-top:3px;
     font-variant-numeric:tabular-nums}
-  .badge{display:inline-block;padding:3px 10px;border-radius:7px;font-size:11.5px;
-    font-weight:590;letter-spacing:-0.005em}
-  .badge.long{background:rgba(48,209,88,.14);color:var(--green)}
-  .badge.short{background:rgba(255,69,58,.13);color:#ff6961}
-  .badge.flat{background:rgba(255,255,255,.07);color:var(--faint)}
   .alpha-name{color:var(--gold);font-weight:560}
-  .alpha-params{font-size:11.5px;color:var(--faint);font-weight:450}
-  .alpha-filter{font-size:11px;color:var(--blue);font-weight:500}
+  .alpha-params{font-size:11px;color:var(--faint);font-weight:450}
+  .alpha-filter{font-size:10.5px;color:var(--blue);font-weight:520}
+  .symc{font-weight:580;color:var(--txt2);white-space:nowrap}
 
-  /* ---------- feeds ---------- */
-  .feed{max-height:310px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.14) transparent}
-  .feed::-webkit-scrollbar{width:8px}
-  .feed::-webkit-scrollbar-thumb{background:rgba(255,255,255,.12);border-radius:4px}
-  .order{display:flex;align-items:center;gap:14px;padding:9px 6px;
-    border-bottom:1px solid rgba(255,255,255,.04);font-size:13px;font-weight:480;
+  /* ================= feeds ================= */
+  .feed{max-height:300px;overflow-y:auto;scrollbar-width:thin;
+    scrollbar-color:rgba(255,255,255,.12) transparent}
+  .feed::-webkit-scrollbar{width:7px}
+  .feed::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:4px}
+  .order{display:flex;align-items:center;gap:13px;padding:8.5px 4px;
+    border-bottom:1px solid var(--hair);font-size:12.5px;font-weight:480;
     font-variant-numeric:tabular-nums;
     animation:slidein .5s cubic-bezier(.22,1,.36,1)}
   .order:last-child{border-bottom:none}
-  @keyframes slidein{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:none}}
-  .order .side{width:52px;text-align:center;flex:none}
-  .order .when{color:var(--faint);font-size:11.5px;margin-left:auto;font-weight:450}
-  #logfeed{font-family:var(--mono);font-size:11px;line-height:1.8;color:#a9b0c0;
+  @keyframes slidein{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+  .order .sside{width:44px;flex:none}
+  .order .when{color:var(--faint);font-size:10.5px;margin-left:auto;font-weight:450}
+  #logfeed{font-family:var(--mono);font-size:10.5px;line-height:1.85;color:#9aa1b0;
     white-space:pre-wrap;word-break:break-word;letter-spacing:0}
   #logfeed .ts{color:var(--faint)}
   #logfeed div{animation:slidein .4s ease}
 
-  .empty{color:var(--faint);font-size:13px;font-weight:460;padding:24px 4px;text-align:center}
-  .haltbanner{display:none;margin-bottom:16px;border:1px solid rgba(255,69,58,.3);border-radius:18px;
-    background:linear-gradient(180deg,rgba(255,69,58,.12),rgba(255,69,58,.05));
-    padding:14px 20px;color:#ff8a82;font-size:13.5px;font-weight:520;align-items:center;gap:12px}
+  .empty{color:var(--faint);font-size:12.5px;font-weight:460;padding:22px 4px;text-align:center}
+  .haltbanner{display:none;margin-bottom:14px;border:1px solid rgba(240,84,79,.3);border-radius:14px;
+    background:linear-gradient(180deg,rgba(240,84,79,.1),rgba(240,84,79,.04));
+    padding:13px 18px;color:#f28e8a;font-size:12.5px;font-weight:520;align-items:center;gap:12px}
   .haltbanner.on{display:flex}
-  footer{margin-top:28px;text-align:center;font-size:11.5px;font-weight:460;color:var(--faint);opacity:.75}
+  footer{margin-top:26px;text-align:center;font-size:10px;font-weight:500;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--faint);opacity:.6}
   .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
-  .tscroll table{min-width:560px}
+  .tscroll table{min-width:540px}
   @media (max-width:1180px){
-    .kpis{grid-template-columns:repeat(2,1fr)} .main,.row2,.row3{grid-template-columns:1fr}
+    .metrics{grid-template-columns:repeat(2,1fr)}
+    .metric{border-left:none;border-top:1px solid var(--hair)}
+    .metric:nth-child(-n+2){border-top:none}
+    .metric:nth-child(even){border-left:1px solid var(--hair)}
+    .main,.row2{grid-template-columns:1fr}
   }
-  /* ---------- phone (iOS home-screen app) ---------- */
+  /* ================= phone (iOS home-screen app) ================= */
   @media (max-width:740px){
-    body{font-size:13.5px}
-    .wrap{padding:14px 12px 32px;
+    body{font-size:13px}
+    .wrap{padding:14px 12px 34px;
       padding-left:max(12px, env(safe-area-inset-left));
       padding-right:max(12px, env(safe-area-inset-right));
       padding-top:max(14px, env(safe-area-inset-top))}
-    header{flex-wrap:wrap;gap:10px;padding-bottom:14px}
-    .wordmark{font-size:17px}
-    .clock{display:none}
-    .pill{padding:6px 12px;font-size:11.5px}
+    header{flex-wrap:wrap;gap:10px;padding-bottom:12px}
+    .wordmark{font-size:13.5px;letter-spacing:.28em}
+    .status .seg.clockseg{display:none}
+    .status .seg{padding:6.5px 11px;font-size:10.5px}
     .grid{gap:10px}
-    .kpis{grid-template-columns:repeat(2,1fr);margin-bottom:10px}
-    .panel{padding:14px 14px;border-radius:18px}
-    .kpi .value{font-size:22px}
-    .kpi .delta{font-size:11px}
-    #chartbox{min-height:300px}
-    .chartwrap{min-height:230px}
-    .row2,.row3{margin-top:10px}
-    .gaugebox{flex-wrap:wrap}
-    #orbit{height:210px}
-    .feed{max-height:250px}
-    .order{gap:9px;font-size:12px}
-    .order .when{font-size:10.5px}
+    .panel{padding:14px 14px;border-radius:14px}
+    .metric{padding:13px 16px}
+    .metric .value{font-size:21px}
+    .metric.hero .value{font-size:26px}
+    #chartbox{min-height:310px}
+    .chartwrap{min-height:240px}
+    .main,.row2{margin-top:10px}
+    .feed{max-height:240px}
+    .order{gap:9px;font-size:11.5px}
+    .tk{padding:3px 13px 1px}
+    .tk .px{font-size:14.5px}
   }
 </style>
 </head>
@@ -232,65 +315,73 @@
 
   <header>
     <div class="logo">
-      <!-- Hermes mark: wing strokes propelling the ascending arrow -->
-      <svg width="42" height="42" viewBox="0 0 64 64" fill="none">
+      <!-- Hermes seal: winged-H monogram, crossbar ascending into an arrow -->
+      <svg width="44" height="44" viewBox="0 0 64 64" fill="none" aria-label="Hermes">
         <defs>
-          <linearGradient id="gw" x1="0" y1="1" x2="1" y2="0">
-            <stop offset="0" stop-color="#c08a38"/><stop offset="1" stop-color="#f6d99a"/>
+          <linearGradient id="lg" x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0" stop-color="#b98a3e"/><stop offset="1" stop-color="#eed7a4"/>
           </linearGradient>
         </defs>
-        <path d="M8 46h16M12 35h18M16 24h10" stroke="url(#gw)" stroke-width="6.5" stroke-linecap="round"/>
-        <path d="M20 52 48 19" stroke="url(#gw)" stroke-width="6.5" stroke-linecap="round"/>
-        <path d="M38.5 16.5 49.5 16.5 49.5 27.5" stroke="url(#gw)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle cx="32" cy="32" r="28.5" stroke="url(#lg)" stroke-width="1.3" opacity=".5"/>
+        <path d="M23 21v22M41 21v22" stroke="url(#lg)" stroke-width="2.7" stroke-linecap="round"/>
+        <path d="M23 35.5 47 27" stroke="url(#lg)" stroke-width="2.7" stroke-linecap="round"/>
+        <path d="M43.6 23.7 47.6 26.8 44 30.6" stroke="url(#lg)" stroke-width="2.5"
+              stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M23 21c-3.4 1.2-5.7 3.5-6.7 6.6" stroke="url(#lg)" stroke-width="1.7"
+              stroke-linecap="round" opacity=".85"/>
+        <path d="M23 25.8c-2.5.9-4.2 2.4-5 4.4" stroke="url(#lg)" stroke-width="1.5"
+              stroke-linecap="round" opacity=".55"/>
       </svg>
-      <div class="wordmark">Hermes<small>Autonomous trading console</small></div>
+      <div class="wordmark">Hermes<small>Autonomous alpha · OKX perpetuals</small></div>
     </div>
     <div class="spacer"></div>
-    <div class="pill"><span class="dot" id="livedot"></span><span id="modelbl"><b>—</b></span></div>
-    <div class="pill">Risk&nbsp;<b id="risklbl">—</b></div>
-    <div class="pill" id="freshpill" style="display:none"><span id="freshlbl" class="num">—</span></div>
-    <div class="clock num" id="clock">— UTC</div>
+    <div class="status">
+      <span class="seg"><span class="dot" id="livedot"></span><span id="modelbl"><b>—</b></span></span>
+      <span class="seg">Risk <b id="risklbl">—</b></span>
+      <span class="seg" id="freshpill" style="display:none"><span id="freshlbl" class="num">—</span></span>
+      <span class="seg clockseg num" id="clock">— UTC</span>
+    </div>
   </header>
 
   <div class="haltbanner" id="haltbanner">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-      <path d="M12 3 2.5 20h19L12 3z" stroke="#ff8a82" stroke-width="1.8" stroke-linejoin="round"/>
-      <path d="M12 10v5" stroke="#ff8a82" stroke-width="1.8" stroke-linecap="round"/>
-      <circle cx="12" cy="17.6" r="1" fill="#ff8a82"/>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+      <path d="M12 3 2.5 20h19L12 3z" stroke="#f28e8a" stroke-width="1.7" stroke-linejoin="round"/>
+      <path d="M12 10v5" stroke="#f28e8a" stroke-width="1.7" stroke-linecap="round"/>
+      <circle cx="12" cy="17.6" r="1" fill="#f28e8a"/>
     </svg>
     <span id="haltmsg"></span>
   </div>
 
-  <!-- live markets strip -->
-  <div class="panel" id="marketsbox" style="display:none;padding:13px 20px;margin-bottom:16px">
-    <div id="markets" style="display:flex;flex-wrap:wrap;gap:8px 30px;align-items:baseline"></div>
+  <!-- live markets tape -->
+  <div class="panel" id="marketsbox" style="display:none;padding:12px 20px;margin-bottom:14px">
+    <div class="tape" id="markets"></div>
   </div>
 
-  <!-- KPI row -->
-  <div class="grid kpis">
-    <div class="panel kpi">
+  <!-- metrics bar -->
+  <div class="panel metrics">
+    <div class="metric hero">
       <div class="label">Equity</div>
-      <div class="value" id="k_equity">—</div>
+      <div class="value num" id="k_equity">—</div>
       <div class="delta" id="k_equity_d"></div>
     </div>
-    <div class="panel kpi">
+    <div class="metric">
       <div class="label">Session P&amp;L</div>
-      <div class="value" id="k_pnl">—</div>
+      <div class="value num" id="k_pnl">—</div>
       <div class="delta" id="k_pnl_d"></div>
     </div>
-    <div class="panel kpi">
+    <div class="metric">
       <div class="label">Drawdown</div>
-      <div class="value" id="k_dd">—</div>
+      <div class="value num" id="k_dd">—</div>
       <div class="delta" id="k_dd_d"></div>
     </div>
-    <div class="panel kpi">
+    <div class="metric">
       <div class="label">Gross exposure</div>
-      <div class="value" id="k_gross">—</div>
+      <div class="value num" id="k_gross">—</div>
       <div class="delta" id="k_gross_d"></div>
     </div>
-    <div class="panel kpi">
+    <div class="metric">
       <div class="label">Strategies live</div>
-      <div class="value" id="k_strats">—</div>
+      <div class="value num" id="k_strats">—</div>
       <div class="delta" id="k_strats_d"></div>
     </div>
   </div>
@@ -298,11 +389,10 @@
   <!-- main row: chart + right column -->
   <div class="grid main">
     <div class="panel" id="chartbox">
-      <div class="ptitle">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M3 17l6-6 4 4 8-9" stroke="#e6ac58" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Equity curve
+      <div class="ptitle"><span class="tick"></span>
+        Performance
         <span class="ranges" id="ranges">
-          <button data-h="3">3H</button><button data-h="24">24H</button><button data-h="168">7D</button><button data-h="0" class="on">All</button>
+          <button data-h="3">3H</button><button data-h="24">24H</button><button data-h="168">7D</button><button data-h="0" class="on">ALL</button>
         </span>
         <span class="sub num" id="chartrange"></span>
       </div>
@@ -311,64 +401,60 @@
 
     <div class="rightcol">
       <div class="panel">
-        <div class="ptitle">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M12 21a9 9 0 1 1 9-9" stroke="#e6ac58" stroke-width="2" stroke-linecap="round"/><path d="M12 12l4-4" stroke="#e6ac58" stroke-width="2" stroke-linecap="round"/></svg>
-          Risk envelope
+        <div class="ptitle"><span class="tick"></span>Risk envelope</div>
+        <div class="meter">
+          <div class="mrow"><span class="mlabel">Drawdown from peak</span>
+            <span class="mval num" id="g_dd">—</span></div>
+          <div class="track"><i class="fill" id="m_dd"></i>
+            <span class="tickmark" style="left:60%"></span>
+            <span class="tickmark" style="left:85%"></span></div>
+          <div class="mcap"><span>0</span><span>kill switch 15%</span></div>
         </div>
-        <div class="gaugebox">
-          <svg id="gauge" width="168" height="128" viewBox="0 0 168 128"></svg>
-          <div class="gmeta">
-            <div class="row"><div class="big num" id="g_dd">—</div><div class="cap">current drawdown from peak</div></div>
-            <div class="row"><div class="big num" id="g_day">—</div><div class="cap">today vs daily-loss limit</div></div>
-          </div>
+        <div class="meter">
+          <div class="mrow"><span class="mlabel">Today vs daily-loss limit</span>
+            <span class="mval num" id="g_day">—</span></div>
+          <div class="track"><i class="fill" id="m_day"></i>
+            <span class="tickmark" style="left:60%"></span>
+            <span class="tickmark" style="left:85%"></span></div>
+          <div class="mcap"><span>0</span><span>halt at −3%</span></div>
         </div>
       </div>
 
       <div class="panel">
-        <div class="ptitle">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="2.4" fill="#e6ac58"/><circle cx="12" cy="12" r="6.5" stroke="#e6ac58" stroke-width="1.4" opacity=".55"/><circle cx="12" cy="12" r="10" stroke="#e6ac58" stroke-width="1.2" opacity=".3"/><circle cx="18.5" cy="9.5" r="1.6" fill="#e6ac58" opacity=".8"/></svg>
-          Allocation constellation <span class="sub">capital-weight orbits</span>
-        </div>
-        <svg id="orbit" viewBox="0 0 380 252"></svg>
+        <div class="ptitle"><span class="tick"></span>Allocation
+          <span class="sub">capital weights</span></div>
+        <div id="allocbar"></div>
+        <div id="allocrows"></div>
+        <div class="empty" id="allocempty">Awaiting deployed strategies</div>
       </div>
 
       <div class="panel">
-        <div class="ptitle">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="6.5" stroke="#e6ac58" stroke-width="1.8"/><path d="M16 16l4.5 4.5" stroke="#e6ac58" stroke-width="1.8" stroke-linecap="round"/></svg>
-          Alpha research
-        </div>
-        <div id="research" style="display:flex;flex-direction:column;gap:9px;font-size:12.5px;color:var(--dim)">
-          <div>Last pass <b class="num" id="r_when" style="color:var(--txt)">—</b></div>
-          <div>Genomes evaluated <b class="num" id="r_trials" style="color:var(--txt)">—</b></div>
-          <div>Deployed <b class="num" id="r_deployed" style="color:var(--txt)">—</b></div>
-          <div>Next pass <b class="num" id="r_next" style="color:var(--txt)">—</b></div>
-          <div id="r_verdict" style="font-size:11.5px;color:var(--faint);line-height:1.55"></div>
-        </div>
+        <div class="ptitle"><span class="tick"></span>Alpha research</div>
+        <div class="rstat">Last pass <b class="num" id="r_when">—</b></div>
+        <div class="rstat">Genomes evaluated <b class="num" id="r_trials">—</b></div>
+        <div class="rstat">Deployed <b class="num" id="r_deployed">—</b></div>
+        <div class="rstat">Next pass <b class="num" id="r_next">—</b></div>
+        <div id="r_verdict"></div>
       </div>
     </div>
   </div>
 
-  <!-- row 2: exposures + strategies -->
+  <!-- row 2: positions + strategies -->
   <div class="grid row2">
     <div class="panel">
-      <div class="ptitle">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 7h10M4 12h16M4 17h7" stroke="#e6ac58" stroke-width="2" stroke-linecap="round"/></svg>
-        Positions &amp; targets
-      </div>
+      <div class="ptitle"><span class="tick"></span>Positions &amp; targets</div>
       <div class="tscroll"><table id="postable">
-        <thead><tr><th>Instrument</th><th>Side</th><th>Qty</th><th>Price</th><th>Notional</th><th style="width:170px">Exposure</th></tr></thead>
+        <thead><tr><th>Instrument</th><th>Side</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Notional</th><th style="width:160px">Exposure</th></tr></thead>
         <tbody></tbody>
       </table></div>
       <div class="empty" id="posempty">No open positions — book is flat</div>
     </div>
 
     <div class="panel">
-      <div class="ptitle">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="2" stroke="#e6ac58" stroke-width="1.8"/><rect x="14" y="3" width="7" height="7" rx="2" stroke="#e6ac58" stroke-width="1.8" opacity=".6"/><rect x="3" y="14" width="7" height="7" rx="2" stroke="#e6ac58" stroke-width="1.8" opacity=".6"/><rect x="14" y="14" width="7" height="7" rx="2" stroke="#e6ac58" stroke-width="1.8"/></svg>
-        Deployed strategies <span class="sub" id="researchage"></span>
-      </div>
+      <div class="ptitle"><span class="tick"></span>Deployed strategies
+        <span class="sub" id="researchage"></span></div>
       <div class="tscroll"><table id="strattable">
-        <thead><tr><th>ID</th><th>Instrument</th><th>Alpha</th><th>OOS Sharpe</th><th>DSR</th><th style="width:110px">Weight</th></tr></thead>
+        <thead><tr><th>ID</th><th>Instrument</th><th>Alpha</th><th class="r">OOS Sharpe</th><th class="r">DSR</th><th style="width:104px">Weight</th></tr></thead>
         <tbody></tbody>
       </table></div>
       <div class="empty" id="stratempty">No strategies deployed — research pending</div>
@@ -376,27 +462,22 @@
   </div>
 
   <!-- row 3: orders + activity -->
-  <div class="grid row3">
+  <div class="grid row2">
     <div class="panel">
-      <div class="ptitle">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M7 4v13m0 0-3.5-3.5M7 17l3.5-3.5" stroke="#30d158" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/><path d="M17 20V7m0 0 3.5 3.5M17 7l-3.5 3.5" stroke="#ff453a" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Order flow <span class="sub num" id="ordercount"></span>
-      </div>
+      <div class="ptitle"><span class="tick"></span>Order flow
+        <span class="sub num" id="ordercount"></span></div>
       <div class="feed" id="orderfeed"></div>
       <div class="empty" id="orderempty">No orders yet</div>
     </div>
 
     <div class="panel">
-      <div class="ptitle">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 11h16M4 16h10" stroke="#e6ac58" stroke-width="1.8" stroke-linecap="round"/><circle cx="19" cy="16" r="1.4" fill="#30d158"/></svg>
-        Activity log
-      </div>
+      <div class="ptitle"><span class="tick"></span>Activity log</div>
       <div class="feed" id="logfeed"></div>
       <div class="empty" id="logempty">Log is empty</div>
     </div>
   </div>
 
-  <footer>Hermes · self-directed alpha · local console</footer>
+  <footer>Hermes · self-directed alpha</footer>
 </div>
 
 <div id="tip"></div>
@@ -427,13 +508,30 @@ function tweenNum(el, to, fmt, dur=700){
   tweens.set(el, requestAnimationFrame(step));
 }
 
+/* muted, adult palette for instrument accents */
 const instColors = {};
-const PALETTE = ["#64d2ff","#e6ac58","#bf9ffb","#30d158","#ff9f0a","#ff6482","#5e9eff"];
+const PALETTE = ["#c9a35c","#8fa3bf","#9b8fbf","#7fae9a","#bf8f8f","#a3a9b5","#b0a184"];
 function colorFor(inst){
   if(!(inst in instColors)) instColors[inst] = PALETTE[Object.keys(instColors).length % PALETTE.length];
   return instColors[inst];
 }
-function shortInst(inst){ return inst.replace(/-USDT-SWAP$/,""); }
+function shortInst(inst){
+  return inst==="XS-PORTFOLIO"? "XS" : inst.replace(/-USDT-SWAP$/,"");
+}
+
+/* ================= panel entrance + cursor spotlight ================= */
+document.addEventListener("DOMContentLoaded", ()=>{
+  document.querySelectorAll(".panel").forEach((p,i)=>{
+    p.style.transitionDelay = (i*55)+"ms";
+    requestAnimationFrame(()=>requestAnimationFrame(()=>p.classList.add("in")));
+    setTimeout(()=>{ p.style.transitionDelay="0ms"; }, 1200);
+    p.addEventListener("pointermove", ev=>{
+      const r = p.getBoundingClientRect();
+      p.style.setProperty("--mx",(ev.clientX-r.left)+"px");
+      p.style.setProperty("--my",(ev.clientY-r.top)+"px");
+    });
+  });
+});
 
 /* ============================ clock ============================ */
 setInterval(()=>{ $("clock").textContent =
@@ -449,7 +547,7 @@ function drawChart(){
   chart.setAttribute("viewBox",`0 0 ${W} ${H}`);
   chart.innerHTML = "";
   if(series.length<2){ return; }
-  const P = {l:64,r:14,t:12,b:26};
+  const P = {l:58,r:16,t:14,b:30};
   const xs = series.map(d=>d.ts), ys = series.map(d=>d.eq);
   const x0 = xs[0], x1 = xs[xs.length-1];
   let y0 = Math.min(...ys), y1 = Math.max(...ys);
@@ -458,18 +556,17 @@ function drawChart(){
   const Y = v=> H-P.b - (v-y0)/(y1-y0||1)*(H-P.t-P.b);
 
   const ns = "http://www.w3.org/2000/svg";
-  const mk = (n,attrs)=>{const el=document.createElementNS(ns,n);
-    for(const k in attrs) el.setAttribute(k,attrs[k]); chart.appendChild(el); return el;};
+  const mk = (n,attrs,parent)=>{const el=document.createElementNS(ns,n);
+    for(const k in attrs) el.setAttribute(k,attrs[k]); (parent||chart).appendChild(el); return el;};
 
-  /* defs: gradients */
   const defs = mk("defs",{});
   defs.innerHTML = `<linearGradient id="ga" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#e6ac58" stop-opacity=".24"/>
-      <stop offset="1" stop-color="#e6ac58" stop-opacity="0"/>
+      <stop offset="0" stop-color="#d3a24f" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#d3a24f" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="gl" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0" stop-color="#cf9848"/>
-      <stop offset="1" stop-color="#f4d192"/>
+      <stop offset="0" stop-color="#b98a3e"/>
+      <stop offset="1" stop-color="#eed7a4"/>
     </linearGradient>`;
 
   /* gridlines + y labels */
@@ -483,7 +580,7 @@ function drawChart(){
   const nx = W < 520 ? 2 : 4;
   for(let i=0;i<=nx;i++){
     const ts = x0+(x1-x0)*i/nx;
-    const t = mk("text",{x:X(ts),y:H-7,class:"axis","text-anchor":i===0?"start":i===nx?"end":"middle"});
+    const t = mk("text",{x:X(ts),y:H-8,class:"axis","text-anchor":i===0?"start":i===nx?"end":"middle"});
     const d = new Date(ts*1000);
     t.textContent = (x1-x0 > 200*86400? d.toISOString().slice(0,10)
                     : d.toISOString().slice(5,16).replace("T"," "));
@@ -491,7 +588,7 @@ function drawChart(){
 
   /* baseline (start equity) */
   const yb = Y(ys[0]);
-  mk("line",{x1:P.l,x2:W-P.r,y1:yb,y2:yb,stroke:"rgba(255,255,255,.14)","stroke-width":1,"stroke-dasharray":"5 5",opacity:.6});
+  mk("line",{x1:P.l,x2:W-P.r,y1:yb,y2:yb,stroke:"rgba(255,255,255,.13)","stroke-width":1,"stroke-dasharray":"5 5",opacity:.55});
 
   let dLine="";
   series.forEach((pt,i)=>{ const c=(i?"L":"M"); dLine+=`${c}${X(pt.ts).toFixed(1)} ${Y(pt.eq).toFixed(1)}`; });
@@ -510,119 +607,109 @@ function drawChart(){
   }
   requestAnimationFrame(()=>area.style.opacity="1");
 
-  /* crosshair */
+  /* live endpoint pulse */
+  const ex = X(x1), ey = Y(ys[ys.length-1]);
+  mk("circle",{cx:ex,cy:ey,r:3,class:"livedot-outer"});
+  mk("circle",{cx:ex,cy:ey,r:2.6,fill:"#eed7a4",stroke:"#08090c","stroke-width":1.5});
+
+  /* crosshair: vertical + horizontal guides with axis flags */
   const xhline = mk("line",{y1:P.t,y2:H-P.b,class:"xh"});
+  const yhline = mk("line",{x1:P.l,x2:W-P.r,class:"xh"});
   const xhdot  = mk("circle",{r:3.5,class:"xhdot"});
+  const flagX = mk("g",{class:"flag"});
+  const fxr = mk("rect",{rx:5,height:18,y:H-P.b+3},flagX);
+  const fxt = mk("text",{y:H-P.b+16,"text-anchor":"middle"},flagX);
+  const flagY = mk("g",{class:"flag"});
+  const fyr = mk("rect",{rx:5,height:18,x:2},flagY);
+  const fyt = mk("text",{x:8},flagY);
   const overlay = mk("rect",{x:P.l,y:P.t,width:W-P.l-P.r,height:H-P.t-P.b,fill:"transparent"});
-  overlay.addEventListener("mousemove", ev=>{
+
+  const showXH = (clientX,clientY)=>{
     const rect = chart.getBoundingClientRect();
-    const mx = ev.clientX-rect.left;
-    const ts = x0 + (mx-P.l)/(W-P.l-P.r)*(x1-x0);
+    const mx = clientX-rect.left;
+    const ts = x0 + clamp((mx-P.l)/(W-P.l-P.r),0,1)*(x1-x0);
     let lo=0,hi=series.length-1;
     while(hi-lo>1){const m=(lo+hi)>>1; if(series[m].ts<ts) lo=m; else hi=m;}
     const pt = (ts-series[lo].ts < series[hi].ts-ts)? series[lo] : series[hi];
     const px=X(pt.ts), py=Y(pt.eq);
     xhline.setAttribute("x1",px); xhline.setAttribute("x2",px); xhline.style.opacity=1;
+    yhline.setAttribute("y1",py); yhline.setAttribute("y2",py); yhline.style.opacity=1;
     xhdot.setAttribute("cx",px); xhdot.setAttribute("cy",py); xhdot.style.opacity=1;
+    const tlbl = new Date(pt.ts*1000).toISOString().slice(5,16).replace("T"," ");
+    fxt.textContent = tlbl;
+    const tw = tlbl.length*5.6+14;
+    fxr.setAttribute("width",tw); fxr.setAttribute("x",clamp(px-tw/2,P.l,W-P.r-tw));
+    fxt.setAttribute("x",clamp(px,P.l+tw/2,W-P.r-tw/2));
+    flagX.style.opacity=1;
+    const vlbl = fmtUsd(pt.eq);
+    fyt.textContent = vlbl;
+    const vw = vlbl.length*6.2+12;
+    fyr.setAttribute("width",vw);
+    flagY.setAttribute("transform",`translate(0,${clamp(py-9,P.t,H-P.b-18)})`);
+    fyt.setAttribute("y",13);
+    flagY.style.opacity=1;
     const ret=(pt.eq/series[0].eq-1);
     tip.innerHTML = `<div class="t">${new Date(pt.ts*1000).toISOString().slice(0,16).replace("T"," ")} UTC</div>
       <div class="num">${fmtUsd(pt.eq)} <span class="${ret>=0?'up':'down'}">${ret>=0?"+":""}${fmtPct(ret)}</span></div>`;
     tip.style.opacity=1;
-    tip.style.left=(ev.clientX+16)+"px";
-    tip.style.top=(ev.clientY-14)+"px";
-  });
-  overlay.addEventListener("mouseleave",()=>{ tip.style.opacity=0;
-    xhline.style.opacity=0; xhdot.style.opacity=0; });
+    tip.style.left=Math.min(clientX+16, innerWidth-170)+"px";
+    tip.style.top=(clientY-14)+"px";
+  };
+  const hideXH = ()=>{ tip.style.opacity=0;
+    xhline.style.opacity=0; yhline.style.opacity=0; xhdot.style.opacity=0;
+    flagX.style.opacity=0; flagY.style.opacity=0; };
+  overlay.addEventListener("pointermove", ev=>showXH(ev.clientX,ev.clientY));
+  overlay.addEventListener("pointerdown", ev=>showXH(ev.clientX,ev.clientY));
+  overlay.addEventListener("pointerleave", hideXH);
+  overlay.addEventListener("pointercancel", hideXH);
 }
 window.addEventListener("resize",()=>{ if(series.length) drawChart(); });
 
-/* ============================ drawdown gauge ============================ */
-let gaugeAngle = -120, gaugeTarget = -120;
-function gaugePath(cx,cy,r,a0,a1){
-  const rad=a=>(a-90)*Math.PI/180;
-  const x0=cx+r*Math.cos(rad(a0)), yy0=cy+r*Math.sin(rad(a0));
-  const x1=cx+r*Math.cos(rad(a1)), yy1=cy+r*Math.sin(rad(a1));
-  return `M${x0} ${yy0}A${r} ${r} 0 ${a1-a0>180?1:0} 1 ${x1} ${yy1}`;
+/* ============================ risk meters ============================ */
+function drawMeters(ddFrac, cap, dayRet, dayLimit){
+  const ddf = clamp(cap>0? ddFrac/cap : 0, 0, 1);
+  const dd = $("m_dd");
+  dd.style.width = (ddf*100).toFixed(1)+"%";
+  dd.classList.toggle("hot", ddf>0.6);
+  $("g_dd").textContent = fmtPct(Math.max(0,ddFrac));
+  $("g_dd").className = "mval num "+(ddf>0.6?"down":"up");
+  const dayf = clamp(dayRet<0? (-dayRet)/dayLimit : 0, 0, 1);
+  const dy = $("m_day");
+  dy.style.width = (dayf*100).toFixed(1)+"%";
+  dy.classList.toggle("hot", dayf>0.6);
+  $("g_day").textContent = (dayRet>=0?"+":"")+fmtPct(dayRet);
+  $("g_day").className = "mval num "+(dayRet>=0?"up":"down");
 }
-function drawGauge(ddFrac, capFrac){
-  const svg=$("gauge"); svg.innerHTML="";
-  const ns="http://www.w3.org/2000/svg";
-  const mk=(n,attrs)=>{const el=document.createElementNS(ns,n);
-    for(const k in attrs)el.setAttribute(k,attrs[k]);svg.appendChild(el);return el;};
-  const cx=84, cy=100, R=66;
-  mk("path",{d:gaugePath(cx,cy,R,-120,120),stroke:"rgba(255,255,255,.07)","stroke-width":11,fill:"none","stroke-linecap":"round"});
-  /* colored zones: 0-60% of cap ok, 60-85 warn, 85-100 danger */
-  const zone=(f0,f1,color,op)=> mk("path",{d:gaugePath(cx,cy,R,-120+f0*240,-120+f1*240),
-    stroke:color,"stroke-width":11,fill:"none","stroke-linecap":"butt",opacity:op});
-  zone(0,.6,"#30d158",.35); zone(.6,.85,"#ffd60a",.3); zone(.85,1,"#ff453a",.4);
-  const frac = clamp(capFrac>0? ddFrac/capFrac : 0, 0, 1);
-  gaugeTarget = -120+frac*240;
-  /* ticks */
-  for(let i=0;i<=8;i++){
-    const a=(-120+i*30-90)*Math.PI/180;
-    mk("line",{x1:cx+(R-11)*Math.cos(a),y1:cy+(R-11)*Math.sin(a),
-      x2:cx+(R-17)*Math.cos(a),y2:cy+(R-17)*Math.sin(a),stroke:"rgba(255,255,255,.18)","stroke-width":1.5});
-  }
-  const needle = mk("g",{id:"needle"});
-  const ng=document.createElementNS(ns,"path");
-  ng.setAttribute("d",`M${cx} ${cy-52}L${cx-3.4} ${cy}L${cx+3.4} ${cy}Z`);
-  ng.setAttribute("fill","#f4d192"); needle.appendChild(ng);
-  mk("circle",{cx,cy,r:5,fill:"#101218",stroke:"#f4d192","stroke-width":2});
-  const lbl=mk("text",{x:cx,y:cy+22,class:"axis","text-anchor":"middle"});
-  lbl.textContent = "of "+fmtPct(capFrac,0)+" kill limit";
-  needle.setAttribute("transform",`rotate(${gaugeAngle} ${cx} ${cy})`);
-  svg._needle = needle; svg._c=[cx,cy];
-}
-(function animGauge(){
-  const svg=$("gauge");
-  if(svg && svg._needle){
-    gaugeAngle += (gaugeTarget-gaugeAngle)*0.08;
-    const [cx,cy]=svg._c;
-    svg._needle.setAttribute("transform",`rotate(${gaugeAngle} ${cx} ${cy})`);
-  }
-  requestAnimationFrame(animGauge);
-})();
 
-/* ============================ constellation ============================ */
-let nodes=[];  /* {sid,inst,w,angle,vel,r} */
-function updateOrbit(weights, stratsById){
-  const prev = Object.fromEntries(nodes.map(n=>[n.sid,n]));
-  nodes = Object.entries(weights).filter(([,w])=>w>0.001).map(([sid,w],i)=>{
-    const p = prev[sid];
-    return { sid, w,
-      inst: (stratsById[sid]||{}).inst || sid.split(":")[0],
-      angle: p? p.angle : (i*2.399963),          /* golden angle spread */
-      vel: p? p.vel : (0.0018+Math.random()*0.0022)*(i%2?1:-1),
-      rT: 34 + (1-clamp(w*2,0,1))*78,            /* heavier -> closer in */
-      r:  p? p.r : 118 };
-  });
-}
-(function animOrbit(){
-  const svg=$("orbit");
-  if(svg){
-    const cx=190, cy=126;
-    let html = "";
-    for(const rr of [40,70,100]) html+=`<circle cx="${cx}" cy="${cy}" r="${rr}" class="orbitring"/>`;
-    html += `<circle cx="${cx}" cy="${cy}" r="7" fill="none" stroke="#e6ac58" stroke-width="1.6" opacity=".9"/>
-             <circle cx="${cx}" cy="${cy}" r="2.6" fill="#f4d192"/>`;
-    for(const n of nodes){
-      n.angle += n.vel;
-      n.r += (n.rT-n.r)*0.06;
-      const x=cx+n.r*Math.cos(n.angle), y=cy+n.r*Math.sin(n.angle)*0.82;
-      const size = 4+Math.sqrt(n.w)*14;
-      const col = colorFor(n.inst);
-      const pct = n.w*100;
-      html += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" class="spoke" stroke-width="${(n.w*6+0.4).toFixed(1)}"/>`;
-      html += `<g><circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${size.toFixed(1)}" fill="${col}22" stroke="${col}" stroke-width="1.4"/>`;
-      html += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(size*0.35).toFixed(1)}" fill="${col}"/>`;
-      html += `<text x="${x.toFixed(1)}" y="${(y+size+12).toFixed(1)}" class="nodelbl">${shortInst(n.inst)} ${pct<1? pct.toFixed(1): pct.toFixed(0)}%</text></g>`;
-    }
-    if(!nodes.length)
-      html += `<text x="${cx}" y="${cy+58}" class="nodelbl" opacity=".7">awaiting deployed strategies</text>`;
-    svg.innerHTML = html;
+/* ============================ allocation ============================ */
+let lastAllocKey="";
+function renderAlloc(weights, stratsById){
+  const entries = Object.entries(weights||{}).filter(([,w])=>w>0.001)
+    .sort((a,b)=>b[1]-a[1]);
+  $("allocempty").style.display = entries.length? "none":"block";
+  $("allocbar").style.display = entries.length? "flex":"none";
+  const key = JSON.stringify(entries.map(([s,w])=>s+(w*1000|0)));
+  if(key===lastAllocKey) return;
+  lastAllocKey = key;
+  const gross = entries.reduce((a,[,w])=>a+w,0);
+  const scale = Math.max(gross, 1);
+  let bar="", rows="";
+  for(const [sid,w] of entries){
+    const st = stratsById[sid]||{};
+    const inst = st.inst || sid.split(":")[0];
+    const col = colorFor(inst);
+    const sig = (st.genome&&st.genome.signal)||"";
+    bar += `<i style="width:${(w/scale*100).toFixed(2)}%;background:${col}"></i>`;
+    rows += `<div class="arow"><span class="swatch" style="background:${col}"></span>
+      <span class="aname">${shortInst(inst)}</span>
+      <span class="asig">${sig}</span>
+      <span class="apct num">${(w*100).toFixed(1)}%</span></div>`;
   }
-  requestAnimationFrame(animOrbit);
-})();
+  if(gross<1)
+    bar += `<i style="width:${((1-gross)*100).toFixed(2)}%;background:rgba(255,255,255,.05)"></i>`;
+  $("allocbar").innerHTML = bar;
+  $("allocrows").innerHTML = rows;
+}
 
 /* ============================ feeds & tables ============================ */
 let lastOrderKey = "";
@@ -644,8 +731,8 @@ function renderOrders(journal){
   feed.innerHTML = rows.map(o=>{
     const buy=o.qty>0;
     return `<div class="order">
-      <span class="side badge ${buy?'long':'short'}">${buy?"Buy":"Sell"}</span>
-      <span style="color:${colorFor(o.inst)};font-weight:560">${shortInst(o.inst)}</span>
+      <span class="sside side ${buy?'long':'short'}">${buy?"Buy":"Sell"}</span>
+      <span class="symc">${shortInst(o.inst)}</span>
       <span>${fmtQty(Math.abs(o.qty))}</span>
       <span style="color:var(--dim)">@ ${fmtUsd(o.px)}</span>
       <span style="color:var(--faint)">${fmtUsd(o.notional)} USDT</span>
@@ -672,6 +759,7 @@ function sparkPoints(journal, inst, w, h){
     up: tail[tail.length-1] >= tail[0],
   };
 }
+const REGIMES = [["Quiet","#7aa7d8"],["Normal","#8b909d"],["Turbulent","#e8b04b"]];
 function renderMarkets(data, last, journal){
   const live = data.tickers || {};
   const journalPrices = (last && last.prices) || {};
@@ -690,37 +778,40 @@ function renderMarkets(data, last, journal){
     if(px === undefined) continue;
     if(!mkt[inst]){
       const el = document.createElement("div");
-      el.style.cssText = "display:flex;align-items:center;gap:9px";
-      el.innerHTML = `<span style="font-weight:600;color:${colorFor(inst)};font-size:13px">${shortInst(inst)}</span>
-        <span class="num" style="font-size:15px;font-weight:600;letter-spacing:-0.01em"></span>
-        <span class="num mchg" style="font-size:11.5px;font-weight:560"></span>
-        <svg class="spark" width="54" height="20" viewBox="0 0 54 20"><polyline points=""/></svg>
-        <span class="mreg"></span>`;
+      el.className = "tk";
+      el.innerHTML = `<span class="sym">${shortInst(inst)}<span class="reg"></span></span>
+        <span class="px num"></span>
+        <span class="row2"><span class="chg num"></span>
+        <svg width="58" height="16" viewBox="0 0 58 16"><polyline points=""/></svg></span>`;
       wrap.appendChild(el);
-      mkt[inst] = {el, priceEl: el.children[1], chgEl: el.children[2],
-                   sparkEl: el.children[3].firstElementChild, regEl: el.children[4]};
+      mkt[inst] = {el,
+        regEl: el.querySelector(".reg"),
+        priceEl: el.querySelector(".px"),
+        chgEl: el.querySelector(".chg"),
+        sparkEl: el.querySelector("polyline")};
     }
     const m = mkt[inst];
     const prev = m.priceEl._v;
     tweenNum(m.priceEl, px, fmtPx, 600);
     if(prev !== undefined && px !== prev)
       m.priceEl.style.color = px > prev ? "var(--green)" : "var(--red)";
-    else if(prev === undefined)
-      m.priceEl.style.color = "var(--txt)";
     clearTimeout(m._fade);
-    m._fade = setTimeout(()=>{ m.priceEl.style.color = "var(--txt)"; }, 1600);
+    m._fade = setTimeout(()=>{ m.priceEl.style.color = "var(--txt)"; }, 1500);
     if(t && t.chg24h !== undefined){
       const c = t.chg24h;
       m.chgEl.textContent = (c>=0?"+":"")+fmtPct(c,2);
       m.chgEl.style.color = c>=0 ? "var(--green)" : "var(--red)";
     } else m.chgEl.textContent = "";
-    const sp = sparkPoints(journal||[], inst, 54, 20);
+    const sp = sparkPoints(journal||[], inst, 58, 16);
     if(sp){
       m.sparkEl.setAttribute("points", sp.str);
       m.sparkEl.style.stroke = sp.up ? "var(--green)" : "var(--red)";
-      m.sparkEl.style.opacity = ".85";
     }
-    m.regEl.innerHTML = regimeTag(regimes[inst]);
+    const r = regimes[inst];
+    if(r!==undefined && r!==null && REGIMES[r]){
+      m.regEl.style.background = REGIMES[r][1];
+      m.regEl.title = REGIMES[r][0]+" regime";
+    }
   }
 }
 
@@ -762,12 +853,11 @@ function renderLog(lines){
   }).join("");
 }
 
-const REGIMES = [["Quiet","#64d2ff"],["Normal","#9ba1af"],["Turbulent","#ff9f0a"]];
 function regimeTag(r){
   if(r===undefined||r===null) return "";
   const [name,col] = REGIMES[r]||REGIMES[1];
-  return `<span style="display:inline-block;margin-left:8px;padding:1px 8px;border-radius:6px;
-    font-size:10px;font-weight:560;background:${col}1c;color:${col}">${name}</span>`;
+  return `<span style="display:inline-block;margin-left:8px;padding:1px 7px;border-radius:5px;
+    font-size:9.5px;font-weight:580;letter-spacing:.04em;background:${col}1a;color:${col}">${name}</span>`;
 }
 function renderPositions(last, equity){
   const tbody = $("postable").querySelector("tbody");
@@ -789,11 +879,11 @@ function renderPositions(last, equity){
     const sideLbl = side==="flat"? "Flat" : side==="long"? "Long":"Short";
     const w = clamp(Math.abs(expo),0,1)*50;
     return `<tr>
-      <td style="color:${colorFor(inst)};font-weight:560">${shortInst(inst)}${regimeTag(regimes[inst])}</td>
-      <td><span class="badge ${side}">${sideLbl}</span></td>
-      <td>${fmtQty(q)}</td>
-      <td>${px?fmtUsd(px):"—"}</td>
-      <td>${fmtUsd(Math.abs(notional))}</td>
+      <td class="symc">${shortInst(inst)}${regimeTag(regimes[inst])}</td>
+      <td><span class="side ${side}">${sideLbl}</span></td>
+      <td class="r">${fmtQty(q)}</td>
+      <td class="r">${px?fmtUsd(px):"—"}</td>
+      <td class="r">${fmtUsd(Math.abs(notional))}</td>
       <td><div class="expo"><span class="mid"></span>
         <i style="${expo>=0?`left:50%`:`right:50%`};width:${w}%;background:${expo>=0?'var(--green)':'var(--red)'}"></i>
       </div>
@@ -816,11 +906,11 @@ function renderStrategies(registry, weights){
     const w = sid? (wmap[sid]||0) : 0;
     return `<tr>
       <td class="idc">${sid? sid.split(":")[1] : "—"}</td>
-      <td style="color:${colorFor(s.inst)};font-weight:560">${shortInst(s.inst)}</td>
+      <td class="symc">${shortInst(s.inst)}</td>
       <td><span class="alpha-name">${label}</span> <span class="alpha-params">${params}</span>
           ${g.filter&&g.filter!=="none"? `<span class="alpha-filter"> · ${g.filter}</span>`:""}</td>
-      <td class="${oos.sharpe>=1?'up':''}">${oos.sharpe!==undefined? oos.sharpe.toFixed(2):"—"}</td>
-      <td>${oos.dsr!==undefined? oos.dsr.toFixed(2):"—"}</td>
+      <td class="r ${oos.sharpe>=1?'up':''}">${oos.sharpe!==undefined? oos.sharpe.toFixed(2):"—"}</td>
+      <td class="r">${oos.dsr!==undefined? oos.dsr.toFixed(2):"—"}</td>
       <td><div class="wbar"><i style="width:${clamp(w*100,0,100)}%"></i></div>
           <div class="subnum">${(w*100).toFixed(1)}%</div></td>
     </tr>`;
@@ -904,20 +994,17 @@ async function refresh(){
     $("k_equity_d").innerHTML = `<span class="goldc">USDT</span> · peak ${fmtUsd(risk.peak_equity||peak)}`;
     const pnl = eq-eq0, ret=eq/eq0-1;
     tweenNum($("k_pnl"), pnl, v=>(v>=0?"+":"")+fmtUsd(v));
-    $("k_pnl").className = "value "+(pnl>=0?"up":"down");
+    $("k_pnl").className = "value num "+(pnl>=0?"up":"down");
     $("k_pnl_d").innerHTML = `<span class="${ret>=0?'up':'down'}">${ret>=0?"+":""}${fmtPct(ret)}</span> since journal start`;
     tweenNum($("k_dd"), ddNow, v=>fmtPct(Math.max(0,v)));
-    $("k_dd").className="value "+(ddNow>0.05?"down":"");
+    $("k_dd").className="value num "+(ddNow>0.05?"down":"");
     const gross = last? Object.values(last.targets||{}).reduce((a,b)=>a+Math.abs(b),0):0;
     tweenNum($("k_gross"), gross, v=>fmtPct(v,0));
     $("k_gross_d").textContent = "of equity, leverage-adjusted";
     drawChart();
     $("chartrange").textContent = series.length+" cycles";
-    /* gauge */
+    /* risk meters */
     const cap = 0.15;
-    drawGauge(Math.max(0,ddNow), cap);
-    $("g_dd").textContent = fmtPct(Math.max(0,ddNow));
-    $("g_dd").className = "big num "+(ddNow>cap*0.6?"down":"up");
     let dayStart = risk.day_start_equity;
     if(!dayStart){ /* fallback: first journal point of the last UTC day */
       const lastDay = new Date(fullSeries[fullSeries.length-1].ts*1000).toISOString().slice(0,10);
@@ -925,8 +1012,7 @@ async function refresh(){
       dayStart = first? first.eq : 0;
     }
     const dayRet = dayStart? eq/dayStart-1 : 0;
-    $("g_day").textContent = (dayRet>=0?"+":"")+fmtPct(dayRet);
-    $("g_day").className = "big num "+(dayRet>=0?"up":"down");
+    drawMeters(Math.max(0,ddNow), cap, dayRet, 0.03);
     $("k_dd_d").textContent = "kill switch at 15%";
   }
 
@@ -943,7 +1029,7 @@ async function refresh(){
   renderStrategies(registry, weights);
   const stratsById = {}; /* sid -> strategy (same matching as the table) */
   (registry.strategies||[]).forEach(s=>{ const k=findSid(weights,s); if(k) stratsById[k]=s; });
-  updateOrbit(weights, stratsById);
+  renderAlloc(weights, stratsById);
   renderPositions(last, last? last.equity:0);
   renderOrders(journal);
   renderLog(data.log||[]);
