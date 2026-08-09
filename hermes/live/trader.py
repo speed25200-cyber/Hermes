@@ -260,6 +260,9 @@ class Trader:
         if strat_rets or port_ret:
             self.allocator.observe(strat_rets, port_ret)
 
+        # ---- self-healing: retire strategies whose live edge collapsed ------
+        self._retire_dead_strategies()
+
         # ---- risk: equity update may trip halts -----------------------------
         self.risk.update_equity(equity, now_ts)
         if self.risk.must_flatten:
@@ -328,6 +331,39 @@ class Trader:
         })
         return {"equity": equity, "halted": False, "targets": targets,
                 "orders": orders, "weights": weights}
+
+    def _retire_dead_strategies(self) -> None:
+        """Autonomous self-healing: a deployed strategy whose LIVE shadow
+        returns show a clearly negative risk-adjusted edge over a meaningful
+        sample is removed from the book — no human in the loop. The next
+        research pass (daily while the book is empty) hunts for a
+        replacement. Thresholds live in config; validation gates are
+        untouched."""
+        r = self.cfg["research"]
+        min_obs = int(r.get("retire_after_bars", 1000))
+        floor = float(r.get("retire_sharpe", -0.5))
+        bpy = self.allocator.bars_per_year
+        keep, dropped = [], []
+        for s in self.registry.strategies:
+            sid = self.registry.sid(s)
+            t = self.allocator.tracks.get(sid)
+            if t is None or t.n_obs < min_obs:
+                keep.append(s)
+                continue
+            var = max(t.ewma_var - t.ewma_ret ** 2, 0.0)
+            sd = var ** 0.5
+            live_sharpe = (t.ewma_ret / sd) * (bpy ** 0.5) if sd > 1e-12 else 0.0
+            if live_sharpe < floor:
+                dropped.append((sid, live_sharpe))
+                self.last_positions.pop(sid, None)
+            else:
+                keep.append(s)
+        if dropped:
+            for sid, sh in dropped:
+                self.log(f"RETIRING {sid}: live sharpe {sh:.2f} < {floor} "
+                         f"after {min_obs}+ bars — edge is gone, book unwinds")
+            self.registry.strategies = keep
+            self.registry.save()
 
     def heartbeat(self, prices: dict[str, float], now_ts: float) -> float:
         """Light between-bars update: mark positions to live ticker prices,

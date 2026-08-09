@@ -49,6 +49,8 @@ DEFAULTS: dict[str, Any] = {
         "refresh_hours": 168,        # re-run research weekly
         "refresh_hours_empty": 24,   # ...but daily while nothing is deployed:
                                      # the hunt escalates instead of sleeping
+        "retire_after_bars": 1000,   # live bars before retirement can trigger
+        "retire_sharpe": -0.5,       # retire when live Sharpe falls below
     },
     "costs": {
         "taker_fee_bps": 5.0,        # OKX swap taker ~0.05%

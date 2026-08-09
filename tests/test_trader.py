@@ -125,3 +125,29 @@ def test_empty_book_uses_fast_research_cadence(tmp_path):
                     return_value=([], 0)) as rr2:
         make_runner([trend_strategy("BTC-USDT-SWAP")]).ensure_research()
     assert not rr2.called, "deployed book at 30h is fresh on weekly cadence"
+
+
+def test_dead_strategy_is_retired(tmp_path):
+    """A deployed strategy whose live shadow returns show a clearly negative
+    risk-adjusted edge over enough bars is removed autonomously; a healthy
+    one stays."""
+    from hermes.portfolio.allocator import StrategyTrack
+
+    dead = trend_strategy("BTC-USDT-SWAP")
+    alive = trend_strategy("ETH-USDT-SWAP")
+    trader, _, _ = make_trader(tmp_path, [dead, alive])
+    sid_dead = trader.registry.sid(dead)
+    sid_alive = trader.registry.sid(alive)
+    # losing consistently: mean -2bps/bar, sd ~10bps -> deeply negative sharpe
+    trader.allocator.tracks[sid_dead] = StrategyTrack(
+        ewma_ret=-2e-4, ewma_var=(1e-3) ** 2, n_obs=2000)
+    trader.allocator.tracks[sid_alive] = StrategyTrack(
+        ewma_ret=+2e-4, ewma_var=(1e-3) ** 2, n_obs=2000)
+    trader._retire_dead_strategies()
+    sids = [trader.registry.sid(s) for s in trader.registry.strategies]
+    assert sid_dead not in sids and sid_alive in sids
+    # too few observations must never retire
+    trader.registry.strategies = [dead]
+    trader.allocator.tracks[sid_dead].n_obs = 10
+    trader._retire_dead_strategies()
+    assert len(trader.registry.strategies) == 1
