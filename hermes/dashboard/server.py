@@ -87,6 +87,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(content)
 
     FONTS = {"InterVariable.woff2", "JetBrainsMono-Regular.woff2"}
+    ICONS = {"icon-192.png", "icon-512.png", "apple-touch-icon.png"}
 
     def do_GET(self):
         path = self.path.split("?")[0]
@@ -101,6 +102,14 @@ class Handler(BaseHTTPRequestHandler):
             fp = os.path.join(STATIC_DIR, os.path.basename(path))
             with open(fp, "rb") as f:
                 self._send(200, f.read(), "font/woff2")
+        elif path == "/manifest.webmanifest":
+            fp = os.path.join(STATIC_DIR, "manifest.webmanifest")
+            with open(fp, "rb") as f:
+                self._send(200, f.read(), "application/manifest+json")
+        elif path.startswith("/icons/") and os.path.basename(path) in self.ICONS:
+            fp = os.path.join(STATIC_DIR, "icons", os.path.basename(path))
+            with open(fp, "rb") as f:
+                self._send(200, f.read(), "image/png")
         else:
             self._send(404, b"not found", "text/plain")
 

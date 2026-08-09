@@ -153,10 +153,18 @@ stored on disk.
 - book (positions vs targets), deployed-strategy table with OOS Sharpe/DSR
 - order flow and activity log feeds
 
-Use `--demo` to inspect the offline demo run, `--port` to change the port.
+Use `--demo` to inspect the offline demo run, `--port` to change the port,
+and `--host 0.0.0.0` to expose it to your LAN (trusted networks only).
 The UI is a single HTML file (SVG + vanilla JS, no CDN) and every asset —
 including the bundled Inter and JetBrains Mono typefaces (both SIL OFL
 licensed) — is served locally, so it works fully offline.
+
+**iPhone / iPad**: the console installs as a home-screen app (PWA) with its
+own icon and a mobile-optimised layout — Safari → Share → Add to Home
+Screen. The trading engine itself cannot run on iOS (the OS suspends
+background apps), so the phone is the cockpit and the engine stays on an
+always-on machine. Full guide, secure remote-access options and an optional
+native SwiftUI shell: [`ios/README.md`](ios/README.md).
 
 ## Layout
 

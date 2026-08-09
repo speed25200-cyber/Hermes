@@ -301,8 +301,9 @@ def cmd_dashboard(args) -> None:
 
     cfg = Config.load(args.config)
     state_dir = os.path.join(cfg["state_dir"], "demo") if args.demo else cfg["state_dir"]
-    serve(state_dir, port=args.port, mode_hint="demo" if args.demo
-          else cfg["live"]["mode"], open_browser=not args.no_browser)
+    serve(state_dir, host=args.host, port=args.port,
+          mode_hint="demo" if args.demo else cfg["live"]["mode"],
+          open_browser=not args.no_browser)
 
 
 def cmd_status(args) -> None:
@@ -350,6 +351,9 @@ def main(argv: list[str] | None = None) -> None:
 
     b = sub.add_parser("dashboard", help="local web console (live monitoring)")
     b.add_argument("--port", type=int, default=8899)
+    b.add_argument("--host", default="127.0.0.1",
+                   help="bind address; 0.0.0.0 exposes to your LAN so a "
+                        "phone can connect (trusted networks only)")
     b.add_argument("--demo", action="store_true",
                    help="point at the demo state dir (state/demo)")
     b.add_argument("--no-browser", action="store_true")

@@ -2,8 +2,16 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Hermes — Autonomous Trading Console</title>
+<!-- iOS home-screen app (PWA): Safari > Share > Add to Home Screen -->
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Hermes">
+<meta name="theme-color" content="#08090d">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='34' r='9' stroke='%23e8b45a' stroke-width='3' fill='none'/%3E%3Ccircle cx='32' cy='34' r='4' fill='%23e8b45a'/%3E%3Cpath d='M22 30C15 30 9 25 7 18c5 1.5 8 2 11.5 5M42 30c7 0 13-5 15-12-5 1.5-8 2-11.5 5' stroke='%23e8b45a' stroke-width='3' stroke-linecap='round' fill='none'/%3E%3C/svg%3E">
 <style>
   @font-face{
@@ -179,8 +187,35 @@
     padding:14px 20px;color:#ff8a82;font-size:13.5px;font-weight:520;align-items:center;gap:12px}
   .haltbanner.on{display:flex}
   footer{margin-top:28px;text-align:center;font-size:11.5px;font-weight:460;color:var(--faint);opacity:.75}
+  .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:thin}
+  .tscroll table{min-width:560px}
   @media (max-width:1180px){
     .kpis{grid-template-columns:repeat(2,1fr)} .main,.row2,.row3{grid-template-columns:1fr}
+  }
+  /* ---------- phone (iOS home-screen app) ---------- */
+  @media (max-width:740px){
+    body{font-size:13.5px}
+    .wrap{padding:14px 12px 32px;
+      padding-left:max(12px, env(safe-area-inset-left));
+      padding-right:max(12px, env(safe-area-inset-right));
+      padding-top:max(14px, env(safe-area-inset-top))}
+    header{flex-wrap:wrap;gap:10px;padding-bottom:14px}
+    .wordmark{font-size:17px}
+    .clock{display:none}
+    .pill{padding:6px 12px;font-size:11.5px}
+    .grid{gap:10px}
+    .kpis{grid-template-columns:repeat(2,1fr);margin-bottom:10px}
+    .panel{padding:14px 14px;border-radius:18px}
+    .kpi .value{font-size:22px}
+    .kpi .delta{font-size:11px}
+    #chartbox{min-height:300px}
+    .chartwrap{min-height:230px}
+    .row2,.row3{margin-top:10px}
+    .gaugebox{flex-wrap:wrap}
+    #orbit{height:210px}
+    .feed{max-height:250px}
+    .order{gap:9px;font-size:12px}
+    .order .when{font-size:10.5px}
   }
 </style>
 </head>
@@ -294,10 +329,10 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><path d="M4 7h10M4 12h16M4 17h7" stroke="#e6ac58" stroke-width="2" stroke-linecap="round"/></svg>
         Positions &amp; targets
       </div>
-      <table id="postable">
+      <div class="tscroll"><table id="postable">
         <thead><tr><th>Instrument</th><th>Side</th><th>Qty</th><th>Price</th><th>Notional</th><th style="width:170px">Exposure</th></tr></thead>
         <tbody></tbody>
-      </table>
+      </table></div>
       <div class="empty" id="posempty">No open positions — book is flat</div>
     </div>
 
@@ -306,10 +341,10 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="7" height="7" rx="2" stroke="#e6ac58" stroke-width="1.8"/><rect x="14" y="3" width="7" height="7" rx="2" stroke="#e6ac58" stroke-width="1.8" opacity=".6"/><rect x="3" y="14" width="7" height="7" rx="2" stroke="#e6ac58" stroke-width="1.8" opacity=".6"/><rect x="14" y="14" width="7" height="7" rx="2" stroke="#e6ac58" stroke-width="1.8"/></svg>
         Deployed strategies <span class="sub" id="researchage"></span>
       </div>
-      <table id="strattable">
+      <div class="tscroll"><table id="strattable">
         <thead><tr><th>ID</th><th>Instrument</th><th>Alpha</th><th>OOS Sharpe</th><th>DSR</th><th style="width:110px">Weight</th></tr></thead>
         <tbody></tbody>
-      </table>
+      </table></div>
       <div class="empty" id="stratempty">No strategies deployed — research pending</div>
     </div>
   </div>
@@ -418,10 +453,11 @@ function drawChart(){
     const t = mk("text",{x:P.l-10,y:y+3.5,class:"axis","text-anchor":"end"});
     t.textContent = fmtUsd(v);
   }
-  /* x labels */
-  for(let i=0;i<=4;i++){
-    const ts = x0+(x1-x0)*i/4;
-    const t = mk("text",{x:X(ts),y:H-7,class:"axis","text-anchor":i===0?"start":i===4?"end":"middle"});
+  /* x labels: fewer on narrow (phone) charts so they never overlap */
+  const nx = W < 520 ? 2 : 4;
+  for(let i=0;i<=nx;i++){
+    const ts = x0+(x1-x0)*i/nx;
+    const t = mk("text",{x:X(ts),y:H-7,class:"axis","text-anchor":i===0?"start":i===nx?"end":"middle"});
     const d = new Date(ts*1000);
     t.textContent = (x1-x0 > 200*86400? d.toISOString().slice(0,10)
                     : d.toISOString().slice(5,16).replace("T"," "));
