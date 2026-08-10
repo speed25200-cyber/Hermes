@@ -101,3 +101,25 @@ def test_prefer_maker_off_goes_straight_taker():
     b = OKXBroker(c, prefer_maker=False, sleep_fn=lambda s: None)
     b.market_order("X-USDT-SWAP", 1.0, 100.0)
     assert [o[0] for o in c.orders] == ["market"]
+
+
+def test_paper_broker_tracks_average_entry():
+    """VWAP entry: averaging in on adds, kept on reduces, reset on flips,
+    cleared on close — the trade inspector displays it."""
+    from hermes.exchange.broker import PaperBroker
+
+    b = PaperBroker(cash=10000.0, fee_bps=0.0, slippage_bps=0.0)
+    b.mark_prices({"X": 100.0})
+    b.market_order("X", 1.0, 100.0)
+    b.market_order("X", 1.0, 110.0)          # add -> avg 105
+    assert abs(b.entry["X"] - 105.0) < 1e-9
+    b.market_order("X", -1.0, 120.0)         # reduce -> entry unchanged
+    assert abs(b.entry["X"] - 105.0) < 1e-9
+    b.market_order("X", -2.0, 130.0)         # flip short -> entry = fill px
+    assert abs(b.entry["X"] - 130.0) < 1e-9
+    b.market_order("X", 1.0, 125.0)          # close fully
+    assert "X" not in b.entry and "X" not in b.pos
+    d = b.to_dict()
+    b2 = PaperBroker()
+    b2.restore(d)
+    assert b2.entry == b.entry

@@ -52,6 +52,7 @@ class PaperBroker(Broker):
     slippage_bps: float = 2.0
     pos: dict[str, float] = field(default_factory=dict)      # inst -> qty
     prices: dict[str, float] = field(default_factory=dict)   # inst -> last px
+    entry: dict[str, float] = field(default_factory=dict)    # inst -> avg entry px
     fills: list[Fill] = field(default_factory=list)
 
     def mark_prices(self, prices: dict[str, float]) -> None:
@@ -76,9 +77,20 @@ class PaperBroker(Broker):
         fee = notional * self.fee_bps * 1e-4
         self.cash -= qty * px
         self.cash -= fee
-        self.pos[inst] = self.pos.get(inst, 0.0) + qty
+        old = self.pos.get(inst, 0.0)
+        new = old + qty
+        # volume-weighted average entry: adding to a position averages in the
+        # fill; reducing keeps the entry; flipping through zero restarts it
+        if old == 0.0 or old * qty > 0:
+            tot = abs(old) + abs(qty)
+            self.entry[inst] = ((abs(old) * self.entry.get(inst, px)
+                                 + abs(qty) * px) / tot)
+        elif old * new < 0:
+            self.entry[inst] = px
+        self.pos[inst] = new
         if abs(self.pos[inst]) < 1e-12:
             self.pos.pop(inst, None)
+            self.entry.pop(inst, None)
         fill = Fill(inst, side, abs(qty), px, fee, time.time())
         self.fills.append(fill)
         return fill
@@ -93,12 +105,14 @@ class PaperBroker(Broker):
     # persistence ------------------------------------------------------- #
 
     def to_dict(self) -> dict:
-        return {"cash": self.cash, "pos": self.pos, "prices": self.prices}
+        return {"cash": self.cash, "pos": self.pos, "prices": self.prices,
+                "entry": self.entry}
 
     def restore(self, d: dict) -> None:
         self.cash = d.get("cash", self.cash)
         self.pos = dict(d.get("pos", {}))
         self.prices = dict(d.get("prices", {}))
+        self.entry = dict(d.get("entry", {}))
 
 
 # --------------------------------------------------------------------- #
