@@ -113,6 +113,30 @@ class StateReader:
             "log": _tail_lines(os.path.join(sd, "hermes.log"), 120),
         }
 
+    def candles(self, inst: str, n: int = 192) -> dict:
+        """Recent OHLCV for one instrument, read from the local candle store.
+        Self-sufficient: builds the store lazily from the runtime config so
+        the trade inspector works without any CLI wiring."""
+        if self.instruments and inst not in self.instruments:
+            return {"inst": inst, "candles": []}
+        try:
+            if not hasattr(self, "_store"):
+                from ..config import Config
+                from ..data.store import DataStore
+                cfg = Config.load()
+                self._store = DataStore(cfg["data_dir"])
+                self._bar = cfg["bar"]
+            c = self._store.load(inst, self._bar)
+            n = max(20, min(int(n), 800))
+            i0 = max(0, len(c) - n)
+            return {"inst": inst, "bar": self._bar, "candles": [
+                [int(c.ts[i]), float(c.o[i]), float(c.h[i]),
+                 float(c.l[i]), float(c.c[i]), float(c.v[i])]
+                for i in range(i0, len(c))
+            ]}
+        except Exception:
+            return {"inst": inst, "candles": []}
+
 
 class Handler(BaseHTTPRequestHandler):
     reader: StateReader = None  # set by serve()
@@ -167,6 +191,17 @@ class Handler(BaseHTTPRequestHandler):
                            extra_headers=self._extra_headers)
         elif path == "/api/status":
             payload = json.dumps(self.reader.snapshot()).encode()
+            self._send(200, payload, "application/json")
+        elif path == "/api/candles":
+            from urllib.parse import parse_qs, urlparse
+            q = parse_qs(urlparse(self.path).query)
+            inst = q.get("inst", [""])[0]
+            n = q.get("n", ["192"])[0]
+            try:
+                n = int(n)
+            except ValueError:
+                n = 192
+            payload = json.dumps(self.reader.candles(inst, n)).encode()
             self._send(200, payload, "application/json")
         elif path.startswith("/fonts/") and os.path.basename(path) in self.FONTS:
             fp = os.path.join(STATIC_DIR, os.path.basename(path))
