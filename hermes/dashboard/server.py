@@ -113,29 +113,68 @@ class StateReader:
             "log": _tail_lines(os.path.join(sd, "hermes.log"), 120),
         }
 
-    def candles(self, inst: str, n: int = 192) -> dict:
-        """Recent OHLCV for one instrument, read from the local candle store.
-        Self-sufficient: builds the store lazily from the runtime config so
-        the trade inspector works without any CLI wiring."""
-        if self.instruments and inst not in self.instruments:
-            return {"inst": inst, "candles": []}
-        try:
-            if not hasattr(self, "_store"):
-                from ..config import Config
-                from ..data.store import DataStore
-                cfg = Config.load()
-                self._store = DataStore(cfg["data_dir"])
-                self._bar = cfg["bar"]
-            c = self._store.load(inst, self._bar)
-            n = max(20, min(int(n), 800))
-            i0 = max(0, len(c) - n)
-            return {"inst": inst, "bar": self._bar, "candles": [
-                [int(c.ts[i]), float(c.o[i]), float(c.h[i]),
+    # timeframe -> number of base 15m bars per bucket
+    TFS = {"15m": 1, "1h": 4, "4h": 16, "1d": 96}
+
+    def _base_rows(self, inst: str) -> list:
+        """15m OHLCV rows from the local store, cached ~45s."""
+        if not hasattr(self, "_store"):
+            from ..config import Config
+            from ..data.store import DataStore
+            cfg = Config.load()
+            self._store = DataStore(cfg["data_dir"])
+            self._bar = cfg["bar"]
+            self._ccache = {}
+        now = time.time()
+        hit = self._ccache.get(inst)
+        if hit and hit[0] > now:
+            return hit[1]
+        c = self._store.load(inst, self._bar)
+        rows = [[int(c.ts[i]), float(c.o[i]), float(c.h[i]),
                  float(c.l[i]), float(c.c[i]), float(c.v[i])]
-                for i in range(i0, len(c))
-            ]}
+                for i in range(len(c))]
+        self._ccache[inst] = (now + 45.0, rows)
+        return rows
+
+    def candles(self, inst: str, n: int = 300, tf: str = "15m",
+                before: int | None = None) -> dict:
+        """OHLCV window for the trade inspector: any supported timeframe
+        (aggregated from the 15m store, calendar-aligned buckets) with
+        backwards pagination via `before` (exclusive, ms)."""
+        if (self.instruments and inst not in self.instruments) \
+                or tf not in self.TFS:
+            return {"inst": inst, "tf": tf, "candles": [], "has_more": False}
+        try:
+            rows = self._base_rows(inst)
+            step = self.TFS[tf]
+            if step > 1:
+                bucket_ms = step * 15 * 60 * 1000
+                agg, cur, key = [], None, None
+                for r in rows:
+                    k = r[0] // bucket_ms
+                    if k != key:
+                        if cur:
+                            agg.append(cur)
+                        key = k
+                        cur = [k * bucket_ms, r[1], r[2], r[3], r[4], r[5]]
+                    else:
+                        cur[2] = max(cur[2], r[2])
+                        cur[3] = min(cur[3], r[3])
+                        cur[4] = r[4]
+                        cur[5] += r[5]
+                if cur:
+                    agg.append(cur)
+                rows = agg
+            n = max(20, min(int(n), 1000))
+            hi = len(rows)
+            if before is not None:
+                import bisect
+                hi = bisect.bisect_left([r[0] for r in rows], int(before))
+            lo = max(0, hi - n)
+            return {"inst": inst, "tf": tf, "candles": rows[lo:hi],
+                    "has_more": lo > 0}
         except Exception:
-            return {"inst": inst, "candles": []}
+            return {"inst": inst, "tf": tf, "candles": [], "has_more": False}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -196,12 +235,19 @@ class Handler(BaseHTTPRequestHandler):
             from urllib.parse import parse_qs, urlparse
             q = parse_qs(urlparse(self.path).query)
             inst = q.get("inst", [""])[0]
-            n = q.get("n", ["192"])[0]
+            tf = q.get("tf", ["15m"])[0]
             try:
-                n = int(n)
+                n = int(q.get("n", ["300"])[0])
             except ValueError:
-                n = 192
-            payload = json.dumps(self.reader.candles(inst, n)).encode()
+                n = 300
+            before = None
+            if "before" in q:
+                try:
+                    before = int(q["before"][0])
+                except ValueError:
+                    pass
+            payload = json.dumps(
+                self.reader.candles(inst, n, tf=tf, before=before)).encode()
             self._send(200, payload, "application/json")
         elif path.startswith("/fonts/") and os.path.basename(path) in self.FONTS:
             fp = os.path.join(STATIC_DIR, os.path.basename(path))
