@@ -65,3 +65,71 @@ def test_state_roundtrip(tmp_path):
     e2 = make_engine(state_path=path)
     e2.load()
     assert e2.state.killed  # restart must not reset the kill switch
+
+
+# ---------------- leverage governor ----------------
+
+from hermes.risk import LeverageGovernor
+
+
+def test_governor_boost_must_be_earned_slowly():
+    """Above-1x exposure only after a real track record: steady gains with
+    high live Sharpe ramp the multiplier up slowly, capped at max_boost."""
+    g = LeverageGovernor(min_track=50, window=200)
+    eq = 10000.0
+    mult = 1.0
+    for i in range(49):
+        eq *= 1.0003
+        mult = g.update(eq, eq)
+    assert mult == 1.0                     # not earned yet (short track)
+    for i in range(60):
+        eq *= 1.0003
+        mult = g.update(eq, eq)
+    assert 1.0 < mult <= g.max_boost       # earned, ramping
+    for i in range(300):
+        eq *= 1.0003
+        mult = g.update(eq, eq)
+    assert mult == g.max_boost             # capped
+
+
+def test_governor_derisks_fast_in_drawdown():
+    """Drawdown cuts exposure regardless of any earned boost, down to the
+    floor before the kill switch would trigger."""
+    g = LeverageGovernor()
+    peak = 10000.0
+    m_small = g.update(peak * 0.97, peak)   # 3% dd: inside tolerance
+    assert m_small == 1.0
+    m_mid = g.update(peak * 0.92, peak)     # 8% dd: partially de-risked
+    assert g.floor < m_mid < 1.0
+    m_deep = g.update(peak * 0.86, peak)    # 14% dd: at the floor
+    assert m_deep == g.floor
+
+
+def test_governor_boost_decays_faster_than_it_builds():
+    g = LeverageGovernor(min_track=10, window=100)
+    eq = 10000.0
+    for _ in range(120):
+        eq *= 1.0004
+        g.update(eq, eq)
+    assert g.boost > 1.1
+    built = g.boost
+    ups = round((built - 1.0) / g.step_up)
+    downs = 0
+    while g.boost > 1.0 and downs < 10000:
+        g.update(eq, eq * 1.05)             # 5%+ dd: conditions fail
+        downs += 1
+    assert downs < ups / 2                  # decay at least 2x faster
+
+
+def test_governor_state_roundtrip():
+    g = LeverageGovernor()
+    eq = 10000.0
+    for _ in range(30):
+        eq *= 1.0002
+        g.update(eq, eq)
+    d = g.to_dict()
+    g2 = LeverageGovernor()
+    g2.from_dict(d)
+    assert g2.boost == g.boost
+    assert g2.equity_hist == g.equity_hist
+    assert g2.last_mult == g.last_mult

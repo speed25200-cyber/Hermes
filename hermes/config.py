@@ -70,6 +70,11 @@ DEFAULTS: dict[str, Any] = {
         "max_drawdown_pct": 15.0,       # kill switch: flatten + halt
         "min_trade_notional": 10.0,     # USDT
         "max_order_notional": 25000.0,  # sanity cap per order
+        # leverage governor: autonomous risk-on/risk-off throttle. Exposure
+        # above 1x must be EARNED by live results (rolling Sharpe >= 1 with
+        # tiny drawdown, ramped slowly); drawdown de-risks fast and always
+        # wins. Hard caps above still bound everything.
+        "governor": {"enabled": True, "max_boost": 1.5},
     },
     "allocator": {
         "ewma_halflife_bars": 168,
