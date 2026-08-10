@@ -151,3 +151,29 @@ def test_dead_strategy_is_retired(tmp_path):
     trader.allocator.tracks[sid_dead].n_obs = 10
     trader._retire_dead_strategies()
     assert len(trader.registry.strategies) == 1
+
+
+def test_governor_scales_book_targets(tmp_path):
+    """A de-risked governor must shrink every target the cycle produces."""
+    from hermes.risk import LeverageGovernor
+
+    inst = "BTC-USDT-SWAP"
+    c = generate(inst=inst, bar="1H", n=1200, seed=5)
+
+    t_full, _, _ = make_trader(tmp_path / "a", [trend_strategy(inst)])
+    t_half, _, _ = make_trader(tmp_path / "b", [trend_strategy(inst)])
+
+    class Halved(LeverageGovernor):
+        def update(self, equity, peak):  # forced 0.5x, deterministic
+            self.last_mult = 0.5
+            return 0.5
+
+    t_full.governor = None
+    t_half.governor = Halved()
+
+    r_full = t_full.run_cycle({inst: c}, now_ts=1_700_000_000)
+    r_half = t_half.run_cycle({inst: c}, now_ts=1_700_000_000)
+    tgt_full = r_full["targets"].get(inst, 0.0)
+    tgt_half = r_half["targets"].get(inst, 0.0)
+    assert abs(tgt_full) > 0.01, "test needs a live signal"
+    assert abs(tgt_half - 0.5 * tgt_full) < 1e-9

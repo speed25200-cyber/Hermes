@@ -25,7 +25,7 @@ from ..ml.regime import regime_series
 from ..portfolio.allocator import Allocator
 from ..research.evolve import evolve
 from ..research.validate import ValidatedStrategy, split_is_oos, validate_candidates
-from ..risk import RiskEngine
+from ..risk import LeverageGovernor, RiskEngine
 from ..strategy.signals import compute_position
 from ..exchange.broker import Broker, PaperBroker
 
@@ -208,6 +208,15 @@ class Trader:
     last_positions: dict[str, np.ndarray] = field(default_factory=dict)  # sid -> last pos value
     last_close: dict[str, float] = field(default_factory=dict)
     last_ts: dict[str, int] = field(default_factory=dict)
+    governor: LeverageGovernor | None = None
+
+    def __post_init__(self) -> None:
+        if self.governor is None:
+            g = (self.cfg["risk"].get("governor", {})
+                 if isinstance(self.cfg.get("risk"), dict) else {})
+            if g.get("enabled", True):
+                self.governor = LeverageGovernor(
+                    max_boost=float(g.get("max_boost", 1.5)))
 
     def _journal(self, entry: dict) -> None:
         """Append one cycle record to the JSONL journal (dashboard feed)."""
@@ -306,8 +315,13 @@ class Trader:
                 self.last_close[inst] = float(c.c[-1])
                 self.last_ts[inst] = int(c.ts[-1])
 
-        # ---- allocate, clamp, reconcile -------------------------------------
+        # ---- allocate, govern, clamp, reconcile -----------------------------
         targets = self.allocator.combine(per_strategy)
+        risk_mult = 1.0
+        if self.governor is not None:
+            risk_mult = self.governor.update(equity, self.risk.state.peak_equity)
+            if abs(risk_mult - 1.0) > 1e-9:
+                targets = {i: e * risk_mult for i, e in targets.items()}
         targets = self.risk.clamp_targets(targets)
         orders = self._reconcile(targets, prices, equity)
 
@@ -326,7 +340,7 @@ class Trader:
         self._journal({
             "ts": now_ts, "equity": equity, "halted": False,
             "prices": prices, "targets": targets, "orders": orders,
-            "weights": weights, "regimes": regimes,
+            "weights": weights, "regimes": regimes, "risk_mult": risk_mult,
             "strat_pos": {sid: v for sid, v in
                           ((s, list(p.values())[0]) for s, p in per_strategy.items())},
             "positions": self.broker.positions(),
@@ -433,6 +447,8 @@ class Trader:
             "last_close": self.last_close,
             "last_ts": self.last_ts,
         }
+        if self.governor is not None:
+            d["governor"] = self.governor.to_dict()
         if isinstance(self.broker, PaperBroker):
             d["paper_broker"] = self.broker.to_dict()
         with open(os.path.join(state_dir, "trader.json"), "w") as f:
@@ -451,6 +467,8 @@ class Trader:
         }
         self.last_close = d.get("last_close", {})
         self.last_ts = {k: int(v) for k, v in d.get("last_ts", {}).items()}
+        if self.governor is not None and "governor" in d:
+            self.governor.from_dict(d["governor"])
         if isinstance(self.broker, PaperBroker) and "paper_broker" in d:
             self.broker.restore(d["paper_broker"])
 

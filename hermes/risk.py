@@ -5,15 +5,19 @@ Responsibilities:
   * daily loss limit  -> flatten and halt until next UTC day
   * max drawdown kill switch -> flatten and halt permanently (manual reset)
   * order sanity (min/max notional)
+  * leverage governor: autonomously scales the whole book with live,
+    realized performance — risk comes off fast in drawdown, goes back on
+    slowly, and above 1x only when the live track record has earned it
 
 The engine is deliberately stateful and persisted: a restart must not reset
-a tripped kill switch.
+a tripped kill switch (nor an earned/lost governor boost).
 """
 
 from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 import os
 from dataclasses import dataclass, field
 
@@ -126,3 +130,89 @@ class RiskEngine:
         if n > self.max_order_notional:
             return False, f"above max order notional ({n:.2f} > {self.max_order_notional})"
         return True, ""
+
+
+@dataclass
+class LeverageGovernor:
+    """Autonomous exposure throttle, applied to the whole book every cycle.
+
+    Two forces, deliberately asymmetric:
+
+    * risk-OFF (fast, unconditional): as live drawdown from the equity peak
+      grows past ``derisk_start`` the multiplier shrinks linearly, reaching
+      ``floor`` at ``derisk_full`` — well before the kill switch. Losing
+      streaks cut exposure automatically.
+    * risk-ON (slow, earned): the multiplier climbs above 1.0 only after at
+      least ``min_track`` live cycles whose realized Sharpe beats
+      ``boost_sharpe`` while drawdown stays under ``boost_dd``. It ramps a
+      small ``step_up`` per cycle (days to reach ``max_boost``) and decays
+      ``step_down`` per cycle — four times faster — the moment conditions
+      fail. Favourable conditions raise leverage; the hard caps of the
+      RiskEngine still bound everything above.
+    """
+
+    max_boost: float = 1.5      # ceiling on the earned risk-on multiplier
+    floor: float = 0.25         # de-risk floor (never fully blind the book)
+    window: int = 672           # live cycles kept (7 days of 15m bars)
+    min_track: int = 192        # cycles required before any boost (2 days)
+    boost_sharpe: float = 1.0   # live ann. Sharpe needed to earn risk-on
+    boost_dd: float = 0.02      # max drawdown tolerated while boosting
+    derisk_start: float = 0.05  # drawdown where de-risking begins
+    derisk_full: float = 0.12   # drawdown where the floor is reached
+    step_up: float = 0.005      # boost ramp per cycle
+    step_down: float = 0.02     # boost decay per cycle (4x faster than up)
+    bars_per_year: int = 35040  # cycle frequency for annualising (15m)
+
+    boost: float = 1.0
+    equity_hist: list = field(default_factory=list)
+    last_mult: float = 1.0
+
+    def _live_sharpe(self) -> float:
+        eq = self.equity_hist
+        n = len(eq)
+        if n < 3:
+            return 0.0
+        rets = [eq[i] / eq[i - 1] - 1.0 for i in range(1, n)]
+        mu = sum(rets) / len(rets)
+        var = sum((r - mu) ** 2 for r in rets) / max(1, len(rets) - 1)
+        sd = math.sqrt(var)
+        if sd < 1e-12:
+            # zero-variance track: infinitely good if positive, else worthless
+            return float("inf") if mu > 0 else 0.0
+        return mu / sd * math.sqrt(self.bars_per_year)
+
+    def update(self, equity: float, peak_equity: float) -> float:
+        """Feed the cycle's equity; returns the exposure multiplier."""
+        self.equity_hist.append(float(equity))
+        if len(self.equity_hist) > self.window:
+            self.equity_hist = self.equity_hist[-self.window:]
+
+        dd = 1.0 - equity / peak_equity if peak_equity > 0 else 0.0
+
+        earned = (len(self.equity_hist) >= self.min_track
+                  and dd <= self.boost_dd
+                  and self._live_sharpe() >= self.boost_sharpe)
+        if earned:
+            self.boost = min(self.max_boost, self.boost + self.step_up)
+        else:
+            self.boost = max(1.0, self.boost - self.step_down)
+
+        if dd <= self.derisk_start:
+            f = 1.0
+        elif dd >= self.derisk_full:
+            f = self.floor
+        else:
+            t = (dd - self.derisk_start) / (self.derisk_full - self.derisk_start)
+            f = 1.0 + t * (self.floor - 1.0)
+
+        self.last_mult = max(self.floor, min(self.max_boost, self.boost * f))
+        return self.last_mult
+
+    def to_dict(self) -> dict:
+        return {"boost": self.boost, "last_mult": self.last_mult,
+                "equity_hist": self.equity_hist[-self.window:]}
+
+    def from_dict(self, d: dict) -> None:
+        self.boost = float(d.get("boost", 1.0))
+        self.last_mult = float(d.get("last_mult", 1.0))
+        self.equity_hist = list(d.get("equity_hist", []))
