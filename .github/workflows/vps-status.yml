@@ -65,13 +65,18 @@ jobs:
           import json, time, urllib.request
 
           BASE = "https://www.okx.com"
+          UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/126.0.0.0 Safari/537.36")
 
-          def get(path, **params):
+          def get(path, base=None, ua=UA, **params):
               qs = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
-              url = f"{BASE}{path}?{qs}"
+              url = f"{base or BASE}{path}?{qs}"
+              req = urllib.request.Request(url, headers={
+                  "User-Agent": ua, "Accept": "application/json"})
               for attempt in range(3):
                   try:
-                      with urllib.request.urlopen(url, timeout=20) as r:
+                      with urllib.request.urlopen(req, timeout=20) as r:
                           p = json.load(r)
                       if str(p.get("code")) != "0":
                           print(f"  API code={p.get('code')} msg={p.get('msg')}  [{url}]")
@@ -124,22 +129,30 @@ jobs:
           TK = "/api/v5/rubik/stat/taker-volume-contract"
           LS = "/api/v5/rubik/stat/contracts/long-short-account-ratio-contract"
 
-          depth("OI history 1H", OI, instId=INST, period="1H", limit=100)
-          probe("OI with after=", OI, instId=INST, period="1H", limit=100,
-                after=int(time.time()*1000) - 5*86400_000)
-          depth("Taker volume 1H", TK, instId=INST, period="1H", limit=100)
-          depth("Long/short ratio 1H", LS, instId=INST, period="1H", limit=100)
+          # control: does a market endpoint work with the same client?
+          probe("CONTROL candles (browser UA)", "/api/v5/market/candles",
+                instId=INST, bar="1H", limit=3)
+          probe("CONTROL candles (python UA)", "/api/v5/market/candles",
+                ua="python-requests/2.31", instId=INST, bar="1H", limit=3)
 
-          probe("Top-trader L/S position", "/api/v5/rubik/stat/contracts/"
-                "long-short-position-ratio-contract-top-trader",
-                instId=INST, period="1H", limit=30)
-          probe("Top-trader L/S account", "/api/v5/rubik/stat/contracts/"
-                "long-short-account-ratio-contract-top-trader",
-                instId=INST, period="1H", limit=30)
+          # rubik with browser UA on both domains
+          probe("OI www + browser UA", OI, instId=INST, period="1H", limit=10)
+          probe("OI aws domain", OI, base="https://aws.okx.com",
+                instId=INST, period="1H", limit=10)
+          probe("OI python UA", OI, ua="python-requests/2.31",
+                instId=INST, period="1H", limit=10)
 
-          probe("OI alt (NEAR)", OI, instId="NEAR-USDT-SWAP", period="1H", limit=10)
-          probe("Taker alt (NEAR)", TK, instId="NEAR-USDT-SWAP", period="1H", limit=10)
-          probe("LSR alt (NEAR)", LS, instId="NEAR-USDT-SWAP", period="1H", limit=10)
+          r1 = get(OI, instId=INST, period="1H", limit=10)
+          if r1:
+              depth("OI history 1H", OI, instId=INST, period="1H", limit=100)
+              depth("Taker volume 1H", TK, instId=INST, period="1H", limit=100)
+              depth("Long/short ratio 1H", LS, instId=INST, period="1H", limit=100)
+              probe("Top-trader L/S position", "/api/v5/rubik/stat/contracts/"
+                    "long-short-position-ratio-contract-top-trader",
+                    instId=INST, period="1H", limit=30)
+              probe("OI alt (NEAR)", OI, instId="NEAR-USDT-SWAP", period="1H", limit=10)
+              probe("Taker alt (NEAR)", TK, instId="NEAR-USDT-SWAP", period="1H", limit=10)
+              probe("LSR alt (NEAR)", LS, instId="NEAR-USDT-SWAP", period="1H", limit=10)
 
           print("\nprobe complete")
           EOF
