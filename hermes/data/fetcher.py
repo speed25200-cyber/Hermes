@@ -174,6 +174,33 @@ def fetch_aux(client: OKXClient, store: DataStore, inst: str,
     return total
 
 
+OB_SAMPLE_MS = 600_000  # record one order-book snapshot per ~10 minutes
+
+
+def snapshot_orderbook(client: OKXClient, store: DataStore, inst: str) -> None:
+    """Record the current depth imbalance. No exchange serves order-book
+    HISTORY, so Hermes builds its own: once enough days accumulate, the
+    ob_imb family becomes researchable on this self-recorded series."""
+    _, hi, _ = store.aux_range(inst, "ob")
+    now_ms = int(time.time() * 1000)
+    if now_ms - hi < OB_SAMPLE_MS:
+        return
+    book = client.order_book(inst, sz=100)
+    bids = [(float(p), float(q)) for p, q, *_ in book.get("bids", [])]
+    asks = [(float(p), float(q)) for p, q, *_ in book.get("asks", [])]
+    if not bids or not asks:
+        return
+    mid = (bids[0][0] + asks[0][0]) / 2.0
+
+    def imb(width: float) -> float:
+        b = sum(p * q for p, q in bids if p >= mid * (1 - width))
+        a = sum(p * q for p, q in asks if p <= mid * (1 + width))
+        return (b - a) / (b + a) if (b + a) > 0 else 0.0
+
+    ts = int(book.get("ts", now_ms))
+    store.upsert_aux(inst, "ob", [(ts, imb(0.005), imb(0.02))])
+
+
 def update_latest(client: OKXClient, store: DataStore, inst: str, bar: str,
                   limit: int = 300) -> int:
     """Light refresh for the live loop: latest confirmed candles + funding
@@ -203,4 +230,8 @@ def update_latest(client: OKXClient, store: DataStore, inst: str, bar: str,
             store.upsert_candles(inst + IDX_SUFFIX, bar, keep)
     except Exception:
         pass  # index refresh is best-effort
+    try:
+        snapshot_orderbook(client, store, inst)
+    except Exception:
+        pass  # order-book sampling is best-effort
     return n

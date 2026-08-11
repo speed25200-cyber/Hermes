@@ -152,6 +152,13 @@ class OKXClient:
                 }
         return out
 
+    def order_book(self, inst_id: str, sz: int = 100) -> dict:
+        """Live depth snapshot: {'asks': [[px, sz, ...], ...], 'bids': [...],
+        'ts': ms}. No history exists on any exchange — callers record
+        snapshots to build their own."""
+        return self._request("GET", "/api/v5/market/books",
+                             {"instId": inst_id, "sz": str(sz)})[0]
+
     def funding_rate(self, inst_id: str) -> dict:
         return self._request("GET", "/api/v5/public/funding-rate",
                              {"instId": inst_id})[0]

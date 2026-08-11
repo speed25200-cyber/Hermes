@@ -86,11 +86,22 @@ SIGNAL_SPECS: dict[str, dict[str, tuple]] = {
         "entry_z": (0.5, 2.5, False, False),
         "dir": (0, 1, True, False),             # 0 follow smart money, 1 fade
     },
+    "cvd_div": {  # cumulative volume delta vs price: divergence / confirm
+        "lookback": (8, 192, True, True),
+        "thresh": (0.3, 2.0, False, False),     # CVD-move z threshold
+        "mode": (0, 1, True, False),            # 0 fade divergence, 1 confirm
+    },
+    "ob_imb": {  # self-recorded order-book depth imbalance
+        "lookback": (4, 192, True, True),
+        "entry_z": (0.5, 2.5, False, False),
+        "dir": (0, 1, True, False),             # 0 follow the book, 1 fade
+    },
 }
 
 # families that require Candles.x aux series; excluded from the default
 # evolution pool and explored in their own pass on the aux-covered window
-AUX_SIGNALS = ("oi_mom", "taker_flow", "lsr_fade", "ttp_follow")
+AUX_SIGNALS = ("oi_mom", "taker_flow", "lsr_fade", "ttp_follow", "cvd_div",
+               "ob_imb")
 CORE_SIGNALS = tuple(s for s in SIGNAL_SPECS if s not in AUX_SIGNALS)
 
 FILTER_SPECS: dict[str, dict[str, tuple]] = {

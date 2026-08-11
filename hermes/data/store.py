@@ -169,7 +169,8 @@ class DataStore:
                 ).fetchall()
                 if not ar:
                     continue
-                cols = map_aux_to_bars(candles.ts, bar_ms, ar, AUX_PERIOD_MS)
+                cols = map_aux_to_bars(candles.ts, bar_ms, ar,
+                                       AUX_PERIODS.get(kind, AUX_PERIOD_MS))
                 for name, col in zip(names, cols):
                     candles.x[name] = col
             # underlying index close (same-bar, exact ts join): known at the
@@ -200,8 +201,11 @@ AUX_SERIES = {
     "taker": ("tak_buy", "tak_sell"),
     "lsr": ("lsr",),
     "ttp": ("ttp",),
+    "ob": ("ob_near", "ob_deep"),   # self-recorded order-book imbalance
 }
 AUX_PERIOD_MS = 3_600_000  # rubik endpoints are fetched at 1H granularity
+# per-kind bucket length; order-book snapshots are taken every ~10 minutes
+AUX_PERIODS = {"ob": 900_000}
 
 
 def map_aux_to_bars(bar_ts: np.ndarray, bar_ms: int, rows: list[tuple],

@@ -173,6 +173,40 @@ def _raw_signal(candles: Candles, g: Genome, ctx: dict | None = None) -> np.ndar
         sgn = 1.0 if int(p["dir"]) == 0 else -1.0
         return np.nan_to_num(sgn * np.clip(z / p["entry_z"], -1.0, 1.0))
 
+    if g.signal == "cvd_div":
+        b = candles.x.get("tak_buy")
+        s = candles.x.get("tak_sell")
+        if b is None or s is None:
+            return np.zeros(n)
+        lb = int(p["lookback"])
+        delta = np.nan_to_num(b - s)
+        cvd = np.cumsum(delta)
+        dcvd = np.full(n, np.nan)
+        if lb < n:
+            dcvd[lb:] = cvd[lb:] - cvd[:-lb]
+        scale = F.rolling_std(delta, max(lb, 10)) * np.sqrt(lb)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            z = dcvd / np.where(scale > 0, scale, np.nan)
+        z = np.nan_to_num(z)
+        dp = np.sign(np.nan_to_num(F.lookback_return(c, lb)))
+        if int(p["mode"]) == 0:
+            # price moved but cumulative flow leans the other way: fade it
+            out = -dp * (dp * z < -p["thresh"])
+        else:
+            # flow confirms the move: follow it
+            out = dp * (dp * z > p["thresh"])
+        # no flow data on a bar -> stand aside (cumsum of zeros is stale)
+        out = np.where(np.isnan(b), 0.0, out)
+        return out.astype(float)
+
+    if g.signal == "ob_imb":
+        ob = candles.x.get("ob_near")
+        if ob is None:
+            return np.zeros(n)
+        z = F.zscore(ob, int(p["lookback"]))
+        sgn = 1.0 if int(p["dir"]) == 0 else -1.0
+        return np.nan_to_num(sgn * np.clip(z / p["entry_z"], -1.0, 1.0))
+
     raise ValueError(f"unknown signal {g.signal!r}")
 
 

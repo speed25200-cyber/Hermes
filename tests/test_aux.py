@@ -145,6 +145,76 @@ def test_ttp_follows_smart_money():
     assert pos[-10:].min() > 0                           # follows the shift
 
 
+def test_cvd_divergence_fades_unsupported_moves():
+    """Price grinds up while cumulative volume delta bleeds: mode 0 shorts
+    the divergence; with flow confirming, mode 1 goes long."""
+    n = 600
+    ts = np.arange(n, dtype=np.int64) * BAR_MS["15m"]
+    rng = np.random.default_rng(8)
+    px = 100.0 * np.exp(np.linspace(0, 0.4, n) + rng.normal(0, 0.003, n).cumsum() * 0.2)
+    c = Candles("T", "15m", ts, px, px, px, px, np.ones(n))
+    sell_heavy = _with_aux(c, buy=np.full(n, 40.0) + rng.normal(0, 2, n),
+                           sell=np.full(n, 60.0) + rng.normal(0, 2, n))
+    g_div = Genome(signal="cvd_div",
+                   params={"lookback": 48, "thresh": 0.5, "mode": 0},
+                   vol_target=0.3, max_lev=1.0)
+    pos = compute_position(sell_heavy, g_div)
+    assert pos[-100:].min() < 0 and pos[-100:].max() <= 0
+
+    buy_heavy = _with_aux(c, buy=np.full(n, 60.0) + rng.normal(0, 2, n),
+                          sell=np.full(n, 40.0) + rng.normal(0, 2, n))
+    g_conf = Genome(signal="cvd_div",
+                    params={"lookback": 48, "thresh": 0.5, "mode": 1},
+                    vol_target=0.3, max_lev=1.0)
+    pos2 = compute_position(buy_heavy, g_conf)
+    assert pos2[-100:].max() > 0 and pos2[-100:].min() >= 0
+
+
+def test_ob_imbalance_follows_book():
+    n = 600
+    ts = np.arange(n, dtype=np.int64) * BAR_MS["15m"]
+    rng = np.random.default_rng(10)
+    px = 100.0 * np.exp(rng.normal(0, 0.004, n).cumsum())
+    c = Candles("T", "15m", ts, px, px, px, px, np.ones(n))
+    ob = np.zeros(n)
+    ob[-50:] = 0.6                                       # bids stack up
+    c = _with_aux(c)
+    c.x["ob_near"] = ob
+    c.x["ob_deep"] = ob
+    g = Genome(signal="ob_imb",
+               params={"lookback": 96, "entry_z": 1.0, "dir": 0},
+               vol_target=0.3, max_lev=1.0)
+    pos = compute_position(c, g)
+    assert pos[-10:].min() > 0
+
+
+class _FakeBookClient:
+    def __init__(self):
+        self.calls = 0
+
+    def order_book(self, inst, sz=100):
+        self.calls += 1
+        return {"ts": str(int(_time.time() * 1000)),
+                "bids": [["99.9", "50"], ["99.0", "30"]],
+                "asks": [["100.1", "10"], ["101.0", "5"]]}
+
+
+def test_orderbook_snapshot_records_and_throttles(tmp_path):
+    from hermes.data.fetcher import snapshot_orderbook
+    store = DataStore(str(tmp_path))
+    client = _FakeBookClient()
+    snapshot_orderbook(client, store, "BTC-USDT-SWAP")
+    snapshot_orderbook(client, store, "BTC-USDT-SWAP")   # within 10min: no-op
+    assert client.calls == 1
+    _, _, cnt = store.aux_range("BTC-USDT-SWAP", "ob")
+    assert cnt == 1
+    rows = store.conn.execute(
+        "SELECT v1, v2 FROM aux WHERE inst=? AND kind='ob'",
+        ("BTC-USDT-SWAP",)).fetchone()
+    assert rows[0] > 0                    # bid-heavy book -> positive imbalance
+    assert rows[1] > rows[0] * 0.5        # deep imbalance likewise positive
+
+
 def test_aux_families_zero_without_data():
     candles = generate(bar="15m", n=600, seed=11)        # no x arrays at all
     for sig, params in (
@@ -152,6 +222,8 @@ def test_aux_families_zero_without_data():
         ("taker_flow", {"lookback": 96, "entry_z": 1.0, "dir": 0}),
         ("lsr_fade", {"lookback": 96, "entry_z": 1.0, "dir": 0}),
         ("ttp_follow", {"lookback": 96, "entry_z": 1.0, "dir": 0}),
+        ("cvd_div", {"lookback": 48, "thresh": 0.5, "mode": 0}),
+        ("ob_imb", {"lookback": 96, "entry_z": 1.0, "dir": 0}),
     ):
         g = Genome(signal=sig, params=params, vol_target=0.3, max_lev=1.0)
         assert not np.any(compute_position(candles, g))
