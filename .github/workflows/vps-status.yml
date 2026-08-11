@@ -57,15 +57,11 @@ jobs:
             df -h / | tail -1; free -m | head -2
           '
 
-  # Temporary: probe OKX rubik endpoints from the runner (shapes + history
-  # depth) to spec the aux-data fetcher. Removed once the fetcher lands.
-  probe-okx:
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    steps:
-      - name: Probe endpoints
-        shell: python {0}
+      # Temporary: probe OKX rubik endpoints FROM THE VPS (GitHub runners
+      # get geo-blocked 403s from OKX). Removed once the aux fetcher lands.
+      - name: Probe OKX aux endpoints (runs on the VPS)
         run: |
+          cat > /tmp/probe.py <<'EOF'
           import json, time, urllib.request
 
           BASE = "https://www.okx.com"
@@ -73,7 +69,7 @@ jobs:
           def get(path, **params):
               qs = "&".join(f"{k}={v}" for k, v in params.items() if v is not None)
               url = f"{BASE}{path}?{qs}"
-              for attempt in range(4):
+              for attempt in range(3):
                   try:
                       with urllib.request.urlopen(url, timeout=20) as r:
                           p = json.load(r)
@@ -105,13 +101,13 @@ jobs:
               print(f"  newest={fmt_ts(ts_of(data[0]))}  oldest={fmt_ts(ts_of(data[-1]))}")
               return data
 
-          def depth(title, path, pages=60, **params):
+          def depth(title, path, pages=45, **params):
               data = probe(title, path, **params)
               if not data:
                   return
               oldest = ts_of(data[-1])
               for i in range(pages):
-                  time.sleep(0.45)
+                  time.sleep(0.3)
                   nxt = get(path, end=oldest, **params)
                   if not nxt:
                       print(f"  pagination stopped after {i} pages (end={fmt_ts(oldest)})")
@@ -146,3 +142,6 @@ jobs:
           probe("LSR alt (NEAR)", LS, instId="NEAR-USDT-SWAP", period="1H", limit=10)
 
           print("\nprobe complete")
+          EOF
+          sshpass -e scp -o StrictHostKeyChecking=accept-new /tmp/probe.py "root@$VPS:/tmp/probe.py"
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" "python3 /tmp/probe.py"
