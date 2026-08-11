@@ -61,11 +61,16 @@ def evolve(
     elite_frac: float = 0.1,
     ctx: dict | None = None,
     families: tuple[str, ...] | None = None,
+    seeds: list[Genome] | None = None,
     log=None,
 ) -> tuple[list[Candidate], int]:
     """Returns (final population sorted by fitness desc, total genomes evaluated).
     `families` restricts the search to a subset of signal families (default:
-    the core families; aux-data families run in their own pass)."""
+    the core families; aux-data families run in their own pass).
+    `seeds` are genomes injected into the initial population — deployed
+    incumbents compete from the start line of every pass, so a proven
+    strategy is never lost to random-search luck; it can only be
+    out-evolved or fail validation on fresh data."""
     rng = random.Random(seed)
     seen: dict[str, float] = {}
     evaluated = 0
@@ -80,7 +85,9 @@ def evolve(
         evaluated += 1
         return Candidate(g, fit, stats)
 
-    pop = [eval_candidate(random_genome(rng, families)) for _ in range(population)]
+    pop = [eval_candidate(g) for g in (seeds or [])[:population]]
+    pop += [eval_candidate(random_genome(rng, families))
+            for _ in range(population - len(pop))]
 
     for gen in range(generations):
         pop.sort(key=lambda c: c.fitness, reverse=True)

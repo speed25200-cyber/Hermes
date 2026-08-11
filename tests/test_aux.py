@@ -261,6 +261,35 @@ def test_research_one_runs_aux_pass():
     assert not any("aux search" in ln for ln in lines2)
 
 
+def test_incumbent_seeding_preserves_book_continuity():
+    """A deployed genome is seeded into the next pass's population: when it
+    still validates, it must be rediscovered — never lost to random-search
+    luck. (Regression guard for the pass that silently dropped the whole
+    2-year-validated book.)"""
+    import random as _r
+
+    from hermes.research.evolve import evolve
+    from hermes.strategy.genome import Genome
+
+    c = generate(bar="15m", n=4000, seed=21)
+    incumbent = Genome(signal="ma_cross", params={"fast": 10, "ratio": 5.0},
+                       vol_target=0.3, max_lev=1.0)
+    # incumbents are (re)scored and placed ahead of the evolved population,
+    # so they always reach the OOS gate — even with mediocre IS fitness
+    from hermes.live.trader import _research_one, _with_incumbents_first
+    pop, _ = evolve(c, population=16, generations=2, seed=7,
+                    seeds=[incumbent])
+    pop = _with_incumbents_first(pop, [incumbent], c, 5.0, 2.0, None)
+    assert pop[0].genome.gid == incumbent.gid
+    r = {"is_fraction": 0.7, "embargo_bars": 24, "population": 8,
+         "generations": 1, "min_oos_sharpe": -99.0, "min_dsr": -99.0,
+         "max_deployed": 6, "seed": 1}
+    _, survivors, _, _ = _research_one(c.inst, c, None, r, 5.0, 2.0,
+                                       incumbents=[incumbent])
+    assert any(s.genome.gid == incumbent.gid for s in survivors), \
+        "with open gates the incumbent must come back deployed"
+
+
 # ------------------------------------------------------ cross-sectional --
 
 
