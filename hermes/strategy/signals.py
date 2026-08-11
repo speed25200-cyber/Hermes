@@ -116,6 +116,63 @@ def _raw_signal(candles: Candles, g: Genome, ctx: dict | None = None) -> np.ndar
     if g.signal in ("ml_ridge", "ml_boost"):
         return _ml_position(candles, g, ctx)
 
+    if g.signal == "basis_rev":
+        idx = candles.x.get("idx")
+        if idx is None:
+            return np.zeros(n)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            prem = c / np.where(idx > 0, idx, np.nan) - 1.0
+        z = F.zscore(prem, int(p["lookback"]))
+        sgn = -1.0 if int(p["dir"]) == 0 else 1.0
+        return np.nan_to_num(sgn * np.clip(z / p["entry_z"], -1.0, 1.0))
+
+    if g.signal == "oi_mom":
+        oi = candles.x.get("oi")
+        if oi is None:
+            return np.zeros(n)
+        lb = int(p["lookback"])
+        doi = F.lookback_return(oi, lb)
+        scale = F.rolling_std(F.returns(oi), max(lb, 10)) * np.sqrt(lb)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            z = doi / np.where(scale > 0, scale, np.nan)
+        ret = np.nan_to_num(F.lookback_return(c, lb))
+        z = np.nan_to_num(z)
+        if int(p["mode"]) == 0:
+            # rising OI = new positions carrying the move: follow it
+            out = np.sign(ret) * (z > p["conf_z"])
+        else:
+            # collapsing OI = squeeze/unwind against the move: fade it
+            out = -np.sign(ret) * (z < -p["conf_z"])
+        return out.astype(float)
+
+    if g.signal == "taker_flow":
+        b = candles.x.get("tak_buy")
+        s = candles.x.get("tak_sell")
+        if b is None or s is None:
+            return np.zeros(n)
+        tot = b + s
+        with np.errstate(invalid="ignore", divide="ignore"):
+            imb = (b - s) / np.where(tot > 0, tot, np.nan)
+        z = F.zscore(imb, int(p["lookback"]))
+        sgn = 1.0 if int(p["dir"]) == 0 else -1.0
+        return np.nan_to_num(sgn * np.clip(z / p["entry_z"], -1.0, 1.0))
+
+    if g.signal == "lsr_fade":
+        lsr = candles.x.get("lsr")
+        if lsr is None:
+            return np.zeros(n)
+        z = F.zscore(lsr, int(p["lookback"]))
+        sgn = -1.0 if int(p["dir"]) == 0 else 1.0
+        return np.nan_to_num(sgn * np.clip(z / p["entry_z"], -1.0, 1.0))
+
+    if g.signal == "ttp_follow":
+        ttp = candles.x.get("ttp")
+        if ttp is None:
+            return np.zeros(n)
+        z = F.zscore(ttp, int(p["lookback"]))
+        sgn = 1.0 if int(p["dir"]) == 0 else -1.0
+        return np.nan_to_num(sgn * np.clip(z / p["entry_z"], -1.0, 1.0))
+
     raise ValueError(f"unknown signal {g.signal!r}")
 
 

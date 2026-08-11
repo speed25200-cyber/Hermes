@@ -91,6 +91,22 @@ def make_ctx(candles_by_inst: dict[str, Candles], inst: str,
     return {}
 
 
+def _aux_start(candles: Candles) -> int | None:
+    """First bar index where every aux series (OI, taker flow, positioning)
+    is populated, or None if any is missing entirely."""
+    need = ("oi", "tak_buy", "tak_sell", "lsr")
+    if any(k not in candles.x for k in need):
+        return None
+    valid = np.ones(len(candles), dtype=bool)
+    for k in need:
+        valid &= ~np.isnan(candles.x[k])
+    idx = np.nonzero(valid)[0]
+    return int(idx[0]) if len(idx) else None
+
+
+AUX_MIN_BARS = 4800  # ~50 days of 15m bars: minimum aux coverage to research
+
+
 def _research_one(inst: str, candles: Candles, leader: Candles | None,
                   r: dict, fee_bps: float, slip_bps: float
                   ) -> tuple[str, list[ValidatedStrategy], int, list[str]]:
@@ -117,6 +133,31 @@ def _research_one(inst: str, candles: Candles, leader: Candles | None,
         fee_bps=fee_bps, slip_bps=slip_bps,
         max_deployed=r["max_deployed"], ctx=ctx, log=lines.append,
     )
+
+    # ---- aux-data families, searched only on the window the rubik series
+    # actually cover (a few months) — same validation gates, never mixed
+    # into the multi-year pass where their inputs would be blank
+    from ..strategy.genome import AUX_SIGNALS
+    i0 = _aux_start(candles)
+    if i0 is not None and len(candles) - i0 >= AUX_MIN_BARS:
+        ca = candles.slice(i0, len(candles))
+        lines.append(f"  aux search {inst}: {len(ca)} covered bars")
+        ca_is, _ = split_is_oos(ca, r["is_fraction"], r["embargo_bars"])
+        pop_a, trials_a = evolve(
+            ca_is,
+            population=max(48, r["population"] // 2),
+            generations=max(12, r["generations"] // 2),
+            fee_bps=fee_bps, slip_bps=slip_bps,
+            seed=r.get("seed"), families=tuple(AUX_SIGNALS), log=None,
+        )
+        survivors += validate_candidates(
+            pop_a, ca, n_trials=trials_a,
+            is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
+            min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
+            fee_bps=fee_bps, slip_bps=slip_bps,
+            max_deployed=r["max_deployed"], log=lines.append,
+        )
+        n_trials += trials_a
     return inst, survivors, n_trials, lines
 
 
@@ -539,7 +580,8 @@ class LiveRunner:
                 for inst in self.cfg["instruments"]}
 
     def ensure_data(self) -> None:
-        from ..data.fetcher import fetch_candles, fetch_funding
+        from ..data.fetcher import (IDX_SUFFIX, fetch_aux, fetch_candles,
+                                    fetch_funding, fetch_index)
         for inst in self.cfg["instruments"]:
             _, _, n = self.store.candle_range(inst, self.cfg["bar"])
             if n < 2000:
@@ -549,6 +591,25 @@ class LiveRunner:
                               self.cfg["history_days"], log=self.log)
                 fetch_funding(self.client, self.store, inst,
                               self.cfg["history_days"], log=self.log)
+            # aux stats (open interest / taker flow / positioning): backfill
+            # when absent, or catch up after downtime beyond the light
+            # per-cycle refresh window
+            _, hi, n_oi = self.store.aux_range(inst, "oi")
+            if n_oi == 0 or hi < (time.time() - 2 * 86_400) * 1000:
+                self.log(f"backfilling aux stats for {inst}...")
+                fetch_aux(self.client, self.store, inst,
+                          self.cfg["history_days"], log=self.log)
+            # underlying index candles (basis signal): full-history backfill
+            _, _, n_idx = self.store.candle_range(inst + IDX_SUFFIX,
+                                                  self.cfg["bar"])
+            if n_idx < 2000:
+                self.log(f"backfilling index candles for {inst}...")
+                try:
+                    fetch_index(self.client, self.store, inst, self.cfg["bar"],
+                                self.cfg["history_days"], log=self.log)
+                except Exception as exc:
+                    self.log(f"index backfill {inst} failed: "
+                             f"{type(exc).__name__}: {exc}")
 
     def ensure_research(self, force: bool = False) -> None:
         age_h = (time.time() - self.registry.researched_at) / 3600.0
