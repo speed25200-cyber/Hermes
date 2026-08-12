@@ -482,6 +482,16 @@ class Trader:
 
     # ------------------------------------------------------------------ #
 
+    # no-trade band for single-instrument books (the XS books carry their
+    # own): a position only moves when the target drifts materially — at
+    # least REBALANCE_FLOOR of equity AND REBALANCE_REL of the held
+    # exposure. Absorbs the per-cycle churn of z-score signals oscillating
+    # near their entry threshold (fees ate ~0.5%/day of whipsaw on AVAX
+    # before this). Chosen a priori, identical for every strategy: adds
+    # ZERO trials to the deflated-Sharpe penalty. Full closes always pass.
+    REBALANCE_FLOOR = 0.02   # 2% of equity
+    REBALANCE_REL = 0.20     # 20% of the currently-held exposure
+
     def _reconcile(self, targets: dict[str, float], prices: dict[str, float],
                    equity: float) -> list[dict]:
         current = self.broker.positions()
@@ -491,8 +501,15 @@ class Trader:
             px = prices.get(inst, 0.0)
             if px <= 0:
                 continue
-            tgt_qty = targets.get(inst, 0.0) * equity / px
+            tgt_exp = targets.get(inst, 0.0)
             cur_qty = current.get(inst, 0.0)
+            if tgt_exp != 0.0 and equity > 0:
+                cur_exp = cur_qty * px / equity
+                band = max(self.REBALANCE_FLOOR,
+                           self.REBALANCE_REL * abs(cur_exp))
+                if abs(tgt_exp - cur_exp) < band:
+                    continue
+            tgt_qty = tgt_exp * equity / px
             delta = tgt_qty - cur_qty
             notional = abs(delta) * px
             ok, why = self.risk.check_order(notional)

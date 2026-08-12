@@ -153,6 +153,38 @@ def test_dead_strategy_is_retired(tmp_path):
     assert len(trader.registry.strategies) == 1
 
 
+def test_rebalance_band_absorbs_small_target_drift(tmp_path):
+    """Small per-cycle target wiggles must NOT trade (whipsaw churn); big
+    moves, flips and full closes must."""
+    inst = "BTC-USDT-SWAP"
+    trader, broker, _ = make_trader(tmp_path, [])
+    broker.mark_prices({inst: 100.0})
+
+    trader._reconcile({inst: 0.30}, {inst: 100.0}, broker.equity())
+    q0 = broker.positions()[inst]
+    assert q0 > 0                                     # opened (>= 2% floor)
+
+    # +-2% absolute / <20% relative drift: held, no order
+    trader._reconcile({inst: 0.32}, {inst: 100.0}, broker.equity())
+    assert broker.positions()[inst] == q0
+    trader._reconcile({inst: 0.27}, {inst: 100.0}, broker.equity())
+    assert broker.positions()[inst] == q0
+
+    # a real move (0.30 -> 0.15) passes the band
+    trader._reconcile({inst: 0.15}, {inst: 100.0}, broker.equity())
+    q1 = broker.positions()[inst]
+    assert 0 < q1 < q0
+
+    # dust target from flat: rejected by the floor
+    trader._reconcile({"ETH-USDT-SWAP": 0.01}, {"ETH-USDT-SWAP": 100.0},
+                      broker.equity())
+    assert "ETH-USDT-SWAP" not in broker.positions()
+
+    # explicit flat always executes
+    trader._reconcile({inst: 0.0}, {inst: 100.0}, broker.equity())
+    assert inst not in broker.positions()
+
+
 def test_governor_scales_book_targets(tmp_path):
     """A de-risked governor must shrink every target the cycle produces."""
     from hermes.risk import LeverageGovernor
