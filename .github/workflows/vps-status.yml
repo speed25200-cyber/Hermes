@@ -51,7 +51,14 @@ jobs:
             grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
             echo
             echo "===== hermes state ====="
-            cd /root/hermes 2>/dev/null && /root/venv/bin/python -m hermes status 2>/dev/null | head -40 || echo "no state yet"
+            # the pipeline exit status is head'"'"'s, so a failing status command
+            # would render as an empty section that reads like "nothing
+            # deployed yet" — capture it and surface the error instead
+            if out=$(cd /root/hermes && /root/venv/bin/python -m hermes status 2>&1); then
+              printf "%s\n" "$out" | head -40
+            else
+              echo "hermes status FAILED:"; printf "%s\n" "$out" | tail -15
+            fi
             echo
             echo "===== disk / memory ====="
             df -h / | tail -1; free -m | head -2

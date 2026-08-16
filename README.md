@@ -73,13 +73,16 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
      winners, short the losers, with a one-day skip against reversal;
    - **reversal** (`xs_rev`): long the short-horizon losers, short the
      winners — classic stat-arb mean reversion.
-   Each family searches its own small grid — lookback, per-name cap and
-   **direction**, so a family can express its whole hypothesis rather than a
-   sign pinned in the source (xs_oi came back between −3.2 and −5.9 Sharpe on
-   every config in production, which is a strong edge held the wrong way
-   round, not an absent one). The Deflated Sharpe is charged with the total
-   number of configs searched across all families — selection bias is paid
-   for the whole sweep. Survivors are executed as
+   Each family searches lookback and per-name cap; the three whose sign is
+   an open empirical question (taker flow, open interest, basis) also search
+   **direction**, so they can express their whole hypothesis rather than a
+   sign pinned in the source — xs_oi came back between −3.2 and −5.9 Sharpe
+   on every config in production, which is a strong edge held the wrong way
+   round, not an absent one. Carry is pinned by theory and momentum/reversal
+   already span both directions by existing as two families, so they do not
+   search it: the Deflated Sharpe is charged with the total configs across
+   ALL families, so widening one taxes every other (42 → 84 configs moves the
+   crossing from 3.5 to 5.1 annualised Sharpe). Survivors are executed as
    multi-asset books beside the per-instrument strategies.
 
 3. **Maker-first execution** (`hermes/exchange/broker.py`) — live orders try
@@ -321,7 +324,7 @@ hermes/
   cli.py                 demo / fetch / research / run / status /
                          coverage / calibration / execution / backup /
                          dashboard
-tests/                   147 tests: no-lookahead, ML causality, microstructure
+tests/                   148 tests: no-lookahead, ML causality, microstructure
                          features, metric autocorrelation, regimes, e2e
 ```
 

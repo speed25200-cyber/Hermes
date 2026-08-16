@@ -197,17 +197,20 @@ def test_direction_inverts_the_book():
     assert moved, "the book never took a position, so the flip proves nothing"
 
 
-def test_every_grid_searches_direction():
-    """The per-instrument families already search `dir`; the cross-sectional
-    ones were the inconsistency. The extra configs are counted in n_trials,
-    so the deflated Sharpe charges for the wider search."""
+def test_only_the_open_families_search_direction():
+    """Every extra config raises the deflated-Sharpe bar for the WHOLE sweep,
+    so a family whose sign is pinned by theory must not be taxed to rescue
+    one whose sign is an open question. Carry is pinned (the crowded side
+    pays funding), lead-lag by construction, and momentum/reversal already
+    span both directions of the same score by existing as two families."""
     from hermes.strategy import xs
 
-    for name in ("XS_GRID", "XS_MOM_GRID", "XS_REV_GRID", "XS_LEAD_GRID",
-                 "XS_TAKER_GRID", "XS_OI_GRID", "XS_BASIS_GRID"):
-        grid = getattr(xs, name)
-        dirs = {cfg["dir"] for cfg in grid}
-        assert dirs == {0, 1}, f"{name} does not search direction"
+    for name in ("XS_TAKER_GRID", "XS_OI_GRID", "XS_BASIS_GRID"):
+        assert {c["dir"] for c in getattr(xs, name)} == {0, 1}, \
+            f"{name} should search direction"
+    for name in ("XS_GRID", "XS_MOM_GRID", "XS_REV_GRID", "XS_LEAD_GRID"):
+        assert not any("dir" in c for c in getattr(xs, name)), \
+            f"{name} has a sign its theory pins; searching it taxes everyone"
 
 
 def test_search_can_reach_an_inverted_cross_sectional_edge():
@@ -238,3 +241,36 @@ def test_search_can_reach_an_inverted_cross_sectional_edge():
 
     assert scores[0] < -5, f"the pinned sign should lose badly here: {scores}"
     assert scores[1] > 5, f"the search must be able to reach it: {scores}"
+
+
+def test_inverted_configs_are_negated_not_recomputed():
+    """`dir` only flips signs, and everything downstream is odd-symmetric, so
+    the inverted book is the exact negation. Rebuilding it would repeat a
+    universe alignment, two realized-vol passes per name and a per-bar
+    hysteresis loop — seconds per config on a production universe."""
+    from hermes.research import xs as rxs
+    from hermes.strategy import xs as sxs
+
+    cmap = make_universe(n=4000, seed=23)
+    calls = []
+    original = rxs.xs_positions
+
+    def counting(*a, **kw):
+        calls.append(kw.get("kind"))
+        return original(*a, **kw)
+
+    try:
+        rxs.xs_positions = counting
+        rxs._research_family(
+            cmap, "xs_oi", "oi", sxs.XS_OI_GRID, fee_bps=2.9, slip_bps=0.6,
+            is_fraction=0.7, embargo_bars=24, min_oos_sharpe=99.0,
+            min_dsr=0.99, max_oos_drawdown=0.35, n_folds=3, log=None,
+            leader=None)
+    except Exception:
+        pass                      # the gate rejecting is fine; we count calls
+    finally:
+        rxs.xs_positions = original
+
+    # 12 configs but only 6 distinct (lookback, max_w) pairs in-sample
+    assert len([c for c in calls if c == "oi"]) <= 7, (
+        f"inverted configs were recomputed: {len(calls)} builds")

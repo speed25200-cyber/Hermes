@@ -26,31 +26,36 @@ import numpy as np
 from .. import features as F
 from ..data.store import BARS_PER_YEAR, Candles
 
-# parameter grids searched by the XS research gate (small on purpose: few
-# trials keep the deflated-Sharpe penalty low and the strategy honest)
+# Parameter grids searched by the XS research gate (small on purpose: few
+# trials keep the deflated-Sharpe penalty low and the strategy honest).
+#
+# Only the families whose sign is an open empirical question search `dir`.
+# Carry is pinned by theory (the crowded side pays the funding), lead-lag by
+# construction (laggards catch up), and momentum/reversal already span both
+# directions of the same score by existing as two families. Every extra
+# config raises the deflated-Sharpe bar for the WHOLE sweep — measured on a
+# 900-bar OOS window, going from 42 to 84 configs moves the min_dsr crossing
+# from 3.5 to 5.1 annualised Sharpe — so a family with a sound prior must not
+# be taxed to rescue one without.
 XS_GRID = [  # carry (funding_xs)
-    {"lookback": lb, "max_w": mw, "dir": d}
+    {"lookback": lb, "max_w": mw}
     for lb in (100, 200, 400)
     for mw in (0.15, 0.25)
-    for d in (0, 1)
 ]
 XS_MOM_GRID = [  # ~3 weeks / 6 weeks / 12 weeks of 15m bars
-    {"lookback": lb, "max_w": mw, "dir": d}
+    {"lookback": lb, "max_w": mw}
     for lb in (2000, 4000, 8000)
     for mw in (0.15, 0.25)
-    for d in (0, 1)
 ]
 XS_REV_GRID = [  # 4h / 12h / 1 day of 15m bars
-    {"lookback": lb, "max_w": mw, "dir": d}
+    {"lookback": lb, "max_w": mw}
     for lb in (16, 48, 96)
     for mw in (0.15, 0.25)
-    for d in (0, 1)
 ]
 XS_LEAD_GRID = [  # leader-move window: 2h / 4h / 8h of 15m bars
-    {"lookback": lb, "max_w": mw, "dir": d}
+    {"lookback": lb, "max_w": mw}
     for lb in (8, 16, 32)
     for mw in (0.15, 0.25)
-    for d in (0, 1)
 ]
 XS_TAKER_GRID = [  # aggressive-flow window: 4h / 12h / 24h of 15m bars
     {"lookback": lb, "max_w": mw, "dir": d}

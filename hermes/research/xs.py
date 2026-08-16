@@ -129,10 +129,25 @@ def _validate_family(
     # ---- in-sample grid search ----------------------------------------
     is_map = slice_map(0.0, is_fraction)
     best = None
+    # `dir` only flips the sign of every leg, and every transform downstream
+    # of it is odd-symmetric, so the inverted book is the exact negation of
+    # the plain one. Building it costs a full universe alignment, two
+    # realized-vol passes per name and a per-bar hysteresis loop — several
+    # seconds on a 60-instrument universe — so it is negated rather than
+    # recomputed.
+    cache: dict[tuple, tuple] = {}
     for params in grid:
-        common, _, pos = xs_positions(is_map, params, kind=kind, leader=leader)
+        key = tuple(sorted((k, v) for k, v in params.items() if k != "dir"))
+        if key in cache:
+            common, pos = cache[key]
+        else:
+            common, _, pos = xs_positions(
+                is_map, {**params, "dir": 0}, kind=kind, leader=leader)
+            cache[key] = (common, pos)
         if not pos:
             continue
+        if int(params.get("dir", 0)) == 1:
+            pos = {inst: -arr for inst, arr in pos.items()}
         rets = portfolio_backtest(is_map, pos, common, fee_bps, slip_bps)
         sh = metrics.sharpe(rets, bpy)
         if log:
