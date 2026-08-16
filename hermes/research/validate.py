@@ -63,6 +63,20 @@ def split_is_oos(candles: Candles, is_fraction: float, embargo_bars: int
     return candles.slice(0, cut), candles.slice(oos_start, n)
 
 
+def _cost_share(stats: dict) -> str:
+    """How much of the gross return the frictions took.
+
+    engine.run stores -1 when there was no gross profit to share (a funding
+    carry book can be net-positive on a negative price return). Printing that
+    as "-100% of gross" reads like a measurement rather than the absence of
+    one, so it is spelled out.
+    """
+    share = stats.get("cost_share_of_gross", 0.0)
+    if share < 0:
+        return "no gross profit to share"
+    return f"{share:.0%} of gross"
+
+
 def validate_candidates(
     candidates: list[Candidate],
     candles: Candles,
@@ -129,7 +143,7 @@ def validate_candidates(
                 f"dsr={st['dsr']:.3f} mdd={st['max_drawdown']:.1%} "
                 f"folds+={st['oos_folds_positive']} "
                 f"costs={st.get('cost_drag_annual', 0.0):.1%}/y "
-                f"({st.get('cost_share_of_gross', 0.0):.0%} of gross) "
+                f"({_cost_share(st)}) "
                 f"-> {'DEPLOY' if verdict else 'reject'}")
         if verdict:
             survivors.append(ValidatedStrategy(
