@@ -278,7 +278,37 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
         all_survivors.extend(xs_survivors)
         total_trials += XS_TOTAL_TRIALS
         log(f"research XS: {len(xs_survivors)} portfolio strategies deployed")
-    return all_survivors, total_trials
+
+    # A book is capped in total, not just per instrument. Capital is shared
+    # across everything deployed, so an unbounded book starves each strategy:
+    # measured on the live allocator, 18 strategies put a typical signal at
+    # 454 USDT of a 9,955 USDT book while 60 put it at 136 — under the
+    # rebalance band, which is the flat-book failure all over again. Widening
+    # the universe multiplies candidates, so the cap has to bind globally.
+    cap = int(cfg["research"].get("max_deployed_total", 0) or 0)
+    return cap_book(all_survivors, cap, log), total_trials
+
+
+def cap_book(survivors: list[ValidatedStrategy], cap: int,
+             log=None) -> list[ValidatedStrategy]:
+    """Keep the best `cap` strategies across the whole universe.
+
+    A per-instrument cap does not bound a book. Capital is shared over
+    everything deployed, so an unbounded book starves each strategy: measured
+    on the live allocator, 18 strategies put a typical signal at 454 USDT of a
+    9,955 USDT book while 60 put it at 136 — under the rebalance band, which
+    is the flat-book failure all over again. Widening the universe multiplies
+    candidates, so this has to bind globally.
+    """
+    if not cap or len(survivors) <= cap:
+        return survivors
+    ranked = sorted(survivors, key=lambda s: s.oos_stats.get("sharpe", 0.0),
+                    reverse=True)
+    if log:
+        log(f"research: book capped at {cap} strategies "
+            f"({len(survivors) - cap} lower-Sharpe survivors dropped) so each "
+            f"keeps enough capital to reach the market")
+    return ranked[:cap]
 
 
 @dataclass

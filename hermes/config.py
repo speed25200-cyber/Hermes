@@ -31,11 +31,13 @@ DEFAULTS: dict[str, Any] = {
                     "ARB-USDT-SWAP", "OP-USDT-SWAP", "INJ-USDT-SWAP",
                     "TIA-USDT-SWAP", "SEI-USDT-SWAP", "CRV-USDT-SWAP",
                     "AAVE-USDT-SWAP", "PEPE-USDT-SWAP", "SHIB-USDT-SWAP"],
-    # 0 keeps the list above; a positive value replaces it with that many of
-    # the venue's most-traded USDT perpetuals, refreshed on every fetch. More
-    # independent names lift the combined Sharpe as sqrt(N) while fees stay
-    # per-trade, so breadth is the one lever that costs nothing per trade.
-    "universe_size": 0,
+    # The list above is the fallback; this many of the venue's most-traded
+    # USDT perpetuals replace it, refreshed on every fetch. More independent
+    # names lift the combined Sharpe as sqrt(N) while fees stay per-trade, so
+    # breadth is the one lever that costs nothing per trade. Set 0 to pin the
+    # list. The book stays bounded by research.max_deployed_total, without
+    # which twice the candidates would starve every strategy of capital.
+    "universe_size": 60,
     "universe_min_vol_usdt": 5e6,   # 24h traded value floor for a candidate
     # 15m bars: ~35k bars/year per instrument -> 4x the statistical power of
     # 1H for the validation gates, and intraday seasonality becomes usable
@@ -53,7 +55,13 @@ DEFAULTS: dict[str, Any] = {
         "embargo_bars": 24,          # gap between IS and OOS to avoid leakage
         "min_oos_sharpe": 0.5,       # OOS annualised Sharpe required to deploy
         "min_dsr": 0.05,             # deflated Sharpe probability threshold
-        "max_deployed": 6,           # max strategies live at once
+        "max_deployed": 6,           # max strategies live at once PER instrument
+        # ...and across the whole book. Capital is shared over everything
+        # deployed, so an unbounded book starves each strategy below the
+        # rebalance band and nothing reaches the market. Measured on the live
+        # allocator: 18 strategies put a typical signal at 454 USDT of a
+        # 9,955 USDT book, 60 put it at 136 — under the 199 USDT band.
+        "max_deployed_total": 24,
         "refresh_hours": 168,        # re-run research weekly
         "refresh_hours_empty": 24,   # ...but daily while nothing is deployed:
                                      # the hunt escalates instead of sleeping

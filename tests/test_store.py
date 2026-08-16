@@ -144,15 +144,14 @@ def test_universe_falls_back_rather_than_emptying(tmp_path):
         "BTC-USDT-SWAP", "SOL-USDT-SWAP"]
 
 
-def test_pinned_universe_is_untouched_by_default(tmp_path):
-    """universe_size 0 is the default: behaviour must not change for anyone
-    who has not opted in."""
+def test_pinning_the_universe_keeps_the_configured_list(tmp_path):
+    """universe_size 0 pins the list: no venue call, no surprises."""
     from hermes.config import Config
     from hermes.data import universe
 
     cfg = Config.load(None)
     cfg.raw["state_dir"] = str(tmp_path)
-    assert cfg.raw["universe_size"] == 0
+    cfg.raw["universe_size"] = 0
     assert universe.resolve(cfg, None, str(tmp_path)) == cfg.raw["instruments"]
 
 

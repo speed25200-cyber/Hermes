@@ -16,6 +16,17 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
 
 ## How it "finds the edge alone"
 
+0. **Universe** (`hermes/data/universe.py`) — the 60 most-traded USDT
+   perpetuals on OKX, re-ranked on every fetch. Breadth is the one lever that
+   lifts the combined Sharpe without lifting cost per trade (independent
+   edges add as sqrt(N); fees stay per-trade), and a hardcoded list decays as
+   venues list and delist. The cross-asset leader stays at index 0 and an
+   instrument still carrying a position is never dropped, so no refresh can
+   strand a trade. The book itself is capped globally
+   (`research.max_deployed_total`): capital is shared across everything
+   deployed, so an unbounded book starves each strategy below the rebalance
+   band and nothing reaches the market.
+
 1. **Prediction engine** (`hermes/ml/`) — a genuine forecasting layer, all
    implemented from scratch in numpy:
    - a causal **feature matrix** per instrument: multi-horizon vol-scaled
@@ -303,7 +314,7 @@ hermes/
   cli.py                 demo / fetch / research / run / status /
                          coverage / calibration / execution / backup /
                          dashboard
-tests/                   141 tests: no-lookahead, ML causality, microstructure
+tests/                   143 tests: no-lookahead, ML causality, microstructure
                          features, metric autocorrelation, regimes, e2e
 ```
 

@@ -294,3 +294,24 @@ def test_risk_off_cut_is_not_swallowed_by_the_band(tmp_path):
 
     trader._reconcile({inst: 0.249}, px, broker.equity(), derisk=True)
     assert broker.positions()[inst] < held           # risk-off: executed
+
+
+def test_book_is_capped_across_the_whole_universe():
+    """Per-instrument caps do not bound a book: capital is shared over
+    everything deployed, so 60 strategies starve each other below the
+    rebalance band and nothing reaches the market. The cap binds globally and
+    keeps the strongest."""
+    from hermes.live.trader import cap_book
+
+    made = []
+    for i in range(12):
+        g = Genome(signal="tsmom", params={"lookback": 24 + i, "deadband": 0.5},
+                   vol_target=0.2, max_lev=1.0)
+        made.append(ValidatedStrategy(genome=g, inst=f"I{i}-USDT-SWAP",
+                                      bar="15m", is_stats={},
+                                      oos_stats={"sharpe": float(i), "dsr": 0.2}))
+
+    kept = cap_book(made, 3)
+    assert [s.oos_stats["sharpe"] for s in kept] == [11.0, 10.0, 9.0]
+    assert cap_book(made, 0) is made          # 0 disables the cap
+    assert cap_book(made, 50) is made         # under the cap, untouched
