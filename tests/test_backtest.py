@@ -178,3 +178,22 @@ def test_selection_bar_rises_with_the_number_of_trials():
     bars = [selection_bar(r, n, 8760) for n in (100, 2400, 83793)]
     assert bars[0] < bars[1] < bars[2], bars
     assert bars[0] > 0.0
+
+
+def test_more_search_raises_the_bar_it_must_then_clear():
+    """The reason a bigger hunt is not more power. Selection over n trials
+    lifts the Sharpe reachable on noise alone, so every extra genome the
+    search evaluates is charged back to whatever it finds."""
+    import math
+
+    from hermes.backtest.metrics import expected_max_sharpe
+
+    bpy, n_oos = 35040, 21000
+    bars = {n: expected_max_sharpe(n, n_oos) * math.sqrt(bpy)
+            for n in (26, 624, 2400, 10000)}
+    assert bars[26] < bars[624] < bars[2400] < bars[10000]
+    # the panel grid's bar sits below the pooled edge measured in test_panel,
+    # while a per-instrument hunt's sits above any single-name edge
+    assert bars[26] < 3.0 < bars[624]
+    # and quadrupling the budget buys well under a Sharpe point of bar
+    assert bars[2400] - bars[624] < 1.0

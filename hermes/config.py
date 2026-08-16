@@ -48,8 +48,25 @@ DEFAULTS: dict[str, Any] = {
     # of every validation gate; newer listings contribute what they have
     "history_days": 730,
     "research": {
-        "population": 96,
-        "generations": 25,
+        # Search budget sets the bar the survivor must then clear, so more
+        # search is not more power. Measured on a 21,000-bar scored window,
+        # the annualised Sharpe that selection alone reaches:
+        #
+        #      26 rules (the panel grid)   2.60
+        #     100 trials                   3.27
+        #     600 trials (this budget)     4.03
+        #   2,400 trials (the old one)     4.52
+        #  10,000 trials                   4.99
+        #
+        # A per-instrument edge in these families runs Sharpe 1 to 2, so no
+        # budget makes single-name research likely to produce a survivor —
+        # but the old one spent 2.5 hours per pass raising its own bar by
+        # half a Sharpe point to do it. Cutting to a quarter costs whatever
+        # a four-times-larger hunt would have found beyond it, and buys back
+        # the bar and the hours. Breadth carries the search now: the panel
+        # asks one question of the whole universe at a bar of 2.60.
+        "population": 48,
+        "generations": 12,
         "seed": None,
         "is_fraction": 0.7,          # fraction of history used in-sample
         "embargo_bars": 24,          # gap between IS and OOS to avoid leakage
