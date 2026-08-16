@@ -114,15 +114,17 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
    strategies are tracked bar by bar. Capital flows multiplicatively toward
    what is working *now*, an EWMA **correlation matrix downweights crowded
    strategies** so the book spreads across genuinely independent edges, and
-   a portfolio-level volatility target scales the whole book. Capital is
-   shared only among the strategies actually asking for exposure — one
-   sitting flat contributes nothing, so holding weight would only shrink the
-   others. The
-   performance tilt is applied to the gap **in standard errors**, not in raw
-   Sharpe units: over an EWMA window that error is several units wide, so
-   tilting on the raw gap concentrates capital on whichever strategy was
-   luckiest. On five strategies with identical true edges this lifts the
-   combined Sharpe from 6.8 to 8.5 across seeds.
+   a portfolio-level volatility target scales the whole book.
+
+   Two things keep that from collapsing onto one name. The performance tilt
+   is applied to the gap **in standard errors**, not in raw Sharpe units:
+   over an EWMA window that error is several units wide, so tilting on the
+   raw gap concentrates capital on whichever strategy was luckiest — on five
+   strategies with identical true edges, measuring in standard errors lifts
+   the combined Sharpe from 6.8 to 8.5 across seeds. And capital is shared
+   only among the strategies **actually asking for exposure**: one sitting
+   flat contributes nothing to the book, so letting it hold weight would only
+   shrink the others.
 
 8. **The adaptive hunt** — the live loop re-runs the whole research pass on
    fresh data when the deployed set goes stale (weekly by default). While
