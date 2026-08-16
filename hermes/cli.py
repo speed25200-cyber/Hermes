@@ -674,6 +674,26 @@ def cmd_report(args) -> None:
     beats = len(journal) - len(decisions)
 
     now = time.time()
+    # Which names the system believes it trades, and where that list came
+    # from. Breadth is the lever behind everything else here — research only
+    # searches instruments it was handed — so a universe that silently fell
+    # back to the configured list explains a narrow book better than any
+    # amount of staring at the strategies it produced.
+    upath = os.path.join(state_dir, "universe.json")
+    if os.path.exists(upath):
+        try:
+            with open(upath) as f:
+                u = json.load(f)
+            print(f"universe: {len(u.get('instruments', []))} instruments "
+                  f"from {u.get('source', '?')}, resolved "
+                  f"{(now - u.get('resolved_at', 0.0)) / 3600.0:.1f}h ago")
+        except (OSError, ValueError):
+            print("universe: unreadable")
+    else:
+        print(f"universe: not venue-resolved, using the configured "
+              f"{len(cfg['instruments'])} instruments")
+    print()
+
     reg_path = os.path.join(state_dir, "registry.json")
     print("===== deployed book =====")
     if not os.path.exists(reg_path):

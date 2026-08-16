@@ -214,3 +214,20 @@ def test_replay_timestamps_are_not_reported_as_staleness(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "min ago" not in out
     assert "replay: 1970-01-01" in out
+
+
+def test_universe_source_is_reported(tmp_path, capsys):
+    """A universe that silently fell back to the configured list explains a
+    narrow book better than the strategies it produced ever will."""
+    sd, args = _setup(tmp_path, [_cycle(1000.0)])
+    with open(sd / "universe.json", "w") as f:
+        json.dump({"instruments": [f"I{i}-USDT-SWAP" for i in range(60)],
+                   "source": "venue", "resolved_at": 0.0}, f)
+    cli.cmd_report(args)
+    assert "universe: 60 instruments from venue" in capsys.readouterr().out
+
+
+def test_missing_universe_file_says_configured(tmp_path, capsys):
+    _, args = _setup(tmp_path, [_cycle(1000.0)])
+    cli.cmd_report(args)
+    assert "not venue-resolved" in capsys.readouterr().out
