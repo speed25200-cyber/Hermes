@@ -250,3 +250,47 @@ def test_calibration_report_contrasts_promised_and_realised(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "6.00" in out                      # the promise is shown
     assert "shortfall" in out                 # and so is the gap
+
+
+def test_cross_sectional_book_moves_as_one_unit(tmp_path):
+    """A dollar-neutral book must not be half-executed. When one leg breaches
+    the dead band, the legs that sit inside it have to trade too — otherwise
+    the large legs move alone and the book stops being neutral."""
+    a, b = "BTC-USDT-SWAP", "ETH-USDT-SWAP"
+    px = {a: 100.0, b: 100.0}
+
+    def run(books):
+        trader, broker, _ = make_trader(tmp_path, [])
+        broker.mark_prices(px)
+        trader._reconcile({a: 0.30, b: -0.30}, px, broker.equity(), books)
+        before = dict(broker.positions())
+        # leg a moves a lot (0.30 -> 0.10), leg b barely (-0.30 -> -0.28)
+        trader._reconcile({a: 0.10, b: -0.28}, px, broker.equity(), books)
+        return before, dict(broker.positions())
+
+    before, after = run([{a, b}])
+    assert after[a] != before[a]           # the breaching leg trades
+    assert after[b] != before[b]           # and so does its partner
+
+    # ungrouped, the small leg is left behind — the defect this guards against
+    before, after = run(None)
+    assert after[a] != before[a]
+    assert after[b] == before[b]
+
+
+def test_risk_off_cut_is_not_swallowed_by_the_band(tmp_path):
+    """A leverage-governor cut is a risk instruction, not signal drift: it
+    must reach the exchange even when it is under the relative band."""
+    inst = "BTC-USDT-SWAP"
+    px = {inst: 100.0}
+    trader, broker, _ = make_trader(tmp_path, [])
+    broker.mark_prices(px)
+    trader._reconcile({inst: 0.30}, px, broker.equity())
+    held = broker.positions()[inst]
+
+    # 0.30 -> 0.249 is a 17% cut: inside the 20% relative band
+    trader._reconcile({inst: 0.249}, px, broker.equity())
+    assert broker.positions()[inst] == held          # drift: correctly held
+
+    trader._reconcile({inst: 0.249}, px, broker.equity(), derisk=True)
+    assert broker.positions()[inst] < held           # risk-off: executed

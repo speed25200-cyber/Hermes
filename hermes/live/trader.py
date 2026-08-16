@@ -400,7 +400,9 @@ class Trader:
             if abs(risk_mult - 1.0) > 1e-9:
                 targets = {i: e * risk_mult for i, e in targets.items()}
         targets = self.risk.clamp_targets(targets)
-        orders = self._reconcile(targets, prices, equity)
+        books = [set(legs) for legs in per_strategy.values() if len(legs) > 1]
+        orders = self._reconcile(targets, prices, equity, books,
+                                 derisk=risk_mult < 1.0)
 
         weights = self.allocator.weights(list(per_strategy))
         regimes = {}
@@ -492,23 +494,55 @@ class Trader:
     REBALANCE_FLOOR = 0.02   # 2% of equity
     REBALANCE_REL = 0.20     # 20% of the currently-held exposure
 
+    def _breaches_band(self, tgt_exp: float, cur_exp: float,
+                       derisk: bool = False) -> bool:
+        """Is this move worth sending, or is it churn inside the dead band?"""
+        if tgt_exp == 0.0:
+            return True                       # full closes always pass
+        band = max(self.REBALANCE_FLOOR, self.REBALANCE_REL * abs(cur_exp))
+        if derisk and abs(tgt_exp) < abs(cur_exp):
+            # The leverage governor has cut exposure this cycle. That is a risk
+            # instruction, not signal drift, so only the absolute floor applies:
+            # the relative band would swallow any cut smaller than 20% of the
+            # held position and the journal would record the risk-off
+            # multiplier as applied while no order was ever sent.
+            band = self.REBALANCE_FLOOR
+        return abs(tgt_exp - cur_exp) >= band
+
     def _reconcile(self, targets: dict[str, float], prices: dict[str, float],
-                   equity: float) -> list[dict]:
+                   equity: float,
+                   books: list[set[str]] | None = None,
+                   derisk: bool = False) -> list[dict]:
         current = self.broker.positions()
         orders = []
         all_insts = set(targets) | set(current)
+
+        def cur_exposure(inst: str, px: float) -> float:
+            return current.get(inst, 0.0) * px / equity if equity > 0 else 0.0
+
+        trade = {}
+        for inst in all_insts:
+            px = prices.get(inst, 0.0)
+            trade[inst] = px > 0 and (
+                equity <= 0
+                or self._breaches_band(targets.get(inst, 0.0),
+                                       cur_exposure(inst, px), derisk))
+        # a cross-sectional book moves as a unit: if any leg breaches its band
+        # every leg trades. Executing the large legs while the small ones sit
+        # inside the band would leave a dollar-neutral book net long or short,
+        # which is precisely what it exists not to be.
+        for members in (books or []):
+            if any(trade.get(i) for i in members):
+                for i in members:
+                    if prices.get(i, 0.0) > 0:
+                        trade[i] = True
+
         for inst in sorted(all_insts):
             px = prices.get(inst, 0.0)
-            if px <= 0:
+            if px <= 0 or not trade[inst]:
                 continue
             tgt_exp = targets.get(inst, 0.0)
             cur_qty = current.get(inst, 0.0)
-            if tgt_exp != 0.0 and equity > 0:
-                cur_exp = cur_qty * px / equity
-                band = max(self.REBALANCE_FLOOR,
-                           self.REBALANCE_REL * abs(cur_exp))
-                if abs(tgt_exp - cur_exp) < band:
-                    continue
             tgt_qty = tgt_exp * equity / px
             delta = tgt_qty - cur_qty
             notional = abs(delta) * px
