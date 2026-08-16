@@ -71,4 +71,7 @@ jobs:
             echo "research: $(systemctl is-active hermes-research)   engine: $(systemctl is-active hermes)   dashboard: $(systemctl is-active hermes-dashboard)"
             ss -tln | grep -q ":8899 " && echo "port 8899: LISTENING" || echo "port 8899: NOT listening"
             echo "code: $(cat /root/hermes/DEPLOYED_SHA 2>/dev/null || echo unknown)"
+            # ...and how far along it is, so a six-line tail answers both
+            # "is it running" and "is it moving" without a second fetch
+            echo "last research line: $(journalctl -u hermes-research -n 200 --no-pager -o cat 2>/dev/null | grep -E "elapsed\]|instruments on|panel|XS:|deployed" | tail -1 || echo none)"
           '
