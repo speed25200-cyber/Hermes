@@ -1,6 +1,5 @@
-# Did the book start trading after the allocator fix? Reports the orders and
-# non-zero targets the engine produced since it restarted, plus whether the
-# research pass is still running.
+# Check Hermes status on the VPS: services, research progress, engine logs,
+# deployed strategies and current equity. Trigger manually any time.
 
 name: VPS status
 
@@ -36,20 +35,24 @@ jobs:
             echo "::error::cannot authenticate"; exit 1; fi
           echo "SSHPASS=$CUR" >> "$GITHUB_ENV"
 
-      - name: Did the book trade?
+      - name: Status report
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
-            echo "=== research service ==="
-            systemctl is-active hermes-research
+            echo "===== services ====="
+            systemctl is-active hermes-research && echo "(research running)" || echo "(research idle/done)"
+            systemctl is-active hermes || true
+            echo -n "dashboard: "; systemctl is-active hermes-dashboard || true
+            ss -tln | grep -q ":8899 " && echo "port 8899: LISTENING" || echo "port 8899: NOT listening"
             echo
-            echo "=== orders placed since the engine restarted ==="
-            journalctl -u hermes --since "2026-08-16 10:09" --no-pager \
-              | grep -c "order " || echo 0
-            echo "--- most recent order lines ---"
-            journalctl -u hermes --since "2026-08-16 10:09" --no-pager \
-              | grep "order " | tail -8 || echo "(none yet)"
+            echo "===== research / engine journal (last 50 lines) ====="
+            journalctl -u hermes-research -u hermes -n 50 --no-pager || true
             echo
-            echo "=== last 3 cycles: equity and non-zero targets ==="
-            journalctl -u hermes -n 400 --no-pager | grep "cycle @" | tail -3 \
-              | sed -E "s/, .[A-Z]+-USDT-SWAP.: -?0\.0\}?//g; s/, .[A-Z]+-USDT-SWAP.: -?0\.0,/,/g"
+            echo "===== deployed book (registry summary) ====="
+            grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
+            echo
+            echo "===== hermes state ====="
+            cd /root/hermes 2>/dev/null && /root/venv/bin/python -m hermes status 2>/dev/null | head -40 || echo "no state yet"
+            echo
+            echo "===== disk / memory ====="
+            df -h / | tail -1; free -m | head -2
           '
