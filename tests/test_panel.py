@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from hermes.data.store import BAR_MS, Candles
-from hermes.research.panel import (PANEL_INST, panel_positions,
+from hermes.research.panel import (PANEL_INST, panel_grid, panel_positions,
                                    research_panel, _inverse_vol_weights)
 from hermes.strategy.genome import Genome
 from hermes.strategy.xs import align_universe
@@ -232,3 +232,53 @@ def test_a_panel_strategy_actually_trades():
     assert report["targets"], "panel rule produced no book"
     assert len(report["targets"]) >= 4, report["targets"]
     assert report["orders"], "panel book never reached the broker"
+
+
+def test_one_recent_listing_does_not_truncate_the_panel():
+    """The common grid is an intersection, so a perpetual listed last month
+    would cut a two-year panel down to a month. With a universe refreshed by
+    traded value that is the normal case, not a corner one."""
+    from hermes.research.panel import choose_panel_universe
+
+    uni = _trending_universe(n=6000, k=10, seed=4)
+    young = _candles("NEW-USDT-SWAP",
+                     100 * np.exp(np.cumsum(
+                         np.random.default_rng(9).normal(0, 0.01, 6000))))
+    # same bar count but starting five thousand bars later
+    young.ts = young.ts + 5000 * BAR_MS["1H"]
+    uni["NEW-USDT-SWAP"] = young
+
+    kept = choose_panel_universe(uni)
+    assert "NEW-USDT-SWAP" not in kept
+    assert len(kept) == 10
+
+    common, _ = align_universe(kept)
+    assert len(common) == 6000
+
+
+def test_a_young_instrument_is_kept_when_it_pays_for_itself():
+    """The rule is a trade-off, not a blanket exclusion: a name that costs
+    few bars and adds breadth belongs in the panel."""
+    from hermes.research.panel import choose_panel_universe
+
+    uni = _trending_universe(n=6000, k=5, seed=6)
+    young = _candles("NEW-USDT-SWAP",
+                     100 * np.exp(np.cumsum(
+                         np.random.default_rng(2).normal(0, 0.01, 6000))))
+    young.ts = young.ts + 50 * BAR_MS["1H"]      # only 50 bars younger
+    uni["NEW-USDT-SWAP"] = young
+    assert "NEW-USDT-SWAP" in choose_panel_universe(uni)
+
+
+def test_panel_reports_the_shared_window_it_actually_scored():
+    uni = _trending_universe(n=6000, k=8, seed=7)
+    young = _candles("NEW-USDT-SWAP",
+                     100 * np.exp(np.cumsum(
+                         np.random.default_rng(5).normal(0, 0.01, 6000))))
+    young.ts = young.ts + 5500 * BAR_MS["1H"]
+    uni["NEW-USDT-SWAP"] = young
+    said = []
+    research_panel(uni, panel_grid(), 2.0, 1.0, log=said.append)
+    head = [m for m in said if m.startswith("panel research:")]
+    assert head and "1 dropped as too recent" in head[0], head
+    assert "8 instruments over 6000 shared bars" in head[0], head

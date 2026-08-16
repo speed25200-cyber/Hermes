@@ -151,6 +151,38 @@ def panel_grid(seed: int | None = None) -> list[Genome]:
     return out
 
 
+def choose_panel_universe(candles_map: dict[str, Candles], min_insts: int = 4
+                          ) -> dict[str, Candles]:
+    """Pick the subset that maximises pooled observations.
+
+    The common grid is the intersection of every member's timestamps, so one
+    instrument listed last month truncates the panel to last month. With a
+    universe refreshed by traded value that is not a corner case — new
+    perpetuals list constantly and rank well on volume.
+
+    Both terms matter and they trade against each other: more instruments
+    lift a shared edge by sqrt(N), more bars lower the selection bar. Their
+    product is the pooled observation count, so instruments are added
+    youngest-last and the cut is taken where instruments x common bars peaks.
+    Dropping a name that halves the window is then automatic rather than a
+    threshold someone has to guess.
+    """
+    if len(candles_map) <= min_insts:
+        return dict(candles_map)
+    by_start = sorted(candles_map.items(),
+                      key=lambda kv: int(kv[1].ts[0]) if len(kv[1].ts) else 0)
+    end = min(int(c.ts[-1]) for _, c in by_start if len(c.ts))
+    best, best_score = None, -1.0
+    for k in range(min_insts, len(by_start) + 1):
+        start = int(by_start[k - 1][1].ts[0])
+        bars = max(0, end - start)
+        score = k * bars
+        if score > best_score:
+            best_score, best = score, k
+    keep = dict(by_start[:best or len(by_start)])
+    return keep
+
+
 def research_panel(
     candles_map: dict[str, Candles],
     grid: list[Genome],
@@ -172,19 +204,29 @@ def research_panel(
         if log:
             log("panel research: needs >= 4 instruments and a grid, skipping")
         return []
+    dropped = len(candles_map)
+    candles_map = choose_panel_universe(candles_map)
+    dropped -= len(candles_map)
     insts = sorted(candles_map)
     bar = candles_map[insts[0]].bar
     bpy = BARS_PER_YEAR[bar]
     ref = candles_map[insts[0]]
-    n_ref = len(ref)
+
+    # the scored window is the shared grid, not the longest member's history
+    common_all, _ = align_universe(candles_map)
+    n_common = len(common_all)
+    if log:
+        log(f"panel research: {len(insts)} instruments over {n_common} shared "
+            f"bars" + (f" ({dropped} dropped as too recent)" if dropped else ""))
 
     ok, need = window_supports_validation(
-        n_oos=int(n_ref * (1.0 - is_fraction)), n_trials=len(grid),
+        n_oos=int(n_common * (1.0 - is_fraction)), n_trials=len(grid),
         bars_per_year=bpy, max_bar=max_selection_bar)
     if not ok:
         if log:
-            log(f"panel research: {int(n_ref * (1 - is_fraction))} scored bars "
-                f"against the {need} a {len(grid)}-rule grid needs — skipping")
+            log(f"panel research: {int(n_common * (1 - is_fraction))} scored "
+                f"bars against the {need} a {len(grid)}-rule grid needs — "
+                f"skipping")
         return []
 
     def slice_map(a: float, b: float) -> dict[str, Candles]:
@@ -218,7 +260,7 @@ def research_panel(
         common, pos = panel_positions(candles_map, g)
         if not pos:
             continue
-        is_cut_ts = ref.ts[int(n_ref * is_fraction)]
+        is_cut_ts = common_all[int(n_common * is_fraction)]
         start = int(np.searchsorted(common, is_cut_ts)) + embargo_bars
         if len(common) - start < 300:
             if log:
