@@ -25,7 +25,10 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
    strand a trade. The book itself is capped globally
    (`research.max_deployed_total`): capital is shared across everything
    deployed, so an unbounded book starves each strategy below the rebalance
-   band and nothing reaches the market.
+   band and nothing reaches the market. Slots are filled instrument by
+   instrument rather than by global Sharpe rank, so the breadth the wider
+   universe bought is not handed straight back to whichever few names drew
+   the luckiest estimates.
 
 1. **Prediction engine** (`hermes/ml/`) — a genuine forecasting layer, all
    implemented from scratch in numpy:
@@ -314,7 +317,7 @@ hermes/
   cli.py                 demo / fetch / research / run / status /
                          coverage / calibration / execution / backup /
                          dashboard
-tests/                   143 tests: no-lookahead, ML causality, microstructure
+tests/                   144 tests: no-lookahead, ML causality, microstructure
                          features, metric autocorrelation, regimes, e2e
 ```
 

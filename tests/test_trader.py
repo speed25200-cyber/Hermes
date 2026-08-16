@@ -315,3 +315,29 @@ def test_book_is_capped_across_the_whole_universe():
     assert [s.oos_stats["sharpe"] for s in kept] == [11.0, 10.0, 9.0]
     assert cap_book(made, 0) is made          # 0 disables the cap
     assert cap_book(made, 50) is made         # under the cap, untouched
+
+
+def test_cap_spreads_the_book_across_instruments():
+    """Taking the global top N would hand every slot to whichever instrument
+    drew the luckiest estimates. Breadth is the reason for widening the
+    universe, so the cap fills instrument by instrument."""
+    from hermes.live.trader import cap_book
+
+    made = []
+    for inst, sharpes in (("LUCKY-USDT-SWAP", [9.0, 8.9, 8.8, 8.7]),
+                          ("B-USDT-SWAP", [3.0, 2.5]),
+                          ("C-USDT-SWAP", [2.8, 2.4]),
+                          ("D-USDT-SWAP", [2.6, 2.2])):
+        for sh in sharpes:
+            g = Genome(signal="tsmom", params={"lookback": int(sh * 10),
+                                               "deadband": 0.5},
+                       vol_target=0.2, max_lev=1.0)
+            made.append(ValidatedStrategy(genome=g, inst=inst, bar="15m",
+                                          is_stats={},
+                                          oos_stats={"sharpe": sh, "dsr": 0.2}))
+
+    kept = cap_book(made, 4)
+    assert len({s.inst for s in kept}) == 4       # one slot per instrument
+    # the lucky instrument still leads, it just does not take every seat
+    assert kept[0].inst == "LUCKY-USDT-SWAP"
+    assert sum(1 for s in kept if s.inst == "LUCKY-USDT-SWAP") == 1

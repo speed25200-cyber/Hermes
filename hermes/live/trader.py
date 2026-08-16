@@ -299,16 +299,42 @@ def cap_book(survivors: list[ValidatedStrategy], cap: int,
     9,955 USDT book while 60 put it at 136 — under the rebalance band, which
     is the flat-book failure all over again. Widening the universe multiplies
     candidates, so this has to bind globally.
+
+    Slots are filled instrument by instrument, best first, rather than by
+    global Sharpe rank. Taking the top N outright would hand every slot to
+    whichever few instruments drew the luckiest estimates — and those
+    estimates are noisy enough that the allocator already refuses to chase
+    them. Spreading across names is the entire reason for widening the
+    universe, so the cap has to preserve it.
     """
     if not cap or len(survivors) <= cap:
         return survivors
-    ranked = sorted(survivors, key=lambda s: s.oos_stats.get("sharpe", 0.0),
-                    reverse=True)
+    by_inst: dict[str, list] = {}
+    for s in survivors:
+        by_inst.setdefault(s.inst, []).append(s)
+    for group in by_inst.values():
+        group.sort(key=lambda s: s.oos_stats.get("sharpe", 0.0), reverse=True)
+    order = sorted(by_inst, key=lambda i: -by_inst[i][0].oos_stats.get("sharpe", 0.0))
+
+    kept: list = []
+    rank = 0
+    while len(kept) < cap:
+        added = False
+        for inst in order:
+            if rank < len(by_inst[inst]):
+                kept.append(by_inst[inst][rank])
+                added = True
+                if len(kept) >= cap:
+                    break
+        if not added:
+            break
+        rank += 1
     if log:
-        log(f"research: book capped at {cap} strategies "
-            f"({len(survivors) - cap} lower-Sharpe survivors dropped) so each "
-            f"keeps enough capital to reach the market")
-    return ranked[:cap]
+        log(f"research: book capped at {cap} strategies across "
+            f"{len({s.inst for s in kept})} instruments "
+            f"({len(survivors) - len(kept)} dropped) so each keeps enough "
+            f"capital to reach the market")
+    return kept
 
 
 @dataclass
