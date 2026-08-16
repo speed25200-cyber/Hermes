@@ -458,6 +458,59 @@ def cmd_calibration(args) -> None:
                   f"about live performance)")
 
 
+def cmd_backup(args) -> None:
+    """Export the series that cannot be re-fetched.
+
+    Candles, funding, open interest and positioning can all be pulled from
+    the exchange again after a disk loss. The order-book imbalance cannot:
+    no venue serves its history, so the only copy in existence is the one
+    Hermes recorded itself, one snapshot at a time. Left on a single VPS
+    disk that is a single point of failure for the one dataset nobody else
+    has — so it gets a portable copy.
+
+    Restores are additive (INSERT OR REPLACE on the timestamp), so importing
+    an older export onto a live store cannot lose newer snapshots.
+    """
+    from .data.store import DataStore
+
+    cfg = Config.load(args.config)
+    store = DataStore(cfg["data_dir"])
+    kinds = ["ob"] if not args.all_sources else list(
+        __import__("hermes.data.store", fromlist=["AUX_SERIES"]).AUX_SERIES)
+
+    if args.restore:
+        total = 0
+        with open(args.restore) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                total += store.upsert_aux(rec["inst"], rec["kind"],
+                                          [tuple(r) for r in rec["rows"]])
+        print(f"restored {total} rows from {args.restore}")
+        return
+
+    out = args.out or "hermes-aux-backup.jsonl"
+    written = 0
+    with open(out, "w") as f:
+        for inst in cfg["instruments"]:
+            for kind in kinds:
+                rows = store.read_aux(inst, kind)
+                if not rows:
+                    continue
+                f.write(json.dumps({"inst": inst, "kind": kind,
+                                    "rows": rows}) + "\n")
+                written += len(rows)
+    print(f"wrote {written} rows to {out}")
+    if not written:
+        print("nothing recorded yet — run the engine so the order-book "
+              "sampler can accumulate")
+    else:
+        print("keep this OFF the trading host: it is the only copy of the "
+              "order-book history")
+
+
 def cmd_execution(args) -> None:
     """Contrast realised execution cost with the cost the backtest assumed.
 
@@ -569,6 +622,16 @@ def main(argv: list[str] | None = None) -> None:
                         help="history held per data source (incl. the "
                              "self-recorded order book)")
     cv.set_defaults(fn=cmd_coverage)
+
+    bk = sub.add_parser("backup",
+                        help="export the self-recorded order-book history "
+                             "(the only data that cannot be re-fetched)")
+    bk.add_argument("--out", default=None, help="output JSONL path")
+    bk.add_argument("--restore", default=None,
+                    help="import a previous export instead of writing one")
+    bk.add_argument("--all-sources", action="store_true",
+                    help="include the re-fetchable series too")
+    bk.set_defaults(fn=cmd_backup)
 
     ex = sub.add_parser("execution",
                         help="realised trading cost vs the cost every "

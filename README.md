@@ -163,6 +163,9 @@ python -m hermes calibration
 # Is trading actually costing what every backtest assumed?
 python -m hermes execution
 
+# Export the recorded order book — the one series no exchange can replace
+python -m hermes backup --out hermes-ob.jsonl
+
 # Dashboard — local web console (equity curve, book, allocation, risk, logs)
 python -m hermes dashboard            # opens http://127.0.0.1:8899
 python -m hermes dashboard --demo     # inspect the offline demo run
@@ -280,8 +283,9 @@ hermes/
   dashboard/server.py    zero-dependency local web console (stdlib http)
            index.html    single-file UI: SVG charts, animated console
   cli.py                 demo / fetch / research / run / status /
-                         coverage / calibration / execution / dashboard
-tests/                   124 tests: no-lookahead, ML causality, microstructure
+                         coverage / calibration / execution / backup /
+                         dashboard
+tests/                   125 tests: no-lookahead, ML causality, microstructure
                          features, metric autocorrelation, regimes, e2e
 ```
 

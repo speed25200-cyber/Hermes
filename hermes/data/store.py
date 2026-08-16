@@ -127,6 +127,14 @@ class DataStore:
         self.conn.commit()
         return len(rows)
 
+    def read_aux(self, inst: str, kind: str) -> list[tuple]:
+        """Raw (ts, v1, v2) rows, oldest first."""
+        cur = self.conn.execute(
+            "SELECT ts, v1, v2 FROM aux WHERE inst=? AND kind=? ORDER BY ts",
+            (inst, kind),
+        )
+        return [(int(ts), float(v1), float(v2)) for ts, v1, v2 in cur.fetchall()]
+
     def aux_range(self, inst: str, kind: str) -> tuple[int, int, int]:
         cur = self.conn.execute(
             "SELECT MIN(ts), MAX(ts), COUNT(*) FROM aux WHERE inst=? AND kind=?",

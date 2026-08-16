@@ -54,3 +54,39 @@ def test_coverage_report_shows_recorded_order_book(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "ob" in out and "rows" in out
     assert "enough to be searched" in out          # 40 days recorded > 30
+
+
+def test_order_book_backup_roundtrip(tmp_path):
+    """The recorded order book is the only irreplaceable series, so an export
+    must restore exactly — and must not clobber newer snapshots."""
+    import types
+
+    from hermes.cli import cmd_backup
+    from hermes.config import Config
+
+    src, dst = tmp_path / "src", tmp_path / "dst"
+    store = DataStore(str(src))
+    rows = [(i * 600_000, 0.1 * i, 0.2 * i) for i in range(50)]
+    store.upsert_aux("BTC-USDT-SWAP", "ob", rows)
+
+    out = str(tmp_path / "backup.jsonl")
+    cfg = Config.load(None)
+    cfg.raw["instruments"] = ["BTC-USDT-SWAP"]
+    original = Config.load
+    try:
+        Config.load = staticmethod(lambda *_a, **_k: cfg)
+        cfg.raw["data_dir"] = str(src)
+        cmd_backup(types.SimpleNamespace(config=None, out=out, restore=None,
+                                         all_sources=False))
+        # a newer snapshot exists on the target that the export predates
+        target = DataStore(str(dst))
+        target.upsert_aux("BTC-USDT-SWAP", "ob", [(99 * 600_000, 9.0, 9.0)])
+        cfg.raw["data_dir"] = str(dst)
+        cmd_backup(types.SimpleNamespace(config=None, out=None, restore=out,
+                                         all_sources=False))
+    finally:
+        Config.load = original
+
+    restored = DataStore(str(dst)).read_aux("BTC-USDT-SWAP", "ob")
+    assert restored[:50] == rows                     # exact roundtrip
+    assert restored[-1] == (99 * 600_000, 9.0, 9.0)  # newer row survived
