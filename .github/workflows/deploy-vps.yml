@@ -131,8 +131,17 @@ jobs:
       - name: Start data backfill + research (runs on the VPS, detached)
         if: inputs.mode != 'code'
         run: |
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
-            "systemctl start --no-block hermes-research && echo research started"
+          # `systemctl start` on a unit that is already activating is a
+          # no-op, so without this a full deploy would silently leave the
+          # OLD pass running — the new code would be on disk and the search
+          # producing results under the previous rules for another hour.
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            if systemctl is-active --quiet hermes-research; then
+              echo "stopping the research pass already in flight"
+              systemctl stop hermes-research || true
+            fi
+            systemctl start --no-block hermes-research && echo "research started"
+          '
 
       - name: Snapshot status
         run: |
