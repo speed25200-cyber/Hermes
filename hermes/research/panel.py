@@ -44,7 +44,8 @@ from ..data.store import BARS_PER_YEAR, Candles
 from ..strategy.genome import Genome
 from ..strategy.signals import compute_position
 from ..strategy.xs import align_universe, portfolio_backtest
-from .validate import ValidatedStrategy, window_supports_validation
+from .validate import (ValidatedStrategy, near_miss,
+                       window_supports_validation)
 
 PANEL_INST = "PANEL"
 
@@ -197,6 +198,7 @@ def research_panel(
     max_deployed: int = 4,
     max_corr: float = 0.9,
     max_selection_bar: float = 10.0,
+    misses: list | None = None,
     log=None,
 ) -> list[ValidatedStrategy]:
     """Search `grid` in-sample on the panel, validate the best per family."""
@@ -303,4 +305,8 @@ def research_panel(
                                          is_stats={"sharpe": is_sh},
                                          oos_stats=st))
             accepted.append(oos)
+        elif misses is not None:
+            misses.append(near_miss(f"panel {signal}", st, min_oos_sharpe,
+                                    min_dsr, max_oos_drawdown, consistent,
+                                    clone_r, max_corr))
     return out

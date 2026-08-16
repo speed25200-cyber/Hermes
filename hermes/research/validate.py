@@ -106,6 +106,36 @@ def window_supports_validation(n_oos: int, n_trials: int, bars_per_year: int,
     return n_oos >= need, need
 
 
+def near_miss(what: str, st: dict, min_oos_sharpe: float, min_dsr: float,
+              max_oos_drawdown: float, consistent: bool, clone_r: float,
+              max_corr: float) -> dict:
+    """Why one candidate was refused, in a form the report can print.
+
+    An empty book is the honest outcome most of the time, and on its own it
+    says nothing: the operator cannot tell a universe with no edge from a
+    gate set wrong or a pipeline quietly broken. The binding constraint is
+    the useful fact — "closest miss was Sharpe 3.1 against a bar of 2.6, but
+    only 1 fold of 3 was positive" is actionable where silence is not.
+    """
+    sharpe = float(st.get("sharpe", 0.0))
+    dsr = float(st.get("dsr", 0.0))
+    reasons = []
+    if sharpe < min_oos_sharpe:
+        reasons.append(f"sharpe {sharpe:.2f} < {min_oos_sharpe:.2f}")
+    if dsr < min_dsr:
+        reasons.append(f"dsr {dsr:.3f} < {min_dsr:.2f} "
+                       f"(bar {st.get('selection_bar', 0.0):.2f})")
+    if st.get("max_drawdown", 0.0) > max_oos_drawdown:
+        reasons.append(f"mdd {st['max_drawdown']:.0%} > {max_oos_drawdown:.0%}")
+    if not consistent:
+        reasons.append(f"folds {st.get('oos_folds_positive', '?')}")
+    if clone_r >= max_corr:
+        reasons.append(f"clone r={clone_r:.2f}")
+    return {"what": what, "sharpe": sharpe, "dsr": dsr,
+            "selection_bar": float(st.get("selection_bar", 0.0)),
+            "why": ", ".join(reasons) or "unknown"}
+
+
 def _cost_share(stats: dict) -> str:
     """How much of the gross return the frictions took.
 
@@ -137,6 +167,7 @@ def validate_candidates(
     fold_embargo: int = 12,
     max_corr: float = 0.9,
     ctx: dict | None = None,
+    misses: list | None = None,
     log=None,
 ) -> list[ValidatedStrategy]:
     """Evaluate the best IS candidates on OOS data; return survivors."""
@@ -205,4 +236,9 @@ def validate_candidates(
             ))
             seen_signals.append(g.signal)
             accepted_rets.append(res.rets)
+        elif misses is not None:
+            misses.append(near_miss(f"{candles.inst} {g.signal}", st,
+                                    min_oos_sharpe, min_dsr,
+                                    max_oos_drawdown, consistent, clone_r,
+                                    max_corr))
     return survivors

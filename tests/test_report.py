@@ -268,3 +268,53 @@ def test_registry_without_a_bar_still_prints(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "oos_sharpe=  8.92 dsr=0.121" in out
     assert "scored BELOW" not in out
+
+
+def test_an_empty_book_says_what_it_came_closest_to(tmp_path, capsys):
+    """"Nothing deployed" is the honest outcome most of the time, and on its
+    own it is indistinguishable from a broken pipeline. The binding
+    constraint is the useful fact."""
+    sd, args = _setup(tmp_path, [_cycle(1000.0)])
+    with open(sd / "registry.json", "w") as f:
+        json.dump({"strategies": [], "n_trials": 6240,
+                   "consecutive_empty": 1, "researched_at": 0.0}, f)
+    with open(sd / "last_research.json", "w") as f:
+        json.dump({"at": 0.0, "deployed": 0, "considered": 41,
+                   "near_misses": [
+                       {"what": "panel tsmom", "sharpe": 3.1,
+                        "selection_bar": 2.6, "why": "folds 1/3"},
+                       {"what": "ATOM-USDT-SWAP rsi_rev", "sharpe": 2.5,
+                        "selection_bar": 4.03,
+                        "why": "dsr 0.052 < 0.50 (bar 4.03)"}]}, f)
+    cli.cmd_report(args)
+    out = capsys.readouterr().out
+    assert "41 candidates reached the gate, 0 passed" in out
+    assert "panel tsmom" in out and "folds 1/3" in out
+    assert "dsr 0.052 < 0.50" in out
+
+
+def test_an_empty_book_without_a_summary_says_so(tmp_path, capsys):
+    sd, args = _setup(tmp_path, [_cycle(1000.0)])
+    with open(sd / "registry.json", "w") as f:
+        json.dump({"strategies": [], "n_trials": 0, "consecutive_empty": 0,
+                   "researched_at": 0.0}, f)
+    cli.cmd_report(args)
+    assert "no research summary on disk" in capsys.readouterr().out
+
+
+def test_a_full_book_does_not_print_misses(tmp_path, capsys):
+    sd, args = _setup(tmp_path, [_cycle(1000.0)])
+    with open(sd / "registry.json", "w") as f:
+        json.dump({"strategies": [
+            {"inst": "PANEL", "genome": {"signal": "tsmom"},
+             "oos_stats": {"sharpe": 4.7, "dsr": 0.97,
+                           "selection_bar": 2.6}}],
+            "n_trials": 26, "consecutive_empty": 0, "researched_at": 0.0}, f)
+    with open(sd / "last_research.json", "w") as f:
+        json.dump({"deployed": 1, "considered": 26, "near_misses": [
+            {"what": "panel meanrev", "sharpe": 1.0, "selection_bar": 2.6,
+             "why": "sharpe 1.00 < 0.50"}]}, f)
+    cli.cmd_report(args)
+    out = capsys.readouterr().out
+    assert "closest misses" not in out
+    assert "PANEL" in out

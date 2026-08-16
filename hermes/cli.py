@@ -653,6 +653,35 @@ def _read_journal(state_dir: str, keep: int) -> list[dict]:
     return rows
 
 
+def _print_near_misses(state_dir: str, top: int = 5) -> None:
+    """What the last research pass came closest to deploying, and why not.
+
+    Printed only when the book is empty, which is the case where "nothing
+    deployed" needs a reason attached to be worth anything.
+    """
+    path = os.path.join(state_dir, "last_research.json")
+    if not os.path.exists(path):
+        print("  (no research summary on disk — the pass predates this "
+              "record, or has not run since)")
+        return
+    try:
+        with open(path) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        print("  (research summary unreadable)")
+        return
+    misses = d.get("near_misses", [])
+    print(f"  {d.get('considered', 0)} candidates reached the gate, "
+          f"{d.get('deployed', 0)} passed")
+    if not misses:
+        print("  no candidate got far enough to record a reason")
+        return
+    print("  closest misses:")
+    for m in misses[:top]:
+        print(f"    {m.get('what', '?'):<28} sharpe {m.get('sharpe', 0.0):6.2f} "
+              f"(bar {m.get('selection_bar', 0.0):5.2f})  {m.get('why', '')}")
+
+
 def cmd_report(args) -> None:
     """One-screen operational truth: is the book actually trading?
 
@@ -710,6 +739,8 @@ def cmd_report(args) -> None:
               f"genomes | {reg.get('consecutive_empty', 0)} empty passes | "
               f"researched {age_h:.1f}h ago")
         below = 0
+        if not strategies:
+            _print_near_misses(state_dir)
         for s in strategies:
             o = s.get("oos_stats", {})
             bar = o.get("selection_bar")

@@ -254,13 +254,13 @@ def test_research_one_runs_aux_pass():
     r = {"is_fraction": 0.7, "embargo_bars": 24, "population": 8,
          "generations": 1, "min_oos_sharpe": 0.5, "min_dsr": 0.05,
          "max_deployed": 3, "seed": 1, "max_selection_bar": 1e9}
-    _, _, n_trials, lines = _research_one(c.inst, c, None, r, 5.0, 2.0)
+    _, _, n_trials, lines, _ = _research_one(c.inst, c, None, r, 5.0, 2.0)
     assert any("aux search" in ln for ln in lines)
     assert n_trials > 8 * 2          # core pass plus a real aux pass
 
     # without aux coverage the pass is skipped silently
     c2 = generate(bar="15m", n=AUX_MIN_BARS + 1200, seed=43)
-    _, _, _, lines2 = _research_one(c2.inst, c2, None, r, 5.0, 2.0)
+    _, _, _, lines2, _ = _research_one(c2.inst, c2, None, r, 5.0, 2.0)
     assert not any("aux search" in ln for ln in lines2)
 
 
@@ -287,7 +287,7 @@ def test_incumbent_seeding_preserves_book_continuity():
     r = {"is_fraction": 0.7, "embargo_bars": 24, "population": 8,
          "generations": 1, "min_oos_sharpe": -99.0, "min_dsr": -99.0,
          "max_deployed": 6, "seed": 1}
-    _, survivors, _, _ = _research_one(c.inst, c, None, r, 5.0, 2.0,
+    _, survivors, _, _, _ = _research_one(c.inst, c, None, r, 5.0, 2.0,
                                        incumbents=[incumbent])
     assert any(s.genome.gid == incumbent.gid for s in survivors), \
         "with open gates the incumbent must come back deployed"
@@ -506,7 +506,7 @@ def test_aux_pass_is_skipped_when_the_window_cannot_validate():
     r = {"is_fraction": 0.7, "embargo_bars": 24, "population": 8,
          "generations": 1, "min_oos_sharpe": 0.5, "min_dsr": 0.5,
          "max_deployed": 3, "seed": 1, "max_selection_bar": 10.0}
-    _, survivors, _, lines = _research_one(c.inst, c, None, r, 5.0, 2.0)
+    _, survivors, _, lines, _ = _research_one(c.inst, c, None, r, 5.0, 2.0)
     assert any("skipped" in ln and "days of scored history" in ln
                for ln in lines), lines
     assert all("aux" not in s.genome.signal for s in survivors)

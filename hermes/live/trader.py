@@ -163,13 +163,17 @@ def _with_incumbents_first(pop, incumbent_genomes, candles_is, fee_bps,
 def _research_one(inst: str, candles: Candles, leader: Candles | None,
                   r: dict, fee_bps: float, slip_bps: float,
                   incumbents: list[Genome] | None = None
-                  ) -> tuple[str, list[ValidatedStrategy], int, list[str]]:
+                  ) -> tuple[str, list[ValidatedStrategy], int, list[str],
+                             list[dict]]:
     """Evolve + validate a single instrument (worker-safe: no shared state,
     returns log lines instead of printing). Deployed incumbents for this
     instrument are seeded into the search so the book has continuity: they
     survive when they still pass, never vanish to random-search luck."""
     from ..strategy.genome import AUX_SIGNALS
     lines: list[str] = []
+    # workers are separate processes: near-misses travel home in the return
+    # value, exactly like the log lines
+    misses: list[dict] = []
     inc = incumbents or []
     seeds_core = [g for g in inc if g.signal not in AUX_SIGNALS]
     seeds_aux = [g for g in inc if g.signal in AUX_SIGNALS]
@@ -194,7 +198,7 @@ def _research_one(inst: str, candles: Candles, leader: Candles | None,
         min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
         fee_bps=fee_bps, slip_bps=slip_bps,
         max_deployed=r["max_deployed"], max_corr=r.get("max_corr", 0.9),
-        ctx=ctx, log=lines.append,
+        ctx=ctx, misses=misses, log=lines.append,
     )
 
     # ---- aux-data families, searched only on the window the rubik series
@@ -245,7 +249,8 @@ def _research_one(inst: str, candles: Candles, leader: Candles | None,
             min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
             fee_bps=fee_bps, slip_bps=slip_bps,
             max_deployed=r["max_deployed"],
-            max_corr=r.get("max_corr", 0.9), log=lines.append,
+            max_corr=r.get("max_corr", 0.9), misses=misses,
+            log=lines.append,
         )
         n_trials += trials_a
     # max_deployed is a per-instrument cap, and the aux pass appends to the
@@ -256,7 +261,7 @@ def _research_one(inst: str, candles: Candles, leader: Candles | None,
         survivors.sort(key=lambda s: s.oos_stats.get("sharpe", 0.0),
                        reverse=True)
         survivors = survivors[:r["max_deployed"]]
-    return inst, survivors, n_trials, lines
+    return inst, survivors, n_trials, lines, misses
 
 
 def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
@@ -312,10 +317,12 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
     # only way to tell them apart was watching the memory figure climb.
     t_started = time.time()
     done = 0
+    misses: list[dict] = []
 
     def absorb(res) -> None:
         nonlocal done, total_trials
-        inst, survivors, n_trials, lines = res
+        inst, survivors, n_trials, lines, inst_misses = res
+        misses.extend(inst_misses)
         done += 1
         for line in lines:
             log(line)
@@ -373,7 +380,7 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
             min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
             max_corr=r.get("max_corr", 0.9),
             max_selection_bar=float(r.get("max_selection_bar", 10.0)),
-            log=log)
+            misses=misses, log=log)
         all_survivors.extend(panel_survivors)
         total_trials += len(grid)
         log(f"research panel: {len(panel_survivors)} universe-wide rules "
@@ -386,7 +393,30 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
     # rebalance band, which is the flat-book failure all over again. Widening
     # the universe multiplies candidates, so the cap has to bind globally.
     cap = int(cfg["research"].get("max_deployed_total", 0) or 0)
-    return cap_book(all_survivors, cap, log), total_trials
+    book = cap_book(all_survivors, cap, log)
+
+    # An empty book is the honest outcome most of the time, and by itself it
+    # says nothing: a universe with no edge, a gate set wrong and a pipeline
+    # quietly broken all look identical from outside. The closest misses and
+    # what stopped them are the difference between a result and a silence, so
+    # they are written where `hermes report` can read them without anyone
+    # having to fetch a research log.
+    misses.sort(key=lambda m: -m.get("sharpe", 0.0))
+    try:
+        os.makedirs(cfg["state_dir"], exist_ok=True)
+        with open(os.path.join(cfg["state_dir"], "last_research.json"), "w") as f:
+            json.dump({"at": time.time(), "deployed": len(book),
+                       "considered": len(misses) + len(book),
+                       "n_trials": total_trials,
+                       "near_misses": misses[:8]}, f, indent=2)
+    except OSError as exc:
+        log(f"research: could not record the near-miss summary ({exc})")
+    if not book and misses:
+        best = misses[0]
+        log(f"research: nothing deployed. Closest was {best['what']} at "
+            f"sharpe {best['sharpe']:.2f} (bar {best['selection_bar']:.2f}) "
+            f"— {best['why']}")
+    return book, total_trials
 
 
 def cap_book(survivors: list[ValidatedStrategy], cap: int,
