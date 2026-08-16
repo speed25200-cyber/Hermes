@@ -1,6 +1,6 @@
-# Diagnose why the deployed book is taking no positions: aux data freshness
-# per instrument, and the live signal value each deployed strategy actually
-# produces on the newest bar.
+# Trace the full decision chain for one bar: per-strategy signal -> allocator
+# weight -> combined book -> governor -> risk clamp -> rebalance band, so the
+# stage that turns a live signal into a zero position is visible.
 
 name: VPS status
 
@@ -39,62 +39,63 @@ jobs:
       - name: Upload diagnostic
         run: |
           cat > /tmp/diag.py <<'PYEOF'
-          import json, time
+          import json
           import numpy as np
           from hermes.config import Config
-          from hermes.data.store import DataStore, AUX_SERIES
+          from hermes.data.store import DataStore, BARS_PER_YEAR
+          from hermes.portfolio.allocator import Allocator
           from hermes.strategy.genome import Genome
           from hermes.strategy.signals import compute_position
 
           cfg = Config.load()
           store = DataStore(cfg["data_dir"])
           bar = cfg["bar"]
-          now = time.time() * 1000
-
           reg = json.load(open("state/registry.json"))
-          strats = reg.get("strategies", [])
-          insts = sorted({s["inst"] for s in strats})
-          print(f"deployed: {len(strats)} strategies over {len(insts)} instruments\n")
+          strats = reg["strategies"]
+          tr = json.load(open("state/trader.json"))
 
-          print("=== aux freshness on the traded instruments ===")
-          for inst in insts:
-              lo, hi, n = store.candle_range(inst, bar)
-              parts = [f"candles {(now-hi)/60000:6.0f}min old"]
-              for kind in AUX_SERIES:
-                  _, khi, kn = store.aux_range(inst, kind)
-                  parts.append(f"{kind} {'--' if not kn else f'{(now-khi)/60000:.0f}min'}")
-              print(f"  {inst:<16} " + "  ".join(parts))
+          a = cfg["allocator"]
+          alloc = Allocator(ewma_halflife_bars=a["ewma_halflife_bars"],
+                            eta=a["eta"], max_weight=a["max_weight"],
+                            portfolio_vol_target=cfg["risk"]["portfolio_vol_target"],
+                            bars_per_year=BARS_PER_YEAR[bar])
+          alloc.restore(tr.get("allocator", {}))
 
-          print("\n=== what each deployed strategy outputs on the newest bar ===")
-          nonzero = 0
+          per = {}
           for s in strats:
-              inst = s["inst"]
-              c = store.load(inst, bar)
-              if not len(c):
-                  print(f"  {inst:<16} {s['genome']['signal']:<12} NO CANDLES")
-                  continue
               g = Genome.from_dict(s["genome"])
-              try:
-                  pos = compute_position(c, g)
-                  v = float(pos[-1])
-              except Exception as exc:
-                  print(f"  {inst:<16} {g.signal:<12} ERROR {exc}")
+              sid = f"{s['inst']}:{g.gid}"
+              c = store.load(s["inst"], bar)
+              if not len(c):
                   continue
-              nz = int(np.count_nonzero(pos[-96:]))
-              if abs(v) > 1e-12:
-                  nonzero += 1
-              # how much aux the signal could actually see on the last 96 bars
-              seen = {}
-              for k in ("oi", "tak_buy", "lsr", "ttp"):
-                  a = c.x.get(k)
-                  seen[k] = int(np.count_nonzero(~np.isnan(a[-96:]))) if a is not None else -1
-              print(f"  {inst:<16} {g.signal:<12} now={v:+.4f}  "
-                    f"nonzero in last 96 bars={nz:3d}  aux_seen={seen}")
-          print(f"\n{nonzero} of {len(strats)} strategies want a position right now")
+              per[sid] = {s["inst"]: float(compute_position(c, g)[-1])}
+
+          w = alloc.weights(list(per))
+          print("=== allocator weights (18 deployed) ===")
+          for sid, wt in sorted(w.items(), key=lambda kv: -kv[1]):
+              exp = list(per.get(sid, {}).values())
+              t = alloc.tracks.get(sid)
+              print(f"  {sid:<40} w={wt:.4f} signal={exp[0] if exp else 0:+.4f} "
+                    f"n_obs={t.n_obs if t else 0}")
+
+          print(f"\nportfolio_scale = {alloc.portfolio_scale():.3f}  "
+                f"(ewma_port_var={alloc.ewma_port_var:.3e})")
+
+          book = alloc.combine(per)
+          eq = tr.get("paper_broker", {}).get("cash", 10000.0)
+          print(f"\n=== combined book (equity ~{eq:.0f}) ===")
+          for inst, e in sorted(book.items(), key=lambda kv: -abs(kv[1])):
+              if abs(e) > 1e-9:
+                  print(f"  {inst:<16} exposure={e:+.5f}  "
+                        f"= {abs(e)*eq:8.2f} USDT   "
+                        f"{'TRADES' if abs(e) >= 0.02 else 'BLOCKED by 2% band'}")
+          print("\nband floor = 2% of equity = "
+                f"{0.02*eq:.2f} USDT; min_trade_notional = "
+                f"{cfg['risk']['min_trade_notional']}")
           PYEOF
           sshpass -e scp -o StrictHostKeyChecking=accept-new /tmp/diag.py "root@$VPS:/root/hermes/diag.py"
 
       - name: Run diagnostic
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
-            'cd /root/hermes && /root/venv/bin/python diag.py 2>&1 | tail -80; rm -f diag.py'
+            'cd /root/hermes && /root/venv/bin/python diag.py 2>&1 | tail -60; rm -f diag.py'
