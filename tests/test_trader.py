@@ -436,3 +436,68 @@ def test_research_reports_each_instrument_as_it_finishes():
     for k, m in enumerate(progress, start=1):
         assert f"[{k}/4," in m, m
         assert "min elapsed]" in m, m
+
+
+def test_dust_positions_are_closable_when_the_book_empties():
+    """The live book held 22 positions worth 0.08 to 4.15 USDT. With the
+    registry pruned to nothing every target is zero, and every closing order
+    was under the 10 USDT floor — so they would have been retried and
+    rejected every fifteen minutes forever, bleeding funding."""
+    from hermes.config import Config
+    from hermes.exchange.broker import PaperBroker
+    from hermes.live.trader import Registry, Trader
+    from hermes.portfolio.allocator import Allocator
+    from hermes.risk import RiskEngine
+    import tempfile
+
+    prices = {"AVAX-USDT-SWAP": 6.35, "DOT-USDT-SWAP": 0.759}
+    with tempfile.TemporaryDirectory() as d:
+        cfg = Config.load(None)
+        cfg.raw["instruments"] = sorted(prices)
+        broker = PaperBroker(cash=10_000.0, fee_bps=2.0, slippage_bps=1.0)
+        broker.mark_prices(prices)
+        broker.market_order("AVAX-USDT-SWAP", -0.653720, prices["AVAX-USDT-SWAP"])
+        broker.market_order("DOT-USDT-SWAP", -5.218024, prices["DOT-USDT-SWAP"])
+        assert broker.positions()
+
+        risk = RiskEngine(max_gross_leverage=2.0, max_instrument_leverage=1.0,
+                          daily_loss_limit_pct=3.0, max_drawdown_pct=15.0,
+                          min_trade_notional=10.0, max_order_notional=25_000.0)
+        risk.state_path = None
+        reg = Registry(d)                       # empty book
+        trader = Trader(cfg, broker, reg, Allocator(bars_per_year=35040), risk,
+                        log=lambda m: None)
+        orders = trader._reconcile({}, prices, equity=10_000.0)
+
+    assert len(orders) == 2, orders
+    assert all(abs(o["notional"]) < 10.0 for o in orders), orders
+    assert not broker.positions() or all(
+        abs(q) < 1e-9 for q in broker.positions().values())
+
+
+def test_a_position_too_small_for_the_venue_is_left_alone():
+    """Below a dollar the exchange's own lot size refuses the order; retrying
+    every bar would only spam the log."""
+    from hermes.config import Config
+    from hermes.exchange.broker import PaperBroker
+    from hermes.live.trader import Registry, Trader
+    from hermes.portfolio.allocator import Allocator
+    from hermes.risk import RiskEngine
+    import tempfile
+
+    prices = {"ETC-USDT-SWAP": 5.86}
+    with tempfile.TemporaryDirectory() as d:
+        cfg = Config.load(None)
+        cfg.raw["instruments"] = sorted(prices)
+        broker = PaperBroker(cash=10_000.0, fee_bps=2.0, slippage_bps=1.0)
+        broker.mark_prices(prices)
+        broker.market_order("ETC-USDT-SWAP", -0.013657, prices["ETC-USDT-SWAP"])
+        risk = RiskEngine(max_gross_leverage=2.0, max_instrument_leverage=1.0,
+                          daily_loss_limit_pct=3.0, max_drawdown_pct=15.0,
+                          min_trade_notional=10.0, max_order_notional=25_000.0)
+        risk.state_path = None
+        trader = Trader(cfg, broker, Registry(d),
+                        Allocator(bars_per_year=35040), risk,
+                        log=lambda m: None)
+        orders = trader._reconcile({}, prices, equity=10_000.0)
+    assert orders == []

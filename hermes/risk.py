@@ -123,9 +123,23 @@ class RiskEngine:
             out = {inst: e * scale for inst, e in out.items()}
         return out
 
-    def check_order(self, notional: float) -> tuple[bool, str]:
+    def check_order(self, notional: float, closing: bool = False
+                    ) -> tuple[bool, str]:
+        """`closing` marks an order that takes a position to flat.
+
+        The minimum-notional floor exists to stop the book churning on
+        rebalances too small to be worth their fees. Applied to an exit it
+        does the opposite of its job: a position below the floor can never be
+        closed, because every order that would close it is smaller than the
+        floor. Measured on the live book, an empty registry left 22 dust
+        positions that would have been retried and rejected every fifteen
+        minutes indefinitely, bleeding funding the whole time.
+
+        Entering below the floor is noise. Leaving below it is the only way
+        out, so the floor does not apply.
+        """
         n = abs(notional)
-        if n < self.min_trade_notional:
+        if n < self.min_trade_notional and not closing:
             return False, f"below min notional ({n:.2f} < {self.min_trade_notional})"
         if n > self.max_order_notional:
             return False, f"above max order notional ({n:.2f} > {self.max_order_notional})"

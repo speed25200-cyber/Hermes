@@ -724,7 +724,13 @@ class Trader:
             tgt_qty = tgt_exp * equity / px
             delta = tgt_qty - cur_qty
             notional = abs(delta) * px
-            ok, why = self.risk.check_order(notional)
+            # An exit is exempt from the minimum-notional floor, or a
+            # position below it can never be closed. The 1 USDT guard matches
+            # _flatten: below that the venue's own lot size will refuse the
+            # order anyway, and retrying every bar would only spam the log.
+            closing = (abs(tgt_qty) < 1e-12 and abs(cur_qty) > 0
+                       and abs(cur_qty) * px > 1.0)
+            ok, why = self.risk.check_order(notional, closing=closing)
             if not ok:
                 if notional > 0 and "min notional" not in why:
                     self.log(f"{inst}: order rejected: {why}")
