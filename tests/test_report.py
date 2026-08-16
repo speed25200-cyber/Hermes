@@ -1,0 +1,148 @@
+"""`hermes report`: the one-screen answer to "is the book trading?".
+
+The failure this command exists to catch is a book that decides every bar and
+never places an order — invisible in the service logs, fatal to the system's
+purpose. So the tests assert the report distinguishes a trading book from a
+frozen one, and never crashes on a state directory that has nothing in it.
+"""
+
+import json
+import os
+
+import pytest
+
+from hermes import cli
+
+
+class Args:
+    def __init__(self, state_dir, cycles=200):
+        self.config = os.path.join(state_dir, "config.json")
+        self.cycles = cycles
+
+
+def _setup(tmp_path, rows):
+    sd = tmp_path / "state"
+    sd.mkdir()
+    with open(tmp_path / "config.json", "w") as f:
+        json.dump({"state_dir": str(sd)}, f)
+    with open(sd / "journal.jsonl", "w") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+    args = Args(str(tmp_path))
+    args.config = str(tmp_path / "config.json")
+    return sd, args
+
+
+def _cycle(ts, orders=(), weights=None, positions=None, prices=None):
+    return {
+        "ts": ts, "equity": 10_000.0, "halted": False,
+        "prices": prices or {"BTC-USDT-SWAP": 50_000.0},
+        "targets": {"BTC-USDT-SWAP": 0.1},
+        "orders": list(orders),
+        "weights": weights or {"BTC-USDT-SWAP:abc": 1.0},
+        "strat_pos": {"BTC-USDT-SWAP:abc": 0.4},
+        "positions": positions or {},
+    }
+
+
+def test_empty_state_does_not_crash(tmp_path, capsys):
+    _, args = _setup(tmp_path, [])
+    cli.cmd_report(args)
+    out = capsys.readouterr().out
+    assert "never produced a survivor" in out
+    assert "has not decided anything yet" in out
+
+
+def test_registry_is_summarised_one_line_per_strategy(tmp_path, capsys):
+    sd, args = _setup(tmp_path, [_cycle(1000.0)])
+    with open(sd / "registry.json", "w") as f:
+        json.dump({"strategies": [
+            {"inst": "SUI-USDT-SWAP", "genome": {"signal": "cvd_div"},
+             "oos_stats": {"sharpe": 8.44, "dsr": 0.109,
+                           "oos_folds_positive": "2/3"}}],
+            "n_trials": 83793, "consecutive_empty": 0,
+            "researched_at": 0.0}, f)
+    cli.cmd_report(args)
+    out = capsys.readouterr().out
+    assert "1 strategies | searched 83,793 genomes" in out
+    assert "SUI-USDT-SWAP      cvd_div      oos_sharpe=  8.44" in out
+    assert "folds+=2/3" in out
+
+
+def test_frozen_book_reports_zero_orders(tmp_path, capsys):
+    _, args = _setup(tmp_path, [_cycle(1000.0 + 900 * i) for i in range(20)])
+    cli.cmd_report(args)
+    out = capsys.readouterr().out
+    assert "cycles that traded: 0 (0%)" in out
+    assert "orders           : 0" in out
+    assert "flat — no position on the exchange" in out
+
+
+def test_trading_book_reports_flow_and_exposure(tmp_path, capsys):
+    order = {"inst": "BTC-USDT-SWAP", "qty": 0.02, "px": 50_000.0,
+             "notional": 1000.0}
+    rows = [_cycle(1000.0 + 900 * i) for i in range(9)]
+    rows.append(_cycle(1000.0 + 900 * 9, orders=[order],
+                       positions={"BTC-USDT-SWAP": 0.02}))
+    _, args = _setup(tmp_path, rows)
+    cli.cmd_report(args)
+    out = capsys.readouterr().out
+    assert "cycles that traded: 1 (10%)" in out
+    assert "gross 1,000 USDT" in out
+    assert "BTC=1,000" in out
+    assert "+1000.00 USDT" in out
+    assert "+10.00% of equity" in out
+
+
+def test_halt_is_surfaced_with_its_reason(tmp_path, capsys):
+    rows = [_cycle(1000.0), {"ts": 1900.0, "equity": 9000.0, "halted": True,
+                             "reason": "daily loss limit", "prices": {},
+                             "targets": {}, "orders": [], "weights": {},
+                             "positions": {}}]
+    _, args = _setup(tmp_path, rows)
+    cli.cmd_report(args)
+    out = capsys.readouterr().out
+    assert "HALTED cycles    : 1" in out
+    assert "daily loss limit" in out
+
+
+def test_allocation_shows_starved_strategies(tmp_path, capsys):
+    """The freeze signature: one strategy holds everything with a dead signal
+    while the rest sit at a weight the exchange cannot express."""
+    sd, args = _setup(tmp_path, [_cycle(
+        1000.0, weights={"ETC-USDT-SWAP:old": 1.0, "AVAX-USDT-SWAP:new": 0.0})])
+    row = _cycle(1000.0, weights={"ETC-USDT-SWAP:old": 1.0,
+                                  "AVAX-USDT-SWAP:new": 0.0})
+    row["strat_pos"] = {"ETC-USDT-SWAP:old": 0.0, "AVAX-USDT-SWAP:new": 0.4084}
+    with open(sd / "journal.jsonl", "w") as f:
+        f.write(json.dumps(row) + "\n")
+    with open(sd / "trader.json", "w") as f:
+        json.dump({"allocator": {"tracks": {
+            "ETC-USDT-SWAP:old": {"n_obs": 367},
+            "AVAX-USDT-SWAP:new": {"n_obs": 23}}}}, f)
+    cli.cmd_report(args)
+    out = capsys.readouterr().out
+    assert "100.00%  ETC-USDT-SWAP:old" in out
+    assert "signal=+0.0000" in out
+    assert "n_obs=367" in out
+    assert "n_obs=23" in out
+
+
+def test_cycles_window_is_respected(tmp_path, capsys):
+    order = {"inst": "BTC-USDT-SWAP", "qty": 0.02, "px": 50_000.0,
+             "notional": 1000.0}
+    rows = [_cycle(1000.0, orders=[order])]
+    rows += [_cycle(1000.0 + 900 * i) for i in range(1, 40)]
+    _, args = _setup(tmp_path, rows)
+    args.cycles = 5
+    cli.cmd_report(args)
+    assert "orders           : 0" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("bad", ["", "not json", "{"])
+def test_corrupt_journal_lines_are_skipped(tmp_path, capsys, bad):
+    sd, args = _setup(tmp_path, [_cycle(1000.0)])
+    with open(sd / "journal.jsonl", "a") as f:
+        f.write(bad + "\n")
+    cli.cmd_report(args)
+    assert "cycles           : 1" in capsys.readouterr().out

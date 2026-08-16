@@ -627,6 +627,128 @@ def cmd_status(args) -> None:
             print("(absent)")
 
 
+def _read_journal(state_dir: str, keep: int) -> list[dict]:
+    path = os.path.join(state_dir, "journal.jsonl")
+    if not os.path.exists(path):
+        return []
+    rows = []
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return rows[-keep:]
+
+
+def cmd_report(args) -> None:
+    """One-screen operational truth: is the book actually trading?
+
+    `status` dumps raw state; useful for forensics, useless for the question
+    that matters day to day. This answers it directly — which strategies hold
+    capital, what they are signalling, what is on the exchange right now, and
+    how many orders the last N cycles actually produced. A book that decides
+    every 15 minutes and never trades looks identical to a healthy one in the
+    service logs; here the difference is the first number printed.
+    """
+    cfg = Config.load(args.config)
+    state_dir = cfg["state_dir"]
+    journal = _read_journal(state_dir, args.cycles)
+    cycles = [r for r in journal if not r.get("halted")]
+
+    now = time.time()
+    reg_path = os.path.join(state_dir, "registry.json")
+    print("===== deployed book =====")
+    if not os.path.exists(reg_path):
+        print("no registry — research has never produced a survivor")
+    else:
+        with open(reg_path) as f:
+            reg = json.load(f)
+        strategies = reg.get("strategies", [])
+        age_h = (now - reg.get("researched_at", 0.0)) / 3600.0
+        print(f"{len(strategies)} strategies | searched {reg.get('n_trials', 0):,} "
+              f"genomes | {reg.get('consecutive_empty', 0)} empty passes | "
+              f"researched {age_h:.1f}h ago")
+        for s in strategies:
+            o = s.get("oos_stats", {})
+            print(f"  {s['inst']:<18} {s['genome']['signal']:<12} "
+                  f"oos_sharpe={o.get('sharpe', 0.0):6.2f} "
+                  f"dsr={o.get('dsr', 0.0):.3f} "
+                  f"folds+={o.get('oos_folds_positive', '?')}")
+    print()
+    orders = [o for r in cycles for o in r.get("orders", [])]
+    traded = sum(1 for r in cycles if r.get("orders"))
+    print("===== activity =====")
+    if not cycles:
+        print("no completed cycle in the journal — the engine has not decided "
+              "anything yet")
+    else:
+        first, last = cycles[0], cycles[-1]
+        span_h = max(last["ts"] - first["ts"], 0) / 3600.0
+        gross = sum(abs(o.get("notional", 0.0)) for o in orders)
+        print(f"cycles           : {len(cycles)} over {span_h:.1f}h "
+              f"(last {(now - last['ts']) / 60.0:.0f} min ago)")
+        print(f"cycles that traded: {traded} ({traded / len(cycles):.0%})")
+        print(f"orders           : {len(orders)}  gross {gross:,.0f} USDT")
+        if orders:
+            by_inst: dict[str, float] = {}
+            for o in orders:
+                by_inst[o["inst"]] = by_inst.get(o["inst"], 0.0) + abs(
+                    o.get("notional", 0.0))
+            top = sorted(by_inst.items(), key=lambda kv: -kv[1])[:8]
+            print("  " + "  ".join(f"{i.split('-')[0]}={v:,.0f}" for i, v in top))
+        print(f"equity           : {last.get('equity', 0.0):,.2f} USDT")
+        if abs(last.get("risk_mult", 1.0) - 1.0) > 1e-9:
+            print(f"risk multiplier  : {last['risk_mult']:.2f} (de-risked)")
+
+    halted = [r for r in journal if r.get("halted")]
+    if halted:
+        print(f"HALTED cycles    : {len(halted)} — last reason: "
+              f"{halted[-1].get('reason', '?')}")
+
+    if not cycles:
+        return
+    last = cycles[-1]
+    weights = last.get("weights", {})
+    signals = last.get("strat_pos", {})
+    tracks = {}
+    tpath = os.path.join(state_dir, "trader.json")
+    if os.path.exists(tpath):
+        with open(tpath) as f:
+            tracks = json.load(f).get("allocator", {}).get("tracks", {})
+
+    print()
+    print("===== capital allocation =====")
+    if not weights:
+        print("no strategy holds capital")
+    for sid, w in sorted(weights.items(), key=lambda kv: -kv[1]):
+        sig = signals.get(sid)
+        n_obs = tracks.get(sid, {}).get("n_obs", 0)
+        sig_s = f"{sig:+.4f}" if isinstance(sig, (int, float)) else "  book  "
+        print(f"  {w:6.2%}  {sid:<46} signal={sig_s}  n_obs={n_obs}")
+
+    print()
+    print("===== live exposure =====")
+    positions = last.get("positions", {})
+    prices = last.get("prices", {})
+    eq = last.get("equity", 0.0) or 1.0
+    held = {i: q for i, q in positions.items() if abs(q) > 0}
+    if not held:
+        print("flat — no position on the exchange")
+    for inst, qty in sorted(held.items(),
+                            key=lambda kv: -abs(kv[1] * prices.get(kv[0], 0.0))):
+        notional = qty * prices.get(inst, 0.0)
+        print(f"  {inst:<20} {qty:+14.6f}  {notional:+12.2f} USDT  "
+              f"({notional / eq:+.2%} of equity)")
+    tgt = last.get("targets", {})
+    live_gross = sum(abs(q * prices.get(i, 0.0)) for i, q in held.items())
+    print(f"  gross exposure: {live_gross / eq:.2%} of equity   "
+          f"target gross: {sum(abs(v) for v in tgt.values()):.2%}")
+
+
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="hermes",
                                 description="Autonomous OKX perpetual trading system")
@@ -663,6 +785,13 @@ def main(argv: list[str] | None = None) -> None:
 
     s = sub.add_parser("status", help="show state")
     s.set_defaults(fn=cmd_status)
+
+    rp = sub.add_parser("report",
+                        help="compact operational report: allocation, live "
+                             "exposure and how often the book actually trades")
+    rp.add_argument("--cycles", type=int, default=200,
+                    help="how many recent journal cycles to summarise")
+    rp.set_defaults(fn=cmd_report)
 
     cv = sub.add_parser("coverage",
                         help="history held per data source (incl. the "

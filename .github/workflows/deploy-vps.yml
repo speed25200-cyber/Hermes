@@ -20,6 +20,12 @@ on:
       root_password:
         description: "Root password (optional if VPS_PASSWORD secret is set)"
         required: false
+      mode:
+        description: "full = sync + research pass (engine down ~1h); code = sync only, engine keeps trading"
+        required: false
+        default: full
+        type: choice
+        options: [full, code]
 
 concurrency:
   group: vps-deploy
@@ -109,11 +115,14 @@ jobs:
             ./ "root@$VPS:/root/hermes/"
 
       - name: Run installer
+        env:
+          KEEP: ${{ inputs.mode == 'code' && '1' || '0' }}
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
-            "bash /root/hermes/deploy/install.sh"
+            "HERMES_KEEP_ENGINE=$KEEP bash /root/hermes/deploy/install.sh"
 
       - name: Start data backfill + research (runs on the VPS, detached)
+        if: inputs.mode != 'code'
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
             "systemctl start --no-block hermes-research && echo research started"

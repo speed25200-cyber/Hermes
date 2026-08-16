@@ -47,17 +47,17 @@ jobs:
             echo "===== research / engine journal (last 50 lines) ====="
             journalctl -u hermes-research -u hermes -n 50 --no-pager || true
             echo
-            echo "===== deployed book (registry summary) ====="
-            grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
-            echo
-            echo "===== hermes state ====="
-            # the pipeline exit status is head'"'"'s, so a failing status command
-            # would render as an empty section that reads like "nothing
-            # deployed yet" — capture it and surface the error instead
-            if out=$(cd /root/hermes && /root/venv/bin/python -m hermes status 2>&1); then
-              printf "%s\n" "$out" | head -40
+            echo "===== operational report ====="
+            # a raw grep over the registry runs to hundreds of lines and
+            # buries what matters; `hermes report` summarises the book and
+            # then answers whether it is actually trading.
+            # the pipeline exit status is head'"'"'s, so a failing command would
+            # render as an empty section that reads like "nothing deployed
+            # yet" — capture it and surface the error instead
+            if out=$(cd /root/hermes && /root/venv/bin/python -m hermes report 2>&1); then
+              printf "%s\n" "$out"
             else
-              echo "hermes status FAILED:"; printf "%s\n" "$out" | tail -15
+              echo "hermes report FAILED:"; printf "%s\n" "$out" | tail -15
             fi
             echo
             echo "===== disk / memory ====="

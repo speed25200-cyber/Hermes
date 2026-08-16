@@ -105,7 +105,23 @@ systemctl enable hermes >/dev/null 2>&1 || true
 systemctl enable --now hermes-research.timer >/dev/null 2>&1 || true
 systemctl enable --now hermes-dashboard >/dev/null 2>&1 || true
 systemctl restart hermes-dashboard || true
-# stop the engine during research (avoids duplicate backfills and sqlite
-# write races); hermes-research restarts it when it finishes
-systemctl stop hermes || true
+# A code-only sync must not cost a research pass. Research takes over an
+# hour and the engine is down for all of it, so stopping the engine here is
+# right when this install precedes `systemctl start hermes-research` and
+# wrong when it is just shipping new code: it would blind the book for the
+# rest of the pass with nothing to show for it.
+if [ "${HERMES_KEEP_ENGINE:-0}" = "1" ]; then
+    # Only restart an engine that was already meant to be up — a restart
+    # during a research pass would race its backfill on the same sqlite file.
+    if systemctl is-active --quiet hermes; then
+        systemctl restart hermes || true
+        echo "install: engine restarted on new code"
+    else
+        echo "install: engine left down (research in progress or stopped)"
+    fi
+else
+    # stop the engine during research (avoids duplicate backfills and sqlite
+    # write races); hermes-research restarts it when it finishes
+    systemctl stop hermes || true
+fi
 echo "install: OK"
