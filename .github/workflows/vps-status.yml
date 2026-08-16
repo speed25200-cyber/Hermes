@@ -1,5 +1,6 @@
-# Check Hermes status on the VPS: services, research progress, engine logs,
-# deployed strategies and current equity. Trigger manually any time.
+# Diagnose why the deployed book is taking no positions: aux data freshness
+# per instrument, and the live signal value each deployed strategy actually
+# produces on the newest bar.
 
 name: VPS status
 
@@ -13,7 +14,7 @@ on:
 jobs:
   status:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     env:
       VPS: ${{ vars.VPS_HOST || '178.104.191.79' }}
     steps:
@@ -35,24 +36,65 @@ jobs:
             echo "::error::cannot authenticate"; exit 1; fi
           echo "SSHPASS=$CUR" >> "$GITHUB_ENV"
 
-      - name: Status report
+      - name: Upload diagnostic
         run: |
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
-            echo "===== services ====="
-            systemctl is-active hermes-research && echo "(research running)" || echo "(research idle/done)"
-            systemctl is-active hermes || true
-            echo -n "dashboard: "; systemctl is-active hermes-dashboard || true
-            ss -tln | grep -q ":8899 " && echo "port 8899: LISTENING" || echo "port 8899: NOT listening"
-            echo
-            echo "===== research / engine journal (last 50 lines) ====="
-            journalctl -u hermes-research -u hermes -n 50 --no-pager || true
-            echo
-            echo "===== deployed book (registry summary) ====="
-            grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
-            echo
-            echo "===== hermes state ====="
-            cd /root/hermes 2>/dev/null && /root/venv/bin/python -m hermes status 2>/dev/null | head -40 || echo "no state yet"
-            echo
-            echo "===== disk / memory ====="
-            df -h / | tail -1; free -m | head -2
-          '
+          cat > /tmp/diag.py <<'PYEOF'
+          import json, time
+          import numpy as np
+          from hermes.config import Config
+          from hermes.data.store import DataStore, AUX_SERIES
+          from hermes.strategy.genome import Genome
+          from hermes.strategy.signals import compute_position
+
+          cfg = Config.load()
+          store = DataStore(cfg["data_dir"])
+          bar = cfg["bar"]
+          now = time.time() * 1000
+
+          reg = json.load(open("state/registry.json"))
+          strats = reg.get("strategies", [])
+          insts = sorted({s["inst"] for s in strats})
+          print(f"deployed: {len(strats)} strategies over {len(insts)} instruments\n")
+
+          print("=== aux freshness on the traded instruments ===")
+          for inst in insts:
+              lo, hi, n = store.candle_range(inst, bar)
+              parts = [f"candles {(now-hi)/60000:6.0f}min old"]
+              for kind in AUX_SERIES:
+                  _, khi, kn = store.aux_range(inst, kind)
+                  parts.append(f"{kind} {'--' if not kn else f'{(now-khi)/60000:.0f}min'}")
+              print(f"  {inst:<16} " + "  ".join(parts))
+
+          print("\n=== what each deployed strategy outputs on the newest bar ===")
+          nonzero = 0
+          for s in strats:
+              inst = s["inst"]
+              c = store.load(inst, bar)
+              if not len(c):
+                  print(f"  {inst:<16} {s['genome']['signal']:<12} NO CANDLES")
+                  continue
+              g = Genome.from_dict(s["genome"])
+              try:
+                  pos = compute_position(c, g)
+                  v = float(pos[-1])
+              except Exception as exc:
+                  print(f"  {inst:<16} {g.signal:<12} ERROR {exc}")
+                  continue
+              nz = int(np.count_nonzero(pos[-96:]))
+              if abs(v) > 1e-12:
+                  nonzero += 1
+              # how much aux the signal could actually see on the last 96 bars
+              seen = {}
+              for k in ("oi", "tak_buy", "lsr", "ttp"):
+                  a = c.x.get(k)
+                  seen[k] = int(np.count_nonzero(~np.isnan(a[-96:]))) if a is not None else -1
+              print(f"  {inst:<16} {g.signal:<12} now={v:+.4f}  "
+                    f"nonzero in last 96 bars={nz:3d}  aux_seen={seen}")
+          print(f"\n{nonzero} of {len(strats)} strategies want a position right now")
+          PYEOF
+          sshpass -e scp -o StrictHostKeyChecking=accept-new /tmp/diag.py "root@$VPS:/root/hermes/diag.py"
+
+      - name: Run diagnostic
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+            'cd /root/hermes && /root/venv/bin/python diag.py 2>&1 | tail -80; rm -f diag.py'
