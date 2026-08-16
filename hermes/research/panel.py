@@ -15,8 +15,12 @@ asking anyway:
   * One grid for the whole universe instead of one search per name. Thirty
     instruments stop multiplying the trial count by thirty.
   * The scored series is a portfolio of thirty positions rather than one, so
-    a per-instrument edge of Sharpe 1 shows up near sqrt(30) larger while
-    the selection bar stays where it was.
+    a shared edge is lifted while the selection bar stays where it was. How
+    much depends entirely on how correlated the instruments are — sqrt(N)
+    only holds for independent ones, and crypto perpetuals are nothing like
+    independent. Measured on twenty names with one planted edge: 2.84x lift
+    at zero correlation, 1.28x at 0.7, 1.14x at 0.9. The gain is real at
+    every level but far smaller than the independent case suggests.
   * An edge that survives on forty names at once is hard to explain as luck.
     An edge found on one name usually is luck, and this is the structural
     reason the deflated Sharpe kept saying so.
@@ -88,6 +92,13 @@ def panel_positions(candles_map: dict[str, Candles], genome: Genome
 
     Positions are computed on each instrument's own full history so warm-up
     matches live behaviour, then sampled onto the shared grid.
+
+    A `neutral` param subtracts the cross-sectional mean position at every
+    bar, so the book carries only what distinguishes each instrument from
+    the universe. Which form is right is not a matter of taste, it depends
+    on where the edge lives, and that is measurable rather than guessable —
+    see the correlation table in docs/VALIDATION.md. Both forms are in the
+    grid and the gate decides.
     """
     if len(candles_map) < 2:
         return np.array([]), {}
@@ -106,6 +117,11 @@ def panel_positions(candles_map: dict[str, Candles], genome: Genome
         raw[inst] = pos[idx[inst]]
     if len(raw) < 2:
         return np.array([]), {}
+    if int(genome.params.get("neutral", 0)):
+        insts = sorted(raw)
+        m = np.vstack([raw[i] for i in insts])
+        m = m - m.mean(axis=0, keepdims=True)
+        raw = {i: m[k] for k, i in enumerate(insts)}
     w = _inverse_vol_weights({i: candles_map[i] for i in raw}, idx, n)
     return common, {inst: p * w[inst] for inst, p in raw.items()}
 
@@ -119,6 +135,12 @@ def panel_grid(seed: int | None = None) -> list[Genome]:
     place. Coarse, well-separated parameters across the families whose
     inputs exist over the full history: enough to find a shared effect if
     one is there, few enough that finding it means something.
+
+    Every rule appears twice, directional and cross-sectionally neutral.
+    Doubling the grid moves the selection bar from 2.60 to 2.90 on a
+    21,000-bar window — cheap — and buys the answer to a question that
+    cannot be settled a priori: whether the edge lives in the market factor
+    every perpetual shares or in what distinguishes them.
 
     `seed` is accepted for interface symmetry with the evolutionary search
     and deliberately unused — a fixed grid is the point.
@@ -149,7 +171,10 @@ def panel_grid(seed: int | None = None) -> list[Genome]:
             out.append(Genome(signal="funding_carry",
                               params={"lookback": lb, "threshold": th},
                               vol_target=0.20, max_lev=1.0))
-    return out
+    return [Genome(signal=g.signal, params={**g.params, "neutral": nz},
+                   filter=g.filter, filter_params=dict(g.filter_params),
+                   vol_target=g.vol_target, max_lev=g.max_lev)
+            for g in out for nz in (0, 1)]
 
 
 def choose_panel_universe(candles_map: dict[str, Candles], min_insts: int = 4

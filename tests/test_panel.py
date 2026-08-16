@@ -302,3 +302,81 @@ def test_research_panel_survives_an_empty_instrument():
     uni["BRANDNEW-USDT-SWAP"] = _candles("BRANDNEW-USDT-SWAP", [])
     out = research_panel(uni, panel_grid(), 2.0, 1.0, log=None)
     assert isinstance(out, list)
+
+
+def _factor_universe(n=6000, k=20, rho=0.7, edge=0.005, seed=11):
+    """k instruments sharing a market factor at correlation rho, each with
+    the same planted mean-reverting edge. Crypto perpetuals move together;
+    a universe of independent instruments is the unrealistic case."""
+    rng = np.random.default_rng(seed)
+    common = np.zeros(n)
+    for i in range(1, n):
+        common[i] = (1 - edge) * common[i - 1] + rng.normal(0, 0.01)
+    uni = {}
+    for j in range(k):
+        own = np.zeros(n)
+        for i in range(1, n):
+            own[i] = (1 - edge) * own[i - 1] + rng.normal(0, 0.01)
+        x = np.sqrt(rho) * common + np.sqrt(1 - rho) * own
+        uni[f"I{j}-USDT-SWAP"] = _candles(f"I{j}-USDT-SWAP", 100 * np.exp(x))
+    return uni
+
+
+def test_the_pooling_gain_shrinks_as_the_universe_correlates():
+    """sqrt(N) assumes independence. Crypto perpetuals all follow the same
+    market, so the diversification the panel relies on is far smaller than
+    the independent case suggests — 2.8x at zero correlation, 1.3x at 0.7.
+
+    This is a guard against re-reading the sqrt(N) argument as a promise: if
+    a change ever makes the correlated case look as good as the independent
+    one, something is wrong with the measurement, not with correlation.
+    """
+    from hermes.backtest import engine, metrics
+    from hermes.data.store import BARS_PER_YEAR
+    from hermes.strategy.signals import compute_position
+    from hermes.strategy.xs import portfolio_backtest
+
+    g = Genome(signal="meanrev", params={"lookback": 60, "entry_z": 1.0},
+               vol_target=0.2, max_lev=1.0)
+    bpy = BARS_PER_YEAR["1H"]
+    lifts = {}
+    for rho in (0.0, 0.7):
+        uni = _factor_universe(rho=rho)
+        one = uni["I0-USDT-SWAP"]
+        solo = metrics.sharpe(
+            engine.run(one, compute_position(one, g, None), 2.0, 1.0).rets, bpy)
+        common, pos = panel_positions(uni, g)
+        pooled = metrics.sharpe(
+            portfolio_backtest(uni, pos, common, 2.0, 1.0), bpy)
+        lifts[rho] = pooled / solo
+    assert lifts[0.0] > 2.0, lifts
+    assert 1.0 < lifts[0.7] < 2.0, lifts
+    assert lifts[0.7] < lifts[0.0], lifts
+
+
+def test_the_grid_carries_both_directional_and_neutral_forms():
+    """Where the edge lives — in the market factor every perpetual shares, or
+    in what distinguishes them — cannot be settled a priori. Neutralising
+    helps when the edge is idiosyncratic and destroys it when it is not, so
+    both forms are searched and the gate decides."""
+    grid = panel_grid()
+    plain = [g for g in grid if not g.params.get("neutral")]
+    neutral = [g for g in grid if g.params.get("neutral")]
+    assert len(plain) == len(neutral) > 5
+    assert len({g.gid for g in grid}) == len(grid)
+
+
+def test_neutral_removes_the_shared_component_of_the_book():
+    uni = _factor_universe(rho=0.9, k=10)
+    base = Genome(signal="tsmom", params={"lookback": 96, "deadband": 0.0},
+                  vol_target=0.2, max_lev=1.0)
+    neu = Genome(signal="tsmom",
+                 params={"lookback": 96, "deadband": 0.0, "neutral": 1},
+                 vol_target=0.2, max_lev=1.0)
+    _, pos_plain = panel_positions(uni, base)
+    _, pos_neu = panel_positions(uni, neu)
+    # a highly correlated universe leaves the directional book with a large
+    # net position; the neutral one nets out
+    net_plain = np.abs(sum(pos_plain.values())).mean()
+    net_neu = np.abs(sum(pos_neu.values())).mean()
+    assert net_neu < 0.25 * net_plain, (net_plain, net_neu)

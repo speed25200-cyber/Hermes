@@ -46,7 +46,8 @@ Selection over `n` trials lifts the Sharpe reachable on noise. On a
 
 | trials | selection bar |
 | --- | --- |
-| 26 (the panel grid) | 2.60 |
+| 26 (the panel grid, directional only) | 2.60 |
+| 46 (the panel grid as shipped) | 2.90 |
 | 100 | 3.27 |
 | 624 (the per-instrument budget) | 4.03 |
 | 2,400 (the old budget) | 4.52 |
@@ -60,19 +61,43 @@ This is also why the panel grid is small and fixed rather than evolutionary:
 a 10,000-trial panel search would set a bar of 4.99, above the 4.72 a pooled
 edge actually measured.
 
-## Breadth beats depth, and by how much
+## Breadth beats depth — and by how much depends on correlation
 
-One rule, one planted edge, twenty instruments:
+One rule, one planted edge, twenty **independent** instruments:
 
 | measured on | Sharpe | verdict against a 3.61 bar |
 | --- | --- | --- |
 | one instrument alone | 0.93 | rejected |
 | pooled across the twenty | 4.72 | accepted |
 
-A 5.1x lift against the sqrt(20) = 4.47 the argument predicts. Same rule,
-same data, same gate — only the question changed. This is why
-`hermes/research/panel.py` exists and why widening the universe is the lever
-that matters.
+A 5.1x lift against the sqrt(20) = 4.47 the argument predicts. That is the
+result that motivated `hermes/research/panel.py`.
+
+**It also overstates the case, and the correction matters.** sqrt(N) assumes
+independence, and crypto perpetuals are nothing like independent — they all
+follow the same market. Repeating the measurement with a shared factor:
+
+| correlation | solo Sharpe | pooled | lift |
+| --- | --- | --- | --- |
+| 0.0 | 1.68 | 4.78 | 2.84x |
+| 0.3 | 1.86 | 3.94 | 2.12x |
+| 0.5 | 1.73 | 2.75 | 1.59x |
+| **0.7** (realistic) | 1.57 | 2.01 | **1.28x** |
+| 0.9 | 1.18 | 1.36 | 1.14x |
+
+The gain is real at every level, and far smaller than the independent case
+suggests. At a realistic 0.7 a solo Sharpe of 1.57 pools to 2.01 against a
+grid bar of 2.90 — still short. Breadth helps; it is not on its own enough.
+
+Neutralising the book cross-sectionally is the obvious response, and it is
+not a free win: it cancels the market factor, which helps when the edge is
+idiosyncratic and destroys the edge when the edge is the market. Measured on
+a universe whose planted edge lives in the common factor, neutralising took
+the pooled Sharpe from 2.01 to -0.08 at correlation 0.7.
+
+Where the edge lives cannot be settled a priori, so the grid carries both
+forms and the gate decides. That doubles the grid and moves the bar from
+2.60 to 2.90 — a cheap price for not having to guess.
 
 ## Some windows cannot answer the question at all
 
@@ -92,7 +117,7 @@ windows lengthen on their own.
 
 Each gate charges the search that competed for its own selection: a
 per-instrument survivor pays that instrument's ~624 genomes, a panel survivor
-pays its 26-rule grid. A stricter reading would charge every survivor the
+pays its 46-rule grid. A stricter reading would charge every survivor the
 whole pass, since they all land in one book and a person choosing between
 them saw all of it. That would raise every bar again. The looser convention
 is in force, and it is a choice rather than an oversight.
