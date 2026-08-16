@@ -77,6 +77,9 @@ jobs:
             # untimed line from the PREVIOUS pass reads exactly like progress
             # from this one — which is how a stale "population=96" line was
             # briefly mistaken for the new budget failing to take effect.
-            echo "unit started: $(systemctl show hermes-research -p ActiveEnterTimestamp --value)"
+            # InactiveExitTimestamp, not ActiveEnterTimestamp: a oneshot unit
+            # is "activating" for its whole life and only enters active at the
+            # end, so ActiveEnterTimestamp is empty exactly while you need it
+            echo "unit started: $(systemctl show hermes-research -p InactiveExitTimestamp --value)"
             echo "last research line: $(journalctl -u hermes-research -n 300 --no-pager -o short-iso 2>/dev/null | grep -E "elapsed\]|instruments on|panel|XS:|deployed|fetch" | tail -1 || echo none)"
           '
