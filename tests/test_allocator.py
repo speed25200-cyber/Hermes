@@ -58,3 +58,46 @@ def test_pair_cov_persistence_roundtrip():
     b.restore(d)
     assert b.pair_cov == a.pair_cov
     assert b.tracks["x"].n_obs == 1
+
+
+def _combined_sharpe(seed, mus, vols, raw_gap_tilt=False, n=4000, bpy=8760):
+    """Run a book of independent strategies through the allocator and score
+    the stream it actually produces."""
+    import math
+
+    import numpy as np
+
+    rng = np.random.default_rng(seed)
+    rets = {f"s{i}": rng.normal(mus[i] * vols[i], vols[i], n)
+            for i in range(len(vols))}
+    a = Allocator(bars_per_year=bpy)
+    if raw_gap_tilt:                       # the behaviour before this guard
+        a._score_se = lambda t: 1.0
+    for t in range(n):
+        step = {k: r[t] for k, r in rets.items()}
+        a.observe(step, sum(step.values()) / len(rets))
+    w = a.weights(list(rets))
+    comb = sum(w[k] * rets[k] for k in rets)
+    return comb.mean() / comb.std() * math.sqrt(bpy), w
+
+
+def test_tilt_does_not_chase_estimation_noise():
+    """Strategies with identical true edges differ by several Sharpe units of
+    pure sampling noise. Tilting on the raw gap concentrates the book on the
+    luckiest one and forfeits the diversification it exists to collect."""
+    vols = [0.0005, 0.001, 0.002, 0.004, 0.008]
+    equal = [0.05] * 5
+    before = [_combined_sharpe(s, equal, vols, raw_gap_tilt=True)[0]
+              for s in range(6)]
+    after = [_combined_sharpe(s, equal, vols)[0] for s in range(6)]
+    assert sum(after) / len(after) > sum(before) / len(before) * 1.1
+
+
+def test_tilt_still_backs_a_genuinely_better_strategy():
+    """The noise guard must not make the allocator inert: a real edge still
+    has to earn a weight well above equal-weighting."""
+    vols = [0.0005, 0.001, 0.002, 0.004, 0.008]
+    mus = [0.12, 0.02, 0.02, 0.02, 0.02]        # s0 has 6x the true Sharpe
+    got = [_combined_sharpe(seed, mus, vols)[1]["s0"] for seed in range(4)]
+    assert min(got) > 2.0 / len(vols), f"real edge under-weighted: {got}"
+    assert sum(got) / len(got) > 0.5, f"real edge not backed on average: {got}"

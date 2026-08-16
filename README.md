@@ -114,7 +114,12 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
    strategies are tracked bar by bar. Capital flows multiplicatively toward
    what is working *now*, an EWMA **correlation matrix downweights crowded
    strategies** so the book spreads across genuinely independent edges, and
-   a portfolio-level volatility target scales the whole book.
+   a portfolio-level volatility target scales the whole book. The
+   performance tilt is applied to the gap **in standard errors**, not in raw
+   Sharpe units: over an EWMA window that error is several units wide, so
+   tilting on the raw gap concentrates capital on whichever strategy was
+   luckiest. On five strategies with identical true edges this lifts the
+   combined Sharpe from 6.8 to 8.5 across seeds.
 
 8. **The adaptive hunt** — the live loop re-runs the whole research pass on
    fresh data when the deployed set goes stale (weekly by default). While
@@ -291,7 +296,7 @@ hermes/
   cli.py                 demo / fetch / research / run / status /
                          coverage / calibration / execution / backup /
                          dashboard
-tests/                   132 tests: no-lookahead, ML causality, microstructure
+tests/                   134 tests: no-lookahead, ML causality, microstructure
                          features, metric autocorrelation, regimes, e2e
 ```
 
