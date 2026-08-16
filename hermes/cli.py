@@ -656,8 +656,16 @@ def cmd_report(args) -> None:
     """
     cfg = Config.load(args.config)
     state_dir = cfg["state_dir"]
-    journal = _read_journal(state_dir, args.cycles)
-    cycles = [r for r in journal if not r.get("halted")]
+    # Between bars the engine journals a heartbeat: same shape, but it marks
+    # positions to live prices and takes no decision, so it always carries an
+    # empty order list. Counting those as cycles reports "0% of cycles
+    # traded" for a perfectly healthy book — the exact false alarm this
+    # command exists to rule out. They are tagged and excluded, and read
+    # generously from the tail so the decision cycles are not crowded out.
+    journal = _read_journal(state_dir, args.cycles * 40)
+    decisions = [r for r in journal if not r.get("hb")]
+    cycles = [r for r in decisions if not r.get("halted")][-args.cycles:]
+    beats = len(journal) - len(decisions)
 
     now = time.time()
     reg_path = os.path.join(state_dir, "registry.json")
@@ -685,12 +693,16 @@ def cmd_report(args) -> None:
     if not cycles:
         print("no completed cycle in the journal — the engine has not decided "
               "anything yet")
+        if beats:
+            print(f"({beats} heartbeats: the engine is marking positions but "
+                  f"has taken no decision)")
     else:
         first, last = cycles[0], cycles[-1]
         span_h = max(last["ts"] - first["ts"], 0) / 3600.0
         gross = sum(abs(o.get("notional", 0.0)) for o in orders)
         print(f"cycles           : {len(cycles)} over {span_h:.1f}h "
-              f"(last {(now - last['ts']) / 60.0:.0f} min ago)")
+              f"(last {(now - last['ts']) / 60.0:.0f} min ago, "
+              f"{beats} heartbeats)")
         print(f"cycles that traded: {traded} ({traded / len(cycles):.0%})")
         print(f"orders           : {len(orders)}  gross {gross:,.0f} USDT")
         if orders:
@@ -704,7 +716,7 @@ def cmd_report(args) -> None:
         if abs(last.get("risk_mult", 1.0) - 1.0) > 1e-9:
             print(f"risk multiplier  : {last['risk_mult']:.2f} (de-risked)")
 
-    halted = [r for r in journal if r.get("halted")]
+    halted = [r for r in decisions if r.get("halted")]
     if halted:
         print(f"HALTED cycles    : {len(halted)} — last reason: "
               f"{halted[-1].get('reason', '?')}")
@@ -727,14 +739,17 @@ def cmd_report(args) -> None:
     for sid, w in sorted(weights.items(), key=lambda kv: -kv[1]):
         sig = signals.get(sid)
         n_obs = tracks.get(sid, {}).get("n_obs", 0)
-        sig_s = f"{sig:+.4f}" if isinstance(sig, (int, float)) else "  book  "
+        sig_s = f"{sig:+.4f}" if isinstance(sig, (int, float)) else "    -   "
         print(f"  {w:6.2%}  {sid:<46} signal={sig_s}  n_obs={n_obs}")
 
     print()
     print("===== live exposure =====")
-    positions = last.get("positions", {})
-    prices = last.get("prices", {})
-    eq = last.get("equity", 0.0) or 1.0
+    # marked from the newest row, heartbeats included: they exist precisely
+    # to re-mark positions between decisions, so they hold the fresher prices
+    mark = journal[-1]
+    positions = mark.get("positions", {})
+    prices = mark.get("prices", {}) or last.get("prices", {})
+    eq = mark.get("equity", 0.0) or 1.0
     held = {i: q for i, q in positions.items() if abs(q) > 0}
     if not held:
         print("flat — no position on the exchange")

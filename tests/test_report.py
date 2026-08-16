@@ -146,3 +146,61 @@ def test_corrupt_journal_lines_are_skipped(tmp_path, capsys, bad):
         f.write(bad + "\n")
     cli.cmd_report(args)
     assert "cycles           : 1" in capsys.readouterr().out
+
+
+def _beat(ts, positions=None, prices=None):
+    return {"ts": ts, "equity": 10_000.0, "halted": False,
+            "prices": prices or {"BTC-USDT-SWAP": 50_000.0},
+            "targets": {}, "orders": [], "weights": {},
+            "positions": positions or {}, "hb": True}
+
+
+def test_heartbeats_are_not_counted_as_cycles(tmp_path, capsys):
+    """A healthy book beats between bars and decides on the close. Counting
+    the beats reports 0% of cycles traded for a book that trades every time
+    it decides — the false alarm this command exists to rule out."""
+    order = {"inst": "BTC-USDT-SWAP", "qty": 0.02, "px": 50_000.0,
+             "notional": 1000.0}
+    rows = []
+    for i in range(4):
+        rows.append(_cycle(1000.0 + 900 * i, orders=[order]))
+        rows += [_beat(1000.0 + 900 * i + 60 * k) for k in range(1, 15)]
+    _, args = _setup(tmp_path, rows)
+    cli.cmd_report(args)
+    out = capsys.readouterr().out
+    assert "cycles           : 4" in out
+    assert "56 heartbeats" in out
+    assert "cycles that traded: 4 (100%)" in out
+
+
+def test_heartbeat_only_journal_says_no_decision_yet(tmp_path, capsys):
+    _, args = _setup(tmp_path, [_beat(1000.0 + 60 * k) for k in range(30)])
+    cli.cmd_report(args)
+    out = capsys.readouterr().out
+    assert "has not decided anything yet" in out
+    assert "30 heartbeats" in out
+
+
+def test_exposure_is_marked_from_the_newest_row(tmp_path, capsys):
+    """Heartbeats exist to re-mark positions between decisions, so they carry
+    the fresher price — the exposure section must use them."""
+    rows = [_cycle(1000.0, positions={"BTC-USDT-SWAP": 0.02})]
+    rows.append(_beat(1600.0, positions={"BTC-USDT-SWAP": 0.02},
+                      prices={"BTC-USDT-SWAP": 60_000.0}))
+    _, args = _setup(tmp_path, rows)
+    cli.cmd_report(args)
+    out = capsys.readouterr().out
+    assert "+1200.00 USDT" in out
+
+
+def test_cycle_window_counts_decisions_not_lines(tmp_path, capsys):
+    order = {"inst": "BTC-USDT-SWAP", "qty": 0.02, "px": 50_000.0,
+             "notional": 1000.0}
+    rows = []
+    for i in range(10):
+        rows.append(_cycle(1000.0 + 900 * i, orders=[order]))
+        rows += [_beat(1000.0 + 900 * i + 60 * k) for k in range(1, 10)]
+    _, args = _setup(tmp_path, rows)
+    args.cycles = 3
+    cli.cmd_report(args)
+    assert "cycles           : 3" in capsys.readouterr().out
