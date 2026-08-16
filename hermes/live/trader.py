@@ -91,12 +91,52 @@ def make_ctx(candles_by_inst: dict[str, Candles], inst: str,
     return {}
 
 
+def _aux_start(candles: Candles) -> int | None:
+    """First bar index where every aux series (OI, taker flow, positioning)
+    is populated, or None if any is missing entirely."""
+    need = ("oi", "tak_buy", "tak_sell", "lsr")
+    if any(k not in candles.x for k in need):
+        return None
+    valid = np.ones(len(candles), dtype=bool)
+    for k in need:
+        valid &= ~np.isnan(candles.x[k])
+    idx = np.nonzero(valid)[0]
+    return int(idx[0]) if len(idx) else None
+
+
+AUX_MIN_BARS = 4800  # ~50 days of 15m bars: minimum aux coverage to research
+
+
+def _with_incumbents_first(pop, incumbent_genomes, candles_is, fee_bps,
+                           slip_bps, ctx):
+    """Guarantee every deployed incumbent reaches the OOS validation gate,
+    ahead of the newcomers. An incumbent with mediocre in-sample fitness
+    (rsi_rev BTC had IS 0.31 / OOS 2.95) must not be culled before the OOS
+    exam — it keeps its seat only by failing the gates on fresh data."""
+    if not incumbent_genomes:
+        return pop
+    from ..research.evolve import Candidate, _fitness
+    gids = {g.gid for g in incumbent_genomes}
+    head = []
+    for g in incumbent_genomes:
+        fit, stats = _fitness(candles_is, g, fee_bps, slip_bps, ctx=ctx)
+        head.append(Candidate(g, fit, stats))
+    return head + [c for c in pop if c.genome.gid not in gids]
+
+
 def _research_one(inst: str, candles: Candles, leader: Candles | None,
-                  r: dict, fee_bps: float, slip_bps: float
+                  r: dict, fee_bps: float, slip_bps: float,
+                  incumbents: list[Genome] | None = None
                   ) -> tuple[str, list[ValidatedStrategy], int, list[str]]:
     """Evolve + validate a single instrument (worker-safe: no shared state,
-    returns log lines instead of printing)."""
+    returns log lines instead of printing). Deployed incumbents for this
+    instrument are seeded into the search so the book has continuity: they
+    survive when they still pass, never vanish to random-search luck."""
+    from ..strategy.genome import AUX_SIGNALS
     lines: list[str] = []
+    inc = incumbents or []
+    seeds_core = [g for g in inc if g.signal not in AUX_SIGNALS]
+    seeds_aux = [g for g in inc if g.signal in AUX_SIGNALS]
     ctx = {"leader": leader} if leader is not None else {}
     if leader is not None:
         cut = int(len(leader) * r["is_fraction"])
@@ -108,8 +148,10 @@ def _research_one(inst: str, candles: Candles, leader: Candles | None,
         candles_is,
         population=r["population"], generations=r["generations"],
         fee_bps=fee_bps, slip_bps=slip_bps,
-        seed=r.get("seed"), ctx=ctx_is, log=None,
+        seed=r.get("seed"), ctx=ctx_is, seeds=seeds_core, log=None,
     )
+    pop = _with_incumbents_first(pop, seeds_core, candles_is, fee_bps,
+                                 slip_bps, ctx_is)
     survivors = validate_candidates(
         pop, candles, n_trials=n_trials,
         is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
@@ -117,11 +159,39 @@ def _research_one(inst: str, candles: Candles, leader: Candles | None,
         fee_bps=fee_bps, slip_bps=slip_bps,
         max_deployed=r["max_deployed"], ctx=ctx, log=lines.append,
     )
+
+    # ---- aux-data families, searched only on the window the rubik series
+    # actually cover (a few months) — same validation gates, never mixed
+    # into the multi-year pass where their inputs would be blank
+    i0 = _aux_start(candles)
+    if i0 is not None and len(candles) - i0 >= AUX_MIN_BARS:
+        ca = candles.slice(i0, len(candles))
+        lines.append(f"  aux search {inst}: {len(ca)} covered bars")
+        ca_is, _ = split_is_oos(ca, r["is_fraction"], r["embargo_bars"])
+        pop_a, trials_a = evolve(
+            ca_is,
+            population=max(48, r["population"] // 2),
+            generations=max(12, r["generations"] // 2),
+            fee_bps=fee_bps, slip_bps=slip_bps,
+            seed=r.get("seed"), families=tuple(AUX_SIGNALS),
+            seeds=seeds_aux, log=None,
+        )
+        pop_a = _with_incumbents_first(pop_a, seeds_aux, ca_is, fee_bps,
+                                       slip_bps, None)
+        survivors += validate_candidates(
+            pop_a, ca, n_trials=trials_a,
+            is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
+            min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
+            fee_bps=fee_bps, slip_bps=slip_bps,
+            max_deployed=r["max_deployed"], log=lines.append,
+        )
+        n_trials += trials_a
     return inst, survivors, n_trials, lines
 
 
 def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
-                 min_bars: int = 2000, escalation: int = 0
+                 min_bars: int = 2000, escalation: int = 0,
+                 incumbents: list[ValidatedStrategy] | None = None
                  ) -> tuple[list[ValidatedStrategy], int]:
     """Full autonomous research pass over every instrument, parallelised
     across CPU cores (each instrument is independent).
@@ -129,7 +199,9 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
     escalation > 0 (consecutive empty passes) widens the evolutionary
     search — more population and generations — so the hunt digs deeper
     each time it comes back empty-handed. Validation thresholds NEVER move.
-    Returns (survivors, total genomes evaluated)."""
+    `incumbents` (the currently deployed book) are seeded into each
+    instrument's search for continuity. Returns (survivors, total genomes
+    evaluated)."""
     r = dict(cfg["research"])
     if escalation > 0:
         boost = 1.0 + 0.5 * min(escalation, 2)
@@ -143,6 +215,10 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
     all_survivors: list[ValidatedStrategy] = []
     total_trials = 0
 
+    by_inst: dict[str, list] = {}
+    for s in incumbents or []:
+        by_inst.setdefault(s.inst, []).append(s.genome)
+
     eligible_list = []
     for inst, candles in candles_by_inst.items():
         if len(candles) < min_bars:
@@ -151,7 +227,7 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
             continue
         leader = candles_by_inst.get(leader_inst) if (
             leader_inst and leader_inst != inst) else None
-        eligible_list.append((inst, candles, leader))
+        eligible_list.append((inst, candles, leader, by_inst.get(inst)))
 
     # worker count: leave one core for the OS/dashboard, cap memory usage
     workers = max(1, min(len(eligible_list), (os.cpu_count() or 1) - 1, 6))
@@ -159,13 +235,14 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
         f"population={r['population']} generations={r['generations']}")
 
     if workers == 1:
-        results = [_research_one(i, c, ld, r, fee_bps, slip_bps)
-                   for i, c, ld in eligible_list]
+        results = [_research_one(i, c, ld, r, fee_bps, slip_bps, inc)
+                   for i, c, ld, inc in eligible_list]
     else:
         import concurrent.futures as cf
         with cf.ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(_research_one, i, c, ld, r, fee_bps, slip_bps)
-                       for i, c, ld in eligible_list]
+            futures = [pool.submit(_research_one, i, c, ld, r, fee_bps,
+                                   slip_bps, inc)
+                       for i, c, ld, inc in eligible_list]
             results = []
             for fut in cf.as_completed(futures):
                 try:
@@ -405,6 +482,16 @@ class Trader:
 
     # ------------------------------------------------------------------ #
 
+    # no-trade band for single-instrument books (the XS books carry their
+    # own): a position only moves when the target drifts materially — at
+    # least REBALANCE_FLOOR of equity AND REBALANCE_REL of the held
+    # exposure. Absorbs the per-cycle churn of z-score signals oscillating
+    # near their entry threshold (fees ate ~0.5%/day of whipsaw on AVAX
+    # before this). Chosen a priori, identical for every strategy: adds
+    # ZERO trials to the deflated-Sharpe penalty. Full closes always pass.
+    REBALANCE_FLOOR = 0.02   # 2% of equity
+    REBALANCE_REL = 0.20     # 20% of the currently-held exposure
+
     def _reconcile(self, targets: dict[str, float], prices: dict[str, float],
                    equity: float) -> list[dict]:
         current = self.broker.positions()
@@ -414,8 +501,15 @@ class Trader:
             px = prices.get(inst, 0.0)
             if px <= 0:
                 continue
-            tgt_qty = targets.get(inst, 0.0) * equity / px
+            tgt_exp = targets.get(inst, 0.0)
             cur_qty = current.get(inst, 0.0)
+            if tgt_exp != 0.0 and equity > 0:
+                cur_exp = cur_qty * px / equity
+                band = max(self.REBALANCE_FLOOR,
+                           self.REBALANCE_REL * abs(cur_exp))
+                if abs(tgt_exp - cur_exp) < band:
+                    continue
+            tgt_qty = tgt_exp * equity / px
             delta = tgt_qty - cur_qty
             notional = abs(delta) * px
             ok, why = self.risk.check_order(notional)
@@ -539,7 +633,8 @@ class LiveRunner:
                 for inst in self.cfg["instruments"]}
 
     def ensure_data(self) -> None:
-        from ..data.fetcher import fetch_candles, fetch_funding
+        from ..data.fetcher import (IDX_SUFFIX, fetch_aux, fetch_candles,
+                                    fetch_funding, fetch_index)
         for inst in self.cfg["instruments"]:
             _, _, n = self.store.candle_range(inst, self.cfg["bar"])
             if n < 2000:
@@ -549,6 +644,25 @@ class LiveRunner:
                               self.cfg["history_days"], log=self.log)
                 fetch_funding(self.client, self.store, inst,
                               self.cfg["history_days"], log=self.log)
+            # aux stats (open interest / taker flow / positioning): backfill
+            # when absent, or catch up after downtime beyond the light
+            # per-cycle refresh window
+            _, hi, n_oi = self.store.aux_range(inst, "oi")
+            if n_oi == 0 or hi < (time.time() - 2 * 86_400) * 1000:
+                self.log(f"backfilling aux stats for {inst}...")
+                fetch_aux(self.client, self.store, inst,
+                          self.cfg["history_days"], log=self.log)
+            # underlying index candles (basis signal): full-history backfill
+            _, _, n_idx = self.store.candle_range(inst + IDX_SUFFIX,
+                                                  self.cfg["bar"])
+            if n_idx < 2000:
+                self.log(f"backfilling index candles for {inst}...")
+                try:
+                    fetch_index(self.client, self.store, inst, self.cfg["bar"],
+                                self.cfg["history_days"], log=self.log)
+                except Exception as exc:
+                    self.log(f"index backfill {inst} failed: "
+                             f"{type(exc).__name__}: {exc}")
 
     def ensure_research(self, force: bool = False) -> None:
         age_h = (time.time() - self.registry.researched_at) / 3600.0
@@ -568,7 +682,8 @@ class LiveRunner:
                      f"empty_streak={self.registry.consecutive_empty})")
             survivors, n_trials = run_research(
                 self._load_candles(), self.cfg, self.log,
-                escalation=self.registry.consecutive_empty)
+                escalation=self.registry.consecutive_empty,
+                incumbents=self.registry.strategies)
             if survivors or not self.registry.strategies:
                 self.registry.strategies = survivors
             self.registry.record_outcome(survivors)

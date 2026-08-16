@@ -129,7 +129,8 @@ class StateReader:
         hit = self._ccache.get(inst)
         if hit and hit[0] > now:
             return hit[1]
-        c = self._store.load(inst, self._bar)
+        c = self._store.load(inst, self._bar, with_funding=False,
+                             with_aux=False)
         rows = [[int(c.ts[i]), float(c.o[i]), float(c.h[i]),
                  float(c.l[i]), float(c.c[i]), float(c.v[i])]
                 for i in range(len(c))]

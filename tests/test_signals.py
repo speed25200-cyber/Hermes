@@ -13,9 +13,9 @@ def test_all_signal_families_produce_bounded_causal_positions():
     rng = random.Random(0)
     for name in SIGNAL_SPECS:
         for _ in range(5):
-            g = random_genome(rng)
-            while g.signal != name:
-                g = random_genome(rng)
+            # draw from the single-family pool: aux families are excluded
+            # from the default pool, so rejection sampling would never end
+            g = random_genome(rng, (name,))
             pos = compute_position(candles, g)
             assert len(pos) == len(candles)
             assert np.all(np.isfinite(pos))

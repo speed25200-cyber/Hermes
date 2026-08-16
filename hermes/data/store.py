@@ -31,9 +31,9 @@ BARS_PER_YEAR = {bar: int(round(365 * 86_400_000 / ms)) for bar, ms in BAR_MS.it
 class Candles:
     """Column-oriented candle series (numpy arrays, oldest first)."""
 
-    __slots__ = ("inst", "bar", "ts", "o", "h", "l", "c", "v", "funding")
+    __slots__ = ("inst", "bar", "ts", "o", "h", "l", "c", "v", "funding", "x")
 
-    def __init__(self, inst, bar, ts, o, h, l, c, v, funding=None):
+    def __init__(self, inst, bar, ts, o, h, l, c, v, funding=None, x=None):
         self.inst = inst
         self.bar = bar
         self.ts = np.asarray(ts, dtype=np.int64)
@@ -46,6 +46,10 @@ class Candles:
         self.funding = (
             np.zeros_like(self.c) if funding is None else np.asarray(funding, dtype=np.float64)
         )
+        # auxiliary market series aligned to bars (NaN where not covered):
+        # "oi" open interest (coin), "tak_buy"/"tak_sell" hourly taker volume,
+        # "lsr" long/short account ratio
+        self.x: dict[str, np.ndarray] = x if x is not None else {}
 
     def __len__(self) -> int:
         return len(self.ts)
@@ -56,6 +60,7 @@ class Candles:
             self.ts[start:stop], self.o[start:stop], self.h[start:stop],
             self.l[start:stop], self.c[start:stop], self.v[start:stop],
             self.funding[start:stop],
+            {k: v[start:stop] for k, v in self.x.items()},
         )
 
     @property
@@ -82,6 +87,11 @@ class DataStore:
                 inst TEXT NOT NULL, ts INTEGER NOT NULL, rate REAL,
                 PRIMARY KEY (inst, ts)
             );
+            CREATE TABLE IF NOT EXISTS aux (
+                inst TEXT NOT NULL, kind TEXT NOT NULL, ts INTEGER NOT NULL,
+                v1 REAL, v2 REAL,
+                PRIMARY KEY (inst, kind, ts)
+            );
             """
         )
         self.conn.commit()
@@ -105,6 +115,26 @@ class DataStore:
         self.conn.commit()
         return len(rows)
 
+    def upsert_aux(self, inst: str, kind: str, rows: list[tuple]) -> int:
+        """rows: iterable of (ts, v1, v2). kind: 'oi' | 'taker' | 'lsr'."""
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO aux (inst, kind, ts, v1, v2) "
+            "VALUES (?, ?, ?, ?, ?)",
+            [(inst, kind, int(r[0]), float(r[1]),
+              float(r[2]) if len(r) > 2 and r[2] is not None else 0.0)
+             for r in rows],
+        )
+        self.conn.commit()
+        return len(rows)
+
+    def aux_range(self, inst: str, kind: str) -> tuple[int, int, int]:
+        cur = self.conn.execute(
+            "SELECT MIN(ts), MAX(ts), COUNT(*) FROM aux WHERE inst=? AND kind=?",
+            (inst, kind),
+        )
+        lo, hi, n = cur.fetchone()
+        return (lo or 0, hi or 0, n or 0)
+
     def candle_range(self, inst: str, bar: str) -> tuple[int, int, int]:
         cur = self.conn.execute(
             "SELECT MIN(ts), MAX(ts), COUNT(*) FROM candles WHERE inst=? AND bar=?",
@@ -113,7 +143,8 @@ class DataStore:
         lo, hi, n = cur.fetchone()
         return (lo or 0, hi or 0, n or 0)
 
-    def load(self, inst: str, bar: str, with_funding: bool = True) -> Candles:
+    def load(self, inst: str, bar: str, with_funding: bool = True,
+             with_aux: bool = True) -> Candles:
         cur = self.conn.execute(
             "SELECT ts, o, h, l, c, v FROM candles WHERE inst=? AND bar=? ORDER BY ts",
             (inst, bar),
@@ -129,10 +160,80 @@ class DataStore:
             ).fetchall()
             if fr:
                 candles.funding = map_funding_to_bars(candles.ts, fr)
+        if with_aux:
+            bar_ms = BAR_MS[bar]
+            for kind, names in AUX_SERIES.items():
+                ar = self.conn.execute(
+                    "SELECT ts, v1, v2 FROM aux WHERE inst=? AND kind=? ORDER BY ts",
+                    (inst, kind),
+                ).fetchall()
+                if not ar:
+                    continue
+                cols = map_aux_to_bars(candles.ts, bar_ms, ar,
+                                       AUX_PERIODS.get(kind, AUX_PERIOD_MS))
+                for name, col in zip(names, cols):
+                    candles.x[name] = col
+            # underlying index close (same-bar, exact ts join): known at the
+            # bar's own close, exactly like the perp close itself
+            ir = self.conn.execute(
+                "SELECT ts, c FROM candles WHERE inst=? AND bar=? ORDER BY ts",
+                (inst + "#IDX", bar),
+            ).fetchall()
+            if ir:
+                its = np.array([r[0] for r in ir], dtype=np.int64)
+                ic = np.array([r[1] for r in ir], dtype=np.float64)
+                out = np.full(len(candles), np.nan)
+                pos = np.searchsorted(its, candles.ts)
+                ok = (pos < len(its))
+                safe = np.minimum(pos, len(its) - 1)
+                ok &= its[safe] == candles.ts
+                out[ok] = ic[safe[ok]]
+                candles.x["idx"] = out
         return candles
 
     def close(self) -> None:
         self.conn.close()
+
+
+# aux kind -> Candles.x series names for (v1, v2)
+AUX_SERIES = {
+    "oi": ("oi",),
+    "taker": ("tak_buy", "tak_sell"),
+    "lsr": ("lsr",),
+    "ttp": ("ttp",),
+    "ob": ("ob_near", "ob_deep"),   # self-recorded order-book imbalance
+}
+AUX_PERIOD_MS = 3_600_000  # rubik endpoints are fetched at 1H granularity
+# per-kind bucket length; order-book snapshots are taken every ~10 minutes
+AUX_PERIODS = {"ob": 900_000}
+
+
+def map_aux_to_bars(bar_ts: np.ndarray, bar_ms: int, rows: list[tuple],
+                    period_ms: int, stale_periods: int = 3) -> list[np.ndarray]:
+    """Align raw aux rows (ts, v1, v2) to bars without look-ahead.
+
+    A row stamped T describes the period [T, T+period): it is only fully
+    known at T+period, so a bar may use it only if the bar CLOSES at or
+    after T+period. Values forward-fill until they go stale
+    (> stale_periods behind), then turn NaN."""
+    n = len(bar_ts)
+    out1 = np.full(n, np.nan)
+    out2 = np.full(n, np.nan)
+    if n == 0 or not rows:
+        return [out1, out2]
+    ats = np.array([int(r[0]) for r in rows], dtype=np.int64) + period_ms
+    v1 = np.array([float(r[1]) for r in rows])
+    v2 = np.array([float(r[2]) if len(r) > 2 and r[2] is not None else 0.0
+                   for r in rows])
+    close = bar_ts.astype(np.int64) + bar_ms
+    idx = np.searchsorted(ats, close, side="right") - 1
+    valid = idx >= 0
+    safe = np.maximum(idx, 0)
+    age_ok = (close - ats[safe]) <= stale_periods * period_ms
+    use = valid & age_ok
+    out1[use] = v1[safe[use]]
+    out2[use] = v2[safe[use]]
+    return [out1, out2]
 
 
 def map_funding_to_bars(bar_ts: np.ndarray, funding_rows: list[tuple]) -> np.ndarray:

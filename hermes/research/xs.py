@@ -16,42 +16,71 @@ import numpy as np
 from ..backtest import metrics
 from ..data.store import BARS_PER_YEAR, Candles
 from ..strategy.genome import Genome
-from ..strategy.xs import (XS_GRID, XS_LEAD_GRID, XS_MOM_GRID, XS_REV_GRID,
+from ..strategy.xs import (XS_BASIS_GRID, XS_GRID, XS_LEAD_GRID, XS_MOM_GRID,
+                           XS_OI_GRID, XS_REV_GRID, XS_TAKER_GRID,
                            portfolio_backtest, xs_positions)
 from .validate import ValidatedStrategy
 
 XS_INST = "XS-PORTFOLIO"
 
-# (genome signal name, scoring kind, grid, needs funding history)
+# (genome signal name, scoring kind, grid, data coverage requirement)
+# coverage: None = full candle history, "funding" = funding-rate history,
+# "aux" = rubik series (open interest / taker flow) — both exist only for
+# the recent months, so those families research on the covered window only.
 XS_FAMILIES = [
-    ("funding_xs", "carry", XS_GRID, True),
-    ("xs_mom", "mom", XS_MOM_GRID, False),
-    ("xs_rev", "rev", XS_REV_GRID, False),
-    ("xs_lead", "lead", XS_LEAD_GRID, False),
+    ("funding_xs", "carry", XS_GRID, "funding"),
+    ("xs_mom", "mom", XS_MOM_GRID, None),
+    ("xs_rev", "rev", XS_REV_GRID, None),
+    ("xs_lead", "lead", XS_LEAD_GRID, None),
+    ("xs_taker", "taker", XS_TAKER_GRID, "aux"),
+    ("xs_oi", "oi", XS_OI_GRID, "aux"),
+    ("xs_basis", "basis", XS_BASIS_GRID, "idx"),
 ]
 
 XS_TOTAL_TRIALS = sum(len(grid) for _, _, grid, _ in XS_FAMILIES)
 
 
-def _trim_to_funding(candles_map: dict[str, Candles], log=None
-                     ) -> dict[str, Candles] | None:
-    """Exchanges expose only a few months of funding history; earlier bars
-    carry funding=0, which would silently kill the carry signal across most
-    of the sample. Research carry only where the data actually exists."""
+def _coverage_start(c: Candles, need: str) -> int | None:
+    """First bar index where the required data series exist for `c`."""
+    if need == "funding":
+        nz = np.nonzero(c.funding)[0]
+        return int(nz[0]) if len(nz) else None
+    if need == "idx":
+        if "idx" not in c.x:
+            return None
+        ok = np.nonzero(~np.isnan(c.x["idx"]))[0]
+        return int(ok[0]) if len(ok) else None
+    # "aux": every rubik series present and populated
+    keys = ("oi", "tak_buy", "tak_sell", "lsr")
+    if any(k not in c.x for k in keys):
+        return None
+    valid = np.ones(len(c), dtype=bool)
+    for k in keys:
+        valid &= ~np.isnan(c.x[k])
+    idx = np.nonzero(valid)[0]
+    return int(idx[0]) if len(idx) else None
+
+
+def _trim_to_coverage(candles_map: dict[str, Candles], need: str, log=None
+                      ) -> dict[str, Candles] | None:
+    """Exchanges expose only a few months of funding / open-interest / flow
+    history; earlier bars carry blanks that would silently kill these
+    signals across most of the sample. Research them only where the data
+    actually exists."""
     starts = []
     covered = {}
     for inst in sorted(candles_map):
         c = candles_map[inst]
-        nz = np.nonzero(c.funding)[0]
-        if not len(nz):
+        i0 = _coverage_start(c, need)
+        if i0 is None:
             if log:
-                log(f"xs research: {inst} has no funding history, dropping")
+                log(f"xs research: {inst} has no {need} history, dropping")
             continue
         covered[inst] = c
-        starts.append(c.ts[nz[0]])
+        starts.append(c.ts[i0])
     if len(covered) < 4:
         if log:
-            log("xs research: <4 instruments with funding history, skipping")
+            log(f"xs research: <4 instruments with {need} history, skipping")
         return None
     start_ts = max(starts)
     trimmed = {}
@@ -61,11 +90,11 @@ def _trim_to_funding(candles_map: dict[str, Candles], log=None
     min_len = min(len(c) for c in trimmed.values())
     if min_len < 3000:
         if log:
-            log(f"xs research: only {min_len} funding-covered bars "
+            log(f"xs research: only {min_len} {need}-covered bars "
                 f"(need 3000+), rejecting")
         return None
     if log:
-        log(f"xs research: funding coverage window = {min_len} bars "
+        log(f"xs research: {need} coverage window = {min_len} bars "
             f"x {len(trimmed)} instruments")
     return trimmed
 
@@ -178,8 +207,8 @@ def research_xs(
             log("xs research: needs >= 4 instruments, skipping")
         return []
     out: list[ValidatedStrategy] = []
-    for name, kind, grid, needs_funding in XS_FAMILIES:
-        data = _trim_to_funding(candles_map, log) if needs_funding else candles_map
+    for name, kind, grid, needs in XS_FAMILIES:
+        data = _trim_to_coverage(candles_map, needs, log) if needs else candles_map
         if data is None:
             continue
         if kind == "lead" and (not leader or leader not in candles_map):

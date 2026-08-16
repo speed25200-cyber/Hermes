@@ -121,6 +121,18 @@ class OKXClient:
             params["after"] = str(after)
         return self._request("GET", path, params)
 
+    def index_candles(self, index_id: str, bar: str = "1H", limit: int = 100,
+                      after: int | None = None, history: bool = False
+                      ) -> list[list]:
+        """Index (spot basket) candles, e.g. index_id 'BTC-USDT'. Rows
+        [ts, o, h, l, c, confirm] NEWEST FIRST — no volume column."""
+        path = ("/api/v5/market/history-index-candles" if history
+                else "/api/v5/market/index-candles")
+        params: dict = {"instId": index_id, "bar": bar, "limit": str(limit)}
+        if after is not None:
+            params["after"] = str(after)
+        return self._request("GET", path, params)
+
     def tickers(self, inst_ids: list[str]) -> dict[str, float]:
         """Live last prices for the given SWAP instruments (public)."""
         return {inst: t["last"] for inst, t in self.tickers_full(inst_ids).items()}
@@ -140,6 +152,13 @@ class OKXClient:
                 }
         return out
 
+    def order_book(self, inst_id: str, sz: int = 100) -> dict:
+        """Live depth snapshot: {'asks': [[px, sz, ...], ...], 'bids': [...],
+        'ts': ms}. No history exists on any exchange — callers record
+        snapshots to build their own."""
+        return self._request("GET", "/api/v5/market/books",
+                             {"instId": inst_id, "sz": str(sz)})[0]
+
     def funding_rate(self, inst_id: str) -> dict:
         return self._request("GET", "/api/v5/public/funding-rate",
                              {"instId": inst_id})[0]
@@ -150,6 +169,72 @@ class OKXClient:
         if after is not None:
             params["after"] = str(after)
         return self._request("GET", "/api/v5/public/funding-rate-history", params)
+
+    # ------------------ public trading statistics (rubik) -------------- #
+    # Open interest, aggressive taker flow and crowd positioning. All free
+    # public endpoints; rows are normalised to plain tuples (newest first)
+    # whether OKX returns arrays or objects.
+
+    @staticmethod
+    def _stat_rows(data: list, keys: tuple[str, ...],
+                   idx: tuple[int, ...]) -> list[tuple]:
+        out = []
+        for r in data:
+            try:
+                if isinstance(r, dict):
+                    out.append(tuple(float(r[k]) for k in keys))
+                else:
+                    out.append(tuple(float(r[i]) for i in idx))
+            except (KeyError, IndexError, TypeError, ValueError):
+                continue
+        return out
+
+    def _stat(self, path: str, inst_id: str, period: str, limit: int,
+              end: int | None, extra: dict | None = None) -> list:
+        params: dict = {"instId": inst_id, "period": period, "limit": str(limit)}
+        if end is not None:
+            params["end"] = str(end)
+        if extra:
+            params.update(extra)
+        return self._request("GET", path, params)
+
+    def open_interest_history(self, inst_id: str, period: str = "1H",
+                              limit: int = 100, end: int | None = None
+                              ) -> list[tuple]:
+        """(ts, oi_coin, oi_usd) newest first."""
+        data = self._stat("/api/v5/rubik/stat/contracts/open-interest-history",
+                          inst_id, period, limit, end)
+        return self._stat_rows(data, ("ts", "oiCcy", "oiUsd"), (0, 2, 3))
+
+    def taker_volume_history(self, inst_id: str, period: str = "1H",
+                             limit: int = 100, end: int | None = None
+                             ) -> list[tuple]:
+        """(ts, buy_vol, sell_vol) newest first (contract units; only the
+        buy/sell ratio is consumed, so the unit never matters)."""
+        data = self._stat("/api/v5/rubik/stat/taker-volume-contract",
+                          inst_id, period, limit, end)
+        # OKX array order is [ts, sellVol, buyVol]
+        return self._stat_rows(data, ("ts", "buyVol", "sellVol"), (0, 2, 1))
+
+    def long_short_ratio_history(self, inst_id: str, period: str = "1H",
+                                 limit: int = 100, end: int | None = None
+                                 ) -> list[tuple]:
+        """(ts, long_short_account_ratio) newest first."""
+        data = self._stat(
+            "/api/v5/rubik/stat/contracts/long-short-account-ratio-contract",
+            inst_id, period, limit, end)
+        return self._stat_rows(data, ("ts", "longShortAcctRatio"), (0, 1))
+
+    def top_trader_ratio_history(self, inst_id: str, period: str = "1H",
+                                 limit: int = 100, end: int | None = None
+                                 ) -> list[tuple]:
+        """(ts, top-trader long/short POSITION ratio) newest first — the
+        positioning of the largest accounts, not the crowd."""
+        data = self._stat(
+            "/api/v5/rubik/stat/contracts/"
+            "long-short-position-ratio-contract-top-trader",
+            inst_id, period, limit, end)
+        return self._stat_rows(data, ("ts", "longShortPosRatio"), (0, 1))
 
     # ---------------------- private (signed) --------------------------- #
 

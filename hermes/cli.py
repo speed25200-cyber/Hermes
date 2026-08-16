@@ -252,7 +252,8 @@ def cmd_realtest(args) -> None:
 
 
 def cmd_fetch(args) -> None:
-    from .data.fetcher import fetch_candles, fetch_funding
+    from .data.fetcher import (fetch_aux, fetch_candles, fetch_funding,
+                               fetch_index)
     from .exchange.okx_client import OKXClient
 
     cfg = Config.load(args.config)
@@ -266,6 +267,9 @@ def cmd_fetch(args) -> None:
             fetch_candles(client, store, inst, cfg["bar"], cfg["history_days"],
                           log=print)
             fetch_funding(client, store, inst, cfg["history_days"], log=print)
+            fetch_aux(client, store, inst, cfg["history_days"], log=print)
+            fetch_index(client, store, inst, cfg["bar"], cfg["history_days"],
+                        log=print)
         except Exception as exc:
             failed.append(inst)
             print(f"fetch {inst}: FAILED ({type(exc).__name__}: {exc}) — skipping")
@@ -280,8 +284,10 @@ def cmd_research(args) -> None:
     store = DataStore(cfg["data_dir"])
     candles = {inst: store.load(inst, cfg["bar"]) for inst in cfg["instruments"]}
     registry = Registry(cfg["state_dir"])
+    incumbents = list(registry.strategies)
     survivors, n_trials = run_research(
-        candles, cfg, log=print, escalation=registry.consecutive_empty)
+        candles, cfg, log=print, escalation=registry.consecutive_empty,
+        incumbents=incumbents)
     registry.strategies = survivors
     registry.record_outcome(survivors)
     registry.researched_at = time.time()
