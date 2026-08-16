@@ -101,3 +101,59 @@ def test_tilt_still_backs_a_genuinely_better_strategy():
     got = [_combined_sharpe(seed, mus, vols)[1]["s0"] for seed in range(4)]
     assert min(got) > 2.0 / len(vols), f"real edge under-weighted: {got}"
     assert sum(got) / len(got) > 0.5, f"real edge not backed on average: {got}"
+
+
+def test_a_fresh_book_is_not_frozen_out_by_one_incumbent():
+    """Observed in production: a research pass deployed 17 new strategies
+    beside one survivor. The survivor held a track record and a high score,
+    the newcomers had none, and the raw-gap tilt gave them weights of 1e-12.
+    The only strategy with a live signal controlled 0.8 USDT of a 9,955 USDT
+    book, so nothing could trade — and with no trades they could never earn a
+    track record either. The freeze was self-sustaining."""
+    from hermes.portfolio.allocator import StrategyTrack
+
+    a = Allocator(ewma_halflife_bars=168, eta=2.0, max_weight=0.5,
+                  bars_per_year=35040)
+    inc = StrategyTrack()
+    inc.ewma_ret, inc.ewma_var, inc.n_obs = 2.0e-5, 1.0e-8, 367
+    a.tracks["incumbent"] = inc
+    for i in range(17):
+        t = StrategyTrack()
+        t.ewma_ret, t.ewma_var, t.n_obs = 0.0, 1e-9, 23   # just below the gate
+        a.tracks[f"new{i}"] = t
+    assert a._score(inc) > 20                       # the incumbent looks great
+
+    # measured in standard errors, a newcomer is still worth real weight
+    w = a.weights(list(a.tracks))
+    assert w["new0"] > 0.01, f"newcomer frozen at {w['new0']:.2e}"
+    assert w["incumbent"] / w["new0"] < 50
+
+    # and the book only shares itself out among strategies actually asking for
+    # exposure, so one live signal reaches the market
+    positions = {"incumbent": {"ETC-USDT-SWAP": 0.0}}
+    for i in range(17):
+        positions[f"new{i}"] = {f"I{i}-USDT-SWAP": 0.0}
+    positions["new0"] = {"AVAX-USDT-SWAP": 0.4084}
+    book = a.combine(positions)
+    assert book["AVAX-USDT-SWAP"] > 0.02, (
+        f"live signal reaches only {book['AVAX-USDT-SWAP']:.4f} of equity, "
+        f"below the 2% rebalance band")
+
+
+def test_flat_strategies_do_not_dilute_the_active_ones():
+    """Capital parked on a strategy holding no position is capital doing
+    nothing; it must not shrink the strategies that do have a signal."""
+    a = Allocator(bars_per_year=35040)
+    positions = {f"s{i}": {f"I{i}": 0.0} for i in range(9)}
+    positions["s0"] = {"I0": 0.30}
+    assert a.combine(positions)["I0"] == pytest.approx(0.30, rel=1e-9)
+
+
+def test_all_active_book_is_unchanged_by_the_activity_filter():
+    """When every strategy wants exposure the filter is a no-op, so the
+    combination behaves exactly as before."""
+    a = Allocator(bars_per_year=35040)
+    positions = {f"s{i}": {f"I{i}": 0.1 * (i + 1)} for i in range(5)}
+    w_all = a.weights(list(positions))
+    w_active = a.combine_weights(positions)
+    assert w_all == w_active

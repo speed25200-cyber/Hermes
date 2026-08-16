@@ -129,6 +129,22 @@ class Allocator:
         n_eff = min(max(t.n_obs, 1), 2.0 / self._alpha - 1.0)
         return math.sqrt(self.bars_per_year / max(n_eff, 1.0))
 
+    def combine_weights(self, positions: dict[str, dict[str, float]]) -> dict[str, float]:
+        """Weights restricted to the strategies actually asking for exposure.
+
+        A strategy sitting flat contributes nothing to the book, so letting it
+        hold capital only shrinks everyone else. In production 16 of 18
+        deployed strategies were flat while holding 96% of the weight, which
+        left the two with a live signal controlling 0.8 USDT of a 9,955 USDT
+        book — below every trading threshold, so nothing could execute.
+
+        What is held does not change; only how much of it. Gross leverage and
+        the portfolio vol target still bound the result.
+        """
+        active = [sid for sid, legs in positions.items()
+                  if any(abs(e) > 1e-12 for e in legs.values())]
+        return self.weights(active or list(positions))
+
     def weights(self, sids: list[str]) -> dict[str, float]:
         if not sids:
             return {}
@@ -162,7 +178,7 @@ class Allocator:
 
     def combine(self, positions: dict[str, dict[str, float]]) -> dict[str, float]:
         """positions: sid -> {inst -> exposure}. Returns inst -> net exposure."""
-        w = self.weights(list(positions))
+        w = self.combine_weights(positions)
         book: dict[str, float] = {}
         for sid, per_inst in positions.items():
             for inst, exp in per_inst.items():

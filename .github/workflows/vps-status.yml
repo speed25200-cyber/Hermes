@@ -1,6 +1,5 @@
-# Trace the full decision chain for one bar: per-strategy signal -> allocator
-# weight -> combined book -> governor -> risk clamp -> rebalance band, so the
-# stage that turns a live signal into a zero position is visible.
+# Check Hermes status on the VPS: services, research progress, engine logs,
+# deployed strategies and current equity. Trigger manually any time.
 
 name: VPS status
 
@@ -14,7 +13,7 @@ on:
 jobs:
   status:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     env:
       VPS: ${{ vars.VPS_HOST || '178.104.191.79' }}
     steps:
@@ -36,66 +35,24 @@ jobs:
             echo "::error::cannot authenticate"; exit 1; fi
           echo "SSHPASS=$CUR" >> "$GITHUB_ENV"
 
-      - name: Upload diagnostic
+      - name: Status report
         run: |
-          cat > /tmp/diag.py <<'PYEOF'
-          import json
-          import numpy as np
-          from hermes.config import Config
-          from hermes.data.store import DataStore, BARS_PER_YEAR
-          from hermes.portfolio.allocator import Allocator
-          from hermes.strategy.genome import Genome
-          from hermes.strategy.signals import compute_position
-
-          cfg = Config.load()
-          store = DataStore(cfg["data_dir"])
-          bar = cfg["bar"]
-          reg = json.load(open("state/registry.json"))
-          strats = reg["strategies"]
-          tr = json.load(open("state/trader.json"))
-
-          a = cfg["allocator"]
-          alloc = Allocator(ewma_halflife_bars=a["ewma_halflife_bars"],
-                            eta=a["eta"], max_weight=a["max_weight"],
-                            portfolio_vol_target=cfg["risk"]["portfolio_vol_target"],
-                            bars_per_year=BARS_PER_YEAR[bar])
-          alloc.restore(tr.get("allocator", {}))
-
-          per = {}
-          for s in strats:
-              g = Genome.from_dict(s["genome"])
-              sid = f"{s['inst']}:{g.gid}"
-              c = store.load(s["inst"], bar)
-              if not len(c):
-                  continue
-              per[sid] = {s["inst"]: float(compute_position(c, g)[-1])}
-
-          w = alloc.weights(list(per))
-          print("=== allocator weights (18 deployed) ===")
-          for sid, wt in sorted(w.items(), key=lambda kv: -kv[1]):
-              exp = list(per.get(sid, {}).values())
-              t = alloc.tracks.get(sid)
-              print(f"  {sid:<40} w={wt:.4f} signal={exp[0] if exp else 0:+.4f} "
-                    f"n_obs={t.n_obs if t else 0}")
-
-          print(f"\nportfolio_scale = {alloc.portfolio_scale():.3f}  "
-                f"(ewma_port_var={alloc.ewma_port_var:.3e})")
-
-          book = alloc.combine(per)
-          eq = tr.get("paper_broker", {}).get("cash", 10000.0)
-          print(f"\n=== combined book (equity ~{eq:.0f}) ===")
-          for inst, e in sorted(book.items(), key=lambda kv: -abs(kv[1])):
-              if abs(e) > 1e-9:
-                  print(f"  {inst:<16} exposure={e:+.5f}  "
-                        f"= {abs(e)*eq:8.2f} USDT   "
-                        f"{'TRADES' if abs(e) >= 0.02 else 'BLOCKED by 2% band'}")
-          print("\nband floor = 2% of equity = "
-                f"{0.02*eq:.2f} USDT; min_trade_notional = "
-                f"{cfg['risk']['min_trade_notional']}")
-          PYEOF
-          sshpass -e scp -o StrictHostKeyChecking=accept-new /tmp/diag.py "root@$VPS:/root/hermes/diag.py"
-
-      - name: Run diagnostic
-        run: |
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
-            'cd /root/hermes && /root/venv/bin/python diag.py 2>&1 | tail -60; rm -f diag.py'
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            echo "===== services ====="
+            systemctl is-active hermes-research && echo "(research running)" || echo "(research idle/done)"
+            systemctl is-active hermes || true
+            echo -n "dashboard: "; systemctl is-active hermes-dashboard || true
+            ss -tln | grep -q ":8899 " && echo "port 8899: LISTENING" || echo "port 8899: NOT listening"
+            echo
+            echo "===== research / engine journal (last 50 lines) ====="
+            journalctl -u hermes-research -u hermes -n 50 --no-pager || true
+            echo
+            echo "===== deployed book (registry summary) ====="
+            grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
+            echo
+            echo "===== hermes state ====="
+            cd /root/hermes 2>/dev/null && /root/venv/bin/python -m hermes status 2>/dev/null | head -40 || echo "no state yet"
+            echo
+            echo "===== disk / memory ====="
+            df -h / | tail -1; free -m | head -2
+          '
