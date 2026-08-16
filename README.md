@@ -40,6 +40,11 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
      of its own typical error and its size scales with that ratio:
      distribution-free uncertainty quantification (empirical coverage is
      tested), not a Gaussian assumption;
+   - the training label is the forward return **net of funding**, not the
+     price move: on perpetuals a position held across a stamp pays it, and
+     crypto funding routinely runs tens of percent annualised, so a model
+     trained on price alone would buy a 5bp move while paying 15bp to hold
+     it;
    - an incremental cache extends the walk-forward state bar by bar in live
      trading with bit-identical results to the batch computation (tested).
 
@@ -285,7 +290,7 @@ hermes/
   cli.py                 demo / fetch / research / run / status /
                          coverage / calibration / execution / backup /
                          dashboard
-tests/                   125 tests: no-lookahead, ML causality, microstructure
+tests/                   128 tests: no-lookahead, ML causality, microstructure
                          features, metric autocorrelation, regimes, e2e
 ```
 

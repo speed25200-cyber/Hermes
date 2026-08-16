@@ -270,3 +270,50 @@ def test_predictor_finds_lead_lag_edge():
     live = slice(1000, len(follower) - 2)
     ic = np.corrcoef(pred[live], fwd[live])[0, 1]
     assert ic > 0.05  # information coefficient clearly positive
+
+
+def test_target_is_net_of_funding():
+    """These are perpetuals: the label must be what a long actually collects.
+    Same price path, funding switched on — every label must move down."""
+    a = generate(n=800, seed=31)
+    b = generate(n=800, seed=31)
+    a.funding = np.zeros(len(a))
+    b.funding = np.zeros(len(b))
+    b.funding[::32] = 0.0008                     # longs pay every 8h
+    ya, yb = build_target(a, 8), build_target(b, 8)
+    live = slice(100, len(a) - 8)
+    assert (yb[live] <= ya[live]).all()          # never better for a long
+    assert (ya[live] - yb[live]).mean() > 0
+    # only the windows that actually span a stamp are charged: funding lands
+    # every 32 bars and the horizon is 8, so about a quarter of them
+    hit = (yb[live] < ya[live]).mean()
+    assert 0.20 < hit < 0.30, hit
+
+
+def test_target_matches_price_return_when_funding_is_zero():
+    """With no funding the label is the plain forward price return, so the
+    change cannot disturb instruments that never pay it."""
+    a = generate(n=800, seed=31)
+    a.funding = np.zeros(len(a))
+    y = build_target(a, 8)
+    fwd = a.c[8:] / a.c[:-8] - 1.0
+    live = slice(100, 700)
+    np.testing.assert_array_equal(np.sign(y[live]), np.sign(fwd[live]))
+
+
+def test_target_penalises_a_move_smaller_than_the_funding_to_hold_it():
+    """A rally that costs more funding to hold than it pays is a losing long,
+    and the label must say so even though the price went up."""
+    a = generate(n=800, seed=33)
+    rng = np.random.default_rng(5)
+    n = len(a)
+    # gentle uptrend with realistic noise: a flat path has zero volatility and
+    # the vol-scaled label would be undefined
+    a.c = 100.0 * np.exp(np.linspace(0, 0.01, n) + rng.normal(0, 0.002, n).cumsum() * 0.1)
+    a.funding = np.zeros(len(a))
+    up = build_target(a, 8)
+    a.funding[::4] = 0.01                                # brutal carry
+    down = build_target(a, 8)
+    live = slice(100, 700)
+    assert up[live].mean() > 0                            # price alone: long
+    assert down[live].mean() < 0                          # net of funding: short

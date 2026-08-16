@@ -261,16 +261,29 @@ def _microstructure_cols(candles: Candles, c: np.ndarray, vol: np.ndarray,
 
 
 def build_target(candles: Candles, horizon: int) -> np.ndarray:
-    """Forward `horizon`-bar return, vol-scaled. target[t] uses bars t+1..t+h
-    (only valid for training rows with t + horizon < n)."""
+    """Forward `horizon`-bar return NET OF FUNDING, vol-scaled. target[t] uses
+    bars t+1..t+h (only valid for training rows with t + horizon < n).
+
+    These are perpetual futures: a position held across a funding stamp pays
+    (or receives) it, and the backtest charges exactly that. Training on the
+    price move alone would teach the model to predict something the strategy
+    does not earn — it would happily buy a move worth 5bp while paying 15bp
+    of funding to hold it. Funding on crypto perps routinely runs tens of
+    percent annualised, so over a short horizon it can dominate the entire
+    price edge. The label is therefore what a long actually collects.
+    """
     c = candles.c
     n = len(c)
     vol = np.nan_to_num(F.rolling_std(F.returns(c), 48), nan=0.0)
     y = np.zeros(n)
     if n > horizon:
         fwd = c[horizon:] / c[:-horizon] - 1.0
+        # funding charged on bars t+1..t+h, i.e. what a long pays to hold
+        cum = np.concatenate(([0.0], np.cumsum(candles.funding)))
+        paid = cum[horizon + 1: n + 1] - cum[1: n - horizon + 1]
+        net = fwd - paid
         with np.errstate(invalid="ignore", divide="ignore"):
-            scaled = fwd / np.where(vol[:-horizon] * np.sqrt(horizon) > 1e-6,
+            scaled = net / np.where(vol[:-horizon] * np.sqrt(horizon) > 1e-6,
                                     vol[:-horizon] * np.sqrt(horizon), np.nan)
         y[: n - horizon] = np.clip(np.nan_to_num(scaled, nan=0.0), -5, 5)
     return y
