@@ -63,7 +63,12 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
    a post-only limit at the touch first (OKX maker ~0.02%) with a timed
    fallback to market, handling partial fills exactly. Backtests use the
    matching expected-cost model (`effective_costs`): a ~40% cost reduction
-   per trade that compounds into a real, mechanical edge.
+   per trade that compounds into a real, mechanical edge. That model blends
+   the maker and taker fee by an *assumed* miss rate, so live fills record
+   the average price and the fee the exchange actually charged and
+   `hermes execution` contrasts realised cost with the modelled one — if the
+   real maker share is worse than assumed, every Sharpe in the registry is
+   optimistic by the difference.
 
 4. **Regime detection** (`hermes/ml/regime.py`) — a Gaussian-mixture EM
    (hand-written) classifies every bar as quiet / normal / turbulent from
@@ -154,6 +159,9 @@ python -m hermes coverage
 
 # Did the gate's OOS estimate survive contact with live trading?
 python -m hermes calibration
+
+# Is trading actually costing what every backtest assumed?
+python -m hermes execution
 
 # Dashboard — local web console (equity curve, book, allocation, risk, logs)
 python -m hermes dashboard            # opens http://127.0.0.1:8899
@@ -272,8 +280,8 @@ hermes/
   dashboard/server.py    zero-dependency local web console (stdlib http)
            index.html    single-file UI: SVG charts, animated console
   cli.py                 demo / fetch / research / run / status /
-                         coverage / calibration / dashboard
-tests/                   120 tests: no-lookahead, ML causality, microstructure
+                         coverage / calibration / execution / dashboard
+tests/                   124 tests: no-lookahead, ML causality, microstructure
                          features, metric autocorrelation, regimes, e2e
 ```
 

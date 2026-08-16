@@ -545,6 +545,9 @@ class Trader:
             d["governor"] = self.governor.to_dict()
         if isinstance(self.broker, PaperBroker):
             d["paper_broker"] = self.broker.to_dict()
+        stats = getattr(self.broker, "exec_stats", None)
+        if stats is not None:
+            d["exec_stats"] = stats.to_dict()
         with open(os.path.join(state_dir, "trader.json"), "w") as f:
             json.dump(d, f, indent=2)
 
@@ -565,6 +568,9 @@ class Trader:
             self.governor.from_dict(d["governor"])
         if isinstance(self.broker, PaperBroker) and "paper_broker" in d:
             self.broker.restore(d["paper_broker"])
+        stats = getattr(self.broker, "exec_stats", None)
+        if stats is not None and "exec_stats" in d:
+            stats.restore(d["exec_stats"])
 
 
 # --------------------------------------------------------------------- #

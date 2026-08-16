@@ -458,6 +458,63 @@ def cmd_calibration(args) -> None:
                   f"about live performance)")
 
 
+def cmd_execution(args) -> None:
+    """Contrast realised execution cost with the cost the backtest assumed.
+
+    Every validated Sharpe was computed through `effective_costs`, which
+    blends the maker and taker fee by an assumed maker miss rate. If the real
+    maker share is worse than assumed, every backtest in the registry is
+    optimistic by the difference — at 15m bars and ~1% turnover per bar, a
+    couple of bps per trade is the whole edge.
+    """
+    cfg = Config.load(args.config)
+    path = os.path.join(cfg["state_dir"], "trader.json")
+    if not os.path.exists(path):
+        print("no trading state yet")
+        return
+    with open(path) as f:
+        stats = (json.load(f) or {}).get("exec_stats") or {}
+    notional = float(stats.get("notional", 0.0))
+    if notional <= 0:
+        print("no fills recorded yet — execution quality is unmeasured")
+        return
+
+    orders = int(stats.get("orders", 0))
+    maker_share = float(stats.get("maker_notional", 0.0)) / notional
+    fee_bps = float(stats.get("fee_paid", 0.0)) / notional * 1e4
+    short_bps = float(stats.get("shortfall", 0.0)) / notional * 1e4
+    costs = cfg["costs"]
+    model_fee, model_slip = effective_costs(costs)
+
+    print(f"orders filled            : {orders}")
+    print(f"notional traded          : {notional:,.0f} USDT")
+    print(f"maker share (realised)   : {maker_share:6.1%}")
+    if costs.get("prefer_maker", False):
+        print(f"maker share (assumed)    : "
+              f"{1.0 - float(costs.get('maker_miss_rate', 0.3)):6.1%}")
+    print(f"fees        (realised)   : {fee_bps:6.2f} bps")
+    print(f"            (modelled)   : {model_fee:6.2f} bps")
+    print(f"shortfall vs decision px : {short_bps:6.2f} bps")
+    print(f"            (modelled)   : {model_slip:6.2f} bps")
+    realised = fee_bps + short_bps
+    modelled = model_fee + model_slip
+    print(f"ALL-IN      (realised)   : {realised:6.2f} bps")
+    print(f"            (modelled)   : {modelled:6.2f} bps")
+    gap = realised - modelled
+    print()
+    if gap > 1.0:
+        print(f"Trading costs {gap:.2f} bps MORE per trade than every backtest "
+              f"assumed.\nRaise costs.maker_miss_rate / slippage_bps to match "
+              f"and re-run research:\nthe deployed book was validated against "
+              f"costs it does not actually pay.")
+    elif gap < -1.0:
+        print(f"Trading costs {-gap:.2f} bps less than modelled — the gate is "
+              f"conservative,\nwhich is the safe direction to be wrong in.")
+    else:
+        print("Realised cost matches the model; the validated Sharpes rest on "
+              "the right\nassumption.")
+
+
 def cmd_status(args) -> None:
     cfg = Config.load(args.config)
     state_dir = cfg["state_dir"]
@@ -512,6 +569,11 @@ def main(argv: list[str] | None = None) -> None:
                         help="history held per data source (incl. the "
                              "self-recorded order book)")
     cv.set_defaults(fn=cmd_coverage)
+
+    ex = sub.add_parser("execution",
+                        help="realised trading cost vs the cost every "
+                             "backtest assumed")
+    ex.set_defaults(fn=cmd_execution)
 
     cal = sub.add_parser("calibration",
                          help="OOS Sharpe promised by the gate vs the one "

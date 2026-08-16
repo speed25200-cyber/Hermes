@@ -123,3 +123,64 @@ def test_paper_broker_tracks_average_entry():
     b2 = PaperBroker()
     b2.restore(d)
     assert b2.entry == b.entry
+
+
+class DetailedClient(FakeClient):
+    """Reports the fill detail a real exchange returns: average price and the
+    fee actually charged (negative in OKX's convention)."""
+
+    def __init__(self, avg_px="100.04", fee="-0.02", **kw):
+        super().__init__(**kw)
+        self.avg_px = avg_px
+        self.fee = fee
+
+    def order_status(self, inst, ord_id):
+        st = super().order_status(inst, ord_id)
+        st.update({"avgPx": self.avg_px, "fee": self.fee})
+        return st
+
+
+def test_live_fill_reports_real_price_and_fee():
+    """The fill must carry what the exchange actually did — reporting the
+    decision price and a zero fee would make execution cost unmeasurable."""
+    c = DetailedClient(avg_px="100.04", fee="-0.02")
+    b = make_broker(c)
+    fill = b.market_order("X-USDT-SWAP", 1.0, 100.0)
+    assert fill.price == pytest.approx(100.04)      # not the 100.0 hint
+    assert fill.fee == pytest.approx(0.02)          # charged, sign-corrected
+
+
+def test_execution_stats_measure_maker_share_and_shortfall():
+    c = DetailedClient(avg_px="100.04", fee="-0.02")
+    b = make_broker(c)
+    b.market_order("X-USDT-SWAP", 1.0, 100.0)
+    s = b.exec_stats.summary()
+    assert s["orders"] == 1
+    assert s["maker_share"] == pytest.approx(1.0)   # filled entirely as maker
+    # bought 4 bps above the decision price
+    assert s["shortfall_bps"] == pytest.approx(4.0, abs=0.1)
+    assert s["all_in_bps"] > s["shortfall_bps"]     # fees on top
+
+
+def test_execution_stats_split_maker_and_taker_legs():
+    class PartialDetailed(DetailedClient):
+        def order_status(self, inst, ord_id):
+            self.polls += 1
+            return {"state": "live", "accFillSz": "4",
+                    "avgPx": self.avg_px, "fee": self.fee}
+    c = PartialDetailed()
+    b = make_broker(c)
+    b.market_order("X-USDT-SWAP", 1.0, 100.0)
+    # 4 of 10 contracts rested as maker, the remaining 6 crossed
+    assert b.exec_stats.summary()["maker_share"] == pytest.approx(0.4, abs=0.01)
+
+
+def test_execution_stats_survive_a_restart(tmp_path):
+    """Cost measurement is cumulative and must not reset when the engine
+    restarts, or a hourly-cron deployment would never accumulate a sample."""
+    from hermes.exchange.broker import ExecStats
+    a = ExecStats()
+    a.record(notional=1000.0, maker_notional=600.0, fee=0.3, shortfall=0.2)
+    b = ExecStats()
+    b.restore(a.to_dict())
+    assert b.summary() == a.summary()
