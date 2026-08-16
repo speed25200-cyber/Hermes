@@ -62,6 +62,12 @@ DEFAULTS: dict[str, Any] = {
         # allocator: 18 strategies put a typical signal at 454 USDT of a
         # 9,955 USDT book, 60 put it at 136 — under the 199 USDT band.
         "max_deployed_total": 24,
+        # A parameter grid returns whole neighbourhoods of the same optimum,
+        # so two "different" genomes routinely trade the identical series.
+        # A survivor whose OOS returns correlate above this with one already
+        # accepted for the instrument is a second copy of that bet, not a
+        # second bet: it is refused the slot.
+        "max_corr": 0.9,
         "refresh_hours": 168,        # re-run research weekly
         "refresh_hours_empty": 24,   # ...but daily while nothing is deployed:
                                      # the hunt escalates instead of sleeping

@@ -157,7 +157,8 @@ def _research_one(inst: str, candles: Candles, leader: Candles | None,
         is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
         min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
         fee_bps=fee_bps, slip_bps=slip_bps,
-        max_deployed=r["max_deployed"], ctx=ctx, log=lines.append,
+        max_deployed=r["max_deployed"], max_corr=r.get("max_corr", 0.9),
+        ctx=ctx, log=lines.append,
     )
 
     # ---- aux-data families, searched only on the window the rubik series
@@ -183,7 +184,8 @@ def _research_one(inst: str, candles: Candles, leader: Candles | None,
             is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
             min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
             fee_bps=fee_bps, slip_bps=slip_bps,
-            max_deployed=r["max_deployed"], log=lines.append,
+            max_deployed=r["max_deployed"],
+            max_corr=r.get("max_corr", 0.9), log=lines.append,
         )
         n_trials += trials_a
     # max_deployed is a per-instrument cap, and the aux pass appends to the

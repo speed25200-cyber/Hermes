@@ -175,7 +175,7 @@ def cmd_realtest(args) -> None:
             is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
             min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
             fee_bps=rt_fee, slip_bps=rt_slip,
-            max_deployed=r["max_deployed"],
+            max_deployed=r["max_deployed"], max_corr=r.get("max_corr", 0.9),
             log=lambda m: print(f"[research] {m}"))
 
         # what a NAIVE optimiser (no validation gate) would have deployed:

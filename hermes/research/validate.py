@@ -12,6 +12,8 @@ gap), it clears:
      (embargo between them) and the strategy must be profitable in the
      majority — one lucky stretch is not an edge (CPCV spirit,
      Lopez de Prado).
+  5. Distinctness: its OOS return series must not be a near-copy of a
+     survivor already accepted for the same instrument.
 
 This is the anti-overfitting core: the more strategies the search tries, the
 higher the bar every survivor must clear.
@@ -63,6 +65,32 @@ def split_is_oos(candles: Candles, is_fraction: float, embargo_bars: int
     return candles.slice(0, cut), candles.slice(oos_start, n)
 
 
+def _max_abs_corr(rets: np.ndarray, accepted: list[np.ndarray]) -> float:
+    """Highest absolute correlation between `rets` and any accepted series.
+
+    A grid search returns whole neighbourhoods of the same optimum: two
+    genomes with different parameters can compute the identical position
+    series (an RSI band of 23.4/85.9 and one of 23.5/85.8 rarely cross a
+    different bar). Each of those clones takes a book slot, and the book has
+    few. Worse, they are not a diversified pair — they are one bet held
+    twice, which the allocator can only discover slowly through its crowding
+    penalty, after it has already staked capital on both.
+    """
+    if not len(accepted):
+        return 0.0
+    sd = float(np.std(rets))
+    if sd <= 1e-12:            # a flat series correlates with nothing
+        return 0.0
+    best = 0.0
+    for prev in accepted:
+        if len(prev) != len(rets) or float(np.std(prev)) <= 1e-12:
+            continue
+        c = float(np.corrcoef(rets, prev)[0, 1])
+        if np.isfinite(c):
+            best = max(best, abs(c))
+    return best
+
+
 def _cost_share(stats: dict) -> str:
     """How much of the gross return the frictions took.
 
@@ -92,6 +120,7 @@ def validate_candidates(
     max_deployed: int = 6,
     n_folds: int = 3,
     fold_embargo: int = 12,
+    max_corr: float = 0.9,
     ctx: dict | None = None,
     log=None,
 ) -> list[ValidatedStrategy]:
@@ -103,6 +132,7 @@ def validate_candidates(
     bpy = BARS_PER_YEAR[candles.bar]
     survivors: list[ValidatedStrategy] = []
     seen_signals: list[str] = []
+    accepted_rets: list[np.ndarray] = []
     for cand in candidates[: top_k * 3]:
         if len(survivors) >= max_deployed:
             break
@@ -136,6 +166,12 @@ def validate_candidates(
             and st["max_drawdown"] <= max_oos_drawdown
             and consistent
         )
+        clone_r = _max_abs_corr(res.rets, accepted_rets) if verdict else 0.0
+        st["max_corr_to_book"] = clone_r
+        distinct = clone_r < max_corr
+        outcome = "DEPLOY" if verdict and distinct else "reject"
+        if verdict and not distinct:
+            outcome = f"reject (clone, r={clone_r:.2f})"
         if log:
             log(f"  OOS {g.gid} {g.describe()}: sharpe={st['sharpe']:.2f} "
                 f"(iid {st.get('sharpe_iid', st['sharpe']):.2f}, "
@@ -144,11 +180,12 @@ def validate_candidates(
                 f"folds+={st['oos_folds_positive']} "
                 f"costs={st.get('cost_drag_annual', 0.0):.1%}/y "
                 f"({_cost_share(st)}) "
-                f"-> {'DEPLOY' if verdict else 'reject'}")
-        if verdict:
+                f"-> {outcome}")
+        if verdict and distinct:
             survivors.append(ValidatedStrategy(
                 genome=g, inst=candles.inst, bar=candles.bar,
                 is_stats=cand.is_stats, oos_stats=st,
             ))
             seen_signals.append(g.signal)
+            accepted_rets.append(res.rets)
     return survivors
