@@ -263,6 +263,11 @@ and cautious small live sizes — prefer a VPS beyond that.
   Sharpe is unrealistically high. On real crypto perps, an OOS Sharpe of
   0.5–1.5 after costs is a good outcome; many research passes will correctly
   deploy **nothing** — that is the validation gate protecting you from noise.
+- A high out-of-sample Sharpe is not evidence on its own. Searching enough
+  genomes produces one from noise, and the deflated Sharpe is what tells the
+  two apart. [docs/VALIDATION.md](docs/VALIDATION.md) records the measured
+  evidence behind every threshold, including the eighteen-strategy book whose
+  Sharpes ran 6.5 to 9.5 while not one of them beat its own selection bar.
 - Perpetual futures are leveraged instruments. You can lose your entire
   margin. Never trade money you cannot afford to lose. This software is
   provided as-is, without warranty; nothing here is financial advice.
