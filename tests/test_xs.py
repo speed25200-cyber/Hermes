@@ -173,3 +173,38 @@ def test_xs_lead_lag_finds_planted_followers():
     # no leader passed -> family skipped, never crashes
     out2 = research_xs(uni, fee_bps=fee, slip_bps=slip, log=None)
     assert all(s.genome.signal != "xs_lead" for s in out2)
+
+
+def test_direction_inverts_the_book():
+    """`dir` must flip every leg. Pinning the sign let a family express only
+    half its hypothesis: xs_oi came back between -3.2 and -5.9 Sharpe on
+    every single config in production, which is a strong edge held the wrong
+    way round rather than an absent one."""
+    import numpy as np
+
+    from hermes.strategy.xs import xs_positions
+
+    cmap = make_universe(n=6000, seed=17)
+    base = {"lookback": 48, "max_w": 0.25, "dir": 0}
+    _, _, a = xs_positions(cmap, base, kind="rev")
+    _, _, b = xs_positions(cmap, {**base, "dir": 1}, kind="rev")
+
+    assert a and b
+    moved = 0
+    for inst in a:
+        np.testing.assert_allclose(a[inst], -b[inst], atol=1e-9)
+        moved += int(np.abs(a[inst]).max() > 1e-9)
+    assert moved, "the book never took a position, so the flip proves nothing"
+
+
+def test_every_grid_searches_direction():
+    """The per-instrument families already search `dir`; the cross-sectional
+    ones were the inconsistency. The extra configs are counted in n_trials,
+    so the deflated Sharpe charges for the wider search."""
+    from hermes.strategy import xs
+
+    for name in ("XS_GRID", "XS_MOM_GRID", "XS_REV_GRID", "XS_LEAD_GRID",
+                 "XS_TAKER_GRID", "XS_OI_GRID", "XS_BASIS_GRID"):
+        grid = getattr(xs, name)
+        dirs = {cfg["dir"] for cfg in grid}
+        assert dirs == {0, 1}, f"{name} does not search direction"
