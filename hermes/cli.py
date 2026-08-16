@@ -344,6 +344,47 @@ def cmd_cycle(args) -> None:
     runner.run_once(allow_research=args.research)
 
 
+def cmd_coverage(args) -> None:
+    """Report how much history each data source actually holds.
+
+    Open interest, taker flow and positioning are served by the exchange for
+    only a few months, and the order-book series has no exchange history at
+    all — Hermes records it itself, one snapshot at a time, and it cannot be
+    re-fetched if lost. That recording is best-effort and silent, so without
+    this report a broken sampler would surface months later as "ob_imb never
+    deploys" rather than as an error.
+    """
+    from .data.store import AUX_SERIES, DataStore
+
+    cfg = Config.load(args.config)
+    store = DataStore(cfg["data_dir"])
+    bar = cfg["bar"]
+    day = 86_400_000
+
+    def span(lo: int, hi: int, n: int) -> str:
+        if not n:
+            return "        —            (absent)"
+        return (f"{(hi - lo) / day:7.1f}d  {n:7d} rows  "
+                f"last {time.strftime('%Y-%m-%d %H:%M', time.gmtime(hi / 1000))}")
+
+    print(f"{'instrument':<18} {'source':<10} coverage")
+    researchable = 0
+    for inst in cfg["instruments"]:
+        print(f"{inst:<18} {'candles':<10} {span(*store.candle_range(inst, bar))}")
+        for kind in AUX_SERIES:
+            lo, hi, n = store.aux_range(inst, kind)
+            print(f"{'':<18} {kind:<10} {span(lo, hi, n)}")
+            if kind == "ob" and n and (hi - lo) >= 30 * day:
+                researchable += 1
+    print()
+    if researchable:
+        print(f"order-book history: {researchable} instrument(s) past 30 days "
+              f"— the ob_imb family has enough to be searched")
+    else:
+        print("order-book history: still accumulating (needs ~30 days per "
+              "instrument before ob_imb is worth searching)")
+
+
 def cmd_status(args) -> None:
     cfg = Config.load(args.config)
     state_dir = cfg["state_dir"]
@@ -393,6 +434,11 @@ def main(argv: list[str] | None = None) -> None:
 
     s = sub.add_parser("status", help="show state")
     s.set_defaults(fn=cmd_status)
+
+    cv = sub.add_parser("coverage",
+                        help="history held per data source (incl. the "
+                             "self-recorded order book)")
+    cv.set_defaults(fn=cmd_coverage)
 
     b = sub.add_parser("dashboard", help="local web console (live monitoring)")
     b.add_argument("--port", type=int, default=8899)

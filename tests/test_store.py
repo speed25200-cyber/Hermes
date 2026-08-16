@@ -21,3 +21,36 @@ def test_funding_mapping(tmp_path):
     assert out[2] == 0.001   # 150 -> first bar at/after = 200
     assert out[3] == 0.002
     assert out.sum() == 0.003  # payment beyond range dropped
+
+
+def test_coverage_report_shows_recorded_order_book(tmp_path, capsys):
+    """The order-book series is self-recorded and cannot be re-fetched, so the
+    coverage report must make its accumulation (or its absence) visible."""
+    import types
+
+    from hermes.cli import cmd_coverage
+    from hermes.config import Config
+
+    store = DataStore(str(tmp_path))
+    day = 86_400_000
+    store.upsert_candles("BTC-USDT-SWAP", "15m",
+                         [(i * 900_000, 1.0, 1.0, 1.0, 1.0, 1.0)
+                          for i in range(200)])
+    store.upsert_aux("BTC-USDT-SWAP", "ob",
+                     [(i * 900_000, 0.1, 0.2) for i in range(40 * 96)])
+
+    cfg = Config.load(None)
+    cfg.raw["instruments"] = ["BTC-USDT-SWAP"]
+    cfg.raw["bar"] = "15m"
+    cfg.raw["data_dir"] = str(tmp_path)
+    monkey = types.SimpleNamespace(config=None)
+    original = Config.load
+    try:
+        Config.load = staticmethod(lambda *_a, **_k: cfg)
+        cmd_coverage(monkey)
+    finally:
+        Config.load = original
+
+    out = capsys.readouterr().out
+    assert "ob" in out and "rows" in out
+    assert "enough to be searched" in out          # 40 days recorded > 30
