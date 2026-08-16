@@ -110,6 +110,13 @@ def ewma_funding(funding: np.ndarray, w: int) -> np.ndarray:
     """EWMA of the funding series (per-bar amounts, mostly zeros between
     payments), rescaled to a per-payment estimate."""
     paid = ema(funding, w)
-    # scale back up: payments are sparse; estimate density of nonzero bars
-    density = max(np.count_nonzero(funding) / max(len(funding), 1), 1e-9)
+    # Scale back up: payments are sparse, so divide by the share of paying
+    # bars seen SO FAR. Counting over the whole series instead would leak the
+    # future into every past bar and shift those bars as history grew, which
+    # is exactly the backtest/live drift the walk-forward protocol exists to
+    # prevent. Before the first payment `paid` is 0, so the floor cannot blow
+    # the ratio up.
+    n = len(funding)
+    seen = np.cumsum(funding != 0.0).astype(np.float64)
+    density = np.maximum(seen / np.arange(1, n + 1, dtype=np.float64), 1e-9)
     return paid / density

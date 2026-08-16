@@ -37,6 +37,29 @@ def test_lookback_return():
     assert out[2] == pytest.approx(0.10)
 
 
+def test_ewma_funding_has_no_lookahead():
+    """The sparse-payment rescaling must be estimated from bars already seen:
+    a future payment cannot move a past value."""
+    n = 600
+    a = np.zeros(n)
+    a[::32] = 0.0001                      # a payment every 8h on 15m bars
+    b = a.copy()
+    b[400:] = 0.0                         # payments stop later on
+    fa, fb = F.ewma_funding(a, 100), F.ewma_funding(b, 100)
+    np.testing.assert_allclose(fa[:400], fb[:400], atol=1e-12)
+
+
+def test_ewma_funding_is_stable_as_history_grows():
+    """A past bar's value must not shift when new bars arrive, or the live
+    engine would disagree with the backtest that deployed the strategy."""
+    n = 600
+    x = np.zeros(n)
+    x[::32] = 0.0001
+    full = F.ewma_funding(x, 100)
+    prefix = F.ewma_funding(x[:500], 100)
+    np.testing.assert_allclose(full[:500], prefix, atol=1e-12)
+
+
 def test_no_lookahead_in_rolling():
     """Rolling stats at index i must not change if future values change."""
     rng = np.random.default_rng(2)

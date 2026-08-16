@@ -55,11 +55,38 @@ def clear_cache() -> None:
     _INCR_CACHE.clear()
 
 
+def _aux_fingerprint(candles: Candles) -> tuple:
+    """Cheap O(#series) stamp of the aux *values*: the live loop refreshes open
+    interest, taker flow and positioning between bar closes, so keying a
+    memoised result on candle identity alone would serve a stale matrix."""
+    out = []
+    for name in sorted(candles.x):
+        v = candles.x[name]
+        last = v[-1] if len(v) else None
+        out.append((name, float(last) if last is not None and np.isfinite(last)
+                    else None))
+    return tuple(out)
+
+
+def _aux_schema(candles: Candles) -> tuple:
+    """Which aux series this instrument carries, ignoring their values.
+
+    Used for the walk-forward state cache, which must survive from bar to bar:
+    a value-level stamp would miss on every new bar, while candle identity
+    alone would let an instrument with flow data reuse state fitted without
+    it. Presence is stable, so this separates feature layouts without costing
+    the cache. Late-arriving aux rows can still revise the newest bars'
+    features; that tail self-heals at the next refit.
+    """
+    return tuple(sorted(candles.x))
+
+
 def _features_cached(candles: Candles, leader: Candles | None) -> np.ndarray:
     key = (candles.inst, candles.bar, len(candles),
            int(candles.ts[-1]) if len(candles) else 0,
            leader.inst if leader is not None else None,
-           len(leader) if leader is not None else 0)
+           len(leader) if leader is not None else 0,
+           _aux_fingerprint(candles))
     X = _FEAT_CACHE.get(key)
     if X is None:
         X = build_features(candles, leader=leader)
@@ -184,8 +211,12 @@ def predict_series(
     ck = _cfg_key(cfg, leader_inst, min_train, refit_every)
     ts0 = int(candles.ts[0]) if n else 0
     last_ts = int(candles.ts[-1]) if n else 0
+    # aux series feed the feature matrix and are refreshed between bar closes,
+    # so they belong in every cache key: without them a mid-bar open-interest
+    # or taker-flow update would be served the previous prediction
+    aux = _aux_fingerprint(candles)
 
-    batch_key = (candles.inst, candles.bar, n, last_ts, ck)
+    batch_key = (candles.inst, candles.bar, n, last_ts, ck, aux)
     hit = _BATCH_CACHE.get(batch_key)
     if hit is not None:
         return hit
@@ -193,7 +224,7 @@ def predict_series(
     if n < min_train + horizon + 50:
         return (np.zeros(n), np.full(n, 0.5), np.full(n, np.inf))
 
-    incr_key = (candles.inst, candles.bar, ts0, ck)
+    incr_key = (candles.inst, candles.bar, ts0, ck, _aux_schema(candles))
     st = _INCR_CACHE.get(incr_key)
     X = _features_cached(candles, use_leader)
     y = build_target(candles, horizon)

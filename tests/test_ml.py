@@ -3,10 +3,36 @@
 import numpy as np
 import pytest
 
+from hermes.data.store import Candles
 from hermes.data.synthetic import generate, generate_universe
 from hermes.ml import predictor
-from hermes.ml.feature_matrix import build_features, build_target
+from hermes.ml.feature_matrix import (N_MICRO_COLS, build_features,
+                                      build_target)
 from hermes.ml.models import GradientBoostedStumps, RidgeRegressor
+
+
+def _aux_for(candles, seed=0, stale_from=None):
+    """Attach plausible aux series (open interest, taker flow, positioning,
+    spot index, book imbalance) to a candle set."""
+    n = len(candles)
+    rng = np.random.default_rng(seed)
+    oi = 1e6 * np.exp(rng.normal(0, 0.01, n).cumsum())
+    buy = 50.0 + rng.normal(0, 5, n)
+    sell = 50.0 + rng.normal(0, 5, n)
+    candles.x = {
+        "oi": oi,
+        "tak_buy": buy,
+        "tak_sell": sell,
+        "lsr": 1.0 + rng.normal(0, 0.1, n),
+        "ttp": 1.0 + rng.normal(0, 0.1, n),
+        "idx": candles.c * (1.0 + rng.normal(0, 0.001, n)),
+        "ob_near": rng.normal(0, 0.2, n),
+        "ob_deep": rng.normal(0, 0.2, n),
+    }
+    if stale_from is not None:
+        for v in candles.x.values():
+            v[stale_from:] = np.nan
+    return candles
 
 
 def test_ridge_recovers_linear_signal():
@@ -42,6 +68,86 @@ def test_feature_matrix_causal():
     a = build_features(candles)
     b = build_features(tampered)
     np.testing.assert_allclose(a[:2500], b[:2500], atol=1e-10)
+
+
+def test_microstructure_features_are_causal():
+    """Tampering with future open interest / flow / positioning must not move
+    a single past feature value."""
+    a = _aux_for(generate(n=3000, seed=11), seed=1)
+    b = _aux_for(generate(n=3000, seed=11), seed=1)
+    for name in b.x:
+        b.x[name][2600:] *= 5.0
+    fa, fb = build_features(a), build_features(b)
+    np.testing.assert_allclose(fa[:2500], fb[:2500], atol=1e-10)
+
+
+def test_microstructure_features_carry_signal_when_present():
+    """With aux history attached, every microstructure column must actually
+    vary — a silently-zero column would be a feature that never fires."""
+    c = _aux_for(generate(n=3000, seed=12), seed=2)
+    micro = build_features(c)[:, -N_MICRO_COLS:]
+    assert micro.shape[1] == N_MICRO_COLS
+    for j in range(N_MICRO_COLS):
+        assert micro[1000:, j].std() > 1e-9, f"microstructure column {j} is flat"
+
+
+def test_missing_aux_gives_neutral_columns_of_the_same_width():
+    """An instrument with no aux history must still produce a full-width
+    matrix (zeros), so one model shape serves the whole universe."""
+    plain = build_features(generate(n=1500, seed=13))
+    rich = build_features(_aux_for(generate(n=1500, seed=13), seed=3))
+    assert plain.shape == rich.shape
+    np.testing.assert_allclose(plain[:, -N_MICRO_COLS:], 0.0, atol=1e-12)
+
+
+def test_stale_aux_is_neutral_not_carried():
+    """The store NaNs aux rows once stale; those bars must read as 0 rather
+    than silently reusing the last known value."""
+    c = _aux_for(generate(n=2000, seed=14), seed=4, stale_from=1500)
+    micro = build_features(c)[:, -N_MICRO_COLS:]
+    np.testing.assert_allclose(micro[1500:], 0.0, atol=1e-12)
+    assert np.abs(micro[1000:1500]).max() > 1e-9
+
+
+def test_predictor_gains_from_microstructure():
+    """A market whose forward returns are driven by a latent flow variable
+    that is only observable through taker volume: the model must predict it
+    better with the flow wired in than from price history alone."""
+    predictor.clear_cache()
+    n, bar_ms = 6000, 900_000
+    rng = np.random.default_rng(21)
+    driver = np.zeros(n)
+    for i in range(1, n):                       # mildly persistent, causal
+        driver[i] = 0.5 * driver[i - 1] + rng.normal(0, 1.0)
+    driver /= driver.std()
+
+    vol = 0.004
+    ret = np.zeros(n)
+    ret[1:] = 0.45 * vol * driver[:-1] + rng.normal(0, vol, n - 1)
+    px = 100.0 * np.exp(np.cumsum(ret))
+    ts = np.arange(n, dtype=np.int64) * bar_ms
+
+    def _candles():
+        return Candles("T", "15m", ts, px, px, px, px, np.ones(n))
+
+    rich = _candles()
+    # the driver is visible only as an aggressor imbalance
+    rich.x = {"tak_buy": 100.0 + 20.0 * driver, "tak_sell": 100.0 - 20.0 * driver}
+    plain = _candles()
+
+    cfg = {"model": "ridge", "horizon": 2, "cross": False, "l2": 1.0}
+    fwd = np.zeros(n)
+    fwd[:-2] = px[2:] / px[:-2] - 1.0
+    live = slice(1500, n - 2)
+
+    def _ic(candles):
+        pred = predictor.predict_series(candles, cfg)[0]
+        return np.corrcoef(pred[live], fwd[live])[0, 1]
+
+    ic_rich, ic_plain = _ic(rich), _ic(plain)
+    assert ic_rich > 0.05, f"flow edge not learned (IC={ic_rich:.3f})"
+    assert ic_rich > ic_plain + 0.02, (
+        f"flow added nothing: IC {ic_plain:.3f} -> {ic_rich:.3f}")
 
 
 def test_target_is_forward_looking_only_for_training():
@@ -91,6 +197,25 @@ def test_incremental_extension_matches_batch():
     predictor.clear_cache()
     incr = None
     for n in range(2300, 2401):          # replay the last 100 bars one by one
+        incr, _, _ = predictor.predict_series(candles.slice(0, n), cfg)
+    np.testing.assert_allclose(batch, incr, atol=1e-12)
+
+
+def test_incremental_matches_batch_with_short_aux_history():
+    """Live replay must still equal the batch result when the aux series only
+    covers a recent slice of history — the common case, since exchanges keep
+    only a few months of open interest and flow."""
+    candles = _aux_for(generate(n=2400, seed=22), seed=6)
+    for v in candles.x.values():          # aux starts late, as in production
+        v[:1800] = np.nan
+    cfg = {"model": "ridge", "horizon": 4, "cross": False, "l2": 1.0}
+
+    predictor.clear_cache()
+    batch, _, _ = predictor.predict_series(candles, cfg)
+
+    predictor.clear_cache()
+    incr = None
+    for n in range(2300, 2401):
         incr, _, _ = predictor.predict_series(candles.slice(0, n), cfg)
     np.testing.assert_allclose(batch, incr, atol=1e-12)
 
