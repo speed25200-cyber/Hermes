@@ -321,6 +321,9 @@ def cmd_research(args) -> None:
     store = DataStore(cfg["data_dir"])
     candles = {inst: store.load(inst, cfg["bar"]) for inst in cfg["instruments"]}
     registry = Registry(cfg["state_dir"])
+    # incumbents are seeded into the search and get a free pass to the OOS
+    # exam; one that today's gates reject must not re-enter through that door
+    registry.prune_to_gates(cfg["research"], print)
     incumbents = list(registry.strategies)
     survivors, n_trials = run_research(
         candles, cfg, log=print, escalation=registry.consecutive_empty,

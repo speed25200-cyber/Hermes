@@ -341,3 +341,70 @@ def test_cap_spreads_the_book_across_instruments():
     # the lucky instrument still leads, it just does not take every seat
     assert kept[0].inst == "LUCKY-USDT-SWAP"
     assert sum(1 for s in kept if s.inst == "LUCKY-USDT-SWAP") == 1
+
+
+def test_registry_drops_a_book_todays_gates_would_reject():
+    """Raising a gate has to apply to the capital already deployed against
+    the old one. The live book was eighteen strategies with DSRs from 0.050
+    to 0.175, written when the floor was 0.05; without this they are traded
+    verbatim after the floor moves, because nothing re-examines what research
+    left on disk."""
+    import tempfile
+
+    from hermes.live.trader import Registry
+    from hermes.research.validate import ValidatedStrategy
+    from hermes.strategy.genome import Genome
+
+    def strat(dsr, sharpe=6.0, stats=True):
+        g = Genome(signal="tsmom", params={"lookback": 50, "deadband": 0.1})
+        return ValidatedStrategy(
+            genome=g, inst=f"X{dsr}-USDT-SWAP", bar="15m", is_stats={},
+            oos_stats={"dsr": dsr, "sharpe": sharpe} if stats else {})
+
+    with tempfile.TemporaryDirectory() as d:
+        reg = Registry(d)
+        reg.strategies = [strat(0.050), strat(0.175), strat(0.71), strat(0.97)]
+        said = []
+        n = reg.prune_to_gates({"min_dsr": 0.5, "min_oos_sharpe": 0.5},
+                               said.append)
+        assert n == 2
+        assert [s.oos_stats["dsr"] for s in reg.strategies] == [0.71, 0.97]
+        assert "best DSR among them 0.175" in said[0]
+
+
+def test_registry_drops_entries_with_no_recorded_verdict():
+    import tempfile
+
+    from hermes.live.trader import Registry
+    from hermes.research.validate import ValidatedStrategy
+    from hermes.strategy.genome import Genome
+
+    with tempfile.TemporaryDirectory() as d:
+        reg = Registry(d)
+        reg.strategies = [ValidatedStrategy(
+            genome=Genome(signal="tsmom", params={"lookback": 50,
+                                                  "deadband": 0.1}),
+            inst="A-USDT-SWAP", bar="15m", is_stats={}, oos_stats={})]
+        assert reg.prune_to_gates({"min_dsr": 0.5, "min_oos_sharpe": 0.5}) == 1
+        assert reg.strategies == []
+
+
+def test_a_book_that_still_passes_is_left_alone():
+    import tempfile
+
+    from hermes.live.trader import Registry
+    from hermes.research.validate import ValidatedStrategy
+    from hermes.strategy.genome import Genome
+
+    with tempfile.TemporaryDirectory() as d:
+        reg = Registry(d)
+        reg.strategies = [ValidatedStrategy(
+            genome=Genome(signal="tsmom", params={"lookback": 50,
+                                                  "deadband": 0.1}),
+            inst="A-USDT-SWAP", bar="15m", is_stats={},
+            oos_stats={"dsr": 0.97, "sharpe": 4.7})]
+        said = []
+        assert reg.prune_to_gates({"min_dsr": 0.5, "min_oos_sharpe": 0.5},
+                                  said.append) == 0
+        assert len(reg.strategies) == 1
+        assert said == []

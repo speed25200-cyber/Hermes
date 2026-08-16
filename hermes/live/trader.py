@@ -83,6 +83,39 @@ class Registry:
     def sid(self, s: ValidatedStrategy) -> str:
         return f"{s.inst}:{s.genome.gid}"
 
+    def prune_to_gates(self, r: dict, log=None) -> int:
+        """Drop inherited strategies that today's gates would not admit.
+
+        The registry outlives the thresholds that wrote it. A book validated
+        under min_dsr 0.05 stays on disk and is traded verbatim after the
+        gate is raised, because nothing re-examines it — the engine loads
+        what research left. Raising a gate has to apply to the capital
+        already deployed against the old one, or it only governs strategies
+        that do not exist yet.
+
+        The recorded OOS statistics are what the gate judged, so this is a
+        re-read of the same verdict, not a re-run: no data is needed and
+        nothing is recomputed. A strategy whose stats were never recorded
+        cannot be vouched for either, and goes with them.
+        """
+        keep, dropped = [], []
+        for s in self.strategies:
+            dsr = s.oos_stats.get("dsr")
+            sharpe = s.oos_stats.get("sharpe")
+            if (dsr is None or sharpe is None
+                    or dsr < r["min_dsr"] or sharpe < r["min_oos_sharpe"]):
+                dropped.append(s)
+            else:
+                keep.append(s)
+        if dropped and log:
+            worst = max((s.oos_stats.get("dsr") or 0.0) for s in dropped)
+            log(f"registry: dropped {len(dropped)} of {len(self.strategies)} "
+                f"strategies that today's gates reject (best DSR among them "
+                f"{worst:.3f} against a floor of {r['min_dsr']:.2f}) — they "
+                f"were validated under looser thresholds")
+        self.strategies = keep
+        return len(dropped)
+
 
 def make_ctx(candles_by_inst: dict[str, Candles], inst: str,
              leader_inst: str | None) -> dict:
@@ -713,6 +746,10 @@ class LiveRunner:
         self.log = _log_factory(state_dir)
         self.store = DataStore(cfg["data_dir"])
         self.registry = Registry(state_dir)
+        # a book inherited from a looser gate is re-read against the current
+        # one before a single order is sized against it
+        if self.registry.prune_to_gates(cfg["research"], self.log):
+            self.registry.save()
 
         from ..exchange.okx_client import OKXClient
         creds = cfg.credentials
