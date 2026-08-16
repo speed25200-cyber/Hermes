@@ -1,87 +1,58 @@
-# Probe the live Hermes dashboard on the VPS from a GitHub runner and print
-# a compact status summary (equity, positions, risk state, deployed book,
-# recent activity). Read-only: only GETs /api/status with the access key.
+# Check Hermes status on the VPS: services, research progress, engine logs,
+# deployed strategies and current equity. Trigger manually any time.
 
 name: VPS status
 
 on:
   workflow_dispatch:
     inputs:
-      key:
-        description: "Dashboard access key (?key=...)"
-        required: true
+      root_password:
+        description: "Root password (optional if VPS_PASSWORD secret is set)"
+        required: false
 
 jobs:
-  probe:
+  status:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
-      BASE: http://${{ vars.VPS_HOST || '178.104.191.79' }}:8899
-      KEY: ${{ inputs.key }}
+      VPS: ${{ vars.VPS_HOST || '178.104.191.79' }}
     steps:
-      - name: Fetch /api/status
+      - name: Install ssh tooling
+        run: sudo apt-get update -qq && sudo apt-get -y -qq install sshpass
+
+      - name: Resolve SSH access
+        env:
+          PW_INPUT: ${{ inputs.root_password }}
+          PW_SECRET: ${{ secrets.VPS_PASSWORD }}
         run: |
-          curl -sS -m 30 "$BASE/api/status?key=$KEY" -o status.json
-          wc -c status.json
+          PW="${PW_INPUT:-$PW_SECRET}"
+          [ -z "$PW" ] && { echo "::error::no credentials"; exit 1; }
+          ALT="${PW}.Hermes1"
+          echo "::add-mask::$PW"; echo "::add-mask::$ALT"
+          SSHOPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
+          try() { sshpass -p "$1" ssh $SSHOPTS "root@$VPS" "echo __ok__" 2>/dev/null | grep -q __ok__; }
+          if try "$PW"; then CUR="$PW"; elif try "$ALT"; then CUR="$ALT"; else
+            echo "::error::cannot authenticate"; exit 1; fi
+          echo "SSHPASS=$CUR" >> "$GITHUB_ENV"
 
-      - name: Summarize
+      - name: Status report
         run: |
-          python3 - <<'EOF'
-          import json, datetime
-
-          s = json.load(open("status.json"))
-
-          def dt(ts):
-              try:
-                  ts = float(ts)
-                  if ts > 1e12:  # ms
-                      ts /= 1000.0
-                  return datetime.datetime.utcfromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
-              except Exception:
-                  return str(ts)
-
-          print("===== mode / meta =====")
-          print("mode:", s.get("mode"))
-          print("meta:", json.dumps(s.get("meta"), default=str))
-          print("instruments:", ", ".join(s.get("instruments") or []))
-
-          print("\n===== risk =====")
-          print(json.dumps(s.get("risk"), indent=1, default=str))
-          print("\n===== trader =====")
-          print(json.dumps(s.get("trader"), indent=1, default=str))
-
-          reg = s.get("registry") or {}
-          strats = reg.get("strategies") or []
-          print(f"\n===== deployed book: {len(strats)} strategies, "
-                f"n_trials={reg.get('n_trials')}, "
-                f"consecutive_empty={reg.get('consecutive_empty')} =====")
-          for st in strats:
-              oos = st.get("oos_stats") or {}
-              print(f"  {st.get('inst'):<16} {st.get('genome', {}).get('signal', '?'):<12} "
-                    f"bar={st.get('bar')} oos_sharpe={oos.get('sharpe', 0):.2f} "
-                    f"dsr={oos.get('dsr', 0):.3f} ret={oos.get('total_return', 0):+.4f}")
-
-          j = s.get("journal") or []
-          print(f"\n===== journal: {len(j)} points =====")
-          if j:
-              print("first:", dt(j[0].get("ts")), "equity=", j[0].get("equity"))
-              print("last: ", dt(j[-1].get("ts")), "equity=", j[-1].get("equity"))
-              n_orders = sum(len(e.get("orders") or []) for e in j)
-              halts = sum(1 for e in j if e.get("halted"))
-              print(f"orders in window: {n_orders}, halted cycles: {halts}")
-              eqs = [e.get("equity") for e in j if isinstance(e.get("equity"), (int, float))]
-              if eqs:
-                  print(f"equity min/max in window: {min(eqs):.2f} / {max(eqs):.2f}")
-              print("\n--- last 15 cycles ---")
-              for e in j[-15:]:
-                  tgt = e.get("targets") or e.get("weights") or {}
-                  nz = {k: round(v, 3) for k, v in tgt.items()
-                        if isinstance(v, (int, float)) and abs(v) > 1e-9}
-                  print(dt(e.get("ts")), "eq=", e.get("equity"),
-                        "orders=", len(e.get("orders") or []),
-                        "nonzero_targets=", nz if nz else "{}")
-
-          print("\n===== log tail =====")
-          for line in (s.get("log") or [])[-40:]:
-              print(line.rstrip())
-          EOF
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            echo "===== services ====="
+            systemctl is-active hermes-research && echo "(research running)" || echo "(research idle/done)"
+            systemctl is-active hermes || true
+            echo -n "dashboard: "; systemctl is-active hermes-dashboard || true
+            ss -tln | grep -q ":8899 " && echo "port 8899: LISTENING" || echo "port 8899: NOT listening"
+            echo
+            echo "===== research / engine journal (last 50 lines) ====="
+            journalctl -u hermes-research -u hermes -n 50 --no-pager || true
+            echo
+            echo "===== deployed book (registry summary) ====="
+            grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
+            echo
+            echo "===== hermes state ====="
+            cd /root/hermes 2>/dev/null && /root/venv/bin/python -m hermes status 2>/dev/null | head -40 || echo "no state yet"
+            echo
+            echo "===== disk / memory ====="
+            df -h / | tail -1; free -m | head -2
+          '
