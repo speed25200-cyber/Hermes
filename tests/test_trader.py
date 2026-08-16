@@ -209,3 +209,44 @@ def test_governor_scales_book_targets(tmp_path):
     tgt_half = r_half["targets"].get(inst, 0.0)
     assert abs(tgt_full) > 0.01, "test needs a live signal"
     assert abs(tgt_half - 0.5 * tgt_full) < 1e-9
+
+
+def test_calibration_report_contrasts_promised_and_realised(tmp_path, capsys):
+    """The gate's OOS estimate is only trustworthy if live performance tracks
+    it; the report must surface the shortfall rather than hide it."""
+    import json as _json
+    import os as _os
+    import types
+
+    from hermes.cli import cmd_calibration
+    from hermes.config import Config
+    from hermes.strategy.genome import Genome
+
+    g = Genome(signal="tsmom", params={"lookback": 24, "deadband": 0.5},
+               vol_target=0.2, max_lev=1.0)
+    state = str(tmp_path)
+    with open(_os.path.join(state, "registry.json"), "w") as f:
+        _json.dump({"strategies": [{
+            "genome": g.to_dict(), "inst": "BTC-USDT-SWAP", "bar": "1H",
+            "is_stats": {}, "oos_stats": {"sharpe": 6.0, "dsr": 0.2},
+        }]}, f)
+    # live returns are flat: a deployed strategy earning nothing
+    with open(_os.path.join(state, "trader.json"), "w") as f:
+        _json.dump({"allocator": {"tracks": {
+            f"BTC-USDT-SWAP:{g.gid}": {
+                "ewma_ret": 0.0, "ewma_var": 1e-6, "n_obs": 500},
+        }}}, f)
+
+    cfg = Config.load(None)
+    cfg.raw["state_dir"] = state
+    cfg.raw["bar"] = "1H"
+    original = Config.load
+    try:
+        Config.load = staticmethod(lambda *_a, **_k: cfg)
+        cmd_calibration(types.SimpleNamespace(config=None))
+    finally:
+        Config.load = original
+
+    out = capsys.readouterr().out
+    assert "6.00" in out                      # the promise is shown
+    assert "shortfall" in out                 # and so is the gap

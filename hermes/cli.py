@@ -385,6 +385,79 @@ def cmd_coverage(args) -> None:
               "instrument before ob_imb is worth searching)")
 
 
+def cmd_calibration(args) -> None:
+    """Compare the OOS Sharpe the gate promised against the one actually
+    realised live, per deployed strategy.
+
+    This is the diagnostic the whole research pipeline should be judged on.
+    A gate that deploys strategies whose live Sharpe lands far below its OOS
+    estimate is miscalibrated no matter how good the individual backtests
+    look — the thresholds are then fitting noise, and the honest response is
+    to raise them rather than to keep trading. Live figures are the
+    allocator's EWMA (halflife ~1 week), so they describe recent behaviour
+    rather than the whole deployment.
+    """
+    cfg = Config.load(args.config)
+    state_dir = cfg["state_dir"]
+    bpy = BARS_PER_YEAR[cfg["bar"]]
+
+    def _read(name):
+        path = os.path.join(state_dir, name)
+        if not os.path.exists(path):
+            return {}
+        with open(path) as f:
+            return json.load(f)
+
+    registry = _read("registry.json")
+    tracks = _read("trader.json").get("allocator", {}).get("tracks", {})
+    strategies = registry.get("strategies", [])
+    if not strategies:
+        print("no deployed strategies (the gate deploying nothing is a "
+              "legitimate outcome)")
+        return
+
+    from .strategy.genome import Genome
+
+    print(f"{'strategy':<34} {'OOS':>8} {'live':>8} {'gap':>8} {'bars':>7}")
+    pairs = []
+    for s in strategies:
+        try:
+            sid = f"{s['inst']}:{Genome.from_dict(s['genome']).gid}"
+        except Exception:
+            continue
+        promised = float((s.get("oos_stats") or {}).get("sharpe", 0.0))
+        t = tracks.get(sid)
+        label = f"{s['inst']} {s['genome'].get('signal', '?')}"
+        if not t or int(t.get("n_obs", 0)) < 24:
+            print(f"{label:<34} {promised:8.2f} {'—':>8} {'—':>8} "
+                  f"{int(t.get('n_obs', 0)) if t else 0:7d}")
+            continue
+        var = max(float(t["ewma_var"]) - float(t["ewma_ret"]) ** 2, 0.0)
+        sd = var ** 0.5
+        live = (float(t["ewma_ret"]) / sd) * (bpy ** 0.5) if sd > 1e-12 else 0.0
+        pairs.append((promised, live))
+        print(f"{label:<34} {promised:8.2f} {live:8.2f} {live - promised:8.2f} "
+              f"{int(t['n_obs']):7d}")
+
+    if not pairs:
+        print("\nno strategy has enough live bars yet to judge calibration")
+        return
+    prom = np.array([p for p, _ in pairs])
+    real = np.array([r for _, r in pairs])
+    print(f"\nstrategies with a live sample : {len(pairs)}")
+    print(f"mean OOS Sharpe promised      : {prom.mean():6.2f}")
+    print(f"mean live Sharpe realised     : {real.mean():6.2f}")
+    print(f"mean shortfall                : {(real - prom).mean():6.2f}")
+    if len(pairs) >= 3:
+        num = float(((prom - prom.mean()) * (real - real.mean())).sum())
+        den = float(np.sqrt(((prom - prom.mean()) ** 2).sum()
+                            * ((real - real.mean()) ** 2).sum()))
+        if den > 0:
+            print(f"rank of OOS vs live (corr)    : {num / den:6.2f}  "
+                  f"(near 0 means the OOS estimate carries no information "
+                  f"about live performance)")
+
+
 def cmd_status(args) -> None:
     cfg = Config.load(args.config)
     state_dir = cfg["state_dir"]
@@ -439,6 +512,11 @@ def main(argv: list[str] | None = None) -> None:
                         help="history held per data source (incl. the "
                              "self-recorded order book)")
     cv.set_defaults(fn=cmd_coverage)
+
+    cal = sub.add_parser("calibration",
+                         help="OOS Sharpe promised by the gate vs the one "
+                              "realised live, per strategy")
+    cal.set_defaults(fn=cmd_calibration)
 
     b = sub.add_parser("dashboard", help="local web console (live monitoring)")
     b.add_argument("--port", type=int, default=8899)

@@ -152,6 +152,9 @@ python -m hermes run --mode paper
 # History held per data source (incl. the self-recorded order book)
 python -m hermes coverage
 
+# Did the gate's OOS estimate survive contact with live trading?
+python -m hermes calibration
+
 # Dashboard — local web console (equity curve, book, allocation, risk, logs)
 python -m hermes dashboard            # opens http://127.0.0.1:8899
 python -m hermes dashboard --demo     # inspect the offline demo run
@@ -268,8 +271,9 @@ hermes/
   live/trader.py         decision cycle + autonomous runner (auto re-research)
   dashboard/server.py    zero-dependency local web console (stdlib http)
            index.html    single-file UI: SVG charts, animated console
-  cli.py                 demo / fetch / research / run / status / dashboard
-tests/                   119 tests: no-lookahead, ML causality, microstructure
+  cli.py                 demo / fetch / research / run / status /
+                         coverage / calibration / dashboard
+tests/                   120 tests: no-lookahead, ML causality, microstructure
                          features, metric autocorrelation, regimes, e2e
 ```
 
