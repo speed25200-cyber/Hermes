@@ -32,6 +32,50 @@ from dataclasses import dataclass, field
 import numpy as np
 
 
+def _cap_weights(w: dict[str, float], cap: float) -> dict[str, float]:
+    """Enforce a per-strategy weight cap on weights that must still sum to 1.
+
+    Clipping at the cap and then dividing by the new sum does not do this:
+    the divisor is below 1, so it lifts every clipped weight back above the
+    cap. With a 0.5 cap the live book showed 97.8% on one strategy — the
+    clip took it from 0.98 to 0.5 and the renormalisation put it back.
+
+    The fix is the standard water-filling: hold the offenders at the cap and
+    push their excess onto the others in proportion, repeating because the
+    redistribution can lift a new one over the line. Each pass freezes at
+    least one strategy, so it terminates in at most n passes. When the cap is
+    too tight to be satisfiable at all (cap * n <= 1) the only feasible
+    allocation is the equal one.
+    """
+    n = len(w)
+    if n == 0:
+        return {}
+    if cap * n <= 1.0 + 1e-12:
+        return {sid: 1.0 / n for sid in w}
+    out = dict(w)
+    capped: set[str] = set()
+    for _ in range(n):
+        over = [s for s, v in out.items() if v > cap + 1e-12]
+        if not over:
+            break
+        excess = sum(out[s] - cap for s in over)
+        for s in over:
+            out[s] = cap
+        capped.update(over)
+        free = {s: v for s, v in out.items() if s not in capped}
+        pool = sum(free.values())
+        if not free:
+            break
+        if pool <= 1e-15:
+            # every remaining strategy scored zero weight: spread evenly
+            for s in free:
+                out[s] = excess / len(free)
+            break
+        for s in free:
+            out[s] += excess * free[s] / pool
+    return out
+
+
 @dataclass
 class StrategyTrack:
     ewma_ret: float = 0.0
@@ -148,10 +192,7 @@ class Allocator:
                 for sid, v in expw.items()}
         z = sum(expw.values())
         w = {sid: v / z for sid, v in expw.items()}
-        # cap and renormalise
-        w = {sid: min(v, self.max_weight) for sid, v in w.items()}
-        z = sum(w.values())
-        return {sid: v / z for sid, v in w.items()} if z > 0 else w
+        return _cap_weights(w, self.max_weight)
 
     def portfolio_scale(self) -> float:
         """Scale factor to bring realised portfolio vol toward target."""

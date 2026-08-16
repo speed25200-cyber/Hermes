@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 
 from hermes.portfolio.allocator import Allocator
@@ -100,7 +101,10 @@ def test_tilt_still_backs_a_genuinely_better_strategy():
     mus = [0.12, 0.02, 0.02, 0.02, 0.02]        # s0 has 6x the true Sharpe
     got = [_combined_sharpe(seed, mus, vols)[1]["s0"] for seed in range(4)]
     assert min(got) > 2.0 / len(vols), f"real edge under-weighted: {got}"
-    assert sum(got) / len(got) > 0.5, f"real edge not backed on average: {got}"
+    # the ceiling is max_weight, and it is now genuinely binding — this used
+    # to read "> 0.5" only because clip-then-renormalise leaked past the cap
+    assert min(got) > 0.4, f"real edge not backed: {got}"
+    assert max(got) <= 0.5 + 1e-9, f"cap not enforced: {got}"
 
 
 def test_a_fresh_book_is_not_frozen_out_by_one_incumbent():
@@ -139,3 +143,59 @@ def test_a_fresh_book_is_not_frozen_out_by_one_incumbent():
     assert max(w.values()) <= a.max_weight + 1e-9   # cap still respected
 
 
+
+
+def test_weight_cap_is_actually_binding():
+    """Clipping then renormalising lifts the clipped weight straight back
+    over the cap: the live book ran 97.8% on one strategy under a 0.5 cap."""
+    from hermes.portfolio.allocator import _cap_weights
+    w = _cap_weights({"a": 0.98, "b": 0.01, "c": 0.01}, 0.5)
+    assert abs(sum(w.values()) - 1.0) < 1e-12
+    assert w["a"] <= 0.5 + 1e-12
+    assert w["b"] == pytest.approx(w["c"])
+
+
+def test_capped_excess_is_shared_in_proportion():
+    from hermes.portfolio.allocator import _cap_weights
+    w = _cap_weights({"a": 0.90, "b": 0.08, "c": 0.02}, 0.5)
+    assert w["a"] == pytest.approx(0.5)
+    # the 0.4 freed goes 4:1 to b and c, the ratio they already stood in
+    assert w["b"] / w["c"] == pytest.approx(4.0)
+    assert sum(w.values()) == pytest.approx(1.0)
+
+
+def test_cap_repeats_until_no_one_is_over():
+    """Redistribution can lift a second strategy over the line; one pass is
+    not enough."""
+    from hermes.portfolio.allocator import _cap_weights
+    w = _cap_weights({"a": 0.80, "b": 0.19, "c": 0.005, "d": 0.005}, 0.4)
+    assert max(w.values()) <= 0.4 + 1e-12
+    assert sum(w.values()) == pytest.approx(1.0)
+
+
+def test_infeasible_cap_falls_back_to_equal_weights():
+    from hermes.portfolio.allocator import _cap_weights
+    w = _cap_weights({"a": 0.9, "b": 0.05, "c": 0.05}, 0.2)
+    assert all(v == pytest.approx(1 / 3) for v in w.values())
+
+
+def test_uncapped_weights_pass_through_untouched():
+    from hermes.portfolio.allocator import _cap_weights
+    src = {"a": 0.4, "b": 0.35, "c": 0.25}
+    assert _cap_weights(src, 0.5) == pytest.approx(src)
+
+
+def test_live_book_no_longer_concentrates_past_the_cap():
+    """End to end through the allocator: one strategy with a long winning
+    record among seventeen newcomers must not hold the whole book."""
+    alloc = Allocator(max_weight=0.5, bars_per_year=8760)
+    sids = ["old"] + [f"new{i}" for i in range(17)]
+    rng = np.random.default_rng(0)
+    for _ in range(400):
+        rets = {"old": 0.002 + rng.normal(0, 0.001)}
+        for s in sids[1:]:
+            rets[s] = rng.normal(0, 0.001)
+        alloc.observe(rets, sum(rets.values()) / len(rets))
+    w = alloc.weights(sids)
+    assert w["old"] <= 0.5 + 1e-9
+    assert sum(w.values()) == pytest.approx(1.0)
