@@ -208,3 +208,33 @@ def test_every_grid_searches_direction():
         grid = getattr(xs, name)
         dirs = {cfg["dir"] for cfg in grid}
         assert dirs == {0, 1}, f"{name} does not search direction"
+
+
+def test_search_can_reach_an_inverted_cross_sectional_edge():
+    """The production symptom: xs_oi rejected at -3.2 to -5.9 Sharpe on every
+    config. A whole grid that negative means the winning configuration was
+    outside the search space, not that no edge existed."""
+    from hermes.data.store import BARS_PER_YEAR
+    from hermes.strategy.xs import portfolio_backtest, xs_positions
+
+    rng = np.random.default_rng(3)
+    n, drift = 6000, rng.normal(0, 1, 8)
+    cmap = {}
+    for k in range(8):
+        c = generate(inst=f"X{k}-USDT-SWAP", bar="1H", n=n, seed=900 + k,
+                     s0=100.0)
+        # each name carries its own persistent trend, so winners keep winning
+        # — the opposite of what the reversal family assumes
+        c.c = c.c * np.exp(np.linspace(0, 0.30 * drift[k], n))
+        cmap[c.inst] = c
+
+    bpy = BARS_PER_YEAR["1H"]
+    scores = {}
+    for d in (0, 1):
+        common, _, pos = xs_positions(
+            cmap, {"lookback": 48, "max_w": 0.25, "dir": d}, kind="rev")
+        rets = portfolio_backtest(cmap, pos, common, fee_bps=2.9, slip_bps=0.6)
+        scores[d] = metrics.sharpe(rets, bpy)
+
+    assert scores[0] < -5, f"the pinned sign should lose badly here: {scores}"
+    assert scores[1] > 5, f"the search must be able to reach it: {scores}"
