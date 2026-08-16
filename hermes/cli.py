@@ -706,12 +706,23 @@ def cmd_report(args) -> None:
         print(f"{len(strategies)} strategies | searched {reg.get('n_trials', 0):,} "
               f"genomes | {reg.get('consecutive_empty', 0)} empty passes | "
               f"researched {age_h:.1f}h ago")
+        below = 0
         for s in strategies:
             o = s.get("oos_stats", {})
+            bar = o.get("selection_bar")
+            # the Sharpe the search alone was expected to reach: a strategy
+            # under it has shown nothing the luckiest draw would not have
+            bar_s = f" vs bar {bar:5.2f}" if bar is not None else ""
+            if bar is not None and o.get("sharpe", 0.0) < bar:
+                below += 1
+                bar_s += " !"
             print(f"  {s['inst']:<18} {s['genome']['signal']:<12} "
-                  f"oos_sharpe={o.get('sharpe', 0.0):6.2f} "
+                  f"oos_sharpe={o.get('sharpe', 0.0):6.2f}{bar_s} "
                   f"dsr={o.get('dsr', 0.0):.3f} "
                   f"folds+={o.get('oos_folds_positive', '?')}")
+        if below:
+            print(f"  ! {below} of {len(strategies)} scored BELOW the Sharpe "
+                  f"that searching that many genomes produces on noise alone")
     print()
     orders = [o for r in cycles for o in r.get("orders", [])]
     traded = sum(1 for r in cycles if r.get("orders"))

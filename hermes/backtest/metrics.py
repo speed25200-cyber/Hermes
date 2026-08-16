@@ -170,14 +170,15 @@ def expected_max_sharpe(n_trials: int, n_obs: int) -> float:
     return math.sqrt(1.0 / (n_obs - 1)) * ((1 - EULER_GAMMA) * z1 + EULER_GAMMA * z2)
 
 
-def deflated_sharpe(rets: np.ndarray, n_trials: int, bars_per_year: int,
-                    inflation: float | None = None) -> float:
-    """DSR: probability the strategy's SR beats the expected max SR that pure
-    selection over `n_trials` random strategies would produce.
+def selection_bar(rets: np.ndarray, n_trials: int, bars_per_year: int,
+                  inflation: float | None = None) -> float:
+    """Annualised Sharpe that selection alone is expected to produce.
 
-    The selection bar is set from the *effective* sample: fewer independent
-    observations mean a luckier best-of-n_trials, so a serially correlated
-    strategy must clear a higher bar, not the same one.
+    Searching `n_trials` genomes and keeping the best one produces a high
+    Sharpe whether or not any edge exists. This is how high, for this sample
+    length. A strategy scoring below it has shown nothing that picking the
+    luckiest of the same search would not have shown — which is what a DSR
+    below 0.5 says, in the units the rest of the report is written in.
     """
     r = np.asarray(rets, dtype=np.float64)
     r = r[np.isfinite(r)]
@@ -186,7 +187,30 @@ def deflated_sharpe(rets: np.ndarray, n_trials: int, bars_per_year: int,
     if inflation is None:
         inflation = autocorr_inflation(r)
     n_eff = int(effective_obs(r, inflation))
-    sr0 = expected_max_sharpe(n_trials, n_eff) * math.sqrt(bars_per_year)
+    return expected_max_sharpe(n_trials, n_eff) * math.sqrt(bars_per_year)
+
+
+def deflated_sharpe(rets: np.ndarray, n_trials: int, bars_per_year: int,
+                    inflation: float | None = None) -> float:
+    """DSR: probability the strategy's SR beats the expected max SR that pure
+    selection over `n_trials` random strategies would produce.
+
+    The selection bar is set from the *effective* sample: fewer independent
+    observations mean a luckier best-of-n_trials, so a serially correlated
+    strategy must clear a higher bar, not the same one.
+
+    This is a probability, and it is meant to be read as a confidence level:
+    Bailey and Lopez de Prado deploy at 0.95. A gate set at 0.05 admits
+    strategies that are 95% likely to be nothing but the luckiest draw of the
+    search that found them.
+    """
+    r = np.asarray(rets, dtype=np.float64)
+    r = r[np.isfinite(r)]
+    if len(r) < 10:
+        return 0.0
+    if inflation is None:
+        inflation = autocorr_inflation(r)
+    sr0 = selection_bar(r, n_trials, bars_per_year, inflation)
     return probabilistic_sharpe(r, sr0, bars_per_year, inflation=inflation)
 
 
@@ -215,5 +239,9 @@ def summarize(rets: np.ndarray, equity: np.ndarray, bars_per_year: int,
         "calmar": float(cagr / mdd) if mdd > 1e-9 else 0.0,
         "psr": probabilistic_sharpe(r, 0.0, bars_per_year, inflation=infl),
         "dsr": deflated_sharpe(r, n_trials, bars_per_year, inflation=infl),
+        # the DSR in Sharpe units: what the search alone was expected to
+        # produce on a sample this long, so the gap is readable at a glance
+        "selection_bar": selection_bar(r, n_trials, bars_per_year, infl),
+        "n_trials": int(n_trials),
         "turnover_per_bar": float(turnover),
     }

@@ -54,7 +54,22 @@ DEFAULTS: dict[str, Any] = {
         "is_fraction": 0.7,          # fraction of history used in-sample
         "embargo_bars": 24,          # gap between IS and OOS to avoid leakage
         "min_oos_sharpe": 0.5,       # OOS annualised Sharpe required to deploy
-        "min_dsr": 0.05,             # deflated Sharpe probability threshold
+        # The DSR is a confidence level, not a score: the probability that a
+        # strategy's Sharpe beats what picking the best of the whole search
+        # would produce on noise alone. This gate stood at 0.05 — it admitted
+        # anything 95% likely to be the luckiest draw, and the live book
+        # showed it: all 18 deployed strategies sat between 0.050 and 0.175,
+        # every one of them scoring BELOW its own selection bar.
+        #
+        # 0.95 is the textbook figure, and it is unreachable on samples this
+        # short: a deliberately planted cross-sectional trend, OOS Sharpe
+        # 6.90, scores 0.701. A gate there would reject edges that are real
+        # by construction. 0.5 is the line with a meaning worth holding —
+        # the strategy's true Sharpe more likely than not exceeds what the
+        # search alone would have produced — and it separates the two cases
+        # measured here by a wide margin.
+        "min_dsr": 0.5,
+
         "max_deployed": 6,           # max strategies live at once PER instrument
         # ...and across the whole book. Capital is shared over everything
         # deployed, so an unbounded book starves each strategy below the

@@ -112,7 +112,7 @@ def validate_candidates(
     is_fraction: float = 0.7,
     embargo_bars: int = 24,
     min_oos_sharpe: float = 0.5,
-    min_dsr: float = 0.05,
+    min_dsr: float = 0.5,
     max_oos_drawdown: float = 0.35,
     fee_bps: float = 5.0,
     slip_bps: float = 2.0,
@@ -176,6 +176,8 @@ def validate_candidates(
             log(f"  OOS {g.gid} {g.describe()}: sharpe={st['sharpe']:.2f} "
                 f"(iid {st.get('sharpe_iid', st['sharpe']):.2f}, "
                 f"IF={st.get('autocorr_inflation', 1.0):.1f}) "
+                f"vs selection bar {st.get('selection_bar', 0.0):.2f} "
+                f"({st.get('n_trials', n_trials):,} trials) "
                 f"dsr={st['dsr']:.3f} mdd={st['max_drawdown']:.1%} "
                 f"folds+={st['oos_folds_positive']} "
                 f"costs={st.get('cost_drag_annual', 0.0):.1%}/y "

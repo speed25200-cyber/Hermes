@@ -144,9 +144,16 @@ def test_portfolio_backtest_charges_costs():
 def test_xs_lead_lag_finds_planted_followers():
     """Followers whose returns partially echo the leader's PREVIOUS bar (with
     differing sensitivities) are a real catch-up trade: the lead-lag book
-    must pass the gate. Without a leader argument the family is skipped."""
+    must pass the gate. Without a leader argument the family is skipped.
+
+    12000 bars, not 6000: the edge is identical either way (OOS Sharpe ~4.7
+    at both lengths) but on the shorter sample the DSR is 0.46 — the gate
+    cannot yet distinguish it from the best of the same search on noise, and
+    says so. At 12000 it reads 0.71, at 24000 it reads 0.97. Confirming an
+    edge takes data, and this test is about the family finding one, not about
+    how little data it can be established on."""
     rng = np.random.default_rng(21)
-    n = 6000
+    n = 12000
     lead_ret = rng.normal(0, 0.004, n)
     uni = {}
     lc = 100 * np.exp(np.cumsum(lead_ret))

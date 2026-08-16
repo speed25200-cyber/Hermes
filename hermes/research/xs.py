@@ -210,7 +210,7 @@ def research_xs(
     is_fraction: float = 0.7,
     embargo_bars: int = 24,
     min_oos_sharpe: float = 0.5,
-    min_dsr: float = 0.05,
+    min_dsr: float = 0.5,
     max_oos_drawdown: float = 0.35,
     n_folds: int = 3,
     log=None,

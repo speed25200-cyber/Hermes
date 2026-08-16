@@ -231,3 +231,40 @@ def test_missing_universe_file_says_configured(tmp_path, capsys):
     _, args = _setup(tmp_path, [_cycle(1000.0)])
     cli.cmd_report(args)
     assert "not venue-resolved" in capsys.readouterr().out
+
+
+def test_strategies_below_their_selection_bar_are_flagged(tmp_path, capsys):
+    """A Sharpe of 8.4 reads as spectacular until you learn that searching
+    83,793 genomes on a two-month window produces 10.5 from noise alone."""
+    sd, args = _setup(tmp_path, [_cycle(1000.0)])
+    with open(sd / "registry.json", "w") as f:
+        json.dump({"strategies": [
+            {"inst": "SUI-USDT-SWAP", "genome": {"signal": "cvd_div"},
+             "oos_stats": {"sharpe": 8.44, "dsr": 0.109,
+                           "selection_bar": 10.52,
+                           "oos_folds_positive": "2/3"}},
+            {"inst": "BTC-USDT-SWAP", "genome": {"signal": "tsmom"},
+             "oos_stats": {"sharpe": 4.70, "dsr": 0.970,
+                           "selection_bar": 2.15,
+                           "oos_folds_positive": "3/3"}}],
+            "n_trials": 83793, "consecutive_empty": 0,
+            "researched_at": 0.0}, f)
+    cli.cmd_report(args)
+    out = capsys.readouterr().out
+    assert "vs bar 10.52 !" in out
+    assert "vs bar  2.15 dsr=0.970" in out
+    assert "! 1 of 2 scored BELOW" in out
+
+
+def test_registry_without_a_bar_still_prints(tmp_path, capsys):
+    """Registries written before the bar was recorded must not crash it."""
+    sd, args = _setup(tmp_path, [_cycle(1000.0)])
+    with open(sd / "registry.json", "w") as f:
+        json.dump({"strategies": [
+            {"inst": "ETC-USDT-SWAP", "genome": {"signal": "cvd_div"},
+             "oos_stats": {"sharpe": 8.92, "dsr": 0.121}}],
+            "n_trials": 1, "consecutive_empty": 0, "researched_at": 0.0}, f)
+    cli.cmd_report(args)
+    out = capsys.readouterr().out
+    assert "oos_sharpe=  8.92 dsr=0.121" in out
+    assert "scored BELOW" not in out

@@ -141,3 +141,40 @@ def test_backtest_reports_what_frictions_took():
     # flipping every bar must show a far heavier drag than holding through
     calm = engine.run(candles, np.ones(400), fee_bps=5.0, slippage_bps=2.0)
     assert s["cost_drag_annual"] > 10 * calm.stats["cost_drag_annual"]
+
+
+def test_dsr_is_a_confidence_level_that_grows_with_the_sample():
+    """The deflated Sharpe is a probability, and its job is to stay low until
+    the sample can support the claim. Holding the edge fixed and lengthening
+    the record must raise it, while the Sharpe itself barely moves — that is
+    the whole difference between "this looks good" and "this is established".
+
+    The gate was set to 0.05, which admits anything 95% likely to be the
+    luckiest draw of its own search. This is what the number does when it is
+    read as intended.
+    """
+    from hermes.backtest.metrics import deflated_sharpe
+
+    bpy = 8760
+    got = []
+    for n in (1500, 6000, 24000):
+        rng = np.random.default_rng(7)
+        # identical per-bar edge at every length: ~4.7 annualised Sharpe,
+        # the size of edge these families actually produce
+        r = rng.normal(0.00005, 0.001, n)
+        got.append(deflated_sharpe(r, n_trials=2400, bars_per_year=bpy))
+    assert got[0] < got[1] < got[2], got
+    assert got[0] < 0.5 < got[2], got
+
+
+def test_selection_bar_rises_with_the_number_of_trials():
+    """Searching harder raises the Sharpe that selection alone produces. The
+    bar is reported in Sharpe units so the gap is readable without decoding a
+    probability."""
+    from hermes.backtest.metrics import selection_bar
+
+    rng = np.random.default_rng(3)
+    r = rng.normal(0.0002, 0.001, 8000)
+    bars = [selection_bar(r, n, 8760) for n in (100, 2400, 83793)]
+    assert bars[0] < bars[1] < bars[2], bars
+    assert bars[0] > 0.0
