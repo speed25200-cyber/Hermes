@@ -204,3 +204,13 @@ def test_cycle_window_counts_decisions_not_lines(tmp_path, capsys):
     args.cycles = 3
     cli.cmd_report(args)
     assert "cycles           : 3" in capsys.readouterr().out
+
+
+def test_replay_timestamps_are_not_reported_as_staleness(tmp_path, capsys):
+    """A demo/backtest journal carries the data's timestamps, not the run's.
+    "2574754 min ago" reads as a dead engine; it is a replay."""
+    _, args = _setup(tmp_path, [_cycle(1000.0 + 900 * i) for i in range(5)])
+    cli.cmd_report(args)
+    out = capsys.readouterr().out
+    assert "min ago" not in out
+    assert "replay: 1970-01-01" in out

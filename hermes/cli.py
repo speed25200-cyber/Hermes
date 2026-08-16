@@ -628,20 +628,26 @@ def cmd_status(args) -> None:
 
 
 def _read_journal(state_dir: str, keep: int) -> list[dict]:
+    """The last `keep` journal records.
+
+    Read from the end rather than front to back: an engine journalling every
+    bar and every heartbeat writes a line carrying prices and positions for
+    the whole universe, and this command exists to be run casually against a
+    box that has been trading for months.
+    """
+    from .dashboard.server import _tail_lines
+
     path = os.path.join(state_dir, "journal.jsonl")
-    if not os.path.exists(path):
-        return []
     rows = []
-    with open(path) as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rows.append(json.loads(line))
-            except json.JSONDecodeError:
-                continue
-    return rows[-keep:]
+    for line in _tail_lines(path, keep, max_bytes=64_000_000):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    return rows
 
 
 def cmd_report(args) -> None:
@@ -700,9 +706,14 @@ def cmd_report(args) -> None:
         first, last = cycles[0], cycles[-1]
         span_h = max(last["ts"] - first["ts"], 0) / 3600.0
         gross = sum(abs(o.get("notional", 0.0)) for o in orders)
+        age_min = (now - last["ts"]) / 60.0
+        # a replay journal (demo, backtest) carries the timestamps of the
+        # data, not of the run: "2574754 min ago" is not a staleness warning
+        when = (f"last {age_min:.0f} min ago" if age_min < 43_200 else
+                "replay: " + time.strftime("%Y-%m-%d",
+                                           time.gmtime(last["ts"])))
         print(f"cycles           : {len(cycles)} over {span_h:.1f}h "
-              f"(last {(now - last['ts']) / 60.0:.0f} min ago, "
-              f"{beats} heartbeats)")
+              f"({when}, {beats} heartbeats)")
         print(f"cycles that traded: {traded} ({traded / len(cycles):.0%})")
         print(f"orders           : {len(orders)}  gross {gross:,.0f} USDT")
         if orders:
