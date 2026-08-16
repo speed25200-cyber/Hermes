@@ -128,6 +128,8 @@ def validate_candidates(
                 f"IF={st.get('autocorr_inflation', 1.0):.1f}) "
                 f"dsr={st['dsr']:.3f} mdd={st['max_drawdown']:.1%} "
                 f"folds+={st['oos_folds_positive']} "
+                f"costs={st.get('cost_drag_annual', 0.0):.1%}/y "
+                f"({st.get('cost_share_of_gross', 0.0):.0%} of gross) "
                 f"-> {'DEPLOY' if verdict else 'reject'}")
         if verdict:
             survivors.append(ValidatedStrategy(

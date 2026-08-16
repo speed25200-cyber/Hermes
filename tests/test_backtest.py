@@ -124,3 +124,20 @@ def test_dsr_is_harsher_under_serial_correlation():
 def test_norm_ppf_roundtrip():
     for p in (0.01, 0.1, 0.5, 0.9, 0.99):
         assert metrics.norm_cdf(metrics.norm_ppf(p)) == pytest.approx(p, abs=1e-6)
+
+
+def test_backtest_reports_what_frictions_took():
+    """Net Sharpe alone cannot tell a weak model from an over-traded one. The
+    gross figure and the cost drag have to be visible, because a strategy
+    whose edge is real but whose turnover eats it is a frequency problem that
+    no better predictor fixes."""
+    candles = make_candles(list(100.0 + np.arange(400) * 0.05))
+    pos = np.where(np.arange(400) % 2 == 0, 1.0, -1.0)   # deliberately churny
+    res = engine.run(candles, pos, fee_bps=5.0, slippage_bps=2.0)
+    s = res.stats
+    assert s["gross_sharpe"] > s["sharpe"]               # costs only subtract
+    assert s["cost_drag_annual"] > 0
+    assert s["cost_share_of_gross"] > 0
+    # flipping every bar must show a far heavier drag than holding through
+    calm = engine.run(candles, np.ones(400), fee_bps=5.0, slippage_bps=2.0)
+    assert s["cost_drag_annual"] > 10 * calm.stats["cost_drag_annual"]

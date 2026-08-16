@@ -284,7 +284,8 @@ hermes/
            signals.py    genome -> target exposure series
   backtest/engine.py     vectorized backtester (fees, slippage, funding)
            metrics.py    Sharpe (serial-correlation adjusted), Sortino,
-                         PSR, Deflated Sharpe, Newey-West inflation, drawdown
+                         PSR, Deflated Sharpe, Newey-West inflation, drawdown,
+                         gross-vs-net and the cost drag frictions took
   research/evolve.py     evolutionary alpha search (in-sample only)
            validate.py   OOS validation gate (DSR threshold)
   portfolio/allocator.py multiplicative-weights capital allocation
@@ -296,7 +297,7 @@ hermes/
   cli.py                 demo / fetch / research / run / status /
                          coverage / calibration / execution / backup /
                          dashboard
-tests/                   134 tests: no-lookahead, ML causality, microstructure
+tests/                   135 tests: no-lookahead, ML causality, microstructure
                          features, metric autocorrelation, regimes, e2e
 ```
 
