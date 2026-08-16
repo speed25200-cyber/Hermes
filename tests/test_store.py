@@ -222,3 +222,31 @@ def test_short_venue_result_is_treated_as_a_failure(tmp_path):
     assert insts == cfg.raw["instruments"]
     assert universe.load_persisted(str(tmp_path)) is None   # nothing persisted
     assert any("only 2" in m for m in msgs)
+
+
+def test_a_reader_is_not_locked_out_by_a_writer(tmp_path):
+    """The fetcher writes while the dashboard draws candles and research
+    reads the history the engine is appending to. Under the default rollback
+    journal the reader fails outright, which is why the engine is stopped for
+    the whole of a research pass."""
+    import sqlite3
+
+    a = DataStore(str(tmp_path))
+    a.upsert_candles("BTC-USDT-SWAP", "15m",
+                     [(i * 900_000, 1.0, 1.0, 1.0, 1.0, 1.0) for i in range(10)])
+
+    b = DataStore(str(tmp_path))                    # a second process would
+    b.conn.execute("BEGIN IMMEDIATE")               # ...hold the write lock
+    b.upsert_candles("ETH-USDT-SWAP", "15m", [(0, 2.0, 2.0, 2.0, 2.0, 2.0)])
+
+    rows = a.conn.execute(
+        "SELECT COUNT(*) FROM candles WHERE inst = 'BTC-USDT-SWAP'").fetchone()
+    assert rows[0] == 10, "reader must see the last committed snapshot"
+    assert isinstance(a.conn, sqlite3.Connection)
+
+
+def test_store_uses_write_ahead_logging(tmp_path):
+    store = DataStore(str(tmp_path))
+    mode = store.conn.execute("PRAGMA journal_mode").fetchone()[0]
+    assert mode.lower() == "wal"
+    assert store.conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30_000

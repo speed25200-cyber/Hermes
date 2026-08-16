@@ -76,6 +76,20 @@ class DataStore:
         os.makedirs(data_dir, exist_ok=True)
         self.path = os.path.join(data_dir, "market.db")
         self.conn = sqlite3.connect(self.path)
+        # Several processes hold this store open at once: the fetcher writes
+        # while the dashboard reads candles to draw them, and research reads
+        # the whole history while the engine appends the latest bars. Under
+        # the default rollback journal a writer locks readers out and they
+        # fail outright rather than wait — which is why the engine is stopped
+        # for the whole of a research pass. WAL lets readers proceed against
+        # the last committed snapshot while a write is in flight, and the
+        # busy timeout makes the one case WAL does not cover, two writers,
+        # wait its turn instead of raising. NORMAL sync is the standard WAL
+        # pairing: a crash can lose the most recent commits, and every row
+        # here is re-fetchable from the exchange.
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=30000")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS candles (
