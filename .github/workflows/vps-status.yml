@@ -72,6 +72,11 @@ jobs:
             ss -tln | grep -q ":8899 " && echo "port 8899: LISTENING" || echo "port 8899: NOT listening"
             echo "code: $(cat /root/hermes/DEPLOYED_SHA 2>/dev/null || echo unknown)"
             # ...and how far along it is, so a six-line tail answers both
-            # "is it running" and "is it moving" without a second fetch
-            echo "last research line: $(journalctl -u hermes-research -n 200 --no-pager -o cat 2>/dev/null | grep -E "elapsed\]|instruments on|panel|XS:|deployed" | tail -1 || echo none)"
+            # "is it running" and "is it moving" without a second fetch.
+            # Timestamped on purpose: journalctl spans invocations, so an
+            # untimed line from the PREVIOUS pass reads exactly like progress
+            # from this one — which is how a stale "population=96" line was
+            # briefly mistaken for the new budget failing to take effect.
+            echo "unit started: $(systemctl show hermes-research -p ActiveEnterTimestamp --value)"
+            echo "last research line: $(journalctl -u hermes-research -n 300 --no-pager -o short-iso 2>/dev/null | grep -E "elapsed\]|instruments on|panel|XS:|deployed|fetch" | tail -1 || echo none)"
           '
