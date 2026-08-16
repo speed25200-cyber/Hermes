@@ -408,3 +408,31 @@ def test_a_book_that_still_passes_is_left_alone():
                                   said.append) == 0
         assert len(reg.strategies) == 1
         assert said == []
+
+
+def test_research_reports_each_instrument_as_it_finishes():
+    """Workers run in other processes and return their log lines rather than
+    printing them. Buffering every line until the last worker landed meant a
+    pass emitted nothing for its whole duration — 2h34 on the live box, with
+    a hung run and a working one looking identical the entire time."""
+    from hermes.config import Config
+    from hermes.data.synthetic import generate
+    from hermes.live.trader import run_research
+
+    cfg = Config.load(None)
+    cfg.raw["research"].update(population=8, generations=1, seed=1,
+                               min_dsr=0.5, max_deployed=2)
+    uni = {f"S{k}-USDT-SWAP": generate(inst=f"S{k}-USDT-SWAP", bar="1H",
+                                       n=2600, seed=40 + k)
+           for k in range(4)}
+    cfg.raw["instruments"] = sorted(uni)
+    cfg.raw["bar"] = "1H"
+    said = []
+    run_research(uni, cfg, log=said.append)
+
+    progress = [m for m in said if "strategies passed OOS validation" in m]
+    assert len(progress) == 4, said
+    # each carries its position in the queue and the elapsed time
+    for k, m in enumerate(progress, start=1):
+        assert f"[{k}/4," in m, m
+        assert "min elapsed]" in m, m

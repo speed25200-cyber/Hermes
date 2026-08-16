@@ -304,29 +304,42 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
     log(f"research: {len(eligible_list)} instruments on {workers} worker(s), "
         f"population={r['population']} generations={r['generations']}")
 
+    # Report each instrument as it lands rather than after the last one.
+    # Workers cannot log (they run in other processes and return their lines
+    # instead), so buffering the lot meant a pass emitted nothing at all
+    # until it was over — a run that took 2h34 on this box looked
+    # indistinguishable from a hung one for its entire duration, and the
+    # only way to tell them apart was watching the memory figure climb.
+    t_started = time.time()
+    done = 0
+
+    def absorb(res) -> None:
+        nonlocal done, total_trials
+        inst, survivors, n_trials, lines = res
+        done += 1
+        for line in lines:
+            log(line)
+        log(f"research {inst}: {len(survivors)} strategies passed OOS "
+            f"validation ({n_trials} genomes) "
+            f"[{done}/{len(eligible_list)}, "
+            f"{(time.time() - t_started) / 60.0:.0f} min elapsed]")
+        all_survivors.extend(survivors)
+        total_trials += n_trials
+
     if workers == 1:
-        results = [_research_one(i, c, ld, r, fee_bps, slip_bps, inc)
-                   for i, c, ld, inc in eligible_list]
+        for i, c, ld, inc in eligible_list:
+            absorb(_research_one(i, c, ld, r, fee_bps, slip_bps, inc))
     else:
         import concurrent.futures as cf
         with cf.ProcessPoolExecutor(max_workers=workers) as pool:
             futures = [pool.submit(_research_one, i, c, ld, r, fee_bps,
                                    slip_bps, inc)
                        for i, c, ld, inc in eligible_list]
-            results = []
             for fut in cf.as_completed(futures):
                 try:
-                    results.append(fut.result())
+                    absorb(fut.result())
                 except Exception as exc:
                     log(f"research worker failed: {type(exc).__name__}: {exc}")
-
-    for inst, survivors, n_trials, lines in sorted(results, key=lambda t: t[0]):
-        for line in lines:
-            log(line)
-        log(f"research {inst}: {len(survivors)} strategies passed OOS "
-            f"validation ({n_trials} genomes)")
-        all_survivors.extend(survivors)
-        total_trials += n_trials
 
     # ---- cross-sectional portfolio strategies (funding carry) ----------
     eligible = {i: c for i, c in candles_by_inst.items() if len(c) >= min_bars}
