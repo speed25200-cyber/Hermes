@@ -186,6 +186,14 @@ def _research_one(inst: str, candles: Candles, leader: Candles | None,
             max_deployed=r["max_deployed"], log=lines.append,
         )
         n_trials += trials_a
+    # max_deployed is a per-instrument cap, and the aux pass appends to the
+    # same book: without trimming here the two passes together deploy twice
+    # the configured limit. Best OOS Sharpe first, so the cut keeps the
+    # strongest survivors regardless of which pass found them.
+    if len(survivors) > r["max_deployed"]:
+        survivors.sort(key=lambda s: s.oos_stats.get("sharpe", 0.0),
+                       reverse=True)
+        survivors = survivors[:r["max_deployed"]]
     return inst, survivors, n_trials, lines
 
 

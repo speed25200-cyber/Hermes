@@ -212,8 +212,12 @@ AUX_SERIES = {
     "ob": ("ob_near", "ob_deep"),   # self-recorded order-book imbalance
 }
 AUX_PERIOD_MS = 3_600_000  # rubik endpoints are fetched at 1H granularity
-# per-kind bucket length; order-book snapshots are taken every ~10 minutes
-AUX_PERIODS = {"ob": 900_000}
+OB_SAMPLE_MS = 600_000     # one self-recorded order-book snapshot per ~10 min
+# Per-kind bucket length. The order-book entry must track the sampler above:
+# a snapshot is an instantaneous observation stamped with the exchange's own
+# book timestamp, so quoting a longer bucket here only delays data that was
+# already known, and lets a value go stale later than the next sample.
+AUX_PERIODS = {"ob": OB_SAMPLE_MS}
 
 
 def map_aux_to_bars(bar_ts: np.ndarray, bar_ms: int, rows: list[tuple],

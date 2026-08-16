@@ -6,7 +6,7 @@ from __future__ import annotations
 import time
 
 from ..exchange.okx_client import OKXClient
-from .store import BAR_MS, DataStore
+from .store import BAR_MS, OB_SAMPLE_MS, DataStore
 
 
 def fetch_candles(
@@ -174,7 +174,6 @@ def fetch_aux(client: OKXClient, store: DataStore, inst: str,
     return total
 
 
-OB_SAMPLE_MS = 600_000  # record one order-book snapshot per ~10 minutes
 
 
 def snapshot_orderbook(client: OKXClient, store: DataStore, inst: str) -> None:
