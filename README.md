@@ -168,8 +168,9 @@ python -m hermes calibration
 # Is trading actually costing what every backtest assumed?
 python -m hermes execution
 
-# Export the recorded order book — the one series no exchange can replace
-python -m hermes backup --out hermes-ob.jsonl
+# Export the market history that cannot be re-fetched (the order book from
+# day one, and every aux row aged past the exchange's retention window)
+python -m hermes backup --out hermes-aux.jsonl
 
 # Dashboard — local web console (equity curve, book, allocation, risk, logs)
 python -m hermes dashboard            # opens http://127.0.0.1:8899

@@ -466,22 +466,25 @@ def cmd_calibration(args) -> None:
 def cmd_backup(args) -> None:
     """Export the series that cannot be re-fetched.
 
-    Candles, funding, open interest and positioning can all be pulled from
-    the exchange again after a disk loss. The order-book imbalance cannot:
-    no venue serves its history, so the only copy in existence is the one
-    Hermes recorded itself, one snapshot at a time. Left on a single VPS
-    disk that is a single point of failure for the one dataset nobody else
-    has — so it gets a portable copy.
+    Candles and funding can always be pulled from the exchange again. The aux
+    series cannot, and not only the order book: OKX serves a few months of
+    open interest, taker flow and positioning, so every stored row older than
+    that window is already beyond recovery. The order-book imbalance is
+    unrecoverable from the first day, since no venue serves its history at
+    all — the only copy is the one Hermes recorded itself.
+
+    All of it therefore gets exported by default. This is also the dataset
+    whose value comes entirely from how long it has been accumulating, which
+    makes a single VPS disk the wrong place for the only copy.
 
     Restores are additive (INSERT OR REPLACE on the timestamp), so importing
-    an older export onto a live store cannot lose newer snapshots.
+    an older export onto a live store cannot lose newer rows.
     """
-    from .data.store import DataStore
+    from .data.store import AUX_SERIES, DataStore
 
     cfg = Config.load(args.config)
     store = DataStore(cfg["data_dir"])
-    kinds = ["ob"] if not args.all_sources else list(
-        __import__("hermes.data.store", fromlist=["AUX_SERIES"]).AUX_SERIES)
+    kinds = ["ob"] if args.order_book_only else list(AUX_SERIES)
 
     if args.restore:
         total = 0
@@ -512,8 +515,9 @@ def cmd_backup(args) -> None:
         print("nothing recorded yet — run the engine so the order-book "
               "sampler can accumulate")
     else:
-        print("keep this OFF the trading host: it is the only copy of the "
-              "order-book history")
+        print("keep this OFF the trading host: for the order book it is the "
+              "only copy in existence, and the rest is unrecoverable once it "
+              "ages past the exchange's retention window")
 
 
 def cmd_execution(args) -> None:
@@ -629,13 +633,14 @@ def main(argv: list[str] | None = None) -> None:
     cv.set_defaults(fn=cmd_coverage)
 
     bk = sub.add_parser("backup",
-                        help="export the self-recorded order-book history "
-                             "(the only data that cannot be re-fetched)")
+                        help="export the market history that cannot be "
+                             "re-fetched (order book, and aux rows aged out "
+                             "of the exchange's retention window)")
     bk.add_argument("--out", default=None, help="output JSONL path")
     bk.add_argument("--restore", default=None,
                     help="import a previous export instead of writing one")
-    bk.add_argument("--all-sources", action="store_true",
-                    help="include the re-fetchable series too")
+    bk.add_argument("--order-book-only", action="store_true",
+                    help="export only the recorded order book")
     bk.set_defaults(fn=cmd_backup)
 
     ex = sub.add_parser("execution",

@@ -77,13 +77,13 @@ def test_order_book_backup_roundtrip(tmp_path):
         Config.load = staticmethod(lambda *_a, **_k: cfg)
         cfg.raw["data_dir"] = str(src)
         cmd_backup(types.SimpleNamespace(config=None, out=out, restore=None,
-                                         all_sources=False))
+                                         order_book_only=False))
         # a newer snapshot exists on the target that the export predates
         target = DataStore(str(dst))
         target.upsert_aux("BTC-USDT-SWAP", "ob", [(99 * 600_000, 9.0, 9.0)])
         cfg.raw["data_dir"] = str(dst)
         cmd_backup(types.SimpleNamespace(config=None, out=None, restore=out,
-                                         all_sources=False))
+                                         order_book_only=False))
     finally:
         Config.load = original
 
