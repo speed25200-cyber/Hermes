@@ -68,7 +68,8 @@ def _aux(candles: Candles, name: str) -> tuple[np.ndarray, np.ndarray] | tuple[N
     return _causal_ffill(a), avail
 
 
-def _z_masked(v: np.ndarray, avail: np.ndarray, w: int = ROLL_NORM) -> np.ndarray:
+def _z_masked(v: np.ndarray, avail: np.ndarray, w: int = ROLL_NORM,
+              min_obs: int = 100) -> np.ndarray:
     """Trailing z-score, neutral (0) wherever the source was unavailable.
 
     The gap before the first observation is filled with that first value so
@@ -80,22 +81,36 @@ def _z_masked(v: np.ndarray, avail: np.ndarray, w: int = ROLL_NORM) -> np.ndarra
     The fill stays causal: it copies a value into bars that are masked to 0
     anyway, and only reaches later bars through a window that already sits at
     or after the observation it copies.
+
+    A series also stays neutral until it has accumulated `min_obs` of its own
+    observations: standardising against a window still dominated by the fill
+    would emit a large spurious reading exactly when a new source comes
+    online. The count is cumulative, so this stays causal and length-stable.
     """
     filled = np.array(v, dtype=np.float64, copy=True)
     first = int(avail.argmax())
     if first > 0:
         filled[:first] = filled[first]
     z = _roll_z(np.nan_to_num(filled, nan=0.0), w)
-    return np.where(avail, z, 0.0)
+    warm = np.cumsum(avail) >= min_obs
+    return np.where(avail & warm, z, 0.0)
 
 
 def _diff_z(v: np.ndarray, avail: np.ndarray, lb: int) -> np.ndarray:
-    """Trailing z-score of the `lb`-bar change in a carried aux series."""
+    """Trailing z-score of the `lb`-bar change in a carried aux series.
+
+    A change is only defined where BOTH endpoints were observed; requiring
+    that keeps the first `lb` bars after coverage begins from differencing
+    against an unobserved value, which would otherwise fire a large spurious
+    spike exactly when a new series comes online.
+    """
     n = len(v)
     d = np.zeros(n)
+    ok = np.zeros(n, dtype=bool)
     if lb < n:
         d[lb:] = np.nan_to_num(v[lb:] - v[:-lb], nan=0.0)
-    return _z_masked(d, avail)
+        ok[lb:] = avail[lb:] & avail[:-lb]
+    return _z_masked(d, ok)
 
 
 def build_features(candles: Candles, leader: Candles | None = None) -> np.ndarray:
