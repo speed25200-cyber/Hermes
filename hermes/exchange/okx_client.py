@@ -111,6 +111,39 @@ class OKXClient:
     def ticker(self, inst_id: str) -> dict:
         return self._request("GET", "/api/v5/market/ticker", {"instId": inst_id})[0]
 
+    def liquid_swaps(self, top_n: int = 60, quote: str = "USDT",
+                     min_vol_usdt: float = 5e6) -> list[str]:
+        """Live USDT-margined perpetuals ranked by 24h traded value, richest
+        first.
+
+        Breadth is the one lever that lifts the combined Sharpe without paying
+        more cost per trade: independent edges add as sqrt(N), while fees stay
+        per-trade. A hardcoded list cannot deliver that for long — venues list
+        and delist constantly, and a name that dried up keeps consuming a slot
+        it can no longer fill.
+
+        Ranking by traded value also keeps the universe where maker-first
+        execution can actually rest an order, which is exactly where the cost
+        model's assumed fill rate holds up.
+        """
+        live = {i["instId"] for i in self.instruments("SWAP")
+                if i.get("state") == "live"}
+        rows = self._request("GET", "/api/v5/market/tickers",
+                             {"instType": "SWAP"})
+        ranked = []
+        for r in rows:
+            inst = r.get("instId", "")
+            if not inst.endswith(f"-{quote}-SWAP") or inst not in live:
+                continue
+            try:                       # volCcy24h is the quote-currency volume
+                vol = float(r.get("volCcy24h") or 0.0)
+            except (TypeError, ValueError):
+                continue
+            if vol >= min_vol_usdt:
+                ranked.append((vol, inst))
+        ranked.sort(reverse=True)
+        return [inst for _, inst in ranked[:top_n]]
+
     def candles(self, inst_id: str, bar: str = "1H", limit: int = 300,
                 after: int | None = None, history: bool = False) -> list[list]:
         """Returns rows [ts, o, h, l, c, vol, ...] NEWEST FIRST (OKX order).

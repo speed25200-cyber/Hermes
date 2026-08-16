@@ -279,6 +279,7 @@ hermes/
   features.py            vectorized, strictly causal indicator library
   risk.py                risk engine (limits, halts, kill switch)
   data/    store.py      SQLite candle/funding store
+           universe.py   venue-ranked instrument selection (leader pinned)
            fetcher.py    OKX history backfill (public endpoints)
            synthetic.py  regime-switching market generator (offline tests)
   ml/      models.py     ridge + gradient-boosted stumps (pure numpy)
@@ -302,7 +303,7 @@ hermes/
   cli.py                 demo / fetch / research / run / status /
                          coverage / calibration / execution / backup /
                          dashboard
-tests/                   138 tests: no-lookahead, ML causality, microstructure
+tests/                   141 tests: no-lookahead, ML causality, microstructure
                          features, metric autocorrelation, regimes, e2e
 ```
 

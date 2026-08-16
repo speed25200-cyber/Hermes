@@ -31,6 +31,12 @@ DEFAULTS: dict[str, Any] = {
                     "ARB-USDT-SWAP", "OP-USDT-SWAP", "INJ-USDT-SWAP",
                     "TIA-USDT-SWAP", "SEI-USDT-SWAP", "CRV-USDT-SWAP",
                     "AAVE-USDT-SWAP", "PEPE-USDT-SWAP", "SHIB-USDT-SWAP"],
+    # 0 keeps the list above; a positive value replaces it with that many of
+    # the venue's most-traded USDT perpetuals, refreshed on every fetch. More
+    # independent names lift the combined Sharpe as sqrt(N) while fees stay
+    # per-trade, so breadth is the one lever that costs nothing per trade.
+    "universe_size": 0,
+    "universe_min_vol_usdt": 5e6,   # 24h traded value floor for a candidate
     # 15m bars: ~35k bars/year per instrument -> 4x the statistical power of
     # 1H for the validation gates, and intraday seasonality becomes usable
     "bar": "15m",
@@ -161,4 +167,14 @@ class Config:
                     raw = _merge(raw, json.load(f))
                 used = cand
                 break
+        # When the universe is venue-resolved, every entry point — research,
+        # the live loop, status, the dashboard — must see the same list as the
+        # fetch that resolved it. Reading it here is the only way they cannot
+        # disagree.
+        if int(raw.get("universe_size", 0) or 0) > 0:
+            from .data.universe import load_persisted, order
+            persisted = load_persisted(raw["state_dir"])
+            if persisted:
+                leader = raw["instruments"][0] if raw["instruments"] else ""
+                raw["instruments"] = order(persisted, leader)
         return cls(raw=raw, path=used)

@@ -251,16 +251,36 @@ def cmd_realtest(args) -> None:
         print()
 
 
+def _held_instruments(state_dir: str) -> list[str]:
+    """Instruments carrying a live position, from the persisted paper book."""
+    path = os.path.join(state_dir, "trader.json")
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path) as f:
+            pos = (json.load(f).get("paper_broker") or {}).get("pos") or {}
+    except (OSError, ValueError):
+        return []
+    return [inst for inst, qty in pos.items() if abs(float(qty)) > 1e-12]
+
+
 def cmd_fetch(args) -> None:
     from .data.fetcher import (fetch_aux, fetch_candles, fetch_funding,
                                fetch_index)
     from .exchange.okx_client import OKXClient
 
+    from .data import universe
+
     cfg = Config.load(args.config)
     store = DataStore(cfg["data_dir"])
     client = OKXClient(cfg.credentials)
+    # an instrument we still hold stays in the universe whatever the venue
+    # ranking says, so a refresh can never strand an open position
+    held = _held_instruments(cfg["state_dir"])
+    insts = universe.resolve(cfg, client, cfg["state_dir"], held, log=print)
+    cfg.raw["instruments"] = insts
     failed = []
-    for inst in cfg["instruments"]:
+    for inst in insts:
         # one bad/unlisted instrument must never sink the whole backfill —
         # research simply skips instruments without enough bars
         try:
