@@ -20,9 +20,15 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
    implemented from scratch in numpy:
    - a causal **feature matrix** per instrument: multi-horizon vol-scaled
      momentum, volatility structure, oscillators, channel position, candle
-     shape, volume pressure, funding carry, intraday/weekly seasonality, and
+     shape, volume pressure, funding carry, intraday/weekly seasonality,
      **cross-asset lead-lag features** from the universe leader (BTC leads
-     alts);
+     alts), and the full **derivatives microstructure** block — open
+     interest, taker-flow imbalance, cumulative volume delta, crowd and
+     top-trader positioning, spot basis and the self-recorded book
+     imbalance. Both learners are additive (ridge is linear, the trees are
+     depth-1 stumps), so the flow-vs-price cross terms are supplied
+     explicitly. Instruments with no aux history contribute neutral columns
+     rather than a narrower matrix, so coverage can grow over time;
    - two learners fit under a strict **walk-forward protocol** (train only on
      the past, horizon-length embargo before every refit, periodic
      re-training): closed-form **ridge regression** and **gradient-boosted
@@ -73,6 +79,10 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
    gated by a volatility- or regime-filter and scaled by per-strategy
    volatility targeting. Fitness is measured **only on in-sample data**,
    averaged across sub-windows so a strategy must work in every sub-period.
+   The families that need derivatives data (open-interest momentum, taker
+   flow, crowd fade, top-trader follow, CVD divergence, book imbalance) are
+   searched in their own pass, restricted to the window where that history
+   actually exists — exchanges serve only a few months of it.
 
 6. **Validation gate** (`hermes/research/validate.py`) — survivors are scored
    once on out-of-sample data separated by an embargo gap. A strategy deploys
@@ -81,6 +91,14 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
    evaluated, killing selection-bias artifacts), the OOS drawdown cap, AND
    **purged multi-fold consistency**: the OOS window is cut into embargoed
    sub-folds and the majority must be individually profitable (CPCV spirit).
+   Every Sharpe-based statistic is charged for **serial correlation** first:
+   a position held across many bars — or an hourly aux series carried onto
+   15m bars — means consecutive returns are not independent, so a
+   Newey-West variance inflation factor haircuts the reported Sharpe (Lo
+   2002) and shrinks the effective sample the PSR and DSR rest on. Fewer
+   independent observations also raise the selection bar, so a correlated
+   strategy must clear more, not the same. The factor is floored at 1: the
+   correction may only ever make a strategy look worse.
 
 7. **Online adaptation** (`hermes/portfolio/allocator.py`) — deployed
    strategies are tracked bar by bar. Capital flows multiplicatively toward
@@ -130,6 +148,9 @@ python -m hermes research
 
 # 4. Paper-trade the deployed strategies against live OKX prices
 python -m hermes run --mode paper
+
+# History held per data source (incl. the self-recorded order book)
+python -m hermes coverage
 
 # Dashboard — local web console (equity curve, book, allocation, risk, logs)
 python -m hermes dashboard            # opens http://127.0.0.1:8899
@@ -237,7 +258,8 @@ hermes/
   strategy/genome.py     strategy search space (mutate/crossover)
            signals.py    genome -> target exposure series
   backtest/engine.py     vectorized backtester (fees, slippage, funding)
-           metrics.py    Sharpe, Sortino, PSR, Deflated Sharpe, drawdown
+           metrics.py    Sharpe (serial-correlation adjusted), Sortino,
+                         PSR, Deflated Sharpe, Newey-West inflation, drawdown
   research/evolve.py     evolutionary alpha search (in-sample only)
            validate.py   OOS validation gate (DSR threshold)
   portfolio/allocator.py multiplicative-weights capital allocation
@@ -247,7 +269,8 @@ hermes/
   dashboard/server.py    zero-dependency local web console (stdlib http)
            index.html    single-file UI: SVG charts, animated console
   cli.py                 demo / fetch / research / run / status / dashboard
-tests/                   54 tests: no-lookahead, ML causality, regimes, e2e
+tests/                   119 tests: no-lookahead, ML causality, microstructure
+                         features, metric autocorrelation, regimes, e2e
 ```
 
 ## Tests
