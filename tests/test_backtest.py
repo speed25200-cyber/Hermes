@@ -75,6 +75,52 @@ def test_dsr_penalises_many_trials():
     assert dsr_many < dsr_few
 
 
+def test_autocorr_inflation_detects_held_positions():
+    """Returns that repeat in blocks — an hourly signal driving 15m bars, or a
+    position held for hours — carry far fewer independent observations than
+    their bar count suggests."""
+    rng = np.random.default_rng(11)
+    iid = rng.normal(0.0002, 0.002, 4000)
+    blocked = np.repeat(rng.normal(0.0002, 0.002, 1000), 4)
+    assert metrics.autocorr_inflation(iid) < 1.3
+    assert metrics.autocorr_inflation(blocked) > 2.0
+    assert metrics.effective_obs(blocked) < 0.6 * len(blocked)
+
+
+def test_autocorr_inflation_never_flatters():
+    """Negative autocorrelation must not be paid out as a bonus: the gate may
+    only ever be made stricter by this correction."""
+    rng = np.random.default_rng(12)
+    e = rng.normal(0.0, 0.002, 3001)
+    mean_reverting = e[1:] - 0.8 * e[:-1] + 0.0002   # MA(1), rho_1 ~ -0.49
+    assert metrics.autocorr_inflation(mean_reverting) == 1.0
+    # and the haircut is then a no-op rather than a bonus
+    assert metrics.sharpe_hac(mean_reverting, 8760) == pytest.approx(
+        metrics.sharpe(mean_reverting, 8760))
+
+
+def test_hac_sharpe_haircuts_serial_correlation():
+    rng = np.random.default_rng(13)
+    blocked = np.repeat(rng.normal(0.0004, 0.002, 500), 4)
+    raw = metrics.sharpe(blocked, 8760)
+    adj = metrics.sharpe_hac(blocked, 8760)
+    assert 0 < adj < raw * 0.8
+
+
+def test_dsr_is_harsher_under_serial_correlation():
+    """Two series with the same iid Sharpe: the serially correlated one rests
+    on a smaller effective sample and must clear a higher selection bar."""
+    rng = np.random.default_rng(14)
+    blocked = np.repeat(rng.normal(0.0004, 0.002, 500), 4)
+    iid = rng.normal(0.0, 1.0, len(blocked))
+    iid = (iid - iid.mean()) / iid.std()
+    iid = iid * blocked.std() + blocked.mean()      # matched mean and sd
+    assert metrics.sharpe(iid, 8760) == pytest.approx(
+        metrics.sharpe(blocked, 8760), rel=0.05)
+    assert metrics.deflated_sharpe(blocked, 500, 8760) < \
+        metrics.deflated_sharpe(iid, 500, 8760)
+
+
 def test_norm_ppf_roundtrip():
     for p in (0.01, 0.1, 0.5, 0.9, 0.99):
         assert metrics.norm_cdf(metrics.norm_ppf(p)) == pytest.approx(p, abs=1e-6)

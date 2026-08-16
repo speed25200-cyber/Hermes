@@ -51,6 +51,67 @@ def sharpe(rets: np.ndarray, bars_per_year: int) -> float:
     return float(r.mean() / r.std(ddof=1) * math.sqrt(bars_per_year))
 
 
+def autocorr_inflation(rets: np.ndarray, max_lag: int | None = None) -> float:
+    """Newey-West variance inflation factor for the mean of a serially
+    correlated return series.
+
+    Consecutive bar returns are not independent: a position is held across
+    many bars, and the hourly aux series (open interest, taker flow,
+    positioning) are carried onto 15m bars, so four consecutive bars can
+    share one observation of the driving variable. The iid standard error
+    then understates the true one and every Sharpe-based statistic comes out
+    overconfident — a strategy can show an OOS Sharpe of 10 while its real
+    sampling uncertainty is several times wider.
+
+    Bartlett weights keep the estimate non-negative. The result is floored at
+    1.0 on purpose: this feeds a selection gate, so the correction may only
+    ever make a strategy look worse. Negative autocorrelation is not paid out
+    as a bonus.
+    """
+    r = np.asarray(rets, dtype=np.float64)
+    r = r[np.isfinite(r)]
+    n = len(r)
+    if n < 20:
+        return 1.0
+    if max_lag is None:                      # Newey-West automatic bandwidth
+        max_lag = int(4.0 * (n / 100.0) ** (2.0 / 9.0))
+    max_lag = int(max(1, min(max_lag, n // 4)))
+    d = r - r.mean()
+    denom = float(d @ d)
+    if denom <= 0.0:
+        return 1.0
+    acc = 0.0
+    for k in range(1, max_lag + 1):
+        rho = float(d[k:] @ d[:-k]) / denom
+        acc += (1.0 - k / (max_lag + 1.0)) * rho
+    return float(min(max(1.0, 1.0 + 2.0 * acc), 100.0))
+
+
+def effective_obs(rets: np.ndarray, inflation: float | None = None) -> float:
+    """Independent-observation count implied by the serial correlation."""
+    r = np.asarray(rets, dtype=np.float64)
+    r = r[np.isfinite(r)]
+    if inflation is None:
+        inflation = autocorr_inflation(r)
+    return max(len(r) / inflation, 3.0)
+
+
+def sharpe_hac(rets: np.ndarray, bars_per_year: int,
+               inflation: float | None = None) -> float:
+    """Annualised Sharpe with the serial-correlation haircut (Lo 2002).
+
+    Lo's multi-period scaling factor is q / sqrt(q + 2*sum (q-k)*rho_k); once
+    the autocorrelations die out well before q it reduces to sqrt(q / IF), so
+    the iid figure is simply divided by sqrt(IF).
+    """
+    sr = sharpe(rets, bars_per_year)
+    if sr == 0.0:
+        return 0.0
+    if inflation is None:
+        inflation = autocorr_inflation(rets)
+    return sr / math.sqrt(inflation)
+
+
 def sortino(rets: np.ndarray, bars_per_year: int) -> float:
     r = np.asarray(rets, dtype=np.float64)
     r = r[np.isfinite(r)]
@@ -71,14 +132,23 @@ def max_drawdown(equity: np.ndarray) -> float:
 
 
 def probabilistic_sharpe(rets: np.ndarray, sr_benchmark_annual: float,
-                         bars_per_year: int) -> float:
-    """P(true SR > benchmark), accounting for skew/kurtosis and sample size."""
+                         bars_per_year: int,
+                         inflation: float | None = None) -> float:
+    """P(true SR > benchmark), accounting for skew/kurtosis and sample size.
+
+    Serial correlation is charged twice over, because it does two distinct
+    things: it lowers the Sharpe actually achievable over a long horizon
+    (the haircut on `sr`) and it shrinks the independent sample the estimate
+    rests on (`n_eff`).
+    """
     r = np.asarray(rets, dtype=np.float64)
     r = r[np.isfinite(r)]
     n = len(r)
     if n < 10 or r.std(ddof=1) == 0:
         return 0.0
-    sr = r.mean() / r.std(ddof=1)                       # per-bar SR
+    if inflation is None:
+        inflation = autocorr_inflation(r)
+    sr = r.mean() / r.std(ddof=1) / math.sqrt(inflation)   # per-bar SR
     sr_b = sr_benchmark_annual / math.sqrt(bars_per_year)
     mu, sd = r.mean(), r.std(ddof=1)
     skew = float(np.mean(((r - mu) / sd) ** 3))
@@ -86,7 +156,8 @@ def probabilistic_sharpe(rets: np.ndarray, sr_benchmark_annual: float,
     denom = 1.0 - skew * sr + (kurt - 1.0) / 4.0 * sr * sr
     if denom <= 0:
         return 0.0
-    stat = (sr - sr_b) * math.sqrt(n - 1) / math.sqrt(denom)
+    n_eff = effective_obs(r, inflation)
+    stat = (sr - sr_b) * math.sqrt(n_eff - 1) / math.sqrt(denom)
     return norm_cdf(stat)
 
 
@@ -99,15 +170,24 @@ def expected_max_sharpe(n_trials: int, n_obs: int) -> float:
     return math.sqrt(1.0 / (n_obs - 1)) * ((1 - EULER_GAMMA) * z1 + EULER_GAMMA * z2)
 
 
-def deflated_sharpe(rets: np.ndarray, n_trials: int, bars_per_year: int) -> float:
+def deflated_sharpe(rets: np.ndarray, n_trials: int, bars_per_year: int,
+                    inflation: float | None = None) -> float:
     """DSR: probability the strategy's SR beats the expected max SR that pure
-    selection over `n_trials` random strategies would produce."""
+    selection over `n_trials` random strategies would produce.
+
+    The selection bar is set from the *effective* sample: fewer independent
+    observations mean a luckier best-of-n_trials, so a serially correlated
+    strategy must clear a higher bar, not the same one.
+    """
     r = np.asarray(rets, dtype=np.float64)
     r = r[np.isfinite(r)]
     if len(r) < 10:
         return 0.0
-    sr0 = expected_max_sharpe(n_trials, len(r)) * math.sqrt(bars_per_year)
-    return probabilistic_sharpe(r, sr0, bars_per_year)
+    if inflation is None:
+        inflation = autocorr_inflation(r)
+    n_eff = int(effective_obs(r, inflation))
+    sr0 = expected_max_sharpe(n_trials, n_eff) * math.sqrt(bars_per_year)
+    return probabilistic_sharpe(r, sr0, bars_per_year, inflation=inflation)
 
 
 def summarize(rets: np.ndarray, equity: np.ndarray, bars_per_year: int,
@@ -117,15 +197,23 @@ def summarize(rets: np.ndarray, equity: np.ndarray, bars_per_year: int,
     years = max(len(r) / bars_per_year, 1e-9)
     cagr = (1.0 + total) ** (1.0 / years) - 1.0 if total > -1 else -1.0
     mdd = max_drawdown(equity)
+    # one inflation estimate drives every downstream statistic, so the headline
+    # Sharpe, the PSR and the DSR all describe the same effective sample
+    infl = autocorr_inflation(r)
     return {
         "bars": int(len(r)),
         "total_return": total,
         "cagr": float(cagr),
-        "sharpe": sharpe(r, bars_per_year),
+        # headline Sharpe is the serial-correlation-corrected one: it is what
+        # the validation gate compares and what a human reads
+        "sharpe": sharpe_hac(r, bars_per_year, inflation=infl),
+        "sharpe_iid": sharpe(r, bars_per_year),
+        "autocorr_inflation": float(infl),
+        "effective_bars": float(effective_obs(r, infl)),
         "sortino": sortino(r, bars_per_year),
         "max_drawdown": mdd,
         "calmar": float(cagr / mdd) if mdd > 1e-9 else 0.0,
-        "psr": probabilistic_sharpe(r, 0.0, bars_per_year),
-        "dsr": deflated_sharpe(r, n_trials, bars_per_year),
+        "psr": probabilistic_sharpe(r, 0.0, bars_per_year, inflation=infl),
+        "dsr": deflated_sharpe(r, n_trials, bars_per_year, inflation=infl),
         "turnover_per_bar": float(turnover),
     }

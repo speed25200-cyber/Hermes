@@ -124,6 +124,8 @@ def validate_candidates(
         )
         if log:
             log(f"  OOS {g.gid} {g.describe()}: sharpe={st['sharpe']:.2f} "
+                f"(iid {st.get('sharpe_iid', st['sharpe']):.2f}, "
+                f"IF={st.get('autocorr_inflation', 1.0):.1f}) "
                 f"dsr={st['dsr']:.3f} mdd={st['max_drawdown']:.1%} "
                 f"folds+={st['oos_folds_positive']} "
                 f"-> {'DEPLOY' if verdict else 'reject'}")
