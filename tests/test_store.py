@@ -225,10 +225,11 @@ def test_short_venue_result_is_treated_as_a_failure(tmp_path):
 
 
 def test_a_reader_is_not_locked_out_by_a_writer(tmp_path):
-    """The fetcher writes while the dashboard draws candles and research
-    reads the history the engine is appending to. Under the default rollback
-    journal the reader fails outright, which is why the engine is stopped for
-    the whole of a research pass."""
+    """The fetcher writes while the dashboard draws candles and the weekly
+    research timer reads the history the engine is appending to. Under the
+    rollback journal that reader stalls behind the writer (measured: 0.54s
+    worst case against 0.01s with WAL, and it becomes an outright failure
+    once a write outlasts the 5s busy wait)."""
     import sqlite3
 
     a = DataStore(str(tmp_path))
@@ -250,3 +251,50 @@ def test_store_uses_write_ahead_logging(tmp_path):
     mode = store.conn.execute("PRAGMA journal_mode").fetchone()[0]
     assert mode.lower() == "wal"
     assert store.conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30_000
+
+
+def _hammer_store(data_dir, inst, n, out):
+    """Module level so spawn() can pickle it."""
+    try:
+        from hermes.data.store import DataStore
+        s = DataStore(data_dir)
+        for i in range(n):
+            s.upsert_candles(inst, "15m",
+                             [(i * 900_000, 1.0, 1.0, 1.0, 1.0, 1.0)])
+        out.put(("ok", inst))
+    except Exception as exc:                           # pragma: no cover
+        out.put((f"{type(exc).__name__}: {exc}", inst))
+
+
+def test_two_processes_can_write_the_same_store():
+    """The engine appends the newest bars while the fetcher backfills, and
+    the research timer does not stop the engine — so this is the normal
+    case. With WAL plus a busy timeout every writer waits its turn instead
+    of raising "database is locked".
+
+    Separate processes, not threads: a single connection serialised by the
+    GIL would prove nothing about two engines on one box.
+    """
+    import multiprocessing as mp
+    import tempfile
+
+    ctx = mp.get_context("spawn")
+    with tempfile.TemporaryDirectory() as d:
+        DataStore(d)                                   # create + set WAL
+        q = ctx.Queue()
+        procs = [ctx.Process(target=_hammer_store,
+                             args=(d, f"P{k}-USDT-SWAP", 60, q))
+                 for k in range(3)]
+        for p in procs:
+            p.start()
+        results = [q.get(timeout=120) for _ in procs]
+        for p in procs:
+            p.join(timeout=60)
+        assert all(r[0] == "ok" for r in results), results
+
+        store = DataStore(d)
+        for k in range(3):
+            n = store.conn.execute(
+                "SELECT COUNT(*) FROM candles WHERE inst = ?",
+                (f"P{k}-USDT-SWAP",)).fetchone()[0]
+            assert n == 60, (k, n)

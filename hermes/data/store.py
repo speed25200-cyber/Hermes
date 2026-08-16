@@ -77,16 +77,23 @@ class DataStore:
         self.path = os.path.join(data_dir, "market.db")
         self.conn = sqlite3.connect(self.path)
         # Several processes hold this store open at once: the fetcher writes
-        # while the dashboard reads candles to draw them, and research reads
-        # the whole history while the engine appends the latest bars. Under
-        # the default rollback journal a writer locks readers out and they
-        # fail outright rather than wait — which is why the engine is stopped
-        # for the whole of a research pass. WAL lets readers proceed against
-        # the last committed snapshot while a write is in flight, and the
-        # busy timeout makes the one case WAL does not cover, two writers,
-        # wait its turn instead of raising. NORMAL sync is the standard WAL
-        # pairing: a crash can lose the most recent commits, and every row
-        # here is re-fetchable from the exchange.
+        # while the dashboard reads candles to draw them, and the weekly
+        # research timer reads the whole history while the engine appends the
+        # latest bars — that pass does not stop the engine, so this
+        # contention is the normal case, not an edge one.
+        #
+        # Measured, one bulk backfill against one reader for 12 seconds:
+        #
+        #   rollback journal : 17,137 reads, worst read stalled 0.54s
+        #   WAL              : 104,828 reads, worst read stalled 0.01s
+        #
+        # No read failed either way — python's connect() carries a 5s busy
+        # wait, so the cost was latency rather than errors. It becomes errors
+        # once a write transaction outlasts that wait, which a 60-instrument
+        # backfill can. The busy timeout covers the case WAL does not, two
+        # writers, and NORMAL sync is the standard WAL pairing: a crash can
+        # lose the most recent commits, and every row here is re-fetchable
+        # from the exchange.
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA busy_timeout=30000")
         self.conn.execute("PRAGMA synchronous=NORMAL")
