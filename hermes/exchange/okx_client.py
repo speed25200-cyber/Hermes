@@ -135,8 +135,12 @@ class OKXClient:
             inst = r.get("instId", "")
             if not inst.endswith(f"-{quote}-SWAP") or inst not in live:
                 continue
-            try:                       # volCcy24h is the quote-currency volume
-                vol = float(r.get("volCcy24h") or 0.0)
+            try:
+                # For a derivatives contract OKX reports volCcy24h in BASE
+                # currency, so it counts units rather than value: unconverted,
+                # a 1e-5-priced meme coin outranks BTC by seven orders of
+                # magnitude and BTC falls below any sane floor. Price it.
+                vol = float(r.get("volCcy24h") or 0.0) * float(r.get("last") or 0.0)
             except (TypeError, ValueError):
                 continue
             if vol >= min_vol_usdt:

@@ -63,7 +63,11 @@ def run(
     stats["funding_drag_annual"] = float(funding_cost.mean() * bpy)
     gross_annual = float(gross.mean() * bpy)
     stats["gross_return_annual"] = gross_annual
+    # -1 rather than inf when there is no gross profit to share (a funding
+    # carry strategy can be net-positive on a negative price return): this
+    # lands in registry.json and the dashboard re-serialises it, and JSON has
+    # no Infinity — a browser JSON.parse would reject it and blank the console
     stats["cost_share_of_gross"] = (
         float(stats["cost_drag_annual"] / gross_annual) if gross_annual > 1e-9
-        else float("inf"))
+        else -1.0)
     return BacktestResult(rets, equity, pos, turnover, stats)

@@ -81,11 +81,16 @@ def resolve(cfg, client=None, state_dir: str | None = None,
 
     if client is not None:
         try:
+            # room is reserved for the leader and anything still held, so the
+            # additions below cannot push the universe past `size`
+            reserved = len(order([], leader, held))
             ranked = client.liquid_swaps(
-                top_n=size,
+                top_n=max(size - reserved, 1),
                 min_vol_usdt=float(cfg.get("universe_min_vol_usdt", 5e6)))
-            if ranked:
-                insts = order(ranked, leader, held)
+            # a venue hiccup returning two names must not silently become the
+            # universe for every entry point; treat a short list as a failure
+            if len(ranked) + reserved >= max(size // 2, 1):
+                insts = order(ranked, leader, held)[:max(size, reserved)]
                 save(state_dir, insts, "venue")
                 if log:
                     fresh = [i for i in insts if i not in configured]
@@ -93,7 +98,8 @@ def resolve(cfg, client=None, state_dir: str | None = None,
                         f"({len(fresh)} beyond the configured list)")
                 return insts
             if log:
-                log("universe: venue returned nothing, keeping the last one")
+                log(f"universe: venue returned only {len(ranked)} of {size} "
+                    f"names, keeping the last one")
         except Exception as exc:                   # network, schema, anything
             if log:
                 log(f"universe: refresh failed ({exc}), keeping the last one")

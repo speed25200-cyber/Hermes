@@ -154,3 +154,72 @@ def test_pinned_universe_is_untouched_by_default(tmp_path):
     cfg.raw["state_dir"] = str(tmp_path)
     assert cfg.raw["universe_size"] == 0
     assert universe.resolve(cfg, None, str(tmp_path)) == cfg.raw["instruments"]
+
+
+def test_universe_ranks_by_traded_value_not_unit_count(tmp_path):
+    """OKX reports volCcy24h in BASE currency for a derivatives contract, so
+    it counts units. Unpriced, a meme coin at 1e-5 outranks BTC by seven
+    orders of magnitude and BTC drops below any sane floor — the 'most traded'
+    universe would come out as the cheapest tokens, ordered backwards."""
+    from hermes.exchange.okx_client import OKXClient
+
+    class FakeOKX(OKXClient):
+        def __init__(self):
+            pass
+
+        def instruments(self, inst_type="SWAP"):
+            return [{"instId": i, "state": "live"} for i in
+                    ("BTC-USDT-SWAP", "SHIB-USDT-SWAP", "ETH-USDT-SWAP")]
+
+        def _request(self, method, path, params=None, body=None, auth=False):
+            return [
+                # 100k BTC/day at 60k = 6e9 USDT
+                {"instId": "BTC-USDT-SWAP", "volCcy24h": "1e5", "last": "60000"},
+                # 1e12 SHIB/day at 4.5e-6 = 4.5e6 USDT
+                {"instId": "SHIB-USDT-SWAP", "volCcy24h": "1e12", "last": "4.5e-6"},
+                {"instId": "ETH-USDT-SWAP", "volCcy24h": "1e6", "last": "1900"},
+            ]
+
+    ranked = FakeOKX().liquid_swaps(top_n=3, min_vol_usdt=1e6)
+    assert ranked[0] == "BTC-USDT-SWAP"       # 6e9 of value, not 1e5 of units
+    assert ranked.index("ETH-USDT-SWAP") < ranked.index("SHIB-USDT-SWAP")
+
+
+def test_universe_refresh_respects_its_own_size_cap(tmp_path):
+    """The leader and any held name are reserved inside universe_size, not
+    appended past it."""
+    from hermes.config import Config
+    from hermes.data import universe
+
+    class FakeClient:
+        def liquid_swaps(self, top_n, min_vol_usdt):
+            return [f"A{i}-USDT-SWAP" for i in range(top_n)]
+
+    cfg = Config.load(None)
+    cfg.raw["universe_size"] = 6
+    cfg.raw["state_dir"] = str(tmp_path)
+    insts = universe.resolve(cfg, FakeClient(), str(tmp_path),
+                             held=["HELD-USDT-SWAP"])
+    assert len(insts) <= 6
+    assert insts[0] == cfg.raw["instruments"][0]
+    assert "HELD-USDT-SWAP" in insts
+
+
+def test_short_venue_result_is_treated_as_a_failure(tmp_path):
+    """A hiccup returning a couple of names must not become the universe for
+    every entry point."""
+    from hermes.config import Config
+    from hermes.data import universe
+
+    class Hiccup:
+        def liquid_swaps(self, top_n, min_vol_usdt):
+            return ["SOL-USDT-SWAP", "OP-USDT-SWAP"]
+
+    cfg = Config.load(None)
+    cfg.raw["universe_size"] = 40
+    cfg.raw["state_dir"] = str(tmp_path)
+    msgs = []
+    insts = universe.resolve(cfg, Hiccup(), str(tmp_path), log=msgs.append)
+    assert insts == cfg.raw["instruments"]
+    assert universe.load_persisted(str(tmp_path)) is None   # nothing persisted
+    assert any("only 2" in m for m in msgs)

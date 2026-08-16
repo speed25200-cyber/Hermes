@@ -740,6 +740,33 @@ class LiveRunner:
             self.registry.save()
             self.log(f"research done: {len(self.registry.strategies)} deployed")
 
+    def _refresh_universe(self) -> None:
+        """Re-read the venue-resolved universe.
+
+        The engine is a long-lived service while fetch and research run on
+        their own schedule, so a universe resolved by a later fetch would
+        never reach this loop and the strategies research deployed on the new
+        names would be skipped for having no instrument to trade.
+        """
+        if int(self.cfg.get("universe_size", 0) or 0) <= 0:
+            return
+        from ..data.universe import load_persisted, order
+        persisted = load_persisted(self.cfg["state_dir"])
+        if not persisted:
+            return
+        current = list(self.cfg["instruments"])
+        leader = current[0] if current else ""
+        try:
+            held = [i for i, q in self.trader.broker.positions().items()
+                    if abs(float(q)) > 1e-12]
+        except Exception:
+            held = []
+        fresh = order(persisted, leader, held)
+        if fresh != current:
+            self.log(f"universe refreshed: {len(current)} -> {len(fresh)} "
+                     f"instruments")
+            self.cfg.raw["instruments"] = fresh
+
     def run_once(self, allow_research: bool = False) -> dict | None:
         """One decision cycle then return — the execution model for scheduled
         runners (GitHub Actions cron): wake, decide, persist, exit.
@@ -749,6 +776,7 @@ class LiveRunner:
         except Exception as exc:
             self.log(f"cycle: backfill failed ({type(exc).__name__}: {exc}); "
                      "continuing with cached data")
+        self._refresh_universe()
         if allow_research:
             self.ensure_research()
         if not self.registry.strategies:
@@ -785,6 +813,7 @@ class LiveRunner:
         last_cycle_bar = 0
         while True:
             try:
+                self._refresh_universe()
                 from ..data.fetcher import update_latest
                 for inst in self.cfg["instruments"]:
                     update_latest(self.client, self.store, inst, self.cfg["bar"])

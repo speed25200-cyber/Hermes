@@ -251,17 +251,30 @@ def cmd_realtest(args) -> None:
         print()
 
 
-def _held_instruments(state_dir: str) -> list[str]:
-    """Instruments carrying a live position, from the persisted paper book."""
+def _held_instruments(state_dir: str, broker=None) -> list[str]:
+    """Instruments carrying a position right now.
+
+    A live broker is asked directly: `trader.json` only records a book for the
+    paper broker, so reading the file alone would report nothing in live mode —
+    exactly where stranding a position actually costs money.
+    """
+    held: set[str] = set()
+    if broker is not None:
+        try:
+            held.update(inst for inst, qty in broker.positions().items()
+                        if abs(float(qty)) > 1e-12)
+        except Exception:
+            pass                      # fall through to the persisted book
     path = os.path.join(state_dir, "trader.json")
-    if not os.path.exists(path):
-        return []
-    try:
-        with open(path) as f:
-            pos = (json.load(f).get("paper_broker") or {}).get("pos") or {}
-    except (OSError, ValueError):
-        return []
-    return [inst for inst, qty in pos.items() if abs(float(qty)) > 1e-12]
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                pos = (json.load(f).get("paper_broker") or {}).get("pos") or {}
+            held.update(inst for inst, qty in pos.items()
+                        if abs(float(qty)) > 1e-12)
+        except (OSError, ValueError):
+            pass
+    return sorted(held)
 
 
 def cmd_fetch(args) -> None:
@@ -276,7 +289,11 @@ def cmd_fetch(args) -> None:
     client = OKXClient(cfg.credentials)
     # an instrument we still hold stays in the universe whatever the venue
     # ranking says, so a refresh can never strand an open position
-    held = _held_instruments(cfg["state_dir"])
+    live_broker = None
+    if cfg.credentials.present:
+        from .exchange.broker import OKXBroker
+        live_broker = OKXBroker(client, td_mode=cfg["live"]["td_mode"])
+    held = _held_instruments(cfg["state_dir"], live_broker)
     insts = universe.resolve(cfg, client, cfg["state_dir"], held, log=print)
     cfg.raw["instruments"] = insts
     failed = []
