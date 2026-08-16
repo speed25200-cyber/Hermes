@@ -24,6 +24,7 @@ from ..data.store import BAR_MS, BARS_PER_YEAR, Candles, DataStore
 from ..ml.regime import regime_series
 from ..portfolio.allocator import Allocator
 from ..research.evolve import evolve
+from ..research.panel import PANEL_INST, panel_positions
 from ..research.validate import (ValidatedStrategy, split_is_oos,
                                  validate_candidates,
                                  window_supports_validation)
@@ -341,6 +342,30 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
         total_trials += XS_TOTAL_TRIALS
         log(f"research XS: {len(xs_survivors)} portfolio strategies deployed")
 
+    # ---- panel: one rule applied to the whole universe -----------------
+    # The per-instrument pass asks whether a rule works on ATOM, and a
+    # 2,400-genome search over ATOM's own record cannot answer that: the
+    # selection bar sits above any edge a single name carries. Asking
+    # whether the same rule works across every name at once costs one grid
+    # instead of thirty searches and scores a portfolio rather than a
+    # position, which lifts a shared edge by roughly sqrt(N) while leaving
+    # the bar where it was. Measured on a planted edge across twenty names:
+    # 0.93 alone, under a 3.61 bar; 4.72 pooled, over it.
+    if len(eligible) >= 4:
+        from ..research.panel import panel_grid, research_panel
+        grid = panel_grid(r.get("panel_seed"))
+        panel_survivors = research_panel(
+            eligible, grid, fee_bps=fee_bps, slip_bps=slip_bps,
+            is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
+            min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
+            max_corr=r.get("max_corr", 0.9),
+            max_selection_bar=float(r.get("max_selection_bar", 10.0)),
+            log=log)
+        all_survivors.extend(panel_survivors)
+        total_trials += len(grid)
+        log(f"research panel: {len(panel_survivors)} universe-wide rules "
+            f"deployed from a {len(grid)}-rule grid")
+
     # A book is capped in total, not just per instrument. Capital is shared
     # across everything deployed, so an unbounded book starves each strategy:
     # measured on the live allocator, 18 strategies put a typical signal at
@@ -502,6 +527,20 @@ class Trader:
                 if pos_map:
                     book = {inst: float(arr[-1]) for inst, arr in pos_map.items()
                             if len(arr)}
+                    per_strategy[sid] = book
+                    self.last_positions[sid] = book
+                continue
+            if s.inst == PANEL_INST:
+                # one rule over the whole universe: a multi-leg book like the
+                # cross-sectional families, so it takes the same path. Without
+                # this branch the lookup below asks for an instrument called
+                # "PANEL" and the strategy silently never trades.
+                eligible = {i: c for i, c in candles_by_inst.items()
+                            if len(c) >= 600}
+                _, pos_map = panel_positions(eligible, s.genome)
+                if pos_map:
+                    book = {inst: float(arr[-1])
+                            for inst, arr in pos_map.items() if len(arr)}
                     per_strategy[sid] = book
                     self.last_positions[sid] = book
                 continue
