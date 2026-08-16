@@ -826,7 +826,19 @@ function renderOrders(journal){
       if(rows.length>=60) break;
     }
   }
-  $("ordercount").textContent = rows.length? rows.length+" recent" : "";
+  // Cadence, not just the last few tickets: "no movement" is the hardest
+  // thing to read off a feed, because an empty feed and a healthy book that
+  // simply had nothing to do look identical. Heartbeats (hb) mark positions
+  // between bars without deciding, so they are not cycles.
+  const dec = journal.filter(j=>!j.hb && !j.halted);
+  const t1 = dec.length? dec[dec.length-1].ts : 0;
+  const day = dec.filter(j=> t1 - j.ts <= 86400);
+  const traded = day.filter(j=>(j.orders||[]).length).length;
+  const gross = day.reduce((a,j)=>a+(j.orders||[])
+                 .reduce((b,o)=>b+Math.abs(o.notional||0),0),0);
+  $("ordercount").textContent = day.length
+    ? `${traded}/${day.length} cycles traded · ${fmtUsd(gross)} moved`
+    : (rows.length? rows.length+" recent" : "");
   $("orderempty").style.display = rows.length? "none":"block";
   const key = rows.length? rows[0].ts+"|"+rows.length : "";
   if(key===lastOrderKey) return;
