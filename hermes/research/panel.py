@@ -25,6 +25,14 @@ The rule is uniform: identical parameters everywhere, no per-instrument
 tuning, positions sized by inverse realised volatility so no single name
 dominates the book. The same gates apply — OOS Sharpe, DSR against the whole
 grid, drawdown, purged fold consistency — on the pooled record.
+
+One caveat worth stating plainly. Each gate in this system charges the
+search that competed for its own selection: a per-instrument survivor is
+charged that instrument's ~2,400 genomes, and a panel survivor is charged
+this grid. A stricter reading would charge every survivor the whole pass,
+since they all end up in one book and a person choosing between them saw
+all of it. That would raise every bar again. The convention here is the
+looser of the two, deliberately and visibly.
 """
 
 from __future__ import annotations
