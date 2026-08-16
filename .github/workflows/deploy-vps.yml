@@ -114,6 +114,13 @@ jobs:
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             ./ "root@$VPS:/root/hermes/"
 
+      - name: Stamp the deployed revision
+        run: |
+          # the rsync excludes /.git, so the box cannot tell you what it is
+          # running; without this, "is the fix live?" is unanswerable
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+            "printf '%s (%s)\n' '${{ github.sha }}' '${{ inputs.mode || 'full' }}' > /root/hermes/DEPLOYED_SHA"
+
       - name: Run installer
         env:
           KEEP: ${{ inputs.mode == 'code' && '1' || '0' }}
