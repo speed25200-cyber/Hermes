@@ -24,7 +24,9 @@ from ..data.store import BAR_MS, BARS_PER_YEAR, Candles, DataStore
 from ..ml.regime import regime_series
 from ..portfolio.allocator import Allocator
 from ..research.evolve import evolve
-from ..research.validate import ValidatedStrategy, split_is_oos, validate_candidates
+from ..research.validate import (ValidatedStrategy, split_is_oos,
+                                 validate_candidates,
+                                 window_supports_validation)
 from ..risk import LeverageGovernor, RiskEngine
 from ..strategy.signals import compute_position
 from ..exchange.broker import Broker, PaperBroker
@@ -168,6 +170,30 @@ def _research_one(inst: str, candles: Candles, leader: Candles | None,
     if i0 is not None and len(candles) - i0 >= AUX_MIN_BARS:
         ca = candles.slice(i0, len(candles))
         lines.append(f"  aux search {inst}: {len(ca)} covered bars")
+        pop_a_planned = max(48, r["population"] // 2)
+        gen_a_planned = max(12, r["generations"] // 2)
+        ok, need = window_supports_validation(
+            n_oos=int(len(ca) * (1.0 - r["is_fraction"])),
+            n_trials=pop_a_planned * (gen_a_planned + 1),
+            bars_per_year=BARS_PER_YEAR[candles.bar],
+            max_bar=float(r.get("max_selection_bar", 10.0)))
+        if not ok:
+            # The exchange serves ~65 days of open interest and taker flow;
+            # the store keeps every row it has ever seen, so this window grows
+            # on its own. Searching it early cannot find anything real — it
+            # can only mint candidates whose Sharpe is the search's, not the
+            # market's, which is exactly what the live book was full of.
+            have_d = len(ca) * (1.0 - r["is_fraction"]) * 15 / 1440
+            need_d = need * 15 / 1440
+            lines.append(
+                f"  aux search {inst}: skipped — {have_d:.0f} days of scored "
+                f"history against the {need_d:.0f} a search this size needs "
+                f"before selection noise drops below Sharpe "
+                f"{r.get('max_selection_bar', 10.0):.0f}. Recording continues; "
+                f"the window grows on its own.")
+            i0 = None
+    if i0 is not None and len(candles) - i0 >= AUX_MIN_BARS:
+        ca = candles.slice(i0, len(candles))
         ca_is, _ = split_is_oos(ca, r["is_fraction"], r["embargo_bars"])
         pop_a, trials_a = evolve(
             ca_is,
@@ -275,8 +301,9 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
         xs_survivors = research_xs(
             eligible, fee_bps=fee_bps, slip_bps=slip_bps,
             is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
-            min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"], log=log,
-            leader=leader_inst)
+            min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
+            max_selection_bar=float(r.get("max_selection_bar", 10.0)),
+            log=log, leader=leader_inst)
         all_survivors.extend(xs_survivors)
         total_trials += XS_TOTAL_TRIALS
         log(f"research XS: {len(xs_survivors)} portfolio strategies deployed")

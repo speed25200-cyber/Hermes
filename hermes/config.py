@@ -83,6 +83,14 @@ DEFAULTS: dict[str, Any] = {
         # accepted for the instrument is a second copy of that bet, not a
         # second bet: it is refused the slot.
         "max_corr": 0.9,
+        # Selection over a search this size produces a Sharpe on noise alone
+        # that shrinks as the scored window lengthens. Above this bar, no
+        # strategy that exists can clear it, so the search can only mint
+        # overfits — the aux families were being searched on a 65-day window
+        # where the bar sits near 15, which is where the live book's Sharpes
+        # of 6.5 to 9.5 came from. 10 is deliberately generous: a sustained
+        # out-of-sample Sharpe of 10 is already beyond anything credible.
+        "max_selection_bar": 10.0,
         "refresh_hours": 168,        # re-run research weekly
         "refresh_hours_empty": 24,   # ...but daily while nothing is deployed:
                                      # the hunt escalates instead of sleeping

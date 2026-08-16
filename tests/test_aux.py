@@ -248,9 +248,12 @@ def test_research_one_runs_aux_pass():
     from hermes.live.trader import AUX_MIN_BARS, _research_one
     c = generate(bar="15m", n=AUX_MIN_BARS + 1200, seed=42)
     _with_aux(c)
+    # max_selection_bar is lifted out of the way: this test is about the aux
+    # pass running at all, not about whether a 5-day synthetic window is long
+    # enough to validate on (it is not — see test_aux_pass_is_skipped_...)
     r = {"is_fraction": 0.7, "embargo_bars": 24, "population": 8,
          "generations": 1, "min_oos_sharpe": 0.5, "min_dsr": 0.05,
-         "max_deployed": 3, "seed": 1}
+         "max_deployed": 3, "seed": 1, "max_selection_bar": 1e9}
     _, _, n_trials, lines = _research_one(c.inst, c, None, r, 5.0, 2.0)
     assert any("aux search" in ln for ln in lines)
     assert n_trials > 8 * 2          # core pass plus a real aux pass
@@ -351,12 +354,12 @@ def test_xs_trim_to_aux_coverage():
     late = uni[insts[0]]
     for k in late.x:
         late.x[k][:1500] = np.nan
-    trimmed = _trim_to_coverage(uni, "aux")
+    trimmed = _trim_to_coverage(uni, "aux", max_selection_bar=1e9)
     assert trimmed is not None
     assert all(len(c) == 3500 for c in trimmed.values())
     # an instrument with no aux at all is dropped
     uni[insts[1]].x = {}
-    trimmed2 = _trim_to_coverage(uni, "aux")
+    trimmed2 = _trim_to_coverage(uni, "aux", max_selection_bar=1e9)
     assert trimmed2 is not None and insts[1] not in trimmed2
 
 
@@ -489,3 +492,40 @@ def test_fetch_aux_paginates_and_stores(tmp_path):
     _, _, cnt_t = store.aux_range("BTC-USDT-SWAP", "taker")
     _, _, cnt_l = store.aux_range("BTC-USDT-SWAP", "lsr")
     assert cnt_t == 1 and cnt_l == 1
+
+
+def test_aux_pass_is_skipped_when_the_window_cannot_validate():
+    """The exchange serves ~65 days of open interest and taker flow. Scored
+    against a few hundred genomes, selection alone reaches an annualised
+    Sharpe near 15 on a window that short — so anything clearing the other
+    gates there is an overfit by construction. That is where the live book's
+    Sharpes of 6.5 to 9.5 came from."""
+    from hermes.live.trader import AUX_MIN_BARS, _research_one
+    c = generate(bar="15m", n=AUX_MIN_BARS + 1200, seed=42)
+    _with_aux(c)
+    r = {"is_fraction": 0.7, "embargo_bars": 24, "population": 8,
+         "generations": 1, "min_oos_sharpe": 0.5, "min_dsr": 0.5,
+         "max_deployed": 3, "seed": 1, "max_selection_bar": 10.0}
+    _, survivors, _, lines = _research_one(c.inst, c, None, r, 5.0, 2.0)
+    assert any("skipped" in ln and "days of scored history" in ln
+               for ln in lines), lines
+    assert all("aux" not in s.genome.signal for s in survivors)
+
+
+def test_xs_short_coverage_window_is_refused():
+    from hermes.research.xs import _trim_to_coverage
+    uni = _universe(n=5000)
+    said = []
+    assert _trim_to_coverage(uni, "aux", said.append,
+                             max_selection_bar=10.0) is None
+    assert any("selection noise" in m for m in said), said
+
+
+def test_bars_needed_shrinks_as_the_tolerated_bar_rises():
+    from hermes.backtest.metrics import bars_for_selection_bar
+
+    need = [bars_for_selection_bar(624, 35040, b) for b in (6.0, 10.0, 20.0)]
+    assert need[0] > need[1] > need[2]
+    # and grows with the search budget, though far more slowly
+    assert (bars_for_selection_bar(83793, 35040, 10.0)
+            > bars_for_selection_bar(100, 35040, 10.0))

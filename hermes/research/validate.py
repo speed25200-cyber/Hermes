@@ -91,6 +91,21 @@ def _max_abs_corr(rets: np.ndarray, accepted: list[np.ndarray]) -> float:
     return best
 
 
+def window_supports_validation(n_oos: int, n_trials: int, bars_per_year: int,
+                               max_bar: float) -> tuple[bool, int]:
+    """Can a survivor on this window be anything but an overfit?
+
+    Selection over `n_trials` genomes produces a Sharpe on noise alone that
+    depends on how long the scored window is. When that bar sits above what
+    any real strategy achieves, nothing that clears it is real — so the
+    search can only manufacture candidates that look spectacular and are not.
+
+    Returns (searchable, bars_needed).
+    """
+    need = metrics.bars_for_selection_bar(n_trials, bars_per_year, max_bar)
+    return n_oos >= need, need
+
+
 def _cost_share(stats: dict) -> str:
     """How much of the gross return the frictions took.
 

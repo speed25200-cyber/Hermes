@@ -19,7 +19,7 @@ from ..strategy.genome import Genome
 from ..strategy.xs import (XS_BASIS_GRID, XS_GRID, XS_LEAD_GRID, XS_MOM_GRID,
                            XS_OI_GRID, XS_REV_GRID, XS_TAKER_GRID,
                            portfolio_backtest, xs_positions)
-from .validate import ValidatedStrategy
+from .validate import ValidatedStrategy, window_supports_validation
 
 XS_INST = "XS-PORTFOLIO"
 
@@ -61,7 +61,8 @@ def _coverage_start(c: Candles, need: str) -> int | None:
     return int(idx[0]) if len(idx) else None
 
 
-def _trim_to_coverage(candles_map: dict[str, Candles], need: str, log=None
+def _trim_to_coverage(candles_map: dict[str, Candles], need: str, log=None,
+                      max_selection_bar: float = 10.0
                       ) -> dict[str, Candles] | None:
     """Exchanges expose only a few months of funding / open-interest / flow
     history; earlier bars carry blanks that would silently kill these
@@ -92,6 +93,21 @@ def _trim_to_coverage(candles_map: dict[str, Candles], need: str, log=None
         if log:
             log(f"xs research: only {min_len} {need}-covered bars "
                 f"(need 3000+), rejecting")
+        return None
+    # A fixed bar count is the wrong test: what matters is whether the scored
+    # window is long enough that selection over the grid cannot manufacture a
+    # survivor on its own. On a short window it can, and every "edge" found
+    # there is the search's Sharpe rather than the market's.
+    bar = next(iter(trimmed.values())).bar
+    ok, need_bars = window_supports_validation(
+        n_oos=int(min_len * 0.3), n_trials=XS_TOTAL_TRIALS,
+        bars_per_year=BARS_PER_YEAR[bar], max_bar=max_selection_bar)
+    if not ok:
+        if log:
+            log(f"xs research: {need} window scores {int(min_len * 0.3)} bars "
+                f"against the {need_bars} needed before selection noise falls "
+                f"below Sharpe {max_selection_bar:.0f} — skipping, the "
+                f"recorded window grows on its own")
         return None
     if log:
         log(f"xs research: {need} coverage window = {min_len} bars "
@@ -213,6 +229,7 @@ def research_xs(
     min_dsr: float = 0.5,
     max_oos_drawdown: float = 0.35,
     n_folds: int = 3,
+    max_selection_bar: float = 10.0,
     log=None,
     leader: str | None = None,
 ) -> list[ValidatedStrategy]:
@@ -223,7 +240,8 @@ def research_xs(
         return []
     out: list[ValidatedStrategy] = []
     for name, kind, grid, needs in XS_FAMILIES:
-        data = _trim_to_coverage(candles_map, needs, log) if needs else candles_map
+        data = (_trim_to_coverage(candles_map, needs, log, max_selection_bar)
+                if needs else candles_map)
         if data is None:
             continue
         if kind == "lead" and (not leader or leader not in candles_map):

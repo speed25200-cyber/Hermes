@@ -170,6 +170,30 @@ def expected_max_sharpe(n_trials: int, n_obs: int) -> float:
     return math.sqrt(1.0 / (n_obs - 1)) * ((1 - EULER_GAMMA) * z1 + EULER_GAMMA * z2)
 
 
+def bars_for_selection_bar(n_trials: int, bars_per_year: int,
+                           max_bar: float) -> int:
+    """Independent observations needed before the selection bar falls to
+    `max_bar` annualised Sharpe.
+
+    The bar is K * sqrt(bars_per_year / (n - 1)) with K fixed by the trial
+    count, so the sample length required to make selection noise fall below
+    a given Sharpe has a closed form. Searching a window shorter than this
+    cannot produce a survivor: no strategy that exists can beat a bar set
+    above what any strategy achieves, so every candidate that clears the
+    other gates is an overfit by construction.
+
+    Note which term dominates. Going from 500 trials to 83,793 moves the bar
+    by 43%; going from 1,900 bars to 21,000 moves it by 76%. Search budget is
+    a lever on this; sample length is the lever.
+    """
+    if n_trials < 2 or max_bar <= 0 or bars_per_year <= 0:
+        return 0
+    z1 = norm_ppf(1.0 - 1.0 / n_trials)
+    z2 = norm_ppf(1.0 - 1.0 / (n_trials * math.e))
+    k = (1 - EULER_GAMMA) * z1 + EULER_GAMMA * z2
+    return int(math.ceil(1.0 + bars_per_year * k * k / (max_bar * max_bar)))
+
+
 def selection_bar(rets: np.ndarray, n_trials: int, bars_per_year: int,
                   inflation: float | None = None) -> float:
     """Annualised Sharpe that selection alone is expected to produce.
