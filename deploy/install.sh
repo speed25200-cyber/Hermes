@@ -39,6 +39,11 @@ Wants=network-online.target
 [Service]
 WorkingDirectory=$HERMES_DIR
 EnvironmentFile=-$HERMES_DIR/.env
+# stdout to the journal is a pipe, so python block-buffers it: without this
+# a long-running command's progress appears only when 8KB has accumulated
+# or the process exits. Every backfill this system has ever run was silent
+# for its whole duration for exactly this reason.
+Environment=PYTHONUNBUFFERED=1
 ExecStart=$VENV/bin/python -m hermes run --mode paper
 Restart=always
 RestartSec=30
@@ -60,6 +65,7 @@ OnFailure=hermes.service
 Type=oneshot
 WorkingDirectory=$HERMES_DIR
 EnvironmentFile=-$HERMES_DIR/.env
+Environment=PYTHONUNBUFFERED=1
 ExecStart=$VENV/bin/python -m hermes fetch
 ExecStart=$VENV/bin/python -m hermes research
 ExecStartPost=/bin/systemctl restart hermes
@@ -92,6 +98,7 @@ After=network-online.target
 [Service]
 WorkingDirectory=$HERMES_DIR
 Environment=HERMES_DASH_TOKEN=$DASH_TOKEN
+Environment=PYTHONUNBUFFERED=1
 ExecStart=$VENV/bin/python -m hermes dashboard --host 0.0.0.0 --port 8899 --no-browser
 Restart=always
 RestartSec=10
