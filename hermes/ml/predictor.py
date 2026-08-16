@@ -47,6 +47,11 @@ _FEAT_CACHE: dict[tuple, np.ndarray] = {}
 _FEAT_MAX = 16
 _INCR_CACHE: dict[tuple, dict] = {}
 _INCR_MAX = 64
+# Aux rows may land up to `stale_periods` (3) hourly buckets after the bar they
+# describe, so the newest bars' features stay revisable for a few hours. The
+# incremental path replays this many trailing bars rather than trusting the
+# predictions it stored for them.
+AUX_REVISION_BARS = 16
 
 
 def clear_cache() -> None:
@@ -76,7 +81,8 @@ def _aux_schema(candles: Candles) -> tuple:
     alone would let an instrument with flow data reuse state fitted without
     it. Presence is stable, so this separates feature layouts without costing
     the cache. Late-arriving aux rows can still revise the newest bars'
-    features; that tail self-heals at the next refit.
+    features, which is why the incremental path replays its last
+    AUX_REVISION_BARS rather than trusting what it stored for them.
     """
     return tuple(sorted(candles.x))
 
@@ -234,10 +240,17 @@ def predict_series(
         # extend the existing walk-forward state over the new bars only
         pred = np.zeros(n)
         pred[: st["n"]] = st["pred"]
-        _walk_forward_range(pred, X, y, cfg, st["wf"], st["n"], n,
+        # Rewind before replaying: aux rows arrive after the bar they describe
+        # (the store allows up to `stale_periods` of lag), so the most recent
+        # bars' features can still be revised. Recomputing that tail keeps a
+        # long-running engine bit-identical to a batch run — the stored
+        # predictions for those bars were built from features that have since
+        # changed.
+        t0 = max(min_train, st["n"] - AUX_REVISION_BARS)
+        _walk_forward_range(pred, X, y, cfg, st["wf"], t0, n,
                             min_train, refit_every)
         width = _conformal_width(pred, y, horizon, n - horizon,
-                                 t0=st["n"], prev=st.get("width"))
+                                 t0=t0, prev=st.get("width"))
     else:
         pred = np.zeros(n)
         st = {"wf": {}}

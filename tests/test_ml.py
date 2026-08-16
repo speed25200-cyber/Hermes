@@ -317,3 +317,29 @@ def test_target_penalises_a_move_smaller_than_the_funding_to_hold_it():
     live = slice(100, 700)
     assert up[live].mean() > 0                            # price alone: long
     assert down[live].mean() < 0                          # net of funding: short
+
+
+def test_late_arriving_aux_does_not_desync_live_from_batch():
+    """Aux rows land a few bars after the bar they describe, so a past bar's
+    features get revised while the engine is running. A long-running engine
+    must still agree with a batch run over the same finished history."""
+    candles = _aux_for(generate(n=2400, seed=41), seed=7)
+    cfg = {"model": "ridge", "horizon": 4, "cross": False, "l2": 1.0}
+    lag = 4
+
+    predictor.clear_cache()
+    batch, _, _ = predictor.predict_series(candles, cfg)
+
+    predictor.clear_cache()
+    incr = None
+    for n in range(2300, 2401):
+        step = candles.slice(0, n)
+        # the newest `lag` bars have no aux yet; it arrives on later cycles.
+        # slice() hands back numpy views, so copy before masking
+        step.x = {k: v.copy() for k, v in step.x.items()}
+        for v in step.x.values():
+            v[n - lag:] = np.nan
+        incr, _, _ = predictor.predict_series(step, cfg)
+    # every bar whose aux has landed must agree exactly; the final `lag` bars
+    # are still waiting on data, so they legitimately differ
+    np.testing.assert_allclose(batch[:-lag], incr[:-lag], atol=1e-12)

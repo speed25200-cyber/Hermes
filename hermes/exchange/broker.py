@@ -277,22 +277,28 @@ class OKXBroker(Broker):
         """
         if not ord_id:
             return price_hint, 0.0
-        try:
-            st = self.client.order_status(inst, ord_id)
-        except OKXError as exc:
-            self.log(f"{inst}: could not read fill detail for {ord_id} ({exc}); "
-                     f"execution stats will understate cost")
+        # A market order is usually not settled the instant it is accepted, so
+        # avgPx/fee come back empty on the first read. Poll briefly rather than
+        # taking the empty payload as "filled at the decision price for free" —
+        # that fallback silently reports zero cost and would have the execution
+        # report announce that the model matches reality.
+        st: dict = {}
+        for attempt in range(3):
+            try:
+                st = self.client.order_status(inst, ord_id)
+            except OKXError as exc:
+                self.log(f"{inst}: could not read fill detail for {ord_id} "
+                         f"({exc}); execution stats will understate cost")
+                return price_hint, 0.0
+            if st.get("avgPx"):
+                break
+            if attempt < 2:
+                self._sleep(0.5)
+        if not st.get("avgPx"):
+            self.log(f"{inst}: order {ord_id} not settled in time; execution "
+                     f"stats will understate its cost")
             return price_hint, 0.0
-        try:
-            px = float(st.get("avgPx") or 0.0) or price_hint
-        except (TypeError, ValueError):
-            px = price_hint
-        try:
-            # OKX reports fee negative when charged, positive for a rebate
-            fee = -float(st.get("fee") or 0.0)
-        except (TypeError, ValueError):
-            fee = 0.0
-        return px, fee
+        return self._fill_detail(st, price_hint)
 
     def _maker_fill(self, inst: str, side: str, sz: str,
                     reduce_only: bool) -> tuple[float, float, float]:

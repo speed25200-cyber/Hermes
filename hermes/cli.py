@@ -425,7 +425,11 @@ def cmd_calibration(args) -> None:
             sid = f"{s['inst']}:{Genome.from_dict(s['genome']).gid}"
         except Exception:
             continue
-        promised = float((s.get("oos_stats") or {}).get("sharpe", 0.0))
+        # compare like with like: the live figure is a plain EWMA Sharpe with
+        # no serial-correlation haircut, so hold it against the uncorrected
+        # OOS number rather than the haircut one, which would flatter the gap
+        oos = s.get("oos_stats") or {}
+        promised = float(oos.get("sharpe_iid", oos.get("sharpe", 0.0)))
         t = tracks.get(sid)
         label = f"{s['inst']} {s['genome'].get('signal', '?')}"
         if not t or int(t.get("n_obs", 0)) < 24:
@@ -445,7 +449,8 @@ def cmd_calibration(args) -> None:
     prom = np.array([p for p, _ in pairs])
     real = np.array([r for _, r in pairs])
     print(f"\nstrategies with a live sample : {len(pairs)}")
-    print(f"mean OOS Sharpe promised      : {prom.mean():6.2f}")
+    print(f"mean OOS Sharpe promised      : {prom.mean():6.2f}  "
+          f"(uncorrected, to match the live estimator)")
     print(f"mean live Sharpe realised     : {real.mean():6.2f}")
     print(f"mean shortfall                : {(real - prom).mean():6.2f}")
     if len(pairs) >= 3:

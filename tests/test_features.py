@@ -60,6 +60,20 @@ def test_ewma_funding_is_stable_as_history_grows():
     np.testing.assert_allclose(full[:500], prefix, atol=1e-12)
 
 
+def test_ewma_funding_recovers_the_payment_size():
+    """The rescaling must return the per-payment rate itself, from the very
+    first payment — including when funding history starts long after the
+    candles do, which is the normal case (2y of candles, ~3mo of funding)."""
+    n = 40000
+    x = np.zeros(n)
+    first = n - 8000                       # funding coverage begins late
+    x[first::32] = 0.0003
+    out = F.ewma_funding(x, 100)
+    assert out[first] == pytest.approx(0.0003, rel=0.05)
+    assert out[-1] == pytest.approx(0.0003, rel=0.05)
+    assert np.abs(out).max() < 0.0004      # no blow-up anywhere
+
+
 def test_no_lookahead_in_rolling():
     """Rolling stats at index i must not change if future values change."""
     rng = np.random.default_rng(2)
