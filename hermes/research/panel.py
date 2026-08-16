@@ -168,11 +168,13 @@ def choose_panel_universe(candles_map: dict[str, Candles], min_insts: int = 4
     Dropping a name that halves the window is then automatic rather than a
     threshold someone has to guess.
     """
-    if len(candles_map) <= min_insts:
-        return dict(candles_map)
-    by_start = sorted(candles_map.items(),
-                      key=lambda kv: int(kv[1].ts[0]) if len(kv[1].ts) else 0)
-    end = min(int(c.ts[-1]) for _, c in by_start if len(c.ts))
+    # an instrument with no bars has no start to sort by and would make the
+    # index below raise; a newly listed perpetual can arrive exactly so
+    usable = {i: c for i, c in candles_map.items() if len(c.ts)}
+    if len(usable) <= min_insts:
+        return usable
+    by_start = sorted(usable.items(), key=lambda kv: int(kv[1].ts[0]))
+    end = min(int(c.ts[-1]) for _, c in by_start)
     best, best_score = None, -1.0
     for k in range(min_insts, len(by_start) + 1):
         start = int(by_start[k - 1][1].ts[0])

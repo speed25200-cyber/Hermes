@@ -282,3 +282,23 @@ def test_panel_reports_the_shared_window_it_actually_scored():
     head = [m for m in said if m.startswith("panel research:")]
     assert head and "1 dropped as too recent" in head[0], head
     assert "8 instruments over 6000 shared bars" in head[0], head
+
+
+def test_an_instrument_with_no_bars_is_dropped_not_crashed_on():
+    """A perpetual can be listed and ranked on volume before it has a single
+    stored bar. It has no start timestamp to order by."""
+    from hermes.research.panel import choose_panel_universe
+
+    uni = _trending_universe(n=3000, k=6)
+    empty = _candles("BRANDNEW-USDT-SWAP", [])
+    uni["BRANDNEW-USDT-SWAP"] = empty
+    kept = choose_panel_universe(uni)
+    assert "BRANDNEW-USDT-SWAP" not in kept
+    assert len(kept) == 6
+
+
+def test_research_panel_survives_an_empty_instrument():
+    uni = _trending_universe(n=3000, k=6)
+    uni["BRANDNEW-USDT-SWAP"] = _candles("BRANDNEW-USDT-SWAP", [])
+    out = research_panel(uni, panel_grid(), 2.0, 1.0, log=None)
+    assert isinstance(out, list)
