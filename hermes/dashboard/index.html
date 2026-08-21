@@ -332,7 +332,7 @@
     .tchartwrap{height:44vh}
     .thead .tsym{font-size:19px}
   }
-  .predgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .predgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
   .pred{border:1px solid var(--stroke);border-radius:12px;padding:12px 14px;background:rgba(255,255,255,.018)}
   .pred .psym{font-size:11px;font-weight:620;letter-spacing:.12em;color:var(--faint);text-transform:uppercase}
   .pred .pdir{font-size:18px;font-weight:650;letter-spacing:.04em;margin:4px 0 8px}
@@ -993,7 +993,8 @@ function renderScalp(s){
       <div class="psym">${sym}</div>
       <div class="pdir">${lab}</div>
       <div class="pbar"><i style="width:${pct}%"></i></div>
-      <div class="pmeta">${pct}% up · edge ${edge>=0?"+":""}${edge.toFixed(1)} bps</div>
+      <div class="pmeta">${pct}% up · edge ${edge>=0?"+":""}${edge.toFixed(1)} bps`
+        + (p.spread_bps? ` · spr ${Number(p.spread_bps).toFixed(1)}` : "") + `</div>
     </div>`;
   }).join("");
 }

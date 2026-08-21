@@ -63,3 +63,20 @@ def test_trade_imbalance():
         {"ts": now - 90_000, "px": "10", "sz": "99", "side": "sell"},  # too old
     ]
     assert abs(F.trade_imbalance(trades, now) - (20 - 10) / 30) < 1e-9
+
+
+def test_universe_top_volume_drops_wide_spread():
+    from hermes.scalp.universe import select_universe
+    ticks = {
+        "BTC-USDT-SWAP": {"vol_usd": 9e9, "spread_bps": 1.0},
+        "ETH-USDT-SWAP": {"vol_usd": 4e9, "spread_bps": 1.2},
+        "PEPE-USDT-SWAP": {"vol_usd": 8e8, "spread_bps": 25.0},
+        "SOL-USDT-SWAP": {"vol_usd": 1e9, "spread_bps": 2.0},
+        "AAA-USDT-SWAP": {"vol_usd": 5e7, "spread_bps": 3.0},
+        "BBB-USDT-SWAP": {"vol_usd": 1e6, "spread_bps": 2.0},
+    }
+    u = select_universe(ticks, n=50, max_spread_bps=8.0, min_vol_usd=20e6)
+    assert u[0] == "BTC-USDT-SWAP"
+    assert "SOL-USDT-SWAP" in u and "AAA-USDT-SWAP" in u
+    assert "PEPE-USDT-SWAP" not in u
+    assert "BBB-USDT-SWAP" not in u

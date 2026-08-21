@@ -22,14 +22,19 @@ class ScalpEngine:
         self.log = log
         self.state_path = os.path.join(state_dir, "scalp.json")
         self.instruments = list(s.get("instruments") or ["BTC-USDT-SWAP"])
+        self.universe_n = int(s.get("universe_n", 50))
+        self.max_spread = float(s.get("max_spread_bps", 8.0))
+        self.min_vol = float(s.get("min_vol_usd", 20_000_000))
         self.horizon = int(s.get("horizon", 3))
         self.min_edge = float(s.get("min_edge_bps", 5.0))
         self.max_hold = int(s.get("max_hold_bars", 6))
-        self.max_name = float(s.get("max_name_lev", 0.30))
-        self.gross_cap = float(s.get("gross_cap", 0.90))
+        self.max_name = float(s.get("max_name_lev", 0.12))
+        self.gross_cap = float(s.get("gross_cap", 1.50))
         self.opened_bar: dict[str, int] = {}  # inst -> 1m ts when opened
         self.last_bar: dict[str, int] = {}
         self.last_preds: list[dict] = []
+        self.ticks: dict[str, dict] = {}
+        self.universe_at = 0.0
         costs = (cfg.get("costs") or {})
         # maker-heavy scalp: ~2 bps fee + leftover slip
         self.round_trip_bps = 2.0 * (
@@ -44,6 +49,7 @@ class ScalpEngine:
         d = {
             "ts": time.time(),
             "preds": self.last_preds,
+            "universe": self.instruments,
             "round_trip_bps": self.round_trip_bps,
             "min_edge_bps": self.min_edge,
         }
@@ -55,19 +61,39 @@ class ScalpEngine:
         except OSError:
             pass
 
+    def refresh_universe(self, tickers: dict[str, dict]) -> list[str]:
+        from .universe import select_universe
+        self.ticks = tickers
+        picked = select_universe(tickers, n=self.universe_n,
+                                 max_spread_bps=self.max_spread,
+                                 min_vol_usd=self.min_vol)
+        if picked:
+            dropped = [i for i in self.instruments if i not in picked]
+            self.instruments = picked
+            self.universe_at = time.time()
+            # flatten anything that fell out of the liquid set
+            pos = self.broker.positions()
+            for inst in dropped:
+                qty = pos.get(inst, 0.0)
+                px = float((tickers.get(inst) or {}).get("last") or 0.0)
+                if px > 0 and abs(qty) * px > 1:
+                    self.broker.market_order(inst, -qty, px, force_taker=True)
+                    self.opened_bar.pop(inst, None)
+                    self.log(f"scalp drop {inst}: left top-{self.universe_n} / wide spread")
+        return self.instruments
+
     def _micro(self, inst: str, last: float) -> tuple[float, float, float]:
-        imb = book = micro = 0.0
-        try:
-            trades = self.client.last_trades(inst, limit=80)
-            imb = F.trade_imbalance(trades, int(time.time() * 1000))
-        except Exception:
-            pass
-        try:
-            book_raw = self.client.books(inst, sz=5)
-            book, micro = F.book_feats(book_raw, last)
-        except Exception:
-            pass
-        return imb, book, micro
+        """Book proxy from the all-swaps ticker (one REST call, not 50)."""
+        t = self.ticks.get(inst) or {}
+        bsz = float(t.get("bid_sz") or 0.0)
+        asz = float(t.get("ask_sz") or 0.0)
+        bid = float(t.get("bid") or 0.0)
+        ask = float(t.get("ask") or 0.0)
+        imb = (bsz - asz) / (bsz + asz) if (bsz + asz) > 0 else 0.0
+        den = bsz + asz
+        micro_px = (bid * asz + ask * bsz) / den if den > 0 and bid > 0 and ask > 0 else last
+        vs = (micro_px / last - 1.0) if last > 0 else 0.0
+        return float(imb), float(imb), float(vs)  # book≈size imbalance; no L2 hammering
 
     def predict_all(self, candles_1m: dict[str, Candles]) -> list[dict]:
         btc = candles_1m.get("BTC-USDT-SWAP")
@@ -84,8 +110,10 @@ class ScalpEngine:
             feat["imb"], feat["book"], feat["micro"] = imb, book, micro
             pred = M.predict(feat, btc_r1, inst.startswith("BTC-"), self.horizon)
             edge = float(pred["edge_bps"])
-            # cost gate: predicted move must beat a round-trip
-            if abs(edge) < max(self.min_edge, self.round_trip_bps):
+            spread = float((self.ticks.get(inst) or {}).get("spread_bps") or 0.0)
+            # cost + spread gate: predicted move must beat both
+            hurdle = max(self.min_edge, self.round_trip_bps, spread * 1.2)
+            if abs(edge) < hurdle:
                 direction = "flat"
             elif edge > 0:
                 direction = "long"
@@ -99,6 +127,7 @@ class ScalpEngine:
                 "dir": direction,
                 "score": pred["score"],
                 "vol_bps": pred["vol_bps"],
+                "spread_bps": spread,
                 "r1": feat["r1"],
                 "bar_ts": int(c.ts[-1]),
             })

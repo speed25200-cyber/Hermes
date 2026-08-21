@@ -139,19 +139,36 @@ class OKXClient:
         return data[0] if data else {"bids": [], "asks": []}
 
     def tickers_full(self, inst_ids: list[str]) -> dict[str, dict]:
-        """Live last price + 24h change for the given SWAP instruments."""
+        """Live last + 24h + bid/ask/size/volume for the given SWAP instruments."""
         data = self._request("GET", "/api/v5/market/tickers", {"instType": "SWAP"})
-        want = set(inst_ids)
+        want = set(inst_ids) if inst_ids else None
         out: dict[str, dict] = {}
         for row in data:
-            if row.get("instId") in want and row.get("last"):
-                last = float(row["last"])
-                open24 = float(row.get("open24h") or 0.0)
-                out[row["instId"]] = {
-                    "last": last,
-                    "chg24h": (last / open24 - 1.0) if open24 > 0 else 0.0,
-                }
+            inst = row.get("instId") or ""
+            if want is not None and inst not in want:
+                continue
+            if not row.get("last"):
+                continue
+            last = float(row["last"])
+            open24 = float(row.get("open24h") or 0.0)
+            bid = float(row.get("bidPx") or 0.0)
+            ask = float(row.get("askPx") or 0.0)
+            spread_bps = ((ask - bid) / last * 1e4) if last > 0 and bid > 0 and ask > bid else 999.0
+            out[inst] = {
+                "last": last,
+                "chg24h": (last / open24 - 1.0) if open24 > 0 else 0.0,
+                "bid": bid, "ask": ask,
+                "bid_sz": float(row.get("bidSz") or 0.0),
+                "ask_sz": float(row.get("askSz") or 0.0),
+                "vol_usd": float(row.get("volCcyQuote24h") or 0.0),
+                "spread_bps": spread_bps,
+            }
         return out
+
+    def swap_tickers(self) -> dict[str, dict]:
+        """All USDT-margined perps (one public call)."""
+        all_t = self.tickers_full([])
+        return {k: v for k, v in all_t.items() if k.endswith("-USDT-SWAP")}
 
     def funding_rate(self, inst_id: str) -> dict:
         return self._request("GET", "/api/v5/public/funding-rate",

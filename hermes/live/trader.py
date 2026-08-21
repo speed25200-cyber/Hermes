@@ -724,30 +724,51 @@ class LiveRunner:
         threading.Thread(target=self._research_bg, daemon=True).start()
         last_cycle_bar = 0
         last_scalp_bar = 0
+        last_uni = 0.0
+        rr = 0
         poll = int((self.cfg.raw.get("scalp") or {}).get("poll_seconds", 5)
                    if self.scalp else self.cfg["live"]["poll_seconds"])
         while True:
             try:
                 from ..data.fetcher import update_latest
                 if self.scalp:
-                    for inst in self.scalp.instruments:
+                    try:
+                        ticks = self.client.swap_tickers()
+                    except Exception as exc:
+                        self.log(f"scalp tickers: {type(exc).__name__}: {exc}")
+                        ticks = {}
+                    if ticks and (time.time() - last_uni > 900 or not self.scalp.instruments):
+                        before = list(self.scalp.instruments)
+                        uni = self.scalp.refresh_universe(ticks)
+                        last_uni = time.time()
+                        if uni != before:
+                            self.log(f"scalp universe {len(uni)}: "
+                                     + ",".join(i.split("-")[0] for i in uni[:12])
+                                     + ("…" if len(uni) > 12 else ""))
+                    else:
+                        self.scalp.ticks = ticks or self.scalp.ticks
+                    names = self.scalp.instruments or ["BTC-USDT-SWAP"]
+                    batch = 8
+                    chunk = names[rr:rr + batch]
+                    rr = (rr + batch) % max(len(names), 1)
+                    if "BTC-USDT-SWAP" not in chunk:
+                        chunk = ["BTC-USDT-SWAP"] + chunk
+                    for inst in chunk:
                         try:
                             update_latest(self.client, self.store, inst, "1m",
                                           limit=120)
                         except Exception as exc:
                             self.log(f"scalp data {inst}: {type(exc).__name__}: {exc}")
-                    c1 = {inst: self.store.load(inst, "1m")
-                          for inst in self.scalp.instruments}
+                    c1 = {inst: self.store.load(inst, "1m") for inst in names}
                     newest_1m = max((int(c.ts[-1]) for c in c1.values() if len(c)),
                                     default=0)
                     if newest_1m > last_scalp_bar:
                         last_scalp_bar = newest_1m
                         rep = self.scalp.tick(c1, time.time())
                         self.trader.save_state(self.cfg["state_dir"])
-                        dirs = {p["inst"].split("-")[0]: p["dir"]
-                                for p in rep.get("preds", [])}
+                        live = [p for p in rep.get("preds", []) if p["dir"] != "flat"]
                         self.log(f"scalp @ {newest_1m}: eq={rep.get('equity', 0):.2f} "
-                                 f"{dirs}")
+                                 f"live={len(live)}/{len(rep.get('preds', []))}")
                         if self.risk.state.killed:
                             self.log("KILL SWITCH TRIPPED - halting.")
                             return
