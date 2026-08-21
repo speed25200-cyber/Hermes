@@ -95,8 +95,6 @@ class ScalpEngine:
                 px = float(getattr(self.broker, "prices", {}).get(inst, 0.0) or 0.0)
             if px <= 0:
                 continue
-            if abs(qty) * px < 0.5:
-                continue
             self.broker.market_order(inst, -qty, px, force_taker=True)
             self.opened_bar.pop(inst, None)
             self.log(f"scalp flatten dust {inst} qty={qty:.6f}")

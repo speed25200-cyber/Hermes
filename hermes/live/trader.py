@@ -764,10 +764,14 @@ class LiveRunner:
                         chunk = ["BTC-USDT-SWAP"] + chunk
                     for inst in chunk:
                         try:
+                            t0, r0 = self.client.timeout, self.client.max_retries
+                            self.client.timeout, self.client.max_retries = 6.0, 1
                             update_latest(self.client, self.store, inst, "1m",
                                           limit=120)
                         except Exception as exc:
                             self.log(f"scalp data {inst}: {type(exc).__name__}: {exc}")
+                        finally:
+                            self.client.timeout, self.client.max_retries = t0, r0
                     c1 = {inst: self.store.load(inst, "1m") for inst in names}
                     newest_1m = max((int(c.ts[-1]) for c in c1.values() if len(c)),
                                     default=0)

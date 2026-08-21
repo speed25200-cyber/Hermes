@@ -8,6 +8,13 @@ target.
 from __future__ import annotations
 
 LEADERS = ("BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP")
+# OKX lists metal and equity perps next to crypto. 1m scalp on gold/stocks
+# 429s the loop (retries) and is not the product.
+NON_CRYPTO = {
+    "XAU", "XAG", "XCU", "XPT", "XPD",
+    "SNDK", "SKHYNIX", "AAPL", "TSLA", "NVDA", "AMZN", "META", "GOOG", "MSFT",
+    "COIN", "MSTR", "INTC", "AMD", "NFLX", "BABA", "PLTR",
+}
 
 
 def select_universe(tickers: dict[str, dict], n: int = 50,
@@ -21,6 +28,9 @@ def select_universe(tickers: dict[str, dict], n: int = 50,
     scored: list[tuple[float, str]] = []
     for inst, t in tickers.items():
         if not inst.endswith("-USDT-SWAP"):
+            continue
+        base = inst.split("-", 1)[0]
+        if base in NON_CRYPTO:
             continue
         if float(t.get("spread_bps", 999)) > max_spread_bps:
             continue
