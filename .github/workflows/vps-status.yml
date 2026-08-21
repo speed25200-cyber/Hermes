@@ -67,6 +67,14 @@ jobs:
             # fetch, and fetching all 220 lines to learn whether research is
             # still running is the wrong trade — the two facts that decide
             # what to do next belong where a short tail can see them.
+            echo "===== research decisions (last pass) ====="
+            # what the search actually concluded, not 50 lines of whatever
+            # happened to be last: the panel verdict and the skips are the
+            # only things that explain an idle book.
+            journalctl -u hermes-research --no-pager -n 4000 2>/dev/null \
+              | grep -aE "panel|deployed |skipping|rejecting|xs (IS|OOS|research)|window|registry:" \
+              | tail -25 || echo "(no research lines)"
+            echo
             echo "===== HEADLINE ====="
             echo "research: $(systemctl is-active hermes-research)   engine: $(systemctl is-active hermes)   dashboard: $(systemctl is-active hermes-dashboard)"
             ss -tln | grep -q ":8899 " && echo "port 8899: LISTENING" || echo "port 8899: NOT listening"
