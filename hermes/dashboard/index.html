@@ -332,16 +332,85 @@
     .tchartwrap{height:44vh}
     .thead .tsym{font-size:19px}
   }
-  .predgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px}
-  .pred{border:1px solid var(--stroke);border-radius:12px;padding:12px 14px;background:rgba(255,255,255,.018)}
-  .pred .psym{font-size:11px;font-weight:620;letter-spacing:.12em;color:var(--faint);text-transform:uppercase}
-  .pred .pdir{font-size:18px;font-weight:650;letter-spacing:.04em;margin:4px 0 8px}
-  .pred.long .pdir{color:var(--green)} .pred.short .pdir{color:var(--red)} .pred.flat .pdir{color:var(--faint)}
-  .pbar{height:5px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden;position:relative}
-  .pbar i{display:block;height:100%;width:50%;background:linear-gradient(90deg,var(--red),var(--gold),var(--green));
-    transform-origin:left;border-radius:3px}
-  .pmeta{font-size:11px;color:var(--dim);margin-top:7px;font-variant-numeric:tabular-nums}
-  @media(max-width:720px){.predgrid{grid-template-columns:1fr}}
+  /* ================= live scan board ================= */
+  #scalpbox{padding:0;margin-bottom:14px;overflow:hidden}
+  #scalpbox::before{
+    content:"";position:absolute;left:0;right:0;height:1px;top:0;z-index:2;pointer-events:none;
+    background:linear-gradient(90deg,transparent,rgba(236,210,155,.55),transparent);
+    animation:scanline 4.8s ease-in-out infinite;
+  }
+  @keyframes scanline{0%{transform:translateY(0);opacity:.15}50%{transform:translateY(220px);opacity:.45}100%{transform:translateY(520px);opacity:0}}
+  .scan-head{display:flex;align-items:center;gap:22px;padding:18px 22px 14px;
+    border-bottom:1px solid var(--hair)}
+  .scan-title{display:flex;align-items:center;gap:14px;min-width:210px}
+  .radar{width:38px;height:38px;border-radius:50%;flex:none;position:relative;
+    border:1px solid rgba(211,162,79,.38);
+    background:
+      radial-gradient(circle at 50% 50%, rgba(211,162,79,.16), transparent 68%),
+      repeating-radial-gradient(circle at 50% 50%, transparent 0 6px, rgba(211,162,79,.07) 6.5px 7px)}
+  .radar::after{content:"";position:absolute;left:50%;top:50%;width:46%;height:1.5px;
+    background:linear-gradient(90deg,transparent,var(--gold2));
+    transform-origin:left center;animation:sweep 2.6s linear infinite}
+  @keyframes sweep{to{transform:rotate(360deg)}}
+  .scan-kicker{font-size:9.5px;font-weight:620;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);
+    opacity:.85}
+  .scan-name{font-size:18px;font-weight:520;letter-spacing:-.02em;line-height:1.15;margin-top:2px}
+  .scan-kpis{display:flex;gap:0;margin-left:auto;flex-wrap:wrap}
+  .scan-kpis > div{padding:0 18px;border-left:1px solid var(--hair);text-align:right}
+  .scan-kpis b{display:block;font-size:18px;font-weight:480;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--txt);line-height:1.15}
+  .scan-kpis span{font-size:9.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .scan-live{display:flex;gap:10px;padding:14px 16px 4px;overflow-x:auto;scrollbar-width:none}
+  .scan-live::-webkit-scrollbar{display:none}
+  .scard{flex:1 1 180px;min-width:176px;max-width:280px;padding:14px 16px 13px;border-radius:14px;
+    border:1px solid var(--stroke);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.012));
+    cursor:pointer;transition:border-color .25s, transform .35s cubic-bezier(.22,1,.36,1)}
+  .scard:hover{transform:translateY(-1px)}
+  .scard.long{border-color:rgba(62,207,142,.32);box-shadow:inset 0 0 0 1px rgba(62,207,142,.06),0 18px 40px -22px rgba(62,207,142,.55)}
+  .scard.short{border-color:rgba(240,84,79,.32);box-shadow:inset 0 0 0 1px rgba(240,84,79,.06),0 18px 40px -22px rgba(240,84,79,.5)}
+  .scard.watch{border-color:rgba(211,162,79,.22)}
+  .scard .topline{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .scard .sym{font-size:12px;font-weight:650;letter-spacing:.18em;color:var(--txt2)}
+  .scard .tag{font-size:9px;font-weight:700;letter-spacing:.14em;padding:3px 7px;border-radius:5px}
+  .scard.long .tag{color:var(--green);background:rgba(62,207,142,.12)}
+  .scard.short .tag{color:var(--red);background:rgba(240,84,79,.12)}
+  .scard.watch .tag{color:var(--gold);background:var(--gold-dim)}
+  .scard .dir{font-size:26px;font-weight:420;letter-spacing:.1em;margin:8px 0 10px;line-height:1}
+  .scard.long .dir{color:var(--green)} .scard.short .dir{color:var(--red)} .scard.watch .dir{color:var(--gold2)}
+  .scard .nums{display:flex;gap:16px}
+  .scard .nums b{display:block;font-size:15px;font-weight:520;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .scard .nums span{font-size:9px;font-weight:620;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+  .scan-empty{padding:10px 22px 16px;font-size:12px;color:var(--faint);font-weight:460}
+  .scan-board{max-height:min(52vh, 560px);overflow:auto;scrollbar-width:thin;
+    scrollbar-color:rgba(255,255,255,.12) transparent;padding:4px 8px 10px}
+  .shead,.srow{display:grid;grid-template-columns:68px 1fr 52px 72px 70px 52px;
+    gap:10px;align-items:center;padding:0 12px}
+  .shead{position:sticky;top:0;z-index:1;padding:8px 12px 6px;
+    font-size:9px;font-weight:650;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);
+    background:linear-gradient(180deg,#0c0d11 70%,transparent);backdrop-filter:blur(8px)}
+  .srow{padding:7px 12px;border-radius:8px;font-size:12.5px;cursor:pointer;
+    transition:background .2s}
+  .srow:hover{background:rgba(255,255,255,.035)}
+  .srow.long{background:rgba(62,207,142,.045)}
+  .srow.short{background:rgba(240,84,79,.045)}
+  .srow .sym{font-weight:620;letter-spacing:.06em;color:var(--txt2)}
+  .srow .pct,.srow .edge,.srow .spr{font-variant-numeric:tabular-nums;text-align:right;font-weight:500}
+  .srow .st{font-size:9.5px;font-weight:720;letter-spacing:.12em;text-align:right}
+  .srow.long .st{color:var(--green)} .srow.short .st{color:var(--red)} .srow.flat .st{color:var(--faint)}
+  .bias{position:relative;height:5px;border-radius:3px;background:rgba(255,255,255,.055);overflow:hidden}
+  .bias::after{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:rgba(255,255,255,.28)}
+  .bias i{position:absolute;top:0;bottom:0;border-radius:3px;min-width:2px;
+    transition:width .6s cubic-bezier(.22,1,.36,1),left .6s,right .6s}
+  .bias.long i{left:50%;background:linear-gradient(90deg,rgba(62,207,142,.25),var(--green))}
+  .bias.short i{right:50%;background:linear-gradient(90deg,var(--red),rgba(240,84,79,.25))}
+  .bias.flat i{left:48%;width:4% !important;background:rgba(255,255,255,.18)}
+  @media(max-width:720px){
+    .scan-head{flex-direction:column;align-items:flex-start;gap:14px}
+    .scan-kpis{margin-left:0;width:100%;display:grid;grid-template-columns:repeat(4,1fr)}
+    .scan-kpis > div{padding:0 8px;text-align:left}
+    .scan-kpis b{font-size:16px}
+    .shead,.srow{grid-template-columns:56px 1fr 48px 62px 48px}
+    .srow .spr,.shead .h-spr{display:none}
+  }
 
   .haltbanner{display:none;margin-bottom:14px;border:1px solid rgba(240,84,79,.3);border-radius:14px;
     background:linear-gradient(180deg,rgba(240,84,79,.1),rgba(240,84,79,.04));
@@ -431,10 +500,31 @@
     <div class="tape" id="markets"></div>
   </div>
 
-  <div class="panel" id="scalpbox" style="display:none;margin-bottom:14px">
-    <div class="ptitle"><span class="tick"></span>1m direction
-      <span class="sub">order-flow · cost-gated</span></div>
-    <div class="predgrid" id="scalprow"></div>
+  <div class="panel scan in" id="scalpbox">
+    <div class="scan-head">
+      <div class="scan-title">
+        <div class="radar" aria-hidden="true"></div>
+        <div>
+          <div class="scan-kicker">Hermes · 1m order-flow</div>
+          <div class="scan-name">Live scan</div>
+        </div>
+      </div>
+      <div class="scan-kpis">
+        <div><b class="num" id="sc_n">—</b><span>universe</span></div>
+        <div><b class="num" id="sc_live">—</b><span>firing</span></div>
+        <div><b class="num" id="sc_gate">—</b><span>gated</span></div>
+        <div><b class="num" id="sc_age">—</b><span>last print</span></div>
+      </div>
+    </div>
+    <div class="scan-live" id="scanlive"></div>
+    <div class="scan-empty" id="scanempty">Waiting for the first 1-minute print…</div>
+    <div class="shead" id="scanhead" style="display:none">
+      <span>Name</span><span>Bias</span><span style="text-align:right">P(up)</span>
+      <span class="h-edge" style="text-align:right">Edge</span>
+      <span class="h-spr" style="text-align:right">Spread</span>
+      <span style="text-align:right">State</span>
+    </div>
+    <div class="scan-board" id="scanboard"></div>
   </div>
 
   <!-- metrics bar -->
@@ -980,21 +1070,79 @@ function renderLog(lines){
 function renderScalp(s){
   const box = $("scalpbox");
   if(!box) return;
-  const preds = (s && s.preds) || [];
-  if(!preds.length){ box.style.display = "none"; return; }
-  box.style.display = "block";
-  $("scalprow").innerHTML = preds.map(p=>{
+  const preds = ((s && s.preds) || []).slice();
+  const empty = $("scanempty"), head = $("scanhead"), liveEl = $("scanlive"), board = $("scanboard");
+  const n = preds.length;
+  const live = preds.filter(p => p.dir === "long" || p.dir === "short")
+    .sort((a,b) => Math.abs(b.edge_bps||0) - Math.abs(a.edge_bps||0));
+  const gated = n - live.length;
+  $("sc_n").textContent = n ? String(n) : "—";
+  $("sc_live").textContent = n ? String(live.length) : "—";
+  $("sc_live").style.color = live.length ? "var(--green)" : "";
+  $("sc_gate").textContent = n ? String(gated) : "—";
+  const age = s && s.ts ? (Date.now()/1000 - s.ts) : null;
+  const ageEl = $("sc_age");
+  if(age===null) ageEl.textContent = "—";
+  else if(age < 8) ageEl.textContent = "now";
+  else if(age < 60) ageEl.textContent = Math.round(age)+"s";
+  else ageEl.textContent = Math.round(age/60)+"m";
+  ageEl.style.color = (age!==null && age < 15) ? "var(--green)" : (age!==null && age < 60) ? "var(--amber)" : "";
+
+  if(!n){
+    empty.style.display = "block";
+    empty.textContent = "Scanning OKX USDT perps — waiting on the next 1m close.";
+    head.style.display = "none";
+    liveEl.innerHTML = "";
+    board.innerHTML = "";
+    return;
+  }
+  empty.style.display = "none";
+  head.style.display = "grid";
+
+  const watching = preds.filter(p => p.dir === "flat")
+    .sort((a,b) => Math.abs(b.edge_bps||0) - Math.abs(a.edge_bps||0)).slice(0, 3);
+  const featured = live.length ? live.slice(0, 4) : watching;
+  liveEl.innerHTML = featured.map(p => {
+    const dir = p.dir || "flat";
+    const cls = dir === "flat" ? "watch" : dir;
+    const tag = dir === "long" ? "FIRING" : dir === "short" ? "FIRING" : "WATCH";
+    const lab = dir === "long" ? "LONG" : dir === "short" ? "SHORT" : "GATED";
+    const pct = Math.round((p.p_up || 0.5) * 100);
+    const edge = p.edge_bps || 0;
+    const spr = p.spread_bps || 0;
+    const sym = (p.inst || "").replace("-USDT-SWAP","");
+    return `<div class="scard ${cls}" onclick="openTrade('${p.inst}')">
+      <div class="topline"><span class="sym">${sym}</span><span class="tag">${tag}</span></div>
+      <div class="dir">${lab}</div>
+      <div class="nums">
+        <div><b>${pct}%</b><span>p(up)</span></div>
+        <div><b>${edge>=0?"+":""}${edge.toFixed(1)}</b><span>edge bps</span></div>
+        <div><b>${spr.toFixed(1)}</b><span>spread</span></div>
+      </div>
+    </div>`;
+  }).join("");
+
+  const ranked = preds.slice().sort((a,b)=>{
+    const al = (a.dir==="flat")?0:1, bl = (b.dir==="flat")?0:1;
+    if(al!==bl) return bl-al;
+    return Math.abs(b.edge_bps||0) - Math.abs(a.edge_bps||0);
+  });
+  board.innerHTML = ranked.map(p=>{
     const dir = p.dir || "flat";
     const pct = Math.round((p.p_up || 0.5) * 100);
-    const edge = (p.edge_bps || 0);
-    const lab = dir === "long" ? "LONG" : dir === "short" ? "SHORT" : "FLAT";
+    const edge = p.edge_bps || 0;
+    const spr = p.spread_bps || 0;
+    const w = Math.min(50, Math.abs(pct-50));
+    const biasCls = pct>52 ? "long" : pct<48 ? "short" : "flat";
+    const st = dir==="long"?"LONG":dir==="short"?"SHORT":"FLAT";
     const sym = (p.inst || "").replace("-USDT-SWAP","");
-    return `<div class="pred ${dir}">
-      <div class="psym">${sym}</div>
-      <div class="pdir">${lab}</div>
-      <div class="pbar"><i style="width:${pct}%"></i></div>
-      <div class="pmeta">${pct}% up · edge ${edge>=0?"+":""}${edge.toFixed(1)} bps`
-        + (p.spread_bps? ` · spr ${Number(p.spread_bps).toFixed(1)}` : "") + `</div>
+    return `<div class="srow ${dir}" onclick="openTrade('${p.inst}')">
+      <span class="sym">${sym}</span>
+      <span class="bias ${biasCls}"><i style="width:${w}%"></i></span>
+      <span class="pct">${pct}%</span>
+      <span class="edge">${edge>=0?"+":""}${edge.toFixed(1)}</span>
+      <span class="spr">${spr.toFixed(1)}</span>
+      <span class="st">${st}</span>
     </div>`;
   }).join("");
 }
@@ -1533,7 +1681,7 @@ async function refresh(){
   if(tOpen) updateTradeStats();
 }
 refresh();
-setInterval(refresh, 2500);
+setInterval(refresh, 1500);
 </script>
 </body>
 </html>
