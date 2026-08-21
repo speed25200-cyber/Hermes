@@ -22,15 +22,10 @@ DEFAULTS: dict[str, Any] = {
     # find a real edge (funding carry and BTC lead-lag are alt-heavy);
     # instruments[0] is the cross-asset leader
     "instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP",
-                    "XRP-USDT-SWAP", "DOGE-USDT-SWAP", "BNB-USDT-SWAP",
+                    "XRP-USDT-SWAP", "BNB-USDT-SWAP", "DOGE-USDT-SWAP",
                     "AVAX-USDT-SWAP", "LINK-USDT-SWAP", "ADA-USDT-SWAP",
                     "LTC-USDT-SWAP", "DOT-USDT-SWAP", "BCH-USDT-SWAP",
-                    "NEAR-USDT-SWAP", "SUI-USDT-SWAP", "APT-USDT-SWAP",
-                    "TRX-USDT-SWAP", "UNI-USDT-SWAP", "ATOM-USDT-SWAP",
-                    "FIL-USDT-SWAP", "ETC-USDT-SWAP", "XLM-USDT-SWAP",
-                    "ARB-USDT-SWAP", "OP-USDT-SWAP", "INJ-USDT-SWAP",
-                    "TIA-USDT-SWAP", "SEI-USDT-SWAP", "CRV-USDT-SWAP",
-                    "AAVE-USDT-SWAP"],
+                    "UNI-USDT-SWAP", "ATOM-USDT-SWAP"],
     # 15m bars: ~35k bars/year per instrument -> 4x the statistical power of
     # 1H for the validation gates, and intraday seasonality becomes usable
     "bar": "15m",
@@ -40,14 +35,14 @@ DEFAULTS: dict[str, Any] = {
     # of every validation gate; newer listings contribute what they have
     "history_days": 730,
     "research": {
-        "population": 96,
-        "generations": 25,
+        "population": 64,
+        "generations": 18,
         "seed": None,
         "is_fraction": 0.7,          # fraction of history used in-sample
         "embargo_bars": 192,         # 2 days of 15m — must exceed max ML horizon (48)
         "min_oos_sharpe": 0.5,       # OOS annualised Sharpe required to deploy
         "min_dsr": 0.05,             # deflated Sharpe probability threshold
-        "max_deployed": 6,           # max strategies live at once
+        "max_deployed": 4,           # max strategies live at once
         "refresh_hours": 168,        # re-run research weekly
         "refresh_hours_empty": 24,   # ...but daily while nothing is deployed:
                                      # the hunt escalates instead of sleeping

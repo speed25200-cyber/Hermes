@@ -173,3 +173,16 @@ def test_xs_lead_lag_finds_planted_followers():
     # no leader passed -> family skipped, never crashes
     out2 = research_xs(uni, fee_bps=fee, slip_bps=slip, log=None)
     assert all(s.genome.signal != "xs_lead" for s in out2)
+
+
+def test_basis_positions_causal():
+    from hermes.strategy.xs import xs_positions
+    a = make_universe(seed=5)
+    b = make_universe(seed=5)
+    for inst in b:
+        b[inst].mark[5500:] *= 1.02
+    _, insts, pa = xs_positions(a, {"lookback": 48, "max_w": 0.25}, kind="basis")
+    _, _, pb = xs_positions(b, {"lookback": 48, "max_w": 0.25}, kind="basis")
+    assert pa
+    for inst in insts:
+        np.testing.assert_allclose(pa[inst][:5400], pb[inst][:5400], atol=1e-10)

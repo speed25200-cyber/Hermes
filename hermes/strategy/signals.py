@@ -113,6 +113,32 @@ def _raw_signal(candles: Candles, g: Genome, ctx: dict | None = None) -> np.ndar
         out = np.where(np.abs(f) > p["threshold"], -np.sign(f), 0.0)
         return np.nan_to_num(out)
 
+    if g.signal == "basis_fade":
+        lb = int(p["lookback"])
+        b = F.ema(candles.basis, lb)
+        out = np.where(np.abs(b) > p["threshold"], -np.sign(b), 0.0)
+        return np.nan_to_num(out)
+
+    if g.signal == "flow_fade":
+        lb = int(p["lookback"])
+        imb = F.ema(candles.taker_imb, lb)
+        out = np.where(np.abs(imb) > p["threshold"], -np.sign(imb), 0.0)
+        return np.nan_to_num(out)
+
+    if g.signal == "crowd_fade":
+        lb = int(p["lookback"])
+        oi = candles.oi
+        n = len(oi)
+        dlog = np.zeros(n)
+        if n > 1:
+            with np.errstate(invalid="ignore", divide="ignore"):
+                dlog[1:] = np.diff(oi) / np.where(oi[:-1] > 1e-9, oi[:-1], np.nan)
+        ret = F.lookback_return(c, lb)
+        crowd = np.nan_to_num(dlog * np.sign(ret))
+        out = -np.sign(crowd)
+        out[np.abs(crowd) < 1e-6] = 0.0
+        return out
+
     if g.signal in ("ml_ridge", "ml_boost"):
         return _ml_position(candles, g, ctx)
 

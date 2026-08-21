@@ -155,6 +155,59 @@ class OKXClient:
             params["after"] = str(after)
         return self._request("GET", "/api/v5/public/funding-rate-history", params)
 
+    def open_interest_history(self, inst_id: str, period: str = "15m",
+                              limit: int = 100, end: int | None = None) -> list[tuple]:
+        """[(ts, oi), ...] newest first. Public rubik endpoint."""
+        params: dict = {"instId": inst_id, "period": period, "limit": str(limit)}
+        if end is not None:
+            params["end"] = str(end)
+        data = self._request("GET", "/api/v5/rubik/stat/contracts/open-interest-history",
+                             params)
+        out = []
+        for row in data or []:
+            try:
+                out.append((int(row[0]), float(row[1])))
+            except (TypeError, ValueError, IndexError):
+                continue
+        return out
+
+    def taker_volume_history(self, inst_id: str, period: str = "15m",
+                             limit: int = 100, end: int | None = None) -> list[tuple]:
+        """[(ts, buy, sell), ...] newest first."""
+        params: dict = {"instId": inst_id, "period": period, "limit": str(limit),
+                        "unit": "2"}  # USD
+        if end is not None:
+            params["end"] = str(end)
+        data = self._request("GET", "/api/v5/rubik/stat/taker-volume-contract", params)
+        out = []
+        for row in data or []:
+            try:
+                # docs: [ts, sellVol, buyVol]
+                ts, sell, buy = int(row[0]), float(row[1]), float(row[2])
+                out.append((ts, buy, sell))
+            except (TypeError, ValueError, IndexError):
+                continue
+        return out
+
+    def mark_candles(self, inst_id: str, bar: str = "15m", limit: int = 100,
+                     after: int | None = None, history: bool = False) -> list[list]:
+        path = ("/api/v5/market/history-mark-price-candles" if history
+                else "/api/v5/market/mark-price-candles")
+        params: dict = {"instId": inst_id, "bar": bar, "limit": str(limit)}
+        if after is not None:
+            params["after"] = str(after)
+        return self._request("GET", path, params)
+
+    def index_candles(self, inst_id: str, bar: str = "15m", limit: int = 100,
+                      after: int | None = None, history: bool = False) -> list[list]:
+        """inst_id is the INDEX id, e.g. BTC-USDT (no -SWAP)."""
+        path = ("/api/v5/market/history-index-candles" if history
+                else "/api/v5/market/index-candles")
+        params: dict = {"instId": inst_id, "bar": bar, "limit": str(limit)}
+        if after is not None:
+            params["after"] = str(after)
+        return self._request("GET", path, params)
+
     # ---------------------- private (signed) --------------------------- #
 
     def balance(self, ccy: str = "USDT") -> dict:

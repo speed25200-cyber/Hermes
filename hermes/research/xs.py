@@ -17,41 +17,45 @@ from ..backtest import metrics
 from ..data.store import BARS_PER_YEAR, Candles
 from ..strategy.genome import Genome
 from ..strategy.xs import (XS_GRID, XS_LEAD_GRID, XS_MOM_GRID, XS_REV_GRID,
+                           XS_BASIS_GRID, XS_FLOW_GRID, XS_CROWD_GRID,
                            portfolio_backtest, xs_positions)
 from .validate import ValidatedStrategy
 
 XS_INST = "XS-PORTFOLIO"
 
-# (genome signal name, scoring kind, grid, needs funding history)
+# (genome signal name, scoring kind, grid, required extra series or None)
 XS_FAMILIES = [
-    ("funding_xs", "carry", XS_GRID, True),
-    ("xs_mom", "mom", XS_MOM_GRID, False),
-    ("xs_rev", "rev", XS_REV_GRID, False),
-    ("xs_lead", "lead", XS_LEAD_GRID, False),
+    ("funding_xs", "carry", XS_GRID, "funding"),
+    ("xs_mom", "mom", XS_MOM_GRID, None),
+    ("xs_rev", "rev", XS_REV_GRID, None),
+    ("xs_lead", "lead", XS_LEAD_GRID, None),
+    ("xs_basis", "basis", XS_BASIS_GRID, "basis"),
+    ("xs_flow", "flow", XS_FLOW_GRID, "flow"),
+    ("xs_crowd", "crowd", XS_CROWD_GRID, "oi"),
 ]
 
 XS_TOTAL_TRIALS = sum(len(grid) for _, _, grid, _ in XS_FAMILIES)
 
 
-def _trim_to_funding(candles_map: dict[str, Candles], log=None
-                     ) -> dict[str, Candles] | None:
-    """Exchanges expose only a few months of funding history; earlier bars
-    carry funding=0, which would silently kill the carry signal across most
-    of the sample. Research carry only where the data actually exists."""
-    starts = []
-    covered = {}
+def _trim_to_need(candles_map: dict[str, Candles], need: str, log=None
+                  ) -> dict[str, Candles] | None:
+    """Keep the window where `need` actually has data (funding, basis, flow, oi)."""
+    attr = {"funding": "funding", "basis": "basis", "flow": "taker_imb",
+            "oi": "oi"}[need]
+    starts, covered = [], {}
     for inst in sorted(candles_map):
         c = candles_map[inst]
-        nz = np.nonzero(c.funding)[0]
+        series = np.asarray(getattr(c, attr))
+        nz = np.nonzero(np.abs(series) > 1e-12)[0]
         if not len(nz):
             if log:
-                log(f"xs research: {inst} has no funding history, dropping")
+                log(f"xs research: {inst} has no {need} history, dropping")
             continue
         covered[inst] = c
         starts.append(c.ts[nz[0]])
     if len(covered) < 4:
         if log:
-            log("xs research: <4 instruments with funding history, skipping")
+            log(f"xs research: <4 instruments with {need} history, skipping")
         return None
     start_ts = max(starts)
     trimmed = {}
@@ -61,11 +65,11 @@ def _trim_to_funding(candles_map: dict[str, Candles], log=None
     min_len = min(len(c) for c in trimmed.values())
     if min_len < 3000:
         if log:
-            log(f"xs research: only {min_len} funding-covered bars "
+            log(f"xs research: only {min_len} {need}-covered bars "
                 f"(need 3000+), rejecting")
         return None
     if log:
-        log(f"xs research: funding coverage window = {min_len} bars "
+        log(f"xs research: {need} coverage window = {min_len} bars "
             f"x {len(trimmed)} instruments")
     return trimmed
 
@@ -178,8 +182,8 @@ def research_xs(
             log("xs research: needs >= 4 instruments, skipping")
         return []
     out: list[ValidatedStrategy] = []
-    for name, kind, grid, needs_funding in XS_FAMILIES:
-        data = _trim_to_funding(candles_map, log) if needs_funding else candles_map
+    for name, kind, grid, need in XS_FAMILIES:
+        data = _trim_to_need(candles_map, need, log) if need else candles_map
         if data is None:
             continue
         if kind == "lead" and (not leader or leader not in candles_map):

@@ -252,7 +252,7 @@ def cmd_realtest(args) -> None:
 
 
 def cmd_fetch(args) -> None:
-    from .data.fetcher import fetch_candles, fetch_funding
+    from .data.fetcher import fetch_candles, fetch_funding, fetch_microstructure
     from .exchange.okx_client import OKXClient
 
     cfg = Config.load(args.config)
@@ -266,6 +266,8 @@ def cmd_fetch(args) -> None:
             fetch_candles(client, store, inst, cfg["bar"], cfg["history_days"],
                           log=print)
             fetch_funding(client, store, inst, cfg["history_days"], log=print)
+            fetch_microstructure(client, store, inst, cfg["bar"],
+                                 days=min(int(cfg["history_days"]), 180), log=print)
         except Exception as exc:
             failed.append(inst)
             print(f"fetch {inst}: FAILED ({type(exc).__name__}: {exc}) — skipping")

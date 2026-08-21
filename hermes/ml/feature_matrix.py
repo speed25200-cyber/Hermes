@@ -81,6 +81,16 @@ def build_features(candles: Candles, leader: Candles | None = None) -> np.ndarra
     cols.append(np.clip(f_ew * 2000.0, -3, 3))
     cols.append(np.clip(candles.funding * 2000.0, -3, 3))
 
+    # perp microstructure: basis, OI change, taker imbalance
+    cols.append(_roll_z(candles.basis * 500.0))
+    oi = candles.oi
+    dlog = np.zeros(n)
+    if n > 1:
+        with np.errstate(invalid="ignore", divide="ignore"):
+            dlog[1:] = np.diff(np.log(np.where(oi > 1e-9, oi, np.nan)))
+    cols.append(_roll_z(np.nan_to_num(dlog)))
+    cols.append(np.clip(candles.taker_imb, -1, 1))
+
     # clock seasonality (crypto has strong intraday/weekly patterns)
     ts_h = (candles.ts // 3_600_000) % 24
     ts_d = (candles.ts // 86_400_000 + 4) % 7
@@ -91,7 +101,7 @@ def build_features(candles: Candles, leader: Candles | None = None) -> np.ndarra
 
     # cross-asset lead-lag from the leader instrument
     if leader is not None and leader.inst != candles.inst and len(leader):
-        idx = np.searchsorted(leader.ts, candles.ts, side="right") - 1
+        idx = np.searchsorted(leader.ts, candles.ts, side="right") - 2
         valid = idx >= 0
         idx = np.clip(idx, 0, len(leader.ts) - 1)
         lc = leader.c

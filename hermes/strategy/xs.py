@@ -49,9 +49,21 @@ XS_LEAD_GRID = [  # leader-move window: 2h / 4h / 8h of 15m bars
     for mw in (0.15, 0.25)
 ]
 
-# genome signal name -> scoring kind
-XS_KINDS = {"funding_xs": "carry", "xs_mom": "mom", "xs_rev": "rev",
-            "xs_lead": "lead"}
+XS_BASIS_GRID = [  # fade rich perp premium / cheap discount
+    {"lookback": lb, "max_w": mw}
+    for lb in (48, 96, 192)
+    for mw in (0.15, 0.25)
+]
+XS_FLOW_GRID = [  # fade aggressive taker flow (4h / 12h / 1d)
+    {"lookback": lb, "max_w": mw}
+    for lb in (16, 48, 96)
+    for mw in (0.15, 0.25)
+]
+XS_CROWD_GRID = [  # fade OI-up + price-up crowding
+    {"lookback": lb, "max_w": mw}
+    for lb in (16, 48, 96)
+    for mw in (0.15, 0.25)
+]
 
 # trailing window (bars) for estimating each name's lead-lag beta to the
 # universe leader's previous-bar return (fixed a priori, not searched)
@@ -65,6 +77,11 @@ MOM_SKIP_FRAC = 0.05
 # priori (NOT searched) — it exists to tame turnover costs, identically for
 # every family, and adds zero trials to the deflated-Sharpe penalty.
 REBALANCE_BAND_FRAC = 0.25
+
+# genome signal name -> scoring kind
+XS_KINDS = {"funding_xs": "carry", "xs_mom": "mom", "xs_rev": "rev",
+            "xs_lead": "lead", "xs_basis": "basis", "xs_flow": "flow",
+            "xs_crowd": "crowd"}
 
 
 def align_universe(candles_map: dict[str, Candles]) -> tuple[np.ndarray, dict[str, np.ndarray]]:
@@ -82,13 +99,26 @@ def align_universe(candles_map: dict[str, Candles]) -> tuple[np.ndarray, dict[st
     return common, idx
 
 
-def _scores(kind: str, c: np.ndarray, funding: np.ndarray, rv: np.ndarray,
-            lb: int) -> np.ndarray:
+def _scores(kind: str, candles: Candles, rv: np.ndarray, lb: int) -> np.ndarray:
     """Causal per-instrument score series; higher score -> more attractive
-    LONG for mom, more attractive SHORT for carry/rev (sign applied later)."""
+    LONG for mom, more attractive SHORT for carry/rev/basis/flow/crowd
+    (sign applied later)."""
+    c, funding = candles.c, candles.funding
     n = len(c)
     if kind == "carry":
         return F.ewma_funding(funding, lb)
+    if kind == "basis":
+        return F.ema(candles.basis, lb)
+    if kind == "flow":
+        return F.ema(candles.taker_imb, lb)
+    if kind == "crowd":
+        oi = candles.oi
+        dlog = np.zeros(n)
+        if n > 1:
+            with np.errstate(invalid="ignore", divide="ignore"):
+                dlog[1:] = np.diff(oi) / np.where(oi[:-1] > 1e-9, oi[:-1], np.nan)
+        ret = F.lookback_return(c, max(int(lb), 1))
+        return np.nan_to_num(dlog * np.sign(ret), nan=0.0)
     if kind == "mom":
         skip = max(1, int(lb * MOM_SKIP_FRAC))
         s = np.zeros(n)
@@ -194,7 +224,7 @@ def xs_positions(
             c = candles_map[inst]
             rv = F.realized_vol(c.c, w=96, bars_per_year=bpy)
             rv = np.nan_to_num(rv, nan=0.0)
-            smat[k] = _scores(kind, c.c, c.funding, rv, lb)[idx[inst]]
+            smat[k] = _scores(kind, c, rv, lb)[idx[inst]]
 
     # cross-sectional z-score of the raw score at each bar (causal)
     mu = smat.mean(axis=0, keepdims=True)

@@ -615,10 +615,8 @@ class LiveRunner:
                 for inst in self.cfg["instruments"]}
 
     def ensure_data(self) -> None:
-        from ..data.fetcher import fetch_candles, fetch_funding
+        from ..data.fetcher import fetch_candles, fetch_funding, fetch_microstructure
         for inst in self.cfg["instruments"]:
-            # always run the fetcher: it is cheap when history is contiguous
-            # and repairs silent mid-series gaps after downtime
             try:
                 self.log(f"syncing {inst} ({self.cfg['history_days']}d "
                          f"{self.cfg['bar']})...")
@@ -626,6 +624,10 @@ class LiveRunner:
                               self.cfg["history_days"], log=self.log)
                 fetch_funding(self.client, self.store, inst,
                               self.cfg["history_days"], log=self.log)
+                fetch_microstructure(self.client, self.store, inst,
+                                     self.cfg["bar"],
+                                     days=min(int(self.cfg["history_days"]), 180),
+                                     log=self.log)
             except Exception as exc:
                 self.log(f"sync {inst} failed: {type(exc).__name__}: {exc}")
 

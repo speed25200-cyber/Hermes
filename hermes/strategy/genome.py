@@ -21,8 +21,8 @@ from typing import Any
 
 # param spec: name -> (low, high, is_int, log_scale)
 SIGNAL_SPECS: dict[str, dict[str, tuple]] = {
-    "tsmom": {  # time-series momentum with deadband
-        "lookback": (8, 400, True, True),
+    "tsmom": {  # time-series momentum with deadband — SLOW (days-weeks), not noise
+        "lookback": (96, 4000, True, True),
         "deadband": (0.0, 1.0, False, False),   # in units of ret std
     },
     "ma_cross": {
@@ -57,7 +57,27 @@ SIGNAL_SPECS: dict[str, dict[str, tuple]] = {
         "n_trees": (1, 4, True, False),         # trees = 10 * n_trees
         "cross": (0, 1, True, False),
     },
+    "basis_fade": {  # short rich perp premium, long cheap
+        "lookback": (24, 400, True, True),
+        "threshold": (0.00005, 0.003, False, True),
+    },
+    "flow_fade": {  # fade one-sided taker flow
+        "lookback": (8, 192, True, True),
+        "threshold": (0.05, 0.4, False, False),
+    },
+    "crowd_fade": {  # fade OI-up + price-up crowding
+        "lookback": (8, 96, True, True),
+    },
 }
+
+# Families the evolutionary search is allowed to propose. RSI / MA / Donchian
+# stay in SIGNAL_SPECS so already-deployed genomes still execute, but they
+# are not new candidates — they have no economic edge on OKX perps.
+SEARCH_SIGNALS: tuple[str, ...] = (
+    "tsmom", "meanrev", "funding_carry",
+    "ml_ridge", "ml_boost",
+    "basis_fade", "flow_fade", "crowd_fade",
+)
 
 FILTER_SPECS: dict[str, dict[str, tuple]] = {
     "none": {},
@@ -131,8 +151,8 @@ class Genome:
         return s + f" | vt={self.vol_target:.2f} lev<={self.max_lev:.2f}"
 
 
-def random_genome(rng: random.Random) -> Genome:
-    signal = rng.choice(list(SIGNAL_SPECS))
+def random_genome(rng: random.Random, signal: str | None = None) -> Genome:
+    signal = signal if signal in SIGNAL_SPECS else rng.choice(list(SEARCH_SIGNALS))
     params = {k: _sample_param(spec, rng) for k, spec in SIGNAL_SPECS[signal].items()}
     filt = rng.choice(list(FILTER_SPECS))
     fparams = {k: _sample_param(spec, rng) for k, spec in FILTER_SPECS[filt].items()}
