@@ -104,6 +104,8 @@ class DataStore:
         os.makedirs(data_dir, exist_ok=True)
         self.path = os.path.join(data_dir, "market.db")
         self.conn = sqlite3.connect(self.path, check_same_thread=False, timeout=30)
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS candles (

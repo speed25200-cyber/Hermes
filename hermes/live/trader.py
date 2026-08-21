@@ -749,6 +749,7 @@ class LiveRunner:
                         uni = self.scalp.refresh_universe(ticks)
                         last_uni = time.time()
                         self.scalp.flatten_foreign()
+                        self.trader.save_state(self.cfg["state_dir"])
                         if uni != before:
                             self.log(f"scalp universe {len(uni)}: "
                                      + ",".join(i.split("-")[0] for i in uni[:12])
@@ -819,6 +820,7 @@ class LiveRunner:
             time.sleep(poll)
 
     def _bg_sync(self) -> None:
+        time.sleep(45)  # let the 1m loop run uncontended first
         try:
             self.ensure_data()
         except Exception as exc:

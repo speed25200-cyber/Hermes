@@ -154,13 +154,17 @@ class OKXClient:
             bid = float(row.get("bidPx") or 0.0)
             ask = float(row.get("askPx") or 0.0)
             spread_bps = ((ask - bid) / last * 1e4) if last > 0 and bid > 0 and ask > bid else 999.0
+            vol_usd = float(row.get("volCcyQuote24h") or 0.0)
+            if vol_usd <= 0:
+                vol_ccy = float(row.get("volCcy24h") or 0.0)
+                vol_usd = vol_ccy * last
             out[inst] = {
                 "last": last,
                 "chg24h": (last / open24 - 1.0) if open24 > 0 else 0.0,
                 "bid": bid, "ask": ask,
                 "bid_sz": float(row.get("bidSz") or 0.0),
                 "ask_sz": float(row.get("askSz") or 0.0),
-                "vol_usd": float(row.get("volCcyQuote24h") or 0.0),
+                "vol_usd": vol_usd,
                 "spread_bps": spread_bps,
             }
         return out

@@ -91,7 +91,7 @@ DEFAULTS: dict[str, Any] = {
         "instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"],
         "universe_n": 50,            # top-N by 24h quote volume
         "max_spread_bps": 8.0,       # 1m scalp dies on wide-spread alts
-        "min_vol_usd": 20000000.0,
+        "min_vol_usd": 5_000_000.0,
         "horizon": 3,
         "min_edge_bps": 5.0,
         "max_hold_bars": 6,
