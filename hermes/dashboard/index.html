@@ -1654,17 +1654,18 @@ async function refresh(){
     series = fullSeries;
   }
   if(fullSeries.length || eqLive){
+    const startEq = Number((data.meta||{}).paper_equity) || 10000;
     const eq = eqLive || fullSeries[fullSeries.length-1].eq;
-    const eq0 = fullSeries.length ? fullSeries[0].eq : eq;
-    let peak=0, ddNow=0; for(const p of fullSeries){ peak=Math.max(peak,p.eq); }
-    peak = Math.max(peak, risk.peak_equity||0, eq);
-    ddNow = risk.peak_equity? 1-eq/risk.peak_equity : (peak? 1-eq/peak : 0);
+    const eq0 = startEq;
+    let peak=startEq, ddNow=0; for(const p of fullSeries){ peak=Math.max(peak,p.eq); }
+    peak = Math.max(peak, eq);
+    ddNow = peak ? Math.max(0, 1-eq/peak) : 0;
     tweenNum($("k_equity"), eq, v=>fmtUsd(v));
-    $("k_equity_d").innerHTML = `<span class="goldc">USDT</span> · MTM live · peak ${fmtUsd(risk.peak_equity||peak)}`;
+    $("k_equity_d").innerHTML = `<span class="goldc">USDT</span> · MTM live · vs ${fmtUsd(startEq)} start`;
     const pnl = eq-eq0, ret=eq0? eq/eq0-1 : 0;
     tweenNum($("k_pnl"), pnl, v=>(v>=0?"+":"")+fmtUsd(v));
     $("k_pnl").className = "value num "+(pnl>=0?"up":"down");
-    $("k_pnl_d").innerHTML = `<span class="${ret>=0?'up':'down'}">${ret>=0?"+":""}${fmtPct(ret)}</span> since journal start`;
+    $("k_pnl_d").innerHTML = `<span class="${ret>=0?'up':'down'}">${ret>=0?"+":""}${fmtPct(ret)}</span> vs $10,000 start`;
     tweenNum($("k_dd"), ddNow, v=>fmtPct(Math.max(0,v)));
     $("k_dd").className="value num "+(ddNow>0.05?"down":"");
     const tgt = (data.scalp && data.scalp.targets) || (last && last.targets) || {};
@@ -1682,7 +1683,7 @@ async function refresh(){
     }
     const dayRet = dayStart? eq/dayStart-1 : 0;
     drawMeters(Math.max(0,ddNow), cap, dayRet, 0.03);
-    $("k_dd_d").textContent = "kill switch at 15%";
+    $("k_dd_d").textContent = "from session high · kill at 15%";
   }
 
   const nStr = (registry.strategies||[]).length;

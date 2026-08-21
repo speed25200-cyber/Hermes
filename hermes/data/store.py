@@ -103,7 +103,7 @@ class DataStore:
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.path = os.path.join(data_dir, "market.db")
-        self.conn = sqlite3.connect(self.path)
+        self.conn = sqlite3.connect(self.path, check_same_thread=False, timeout=30)
         self.conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS candles (

@@ -223,6 +223,7 @@ class Trader:
     risk: RiskEngine
     log: object = print
     journal_path: str | None = None
+    last_hb_journal: float = 0.0
     last_positions: dict[str, np.ndarray] = field(default_factory=dict)  # sid -> last pos value
     last_close: dict[str, float] = field(default_factory=dict)
     last_ts: dict[str, int] = field(default_factory=dict)
@@ -421,16 +422,18 @@ class Trader:
         if self.risk.must_flatten and self.broker.positions():
             self.log("risk tripped between bars -> flattening")
             self._flatten(prices)
-        self._journal({
-            "ts": now_ts, "equity": equity, "halted": self.risk.must_flatten,
-            "prices": prices,
-            "targets": getattr(self, "_last_targets", {}),
-            "orders": [],
-            "weights": getattr(self, "_last_weights", {}),
-            "regimes": getattr(self, "_last_regimes", {}),
-            "positions": self.broker.positions(),
-            "hb": True,
-        })
+        if now_ts - self.last_hb_journal >= 15.0:
+            self._journal({
+                "ts": now_ts, "equity": equity, "halted": self.risk.must_flatten,
+                "prices": prices,
+                "targets": getattr(self, "_last_targets", {}),
+                "orders": [],
+                "weights": getattr(self, "_last_weights", {}),
+                "regimes": getattr(self, "_last_regimes", {}),
+                "positions": self.broker.positions(),
+                "hb": True,
+            })
+            self.last_hb_journal = now_ts
         return equity
 
     # ------------------------------------------------------------------ #
@@ -720,8 +723,12 @@ class LiveRunner:
         self.log(f"Hermes starting: mode={self.cfg['live']['mode']} "
                  f"bar={self.cfg['bar']} instruments={self.cfg['instruments']}"
                  + (" scalp=1m" if self.scalp else ""))
-        self.ensure_data()
-        threading.Thread(target=self._research_bg, daemon=True).start()
+        if self.scalp:
+            self._ensure_scalp_data()
+            threading.Thread(target=self._bg_sync, daemon=True).start()
+        else:
+            self.ensure_data()
+            threading.Thread(target=self._research_bg, daemon=True).start()
         last_cycle_bar = 0
         last_scalp_bar = 0
         last_uni = 0.0
@@ -737,16 +744,17 @@ class LiveRunner:
                     except Exception as exc:
                         self.log(f"scalp tickers: {type(exc).__name__}: {exc}")
                         ticks = {}
-                    if ticks and (time.time() - last_uni > 900 or not self.scalp.instruments):
+                    if ticks and (last_uni == 0.0 or time.time() - last_uni > 900):
                         before = list(self.scalp.instruments)
                         uni = self.scalp.refresh_universe(ticks)
                         last_uni = time.time()
+                        self.scalp.flatten_foreign()
                         if uni != before:
                             self.log(f"scalp universe {len(uni)}: "
                                      + ",".join(i.split("-")[0] for i in uni[:12])
                                      + ("…" if len(uni) > 12 else ""))
-                    else:
-                        self.scalp.ticks = ticks or self.scalp.ticks
+                    elif ticks:
+                        self.scalp.ticks = ticks
                     names = self.scalp.instruments or ["BTC-USDT-SWAP"]
                     batch = 8
                     chunk = names[rr:rr + batch]
@@ -773,36 +781,36 @@ class LiveRunner:
                         if self.risk.state.killed:
                             self.log("KILL SWITCH TRIPPED - halting.")
                             return
-                    # mark-to-market every poll so the dashboard equity moves
-                    px = {i: float((self.scalp.ticks.get(i) or {}).get("last") or 0)
-                          for i in names}
+                    px = {i: float((t or {}).get("last") or 0)
+                          for i, t in (self.scalp.ticks or {}).items()}
                     px = {k: v for k, v in px.items() if v > 0}
                     if px:
                         self.trader.heartbeat(px, time.time())
                         self.trader.save_state(self.cfg["state_dir"])
-                for inst in self.cfg["instruments"]:
-                    try:
-                        update_latest(self.client, self.store, inst, self.cfg["bar"])
-                    except Exception:
-                        pass
-                candles = self._load_candles()
-                newest = max((int(c.ts[-1]) for c in candles.values() if len(c)),
-                             default=0)
-                if newest > last_cycle_bar and self.registry.strategies:
-                    last_cycle_bar = newest
-                    report = self.trader.run_cycle(candles, time.time())
-                    self.trader.save_state(self.cfg["state_dir"])
-                    self.log(f"swing @ {newest}: equity={report['equity']:.2f}")
-                    if self.risk.state.killed:
-                        self.log("KILL SWITCH TRIPPED - halting.")
-                        return
-                elif not self.scalp:
-                    try:
-                        ticks = self.client.tickers(self.cfg["instruments"])
-                        if ticks:
-                            self.trader.heartbeat(ticks, time.time())
-                    except Exception as exc:
-                        self.log(f"heartbeat: {type(exc).__name__}: {exc}")
+                else:
+                    for inst in self.cfg["instruments"]:
+                        try:
+                            update_latest(self.client, self.store, inst, self.cfg["bar"])
+                        except Exception:
+                            pass
+                    candles = self._load_candles()
+                    newest = max((int(c.ts[-1]) for c in candles.values() if len(c)),
+                                 default=0)
+                    if newest > last_cycle_bar and self.registry.strategies:
+                        last_cycle_bar = newest
+                        report = self.trader.run_cycle(candles, time.time())
+                        self.trader.save_state(self.cfg["state_dir"])
+                        self.log(f"swing @ {newest}: equity={report['equity']:.2f}")
+                        if self.risk.state.killed:
+                            self.log("KILL SWITCH TRIPPED - halting.")
+                            return
+                    else:
+                        try:
+                            ticks = self.client.tickers(self.cfg["instruments"])
+                            if ticks:
+                                self.trader.heartbeat(ticks, time.time())
+                        except Exception as exc:
+                            self.log(f"heartbeat: {type(exc).__name__}: {exc}")
             except KeyboardInterrupt:
                 self.log("interrupted, exiting cleanly")
                 return
@@ -810,7 +818,11 @@ class LiveRunner:
                 self.log(f"cycle error: {type(exc).__name__}: {exc}")
             time.sleep(poll)
 
-    def _research_bg(self) -> None:
+    def _bg_sync(self) -> None:
+        try:
+            self.ensure_data()
+        except Exception as exc:
+            self.log(f"bg sync: {type(exc).__name__}: {exc}")
         try:
             self.ensure_research()
         except Exception as exc:

@@ -326,7 +326,8 @@ def cmd_dashboard(args) -> None:
           mode_hint="demo" if args.demo else cfg["live"]["mode"],
           open_browser=not args.no_browser, token=args.token or "",
           instruments=instruments, ticker_fn=ticker_fn,
-          meta={"refresh_hours": cfg["research"]["refresh_hours"]})
+          meta={"refresh_hours": cfg["research"]["refresh_hours"],
+                "paper_equity": float(cfg["live"].get("paper_equity", 10000))})
 
 
 def cmd_cycle(args) -> None:

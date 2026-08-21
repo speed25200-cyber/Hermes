@@ -82,6 +82,25 @@ class ScalpEngine:
                     self.log(f"scalp drop {inst}: left top-{self.universe_n} / wide spread")
         return self.instruments
 
+    def flatten_foreign(self) -> None:
+        """Close leftover names that are not in the live scalp universe
+        (old RSI dust, delisted alts, zero-price junk)."""
+        uni = set(self.instruments)
+        pos = self.broker.positions()
+        for inst, qty in list(pos.items()):
+            if inst in uni or abs(qty) < 1e-12:
+                continue
+            px = float((self.ticks.get(inst) or {}).get("last") or 0.0)
+            if px <= 0:
+                px = float(getattr(self.broker, "prices", {}).get(inst, 0.0) or 0.0)
+            if px <= 0:
+                continue
+            if abs(qty) * px < 0.5:
+                continue
+            self.broker.market_order(inst, -qty, px, force_taker=True)
+            self.opened_bar.pop(inst, None)
+            self.log(f"scalp flatten dust {inst} qty={qty:.6f}")
+
     def _micro(self, inst: str, last: float) -> tuple[float, float, float]:
         """Book proxy from the all-swaps ticker (one REST call, not 50)."""
         t = self.ticks.get(inst) or {}
@@ -111,7 +130,8 @@ class ScalpEngine:
             pred = M.predict(feat, btc_r1, inst.startswith("BTC-"), self.horizon)
             edge = float(pred["edge_bps"])
             spread = float((self.ticks.get(inst) or {}).get("spread_bps") or 0.0)
-            # cost + spread gate: predicted move must beat both
+            if spread <= 0:
+                spread = 3.0  # unknown book → don't treat as free
             hurdle = max(self.min_edge, self.round_trip_bps, spread * 1.2)
             if abs(edge) < hurdle:
                 direction = "flat"
