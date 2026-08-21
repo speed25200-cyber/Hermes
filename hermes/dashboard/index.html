@@ -703,6 +703,24 @@ const clamp = (v,a,b)=>Math.min(b,Math.max(a,v));
 
 /* rAF number tweening -------------------------------------------------- */
 const tweens = new Map();
+function liveEquity(data, last){
+  const pb = (data.trader || {}).paper_broker;
+  if(pb && typeof pb.cash === "number"){
+    let eq = pb.cash;
+    const pos = pb.pos || {}, pr = pb.prices || {};
+    const ticks = data.tickers || {};
+    for(const inst of Object.keys(pos)){
+      const q = pos[inst] || 0;
+      if(!q) continue;
+      const t = ticks[inst];
+      const px = (t && t.last) || pr[inst] || 0;
+      eq += q * px;
+    }
+    return eq;
+  }
+  if(data.scalp && data.scalp.equity > 0) return data.scalp.equity;
+  return (last && last.equity) || 0;
+}
 function tweenNum(el, to, fmt, dur=700){
   const from = el._v===undefined? to : el._v;
   el._v = to;
@@ -1623,6 +1641,11 @@ async function refresh(){
 
   /* series + KPIs (range filter applies to the chart only) */
   const fullSeries = journal.filter(j=>j.equity>0).map(j=>({ts:j.ts, eq:j.equity}));
+  const pb = (data.trader||{}).paper_broker || {};
+  const eqLive = liveEquity(data, last);
+  if(eqLive > 0 && (!fullSeries.length || Math.abs(fullSeries[fullSeries.length-1].eq - eqLive) > 0.005)){
+    fullSeries.push({ts: Date.now()/1000, eq: eqLive});
+  }
   if(rangeHours > 0 && fullSeries.length){
     const cut = fullSeries[fullSeries.length-1].ts - rangeHours*3600;
     series = fullSeries.filter(p=>p.ts >= cut);
@@ -1630,27 +1653,29 @@ async function refresh(){
   } else {
     series = fullSeries;
   }
-  if(fullSeries.length){
-    const eq = fullSeries[fullSeries.length-1].eq, eq0 = fullSeries[0].eq;
+  if(fullSeries.length || eqLive){
+    const eq = eqLive || fullSeries[fullSeries.length-1].eq;
+    const eq0 = fullSeries.length ? fullSeries[0].eq : eq;
     let peak=0, ddNow=0; for(const p of fullSeries){ peak=Math.max(peak,p.eq); }
-    ddNow = risk.peak_equity? 1-eq/risk.peak_equity : 1-eq/peak;
+    peak = Math.max(peak, risk.peak_equity||0, eq);
+    ddNow = risk.peak_equity? 1-eq/risk.peak_equity : (peak? 1-eq/peak : 0);
     tweenNum($("k_equity"), eq, v=>fmtUsd(v));
-    $("k_equity_d").innerHTML = `<span class="goldc">USDT</span> · peak ${fmtUsd(risk.peak_equity||peak)}`;
-    const pnl = eq-eq0, ret=eq/eq0-1;
+    $("k_equity_d").innerHTML = `<span class="goldc">USDT</span> · MTM live · peak ${fmtUsd(risk.peak_equity||peak)}`;
+    const pnl = eq-eq0, ret=eq0? eq/eq0-1 : 0;
     tweenNum($("k_pnl"), pnl, v=>(v>=0?"+":"")+fmtUsd(v));
     $("k_pnl").className = "value num "+(pnl>=0?"up":"down");
     $("k_pnl_d").innerHTML = `<span class="${ret>=0?'up':'down'}">${ret>=0?"+":""}${fmtPct(ret)}</span> since journal start`;
     tweenNum($("k_dd"), ddNow, v=>fmtPct(Math.max(0,v)));
     $("k_dd").className="value num "+(ddNow>0.05?"down":"");
-    const gross = last? Object.values(last.targets||{}).reduce((a,b)=>a+Math.abs(b),0):0;
+    const tgt = (data.scalp && data.scalp.targets) || (last && last.targets) || {};
+    const gross = Object.values(tgt).reduce((a,b)=>a+Math.abs(b),0);
     tweenNum($("k_gross"), gross, v=>fmtPct(v,0));
     $("k_gross_d").textContent = "of equity, leverage-adjusted";
     drawChart();
-    $("chartrange").textContent = series.length+" cycles";
-    /* risk meters */
+    $("chartrange").textContent = series.length+" ticks";
     const cap = 0.15;
     let dayStart = risk.day_start_equity;
-    if(!dayStart){ /* fallback: first journal point of the last UTC day */
+    if(!dayStart && fullSeries.length){
       const lastDay = new Date(fullSeries[fullSeries.length-1].ts*1000).toISOString().slice(0,10);
       const first = fullSeries.find(p=>new Date(p.ts*1000).toISOString().slice(0,10)===lastDay);
       dayStart = first? first.eq : 0;
@@ -1675,7 +1700,14 @@ async function refresh(){
   const stratsById = {}; /* sid -> strategy (same matching as the table) */
   (registry.strategies||[]).forEach(s=>{ const k=findSid(weights,s); if(k) stratsById[k]=s; });
   renderAlloc(weights, stratsById);
-  renderPositions(last, last? last.equity:0);
+  const liveLast = {
+    ...(last||{}),
+    equity: eqLive || (last && last.equity) || 0,
+    positions: Object.keys(pb.pos||{}).length ? pb.pos : (last && last.positions) || {},
+    prices: {...((last&&last.prices)||{}), ...(pb.prices||{})},
+    targets: (data.scalp && data.scalp.targets) || (last && last.targets) || {},
+  };
+  renderPositions(liveLast, liveLast.equity);
   renderOrders(journal);
   renderLog(data.log||[]);
   if(tOpen) updateTradeStats();

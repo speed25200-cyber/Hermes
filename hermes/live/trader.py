@@ -765,13 +765,21 @@ class LiveRunner:
                     if newest_1m > last_scalp_bar:
                         last_scalp_bar = newest_1m
                         rep = self.scalp.tick(c1, time.time())
-                        self.trader.save_state(self.cfg["state_dir"])
+                        if rep.get("targets") is not None:
+                            self.trader._last_targets = rep["targets"]
                         live = [p for p in rep.get("preds", []) if p["dir"] != "flat"]
                         self.log(f"scalp @ {newest_1m}: eq={rep.get('equity', 0):.2f} "
                                  f"live={len(live)}/{len(rep.get('preds', []))}")
                         if self.risk.state.killed:
                             self.log("KILL SWITCH TRIPPED - halting.")
                             return
+                    # mark-to-market every poll so the dashboard equity moves
+                    px = {i: float((self.scalp.ticks.get(i) or {}).get("last") or 0)
+                          for i in names}
+                    px = {k: v for k, v in px.items() if v > 0}
+                    if px:
+                        self.trader.heartbeat(px, time.time())
+                        self.trader.save_state(self.cfg["state_dir"])
                 for inst in self.cfg["instruments"]:
                     try:
                         update_latest(self.client, self.store, inst, self.cfg["bar"])
