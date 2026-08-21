@@ -129,6 +129,15 @@ class OKXClient:
         """Live last prices for the given SWAP instruments (public)."""
         return {inst: t["last"] for inst, t in self.tickers_full(inst_ids).items()}
 
+    def last_trades(self, inst_id: str, limit: int = 100) -> list[dict]:
+        return self._request("GET", "/api/v5/market/trades",
+                             {"instId": inst_id, "limit": str(limit)})
+
+    def books(self, inst_id: str, sz: int = 5) -> dict:
+        data = self._request("GET", "/api/v5/market/books",
+                             {"instId": inst_id, "sz": str(sz)})
+        return data[0] if data else {"bids": [], "asks": []}
+
     def tickers_full(self, inst_ids: list[str]) -> dict[str, dict]:
         """Live last price + 24h change for the given SWAP instruments."""
         data = self._request("GET", "/api/v5/market/tickers", {"instType": "SWAP"})

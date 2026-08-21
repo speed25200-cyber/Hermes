@@ -111,6 +111,7 @@ class StateReader:
             "trader": _read_json(os.path.join(sd, "trader.json")),
             "journal": journal,
             "log": _tail_lines(os.path.join(sd, "hermes.log"), 120),
+            "scalp": _read_json(os.path.join(sd, "scalp.json")),
         }
 
     # timeframe -> number of base 15m bars per bucket

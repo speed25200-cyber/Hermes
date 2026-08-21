@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 
@@ -588,6 +589,12 @@ class LiveRunner:
                              self.risk, self.log,
                              journal_path=os.path.join(state_dir, "journal.jsonl"))
         self.trader.load_state(state_dir)
+        self.scalp = None
+        sc = cfg.raw.get("scalp") or {}
+        if sc.get("enabled", False):
+            from ..scalp.engine import ScalpEngine
+            self.scalp = ScalpEngine(cfg.raw, self.broker, self.client, self.risk,
+                                     self.log, state_dir)
 
     def _configure_account(self) -> None:
         """Force net mode + a leverage cap OKX will actually honour.
@@ -626,10 +633,23 @@ class LiveRunner:
                               self.cfg["history_days"], log=self.log)
                 fetch_microstructure(self.client, self.store, inst,
                                      self.cfg["bar"],
-                                     days=min(int(self.cfg["history_days"]), 180),
+                                     days=min(14, int(self.cfg["history_days"])),
                                      log=self.log)
             except Exception as exc:
                 self.log(f"sync {inst} failed: {type(exc).__name__}: {exc}")
+        self._ensure_scalp_data()
+
+    def _ensure_scalp_data(self) -> None:
+        if self.scalp is None:
+            return
+        from ..data.fetcher import fetch_candles
+        days = int((self.cfg.raw.get("scalp") or {}).get("history_days", 7))
+        for inst in self.scalp.instruments:
+            try:
+                self.log(f"scalp backfill {inst} 1m ({days}d)...")
+                fetch_candles(self.client, self.store, inst, "1m", days, log=self.log)
+            except Exception as exc:
+                self.log(f"scalp backfill {inst}: {type(exc).__name__}: {exc}")
 
     def ensure_research(self, force: bool = False) -> None:
         age_h = (time.time() - self.registry.researched_at) / 3600.0
@@ -698,43 +718,71 @@ class LiveRunner:
 
     def run_forever(self) -> None:
         self.log(f"Hermes starting: mode={self.cfg['live']['mode']} "
-                 f"bar={self.cfg['bar']} instruments={self.cfg['instruments']}")
+                 f"bar={self.cfg['bar']} instruments={self.cfg['instruments']}"
+                 + (" scalp=1m" if self.scalp else ""))
         self.ensure_data()
-        self.ensure_research()
-        bar_ms = BAR_MS[self.cfg["bar"]]
+        threading.Thread(target=self._research_bg, daemon=True).start()
         last_cycle_bar = 0
+        last_scalp_bar = 0
+        poll = int((self.cfg.raw.get("scalp") or {}).get("poll_seconds", 5)
+                   if self.scalp else self.cfg["live"]["poll_seconds"])
         while True:
             try:
                 from ..data.fetcher import update_latest
+                if self.scalp:
+                    for inst in self.scalp.instruments:
+                        try:
+                            update_latest(self.client, self.store, inst, "1m",
+                                          limit=120)
+                        except Exception as exc:
+                            self.log(f"scalp data {inst}: {type(exc).__name__}: {exc}")
+                    c1 = {inst: self.store.load(inst, "1m")
+                          for inst in self.scalp.instruments}
+                    newest_1m = max((int(c.ts[-1]) for c in c1.values() if len(c)),
+                                    default=0)
+                    if newest_1m > last_scalp_bar:
+                        last_scalp_bar = newest_1m
+                        rep = self.scalp.tick(c1, time.time())
+                        self.trader.save_state(self.cfg["state_dir"])
+                        dirs = {p["inst"].split("-")[0]: p["dir"]
+                                for p in rep.get("preds", [])}
+                        self.log(f"scalp @ {newest_1m}: eq={rep.get('equity', 0):.2f} "
+                                 f"{dirs}")
+                        if self.risk.state.killed:
+                            self.log("KILL SWITCH TRIPPED - halting.")
+                            return
                 for inst in self.cfg["instruments"]:
-                    update_latest(self.client, self.store, inst, self.cfg["bar"])
+                    try:
+                        update_latest(self.client, self.store, inst, self.cfg["bar"])
+                    except Exception:
+                        pass
                 candles = self._load_candles()
                 newest = max((int(c.ts[-1]) for c in candles.values() if len(c)),
                              default=0)
-                if newest > last_cycle_bar:
+                if newest > last_cycle_bar and self.registry.strategies:
                     last_cycle_bar = newest
                     report = self.trader.run_cycle(candles, time.time())
                     self.trader.save_state(self.cfg["state_dir"])
-                    self.log(f"cycle @ {newest}: equity={report['equity']:.2f} "
-                             f"targets={ {k: round(v, 3) for k, v in report['targets'].items()} }")
+                    self.log(f"swing @ {newest}: equity={report['equity']:.2f}")
                     if self.risk.state.killed:
-                        self.log("KILL SWITCH TRIPPED - halting. Review, then "
-                                 "delete state/risk.json (or reset_kill) to resume.")
+                        self.log("KILL SWITCH TRIPPED - halting.")
                         return
-                    self.ensure_research()  # refresh when stale
-                else:
-                    # between bars: live mark-to-market heartbeat for the
-                    # dashboard and the risk engine (no trading decisions)
+                elif not self.scalp:
                     try:
                         ticks = self.client.tickers(self.cfg["instruments"])
                         if ticks:
                             self.trader.heartbeat(ticks, time.time())
                     except Exception as exc:
-                        self.log(f"heartbeat: ticker refresh failed: "
-                                 f"{type(exc).__name__}: {exc}")
+                        self.log(f"heartbeat: {type(exc).__name__}: {exc}")
             except KeyboardInterrupt:
                 self.log("interrupted, exiting cleanly")
                 return
-            except Exception as exc:  # survive transient API failures
+            except Exception as exc:
                 self.log(f"cycle error: {type(exc).__name__}: {exc}")
-            time.sleep(self.cfg["live"]["poll_seconds"])
+            time.sleep(poll)
+
+    def _research_bg(self) -> None:
+        try:
+            self.ensure_research()
+        except Exception as exc:
+            self.log(f"research thread: {type(exc).__name__}: {exc}")

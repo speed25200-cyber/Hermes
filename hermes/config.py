@@ -83,6 +83,21 @@ DEFAULTS: dict[str, Any] = {
         "paper_equity": 10000.0,
         "maker_wait_s": 20,          # post-only resting time before fallback
     },
+    # 1-minute order-flow scalp: live directional loop. NOT a candle-color
+    # oracle — fade bounce + book imbalance, trade only if edge > costs.
+    "scalp": {
+        "enabled": True,
+        "bar": "1m",
+        "instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"],
+        "horizon": 3,
+        "min_edge_bps": 5.0,
+        "max_hold_bars": 6,
+        "max_name_lev": 0.30,
+        "gross_cap": 0.90,
+        "poll_seconds": 5,
+        "history_days": 7,
+        "maker_wait_s": 3,
+    },
 }
 
 

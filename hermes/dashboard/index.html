@@ -332,6 +332,17 @@
     .tchartwrap{height:44vh}
     .thead .tsym{font-size:19px}
   }
+  .predgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  .pred{border:1px solid var(--stroke);border-radius:12px;padding:12px 14px;background:rgba(255,255,255,.018)}
+  .pred .psym{font-size:11px;font-weight:620;letter-spacing:.12em;color:var(--faint);text-transform:uppercase}
+  .pred .pdir{font-size:18px;font-weight:650;letter-spacing:.04em;margin:4px 0 8px}
+  .pred.long .pdir{color:var(--green)} .pred.short .pdir{color:var(--red)} .pred.flat .pdir{color:var(--faint)}
+  .pbar{height:5px;border-radius:3px;background:rgba(255,255,255,.07);overflow:hidden;position:relative}
+  .pbar i{display:block;height:100%;width:50%;background:linear-gradient(90deg,var(--red),var(--gold),var(--green));
+    transform-origin:left;border-radius:3px}
+  .pmeta{font-size:11px;color:var(--dim);margin-top:7px;font-variant-numeric:tabular-nums}
+  @media(max-width:720px){.predgrid{grid-template-columns:1fr}}
+
   .haltbanner{display:none;margin-bottom:14px;border:1px solid rgba(240,84,79,.3);border-radius:14px;
     background:linear-gradient(180deg,rgba(240,84,79,.1),rgba(240,84,79,.04));
     padding:13px 18px;color:#f28e8a;font-size:12.5px;font-weight:520;align-items:center;gap:12px}
@@ -418,6 +429,12 @@
   <!-- live markets tape -->
   <div class="panel" id="marketsbox" style="display:none;padding:12px 20px;margin-bottom:14px">
     <div class="tape" id="markets"></div>
+  </div>
+
+  <div class="panel" id="scalpbox" style="display:none;margin-bottom:14px">
+    <div class="ptitle"><span class="tick"></span>1m direction
+      <span class="sub">order-flow · cost-gated</span></div>
+    <div class="predgrid" id="scalprow"></div>
   </div>
 
   <!-- metrics bar -->
@@ -960,6 +977,27 @@ function renderLog(lines){
   }).join("");
 }
 
+function renderScalp(s){
+  const box = $("scalpbox");
+  if(!box) return;
+  const preds = (s && s.preds) || [];
+  if(!preds.length){ box.style.display = "none"; return; }
+  box.style.display = "block";
+  $("scalprow").innerHTML = preds.map(p=>{
+    const dir = p.dir || "flat";
+    const pct = Math.round((p.p_up || 0.5) * 100);
+    const edge = (p.edge_bps || 0);
+    const lab = dir === "long" ? "LONG" : dir === "short" ? "SHORT" : "FLAT";
+    const sym = (p.inst || "").replace("-USDT-SWAP","");
+    return `<div class="pred ${dir}">
+      <div class="psym">${sym}</div>
+      <div class="pdir">${lab}</div>
+      <div class="pbar"><i style="width:${pct}%"></i></div>
+      <div class="pmeta">${pct}% up · edge ${edge>=0?"+":""}${edge.toFixed(1)} bps</div>
+    </div>`;
+  }).join("");
+}
+
 function regimeTag(r){
   if(r===undefined||r===null) return "";
   const [name,col] = REGIMES[r]||REGIMES[1];
@@ -1480,6 +1518,7 @@ async function refresh(){
   $("researchage").textContent = age!==null? "refreshed "+(age<1? Math.round(age*60)+"m ago" : age.toFixed(1)+"h ago"):"";
 
   renderMarkets(data, last, journal);
+  renderScalp(data.scalp);
   renderResearch(registry, data.meta);
   renderFreshness(journal);
   const weights = (last&&last.weights)||{};
