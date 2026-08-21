@@ -282,12 +282,15 @@ def cmd_research(args) -> None:
     registry = Registry(cfg["state_dir"])
     survivors, n_trials = run_research(
         candles, cfg, log=print, escalation=registry.consecutive_empty)
-    registry.strategies = survivors
+    replaced = registry.apply_survivors(survivors)
+    if not replaced:
+        print(f"research empty — keeping {len(registry.strategies)} existing "
+              "strategies (refusing to unwind the book)")
     registry.record_outcome(survivors)
     registry.researched_at = time.time()
     registry.n_trials = n_trials
     registry.save()
-    print(f"deployed {len(survivors)} strategies -> {registry.path}")
+    print(f"deployed {len(registry.strategies)} strategies -> {registry.path}")
 
 
 def cmd_run(args) -> None:

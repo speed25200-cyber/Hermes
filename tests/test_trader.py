@@ -127,6 +127,27 @@ def test_empty_book_uses_fast_research_cadence(tmp_path):
     assert not rr2.called, "deployed book at 30h is fresh on weekly cadence"
 
 
+def test_empty_research_does_not_wipe_deployed_book(tmp_path):
+    """A research pass that finds nothing must keep the live book."""
+    import time as _t
+    from unittest import mock
+
+    from hermes.live.trader import LiveRunner
+
+    lr = LiveRunner.__new__(LiveRunner)
+    lr.cfg = Config()
+    lr.registry = Registry(str(tmp_path))
+    keep = [trend_strategy("BTC-USDT-SWAP")]
+    lr.registry.strategies = keep
+    lr.registry.researched_at = 1.0  # force stale
+    lr.log = lambda m: None
+    lr._load_candles = lambda: {}
+    with mock.patch("hermes.live.trader.run_research", return_value=([], 0)):
+        lr.ensure_research(force=True)
+    assert lr.registry.strategies is keep or lr.registry.strategies == keep
+    assert len(lr.registry.strategies) == 1
+
+
 def test_dead_strategy_is_retired(tmp_path):
     """A deployed strategy whose live shadow returns show a clearly negative
     risk-adjusted edge over enough bars is removed autonomously; a healthy

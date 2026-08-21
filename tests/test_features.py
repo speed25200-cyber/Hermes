@@ -47,3 +47,14 @@ def test_no_lookahead_in_rolling():
                lambda a: F.zscore(a, 20), lambda a: F.rsi(a, 14)):
         a, b = fn(x), fn(y)
         np.testing.assert_allclose(a[:399], b[:399], equal_nan=True)
+
+
+def test_ewma_funding_density_is_causal():
+    """Changing future funding payments must not rewrite past features."""
+    n = 800
+    f = np.zeros(n)
+    f[::32] = 0.0001
+    g = f.copy()
+    g[600:] = 0.001
+    a, b = F.ewma_funding(f, 100), F.ewma_funding(g, 100)
+    np.testing.assert_allclose(a[:599], b[:599], equal_nan=True, rtol=1e-9, atol=1e-12)

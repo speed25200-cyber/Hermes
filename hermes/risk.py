@@ -123,11 +123,11 @@ class RiskEngine:
             out = {inst: e * scale for inst, e in out.items()}
         return out
 
-    def check_order(self, notional: float) -> tuple[bool, str]:
+    def check_order(self, notional: float, reducing: bool = False) -> tuple[bool, str]:
         n = abs(notional)
         if n < self.min_trade_notional:
             return False, f"below min notional ({n:.2f} < {self.min_trade_notional})"
-        if n > self.max_order_notional:
+        if n > self.max_order_notional and not reducing:
             return False, f"above max order notional ({n:.2f} > {self.max_order_notional})"
         return True, ""
 

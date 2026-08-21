@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import time
+import uuid
 from dataclasses import dataclass, field
 
 from .okx_client import OKXClient, OKXError
@@ -34,7 +35,8 @@ class Broker:
         """inst -> signed coin qty."""
         raise NotImplementedError
 
-    def market_order(self, inst: str, qty: float, price_hint: float) -> Fill | None:
+    def market_order(self, inst: str, qty: float, price_hint: float,
+                     force_taker: bool = False) -> Fill | None:
         """qty signed (+ buy / - sell), in coin units."""
         raise NotImplementedError
 
@@ -67,7 +69,8 @@ class PaperBroker(Broker):
     def positions(self) -> dict[str, float]:
         return {k: v for k, v in self.pos.items() if abs(v) > 1e-12}
 
-    def market_order(self, inst: str, qty: float, price_hint: float) -> Fill | None:
+    def market_order(self, inst: str, qty: float, price_hint: float,
+                     force_taker: bool = False) -> Fill | None:
         if qty == 0 or price_hint <= 0:
             return None
         side = "buy" if qty > 0 else "sell"
@@ -156,7 +159,8 @@ class OKXBroker(Broker):
             out[inst] = contracts * ct_val
         return out
 
-    def market_order(self, inst: str, qty: float, price_hint: float) -> Fill | None:
+    def market_order(self, inst: str, qty: float, price_hint: float,
+                     force_taker: bool = False) -> Fill | None:
         spec = self._spec(inst)
         contracts = abs(qty) / spec["ctVal"]
         lot = spec["lotSz"]
@@ -169,24 +173,77 @@ class OKXBroker(Broker):
         cur = self.positions().get(inst, 0.0)
         reduce_only = (cur > 0 and qty < 0 and abs(qty) <= cur + 1e-12) or \
                       (cur < 0 and qty > 0 and qty <= -cur + 1e-12)
+
         def fmt(c: float) -> str:
             return f"{c:.10f}".rstrip("0").rstrip(".")
 
         filled = 0.0
-        if self.prefer_maker:
+        use_maker = self.prefer_maker and not force_taker
+        if use_maker:
             filled = self._maker_fill(inst, side, fmt(contracts), reduce_only)
         remaining = math.floor((contracts - filled) / lot) * lot
         if remaining >= spec["minSz"]:
-            result = self.client.market_order(inst, side, fmt(remaining),
-                                              self.td_mode,
-                                              reduce_only=reduce_only)
-            self.log(f"{inst}: {side} {fmt(remaining)} contracts TAKER "
-                     f"(ordId={result.get('ordId')})")
-            filled += remaining
+            cl_id = uuid.uuid4().hex[:32]
+            try:
+                result = self.client.market_order(
+                    inst, side, fmt(remaining), self.td_mode,
+                    reduce_only=reduce_only, cl_ord_id=cl_id)
+            except OKXError as exc:
+                recovered = self._recover_cl_ord(inst, cl_id)
+                if recovered is None:
+                    self.log(f"{inst}: taker failed ({exc})")
+                    result = None
+                else:
+                    result = recovered
+            except Exception as exc:
+                recovered = self._recover_cl_ord(inst, cl_id)
+                if recovered is None:
+                    self.log(f"{inst}: taker transport error ({type(exc).__name__}: {exc})")
+                    result = None
+                else:
+                    result = recovered
+                    self.log(f"{inst}: recovered taker via clOrdId={cl_id}")
+            taker_filled = self._confirmed_fill(inst, result, remaining)
+            if result is not None:
+                self.log(f"{inst}: {side} {taker_filled:g}/{remaining:g} contracts TAKER "
+                         f"(ordId={result.get('ordId')})")
+            filled += taker_filled
         if filled <= 0:
             return None
         return Fill(inst, side, filled * spec["ctVal"], price_hint, 0.0,
                     time.time())
+
+    def _recover_cl_ord(self, inst: str, cl_id: str) -> dict | None:
+        lookup = getattr(self.client, "order_by_cl_ord_id", None)
+        if lookup is None:
+            return None
+        try:
+            return lookup(inst, cl_id)
+        except OKXError:
+            return None
+
+    def _confirmed_fill(self, inst: str, result: dict | None,
+                        requested: float) -> float:
+        """Prefer exchange accFillSz on a *terminal* fill state.
+
+        A 'live' status after a market order is usually a race; do not treat
+        a leftover maker accFillSz as the taker fill (that under-counts).
+        """
+        if not result:
+            return 0.0
+        ord_id = result.get("ordId")
+        if ord_id and hasattr(self.client, "order_status"):
+            try:
+                st = self.client.order_status(inst, ord_id)
+                state = st.get("state", "")
+                acc = float(st.get("accFillSz") or 0.0)
+                if state in ("filled", "partially_filled") and acc > 0:
+                    return acc
+            except (OKXError, TypeError, ValueError):
+                pass
+        if result.get("ordId") or result.get("clOrdId"):
+            return requested
+        return 0.0
 
     def _maker_fill(self, inst: str, side: str, sz: str,
                     reduce_only: bool) -> float:
@@ -199,7 +256,8 @@ class OKXBroker(Broker):
                 return 0.0
             result = self.client.place_order(inst, side, sz, "post_only",
                                              px=str(px), td_mode=self.td_mode,
-                                             reduce_only=reduce_only)
+                                             reduce_only=reduce_only,
+                                             cl_ord_id=uuid.uuid4().hex[:32])
             ord_id = result.get("ordId", "")
             deadline = time.time() + self.maker_wait_s
             st: dict = {}

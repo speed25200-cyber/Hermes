@@ -52,7 +52,8 @@ class OKXClient:
         return base64.b64encode(mac.digest()).decode()
 
     def _request(self, method: str, path: str, params: dict | None = None,
-                 body: dict | None = None, auth: bool = False) -> Any:
+                 body: dict | None = None, auth: bool = False,
+                 retry: bool = True) -> Any:
         query = f"?{urlencode(params)}" if params else ""
         full_path = f"{path}{query}"
         url = f"{self.base_url}{full_path}"
@@ -73,7 +74,8 @@ class OKXClient:
                 headers["x-simulated-trading"] = "1"
 
         last_exc: Exception | None = None
-        for attempt in range(self.max_retries + 1):
+        attempts = (self.max_retries + 1) if retry else 1
+        for attempt in range(attempts):
             try:
                 resp = self.session.request(
                     method, url, data=body_str if body else None,
@@ -89,11 +91,13 @@ class OKXClient:
                                    payload.get("data"))
                 return payload["data"]
             except (requests.RequestException, ValueError, OKXError) as exc:
-                retryable = isinstance(exc, (requests.RequestException, ValueError)) or (
-                    isinstance(exc, OKXError) and exc.code in ("429", "50011", "50013")
+                retryable = retry and (
+                    isinstance(exc, (requests.RequestException, ValueError)) or (
+                        isinstance(exc, OKXError) and exc.code in ("429", "50011", "50013")
+                    )
                 )
                 last_exc = exc
-                if not retryable or attempt == self.max_retries:
+                if not retryable or attempt == attempts - 1:
                     raise
                 time.sleep(2 ** attempt)
         raise last_exc  # pragma: no cover
@@ -198,7 +202,8 @@ class OKXClient:
             body["reduceOnly"] = "true"
         if cl_ord_id:
             body["clOrdId"] = cl_ord_id
-        data = self._request("POST", "/api/v5/trade/order", body=body, auth=True)
+        data = self._request("POST", "/api/v5/trade/order", body=body, auth=True,
+                             retry=False)
         result = data[0]
         if str(result.get("sCode", "0")) != "0":
             raise OKXError(str(result["sCode"]), str(result.get("sMsg", "")), result)
@@ -208,6 +213,15 @@ class OKXClient:
         data = self._request("GET", "/api/v5/trade/order",
                              {"instId": inst_id, "ordId": ord_id}, auth=True)
         return data[0]
+
+    def order_by_cl_ord_id(self, inst_id: str, cl_ord_id: str) -> dict | None:
+        """Lookup an order by client id (recovery after a transport timeout)."""
+        try:
+            data = self._request("GET", "/api/v5/trade/order",
+                                 {"instId": inst_id, "clOrdId": cl_ord_id}, auth=True)
+            return data[0] if data else None
+        except OKXError:
+            return None
 
     def cancel_order(self, inst_id: str, ord_id: str) -> dict:
         data = self._request("POST", "/api/v5/trade/cancel-order",

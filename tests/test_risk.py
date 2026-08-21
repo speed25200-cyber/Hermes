@@ -54,6 +54,8 @@ def test_order_notional_checks():
     assert e.check_order(5.0)[0] is False
     assert e.check_order(100.0)[0] is True
     assert e.check_order(5000.0)[0] is False
+    # reducing a position is allowed through the cap (caller still chunks)
+    assert e.check_order(5000.0, reducing=True)[0] is True
 
 
 def test_state_roundtrip(tmp_path):

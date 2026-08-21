@@ -68,7 +68,7 @@ def validate_candidates(
     candles: Candles,
     n_trials: int,
     is_fraction: float = 0.7,
-    embargo_bars: int = 24,
+    embargo_bars: int = 192,
     min_oos_sharpe: float = 0.5,
     min_dsr: float = 0.05,
     max_oos_drawdown: float = 0.35,
@@ -77,7 +77,7 @@ def validate_candidates(
     top_k: int = 12,
     max_deployed: int = 6,
     n_folds: int = 3,
-    fold_embargo: int = 12,
+    fold_embargo: int = 48,
     ctx: dict | None = None,
     log=None,
 ) -> list[ValidatedStrategy]:

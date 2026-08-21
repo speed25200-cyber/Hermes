@@ -30,7 +30,7 @@ DEFAULTS: dict[str, Any] = {
                     "FIL-USDT-SWAP", "ETC-USDT-SWAP", "XLM-USDT-SWAP",
                     "ARB-USDT-SWAP", "OP-USDT-SWAP", "INJ-USDT-SWAP",
                     "TIA-USDT-SWAP", "SEI-USDT-SWAP", "CRV-USDT-SWAP",
-                    "AAVE-USDT-SWAP", "PEPE-USDT-SWAP", "SHIB-USDT-SWAP"],
+                    "AAVE-USDT-SWAP"],
     # 15m bars: ~35k bars/year per instrument -> 4x the statistical power of
     # 1H for the validation gates, and intraday seasonality becomes usable
     "bar": "15m",
@@ -44,7 +44,7 @@ DEFAULTS: dict[str, Any] = {
         "generations": 25,
         "seed": None,
         "is_fraction": 0.7,          # fraction of history used in-sample
-        "embargo_bars": 24,          # gap between IS and OOS to avoid leakage
+        "embargo_bars": 192,         # 2 days of 15m — must exceed max ML horizon (48)
         "min_oos_sharpe": 0.5,       # OOS annualised Sharpe required to deploy
         "min_dsr": 0.05,             # deflated Sharpe probability threshold
         "max_deployed": 6,           # max strategies live at once
@@ -77,7 +77,7 @@ DEFAULTS: dict[str, Any] = {
         "governor": {"enabled": True, "max_boost": 1.5},
     },
     "allocator": {
-        "ewma_halflife_bars": 168,
+        "ewma_halflife_bars": 672,   # ~7 days of 15m; 24 bars is too short for corr
         "eta": 2.0,
         "max_weight": 0.5,
     },

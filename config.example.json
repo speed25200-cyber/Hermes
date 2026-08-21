@@ -6,7 +6,7 @@
     "population": 96,
     "generations": 25,
     "is_fraction": 0.7,
-    "embargo_bars": 24,
+    "embargo_bars": 192,
     "min_oos_sharpe": 0.5,
     "min_dsr": 0.05,
     "max_deployed": 6,

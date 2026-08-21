@@ -18,7 +18,13 @@ def fetch_candles(
     sleep_s: float = 0.12,
     log=None,
 ) -> int:
-    """Backfill `days` of candles, resuming from what is already stored."""
+    """Backfill `days` of candles, resuming from what is already stored.
+
+    Also repairs a *middle* gap (old history + latest 300 bars, hole in
+    between) which used to be skipped because pagination stopped at the
+    stored oldest timestamp instead of walking back until it overlapped
+    the stored newest.
+    """
     now_ms = int(time.time() * 1000)
     target_start = now_ms - days * 86_400_000
     lo, hi, n = store.candle_range(inst, bar)
@@ -33,24 +39,40 @@ def fetch_candles(
     # 1) newest chunk (regular endpoint covers the most recent bars)
     rows = client.candles(inst, bar, limit=300)
     total += save(rows)
+    if not rows:
+        if log:
+            log(f"{inst} {bar}: no candles returned")
+        return total
 
-    # 2) walk back through history until target_start (or stored data)
-    after = min(int(rows[-1][0]), lo or now_ms) if rows else (lo or now_ms)
-    stop_at = target_start if not lo else min(target_start, lo)
-    while after > target_start:
-        rows = client.candles(inst, bar, limit=100, after=after, history=True)
-        if not rows:
-            break
-        total += save(rows)
-        oldest = int(rows[-1][0])
-        if oldest >= after:  # no progress; defensive
-            break
-        after = oldest
-        if log and total % 2000 < 100:
-            log(f"{inst} {bar}: fetched back to {time.strftime('%Y-%m-%d', time.gmtime(after/1000))}")
-        time.sleep(sleep_s)
-        if oldest <= stop_at:
-            break
+    # Walk back from the oldest row of this newest chunk.
+    after = int(rows[-1][0])
+
+    def walk_until(stop_ts: int) -> None:
+        nonlocal after, total
+        while after > stop_ts:
+            hist = client.candles(inst, bar, limit=100, after=after, history=True)
+            if not hist:
+                break
+            total += save(hist)
+            oldest = int(hist[-1][0])
+            if oldest >= after:
+                break
+            after = oldest
+            if log and total % 2000 < 100:
+                log(f"{inst} {bar}: fetched back to "
+                    f"{time.strftime('%Y-%m-%d', time.gmtime(after / 1000))}")
+            time.sleep(sleep_s)
+
+    # Phase A: repair a hole between "latest 300" and stored newest (`hi`)
+    if hi:
+        walk_until(max(int(hi), target_start))
+    # Phase B: deepen older than stored oldest (`lo`) down to target_start
+    if lo and int(lo) > target_start:
+        after = int(lo)
+        walk_until(target_start)
+    elif not lo:
+        walk_until(target_start)
+
     if log:
         _, _, n2 = store.candle_range(inst, bar)
         log(f"{inst} {bar}: {n2} candles stored (+{total} upserted)")

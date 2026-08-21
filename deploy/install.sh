@@ -81,9 +81,20 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
-# dashboard: token-protected console reachable from the owner's phone (PWA).
-# The token gates every request; rotate it by editing this unit + restart.
-DASH_TOKEN="de15975f4de2eb8bdafe2ff3"
+# dashboard: token-protected console. Token lives in /root/hermes/.env
+# (never in git). Generate one if missing; rotate by editing .env + restart.
+set +x
+ENV_FILE="$HERMES_DIR/.env"
+touch "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+if ! grep -q '^HERMES_DASH_TOKEN=' "$ENV_FILE" 2>/dev/null; then
+    DASH_TOKEN="$(openssl rand -hex 16)"
+    echo "HERMES_DASH_TOKEN=$DASH_TOKEN" >> "$ENV_FILE"
+    echo "install: generated HERMES_DASH_TOKEN (stored in $ENV_FILE, not logged)"
+else
+    DASH_TOKEN="$(grep '^HERMES_DASH_TOKEN=' "$ENV_FILE" | tail -1 | cut -d= -f2-)"
+fi
+set -x
 cat > /etc/systemd/system/hermes-dashboard.service <<EOF
 [Unit]
 Description=Hermes dashboard (token-protected web console)
@@ -91,7 +102,7 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=$HERMES_DIR
-Environment=HERMES_DASH_TOKEN=$DASH_TOKEN
+EnvironmentFile=-$HERMES_DIR/.env
 ExecStart=$VENV/bin/python -m hermes dashboard --host 0.0.0.0 --port 8899 --no-browser
 Restart=always
 RestartSec=10

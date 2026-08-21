@@ -13,6 +13,7 @@ current one goes stale or was never found), state persistence and logging.
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 from dataclasses import dataclass, field
@@ -73,6 +74,15 @@ class Registry:
                 "consecutive_empty": self.consecutive_empty,
             }, f, indent=2)
 
+    def apply_survivors(self, survivors: list) -> bool:
+        """Replace the book only when the new pass found something, or when
+        there was nothing to keep. An empty research pass must not unwind a
+        live/paper book that is already trading."""
+        if survivors or not self.strategies:
+            self.strategies = survivors
+            return True
+        return False
+
     def record_outcome(self, survivors: list) -> None:
         """Track how many consecutive passes came back empty — the hunt
         escalates its search budget and cadence while the book is empty."""
@@ -92,7 +102,8 @@ def make_ctx(candles_by_inst: dict[str, Candles], inst: str,
 
 
 def _research_one(inst: str, candles: Candles, leader: Candles | None,
-                  r: dict, fee_bps: float, slip_bps: float
+                  r: dict, fee_bps: float, slip_bps: float,
+                  n_universe: int = 1
                   ) -> tuple[str, list[ValidatedStrategy], int, list[str]]:
     """Evolve + validate a single instrument (worker-safe: no shared state,
     returns log lines instead of printing)."""
@@ -111,7 +122,7 @@ def _research_one(inst: str, candles: Candles, leader: Candles | None,
         seed=r.get("seed"), ctx=ctx_is, log=None,
     )
     survivors = validate_candidates(
-        pop, candles, n_trials=n_trials,
+        pop, candles, n_trials=max(n_trials, 1) * max(n_universe, 1),
         is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
         min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
         fee_bps=fee_bps, slip_bps=slip_bps,
@@ -158,13 +169,15 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
     log(f"research: {len(eligible_list)} instruments on {workers} worker(s), "
         f"population={r['population']} generations={r['generations']}")
 
+    n_universe = max(len(eligible_list), 1)
     if workers == 1:
-        results = [_research_one(i, c, ld, r, fee_bps, slip_bps)
+        results = [_research_one(i, c, ld, r, fee_bps, slip_bps, n_universe)
                    for i, c, ld in eligible_list]
     else:
         import concurrent.futures as cf
         with cf.ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(_research_one, i, c, ld, r, fee_bps, slip_bps)
+            futures = [pool.submit(_research_one, i, c, ld, r, fee_bps, slip_bps,
+                                   n_universe)
                        for i, c, ld in eligible_list]
             results = []
             for fut in cf.as_completed(futures):
@@ -176,8 +189,12 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
     for inst, survivors, n_trials, lines in sorted(results, key=lambda t: t[0]):
         for line in lines:
             log(line)
+        charged = max(n_trials, 1) * n_universe
+        if survivors:
+            for s in survivors:
+                s.oos_stats["n_trials_charged"] = charged
         log(f"research {inst}: {len(survivors)} strategies passed OOS "
-            f"validation ({n_trials} genomes)")
+            f"validation ({n_trials} genomes, DSR N={charged})")
         all_survivors.extend(survivors)
         total_trials += n_trials
 
@@ -230,6 +247,16 @@ class Trader:
         """One decision cycle at the close of the newest bar. Returns a report."""
         prices = {inst: float(c.c[-1]) for inst, c in candles_by_inst.items() if len(c)}
         self.broker.mark_prices(prices)
+        # paper must pay the same funding the exchange would (demo already did;
+        # the live loop did not — carry strategies were scored on price only)
+        if isinstance(self.broker, PaperBroker):
+            for inst, c in candles_by_inst.items():
+                if not len(c):
+                    continue
+                ts = int(c.ts[-1])
+                prev_ts = self.last_ts.get(inst)
+                if prev_ts is not None and ts != prev_ts and float(c.funding[-1]) != 0.0:
+                    self.broker.apply_funding(inst, float(c.funding[-1]))
         equity = self.broker.equity()
 
         # ---- shadow returns: what did each strategy's last position earn? ----
@@ -248,7 +275,8 @@ class Trader:
                     prev_close = self.last_close.get(inst)
                     if c is None or len(c) < 2 or not prev_close:
                         continue
-                    total += float(p) * (float(c.c[-1]) / prev_close - 1.0)
+                    total += float(p) * (float(c.c[-1]) / prev_close - 1.0
+                                         - float(c.funding[-1]))
                     seen = True
                 if seen:
                     strat_rets[sid] = total
@@ -259,7 +287,8 @@ class Trader:
             prev_close = self.last_close.get(s.inst)
             if prev_close:
                 bar_ret = float(c.c[-1]) / prev_close - 1.0
-                strat_rets[sid] = float(last_pos) * bar_ret
+                fund = float(c.funding[-1]) if len(c) else 0.0
+                strat_rets[sid] = float(last_pos) * (bar_ret - fund)
 
         # portfolio realised return
         port_ret = 0.0
@@ -410,6 +439,8 @@ class Trader:
         current = self.broker.positions()
         orders = []
         all_insts = set(targets) | set(current)
+        max_n = float(self.risk.max_order_notional)
+        min_n = float(self.risk.min_trade_notional)
         for inst in sorted(all_insts):
             px = prices.get(inst, 0.0)
             if px <= 0:
@@ -417,26 +448,51 @@ class Trader:
             tgt_qty = targets.get(inst, 0.0) * equity / px
             cur_qty = current.get(inst, 0.0)
             delta = tgt_qty - cur_qty
-            notional = abs(delta) * px
-            ok, why = self.risk.check_order(notional)
-            if not ok:
-                if notional > 0 and "min notional" not in why:
-                    self.log(f"{inst}: order rejected: {why}")
-                continue
-            fill = self.broker.market_order(inst, delta, px)
-            if fill:
-                orders.append({"inst": inst, "qty": delta, "px": px,
-                               "notional": notional})
-                self.log(f"order {inst}: {'+' if delta > 0 else ''}{delta:.6f} "
-                         f"@ ~{px:.2f} ({notional:.2f} USDT)")
+            reducing = abs(tgt_qty) <= abs(cur_qty) + 1e-12
+            while abs(delta) * px >= min_n:
+                cap_qty = max_n / px if px > 0 else abs(delta)
+                step = math.copysign(min(abs(delta), cap_qty), delta)
+                notional = abs(step) * px
+                ok, why = self.risk.check_order(notional, reducing=reducing)
+                if not ok:
+                    if notional > 0 and "min notional" not in why:
+                        self.log(f"{inst}: order rejected: {why}")
+                    break
+                fill = self.broker.market_order(inst, step, px)
+                if fill:
+                    orders.append({"inst": inst, "qty": step, "px": px,
+                                   "notional": notional})
+                    self.log(f"order {inst}: {'+' if step > 0 else ''}{step:.6f} "
+                             f"@ ~{px:.2f} ({notional:.2f} USDT)")
+                    delta -= step
+                    if abs(fill.qty) + 1e-12 < abs(step) * 0.5:
+                        break  # exchange didn't fill; don't loop
+                else:
+                    break
         return orders
 
     def _flatten(self, prices: dict[str, float]) -> None:
-        for inst, qty in self.broker.positions().items():
-            px = prices.get(inst, 0.0)
-            if px > 0 and abs(qty) * px > 1.0:
-                self.broker.market_order(inst, -qty, px)
-                self.log(f"flatten {inst}: closed {qty:.6f}")
+        """Emergency close: taker, reduce-only, no 20s maker wait. Parallel
+        on live so a 15-name book is not flattened sequentially in a crash."""
+        items = [(inst, qty) for inst, qty in self.broker.positions().items()
+                 if prices.get(inst, 0.0) > 0 and abs(qty) * prices[inst] > 1.0]
+
+        def close_one(item: tuple[str, float]) -> None:
+            inst, qty = item
+            px = prices[inst]
+            try:
+                self.broker.market_order(inst, -qty, px, force_taker=True)
+                self.log(f"flatten {inst}: closed {qty:.6f} TAKER")
+            except Exception as exc:
+                self.log(f"flatten {inst} FAILED ({type(exc).__name__}: {exc})")
+
+        if len(items) <= 1 or isinstance(self.broker, PaperBroker):
+            for item in items:
+                close_one(item)
+            return
+        from concurrent.futures import ThreadPoolExecutor, wait
+        with ThreadPoolExecutor(max_workers=min(8, len(items))) as pool:
+            wait([pool.submit(close_one, item) for item in items], timeout=30)
 
     # persistence ------------------------------------------------------- #
 
@@ -501,6 +557,7 @@ class LiveRunner:
                 self.client, cfg["live"]["td_mode"], self.log,
                 prefer_maker=cfg["costs"].get("prefer_maker", True),
                 maker_wait_s=cfg["live"].get("maker_wait_s", 20))
+            self._configure_account()
         else:
             pb_fee, pb_slip = effective_costs(cfg["costs"])
             self.broker = PaperBroker(
@@ -532,6 +589,25 @@ class LiveRunner:
                              journal_path=os.path.join(state_dir, "journal.jsonl"))
         self.trader.load_state(state_dir)
 
+    def _configure_account(self) -> None:
+        """Force net mode + a leverage cap OKX will actually honour.
+
+        Hermes risk is an internal exposure fraction; without this, a UI
+        account left in long/short mode or 20x leverage will not match paper.
+        """
+        try:
+            self.client.set_position_mode(net=True)
+            self.log("account: posMode=net_mode")
+        except Exception as exc:
+            self.log(f"account: position mode ({type(exc).__name__}: {exc})")
+        lever = max(1, int(math.ceil(float(self.cfg["risk"]["max_gross_leverage"]))))
+        td = self.cfg["live"]["td_mode"]
+        for inst in self.cfg["instruments"]:
+            try:
+                self.client.set_leverage(inst, lever, td)
+            except Exception as exc:
+                self.log(f"account: leverage {inst} ({type(exc).__name__}: {exc})")
+
     # ------------------------------------------------------------------ #
 
     def _load_candles(self) -> dict[str, Candles]:
@@ -541,14 +617,17 @@ class LiveRunner:
     def ensure_data(self) -> None:
         from ..data.fetcher import fetch_candles, fetch_funding
         for inst in self.cfg["instruments"]:
-            _, _, n = self.store.candle_range(inst, self.cfg["bar"])
-            if n < 2000:
-                self.log(f"backfilling {inst} ({self.cfg['history_days']}d of "
-                         f"{self.cfg['bar']} candles)...")
+            # always run the fetcher: it is cheap when history is contiguous
+            # and repairs silent mid-series gaps after downtime
+            try:
+                self.log(f"syncing {inst} ({self.cfg['history_days']}d "
+                         f"{self.cfg['bar']})...")
                 fetch_candles(self.client, self.store, inst, self.cfg["bar"],
                               self.cfg["history_days"], log=self.log)
                 fetch_funding(self.client, self.store, inst,
                               self.cfg["history_days"], log=self.log)
+            except Exception as exc:
+                self.log(f"sync {inst} failed: {type(exc).__name__}: {exc}")
 
     def ensure_research(self, force: bool = False) -> None:
         age_h = (time.time() - self.registry.researched_at) / 3600.0
@@ -569,8 +648,10 @@ class LiveRunner:
             survivors, n_trials = run_research(
                 self._load_candles(), self.cfg, self.log,
                 escalation=self.registry.consecutive_empty)
-            if survivors or not self.registry.strategies:
-                self.registry.strategies = survivors
+            replaced = self.registry.apply_survivors(survivors)
+            if not replaced:
+                self.log(f"research empty — keeping {len(self.registry.strategies)} "
+                         "already-deployed strategies (will not unwind the book)")
             self.registry.record_outcome(survivors)
             self.registry.researched_at = time.time()
             self.registry.n_trials = n_trials
