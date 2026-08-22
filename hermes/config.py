@@ -59,8 +59,8 @@ DEFAULTS: dict[str, Any] = {
     },
     "risk": {
         "portfolio_vol_target": 0.20,   # annualised
-        "max_gross_leverage": 2.0,
-        "max_instrument_leverage": 1.0,
+        "max_gross_leverage": 20.0,
+        "max_instrument_leverage": 20.0,
         "daily_loss_limit_pct": 3.0,    # halt for the day
         "max_drawdown_pct": 15.0,       # kill switch: flatten + halt
         "min_trade_notional": 10.0,     # USDT
@@ -99,8 +99,8 @@ DEFAULTS: dict[str, Any] = {
         "horizon": 8,
         "min_edge_bps": 6.0,
         "max_hold_bars": 16,
-        "max_name_lev": 0.45,
-        "gross_cap": 1.20,
+        "max_name_lev": 20.0,
+        "gross_cap": 20.0,
         "poll_seconds": 5,
         "history_days": 60,
         "maker_wait_s": 8,

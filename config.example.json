@@ -18,8 +18,8 @@
   },
   "risk": {
     "portfolio_vol_target": 0.2,
-    "max_gross_leverage": 2.0,
-    "max_instrument_leverage": 1.0,
+    "max_gross_leverage": 20.0,
+    "max_instrument_leverage": 20.0,
     "daily_loss_limit_pct": 3.0,
     "max_drawdown_pct": 15.0,
     "min_trade_notional": 10.0,

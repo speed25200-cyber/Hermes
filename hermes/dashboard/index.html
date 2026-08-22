@@ -1771,7 +1771,7 @@ async function refresh(){
     const capLev = Number(lev.gross_cap || 0.55);
     const nameLev = Number(lev.name_cap || 0.22);
     tweenNum($("k_gross"), usedLev, v=>v.toFixed(2)+"×");
-    $("k_gross_d").textContent = "used / cap "+capLev.toFixed(2)+"× · max "+nameLev.toFixed(2)+"× per coin";
+    $("k_gross_d").textContent = "OKX cross · used / cap "+capLev.toFixed(0)+"× · max "+nameLev.toFixed(0)+"× per coin";
     drawChart();
     $("chartrange").textContent = series.length+" ticks";
     const cap = 0.15;

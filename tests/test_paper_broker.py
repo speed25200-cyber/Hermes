@@ -44,3 +44,21 @@ def test_funding_application():
     b.market_order("X", 10.0, 100.0, force_taker=True)
     b.apply_funding("X", 0.001)  # long pays
     assert b.equity() == pytest.approx(10000.0 - 1.0)
+
+
+def test_okx_leverage_style_qty_is_notional_over_price():
+    """20x on $10k at $100 → 2000 coins, equity still ~10k until the move."""
+    b = PaperBroker(cash=10_000.0, fee_bps=0.0, slippage_bps=0.0)
+    b.mark_prices({"X": 100.0})
+    b.market_order("X", 2000.0, 100.0, force_taker=True)
+    assert b.equity() == pytest.approx(10_000.0)
+    assert abs(2000 * 100) / 10_000 == pytest.approx(20.0)
+
+
+def test_liquidation_wipes_20x_on_adverse_move():
+    b = PaperBroker(cash=10_000.0, fee_bps=0.0, slippage_bps=0.0)
+    b.mark_prices({"X": 100.0})
+    b.market_order("X", 2000.0, 100.0, force_taker=True)  # 20x
+    b.mark_prices({"X": 94.0})  # -6% → equity gone at 20x
+    assert b.positions() == {}
+    assert b.equity() <= 200.0

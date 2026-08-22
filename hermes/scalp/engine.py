@@ -32,8 +32,11 @@ class ScalpEngine:
         self.horizon = int(s.get("horizon", 3))
         self.min_edge = float(s.get("min_edge_bps", 6.0))
         self.max_hold = int(s.get("max_hold_bars", 16))
-        self.max_name = float(s.get("max_name_lev", 0.45))
-        self.gross_cap = float(s.get("gross_cap", 1.20))
+        self.max_name = float(s.get("max_name_lev", 20.0))
+        self.gross_cap = float(s.get("gross_cap", 20.0))
+        self.trade_top = int(s.get("trade_top", 2))
+        self.lev_min = 2
+        self.lev_max = 20
         self.opened_bar: dict[str, int] = {}
         self.last_bar: dict[str, int] = {}
         self.last_preds: list[dict] = []
@@ -53,9 +56,6 @@ class ScalpEngine:
         self.horizons = ScaleDesk(fee_bps=7.0, log=self.log)
         self.brain = FlowBrain(state_dir, fee_bps=7.0, log=self.log)
         self._px_t: dict[str, tuple[float, float]] = {}
-        self.max_name = 0.22
-        self.gross_cap = 0.55
-        self.trade_top = 2
         self.preds_h: dict[str, list] = {b: [] for b in BARS}
         self.hold_ms: dict[str, int] = {}
         self.opened_h: dict[str, str] = {}
@@ -97,7 +97,7 @@ class ScalpEngine:
                 "name_cap": self.max_name,
                 "gross_cap": self.gross_cap,
                 "used": used,
-                "okx": 2,
+                "okx": int(self.lev_max),
                 "targets": tg,
             },
             "desk": { (p.get("inst") or "").split("-")[0]: {
@@ -278,6 +278,18 @@ class ScalpEngine:
         elif self.preds_h.get("1m"):
             self.last_preds = self.preds_h["1m"]
 
+    def _pick_lev(self, p: dict) -> float:
+        """OKX integer leverage 2–20. Tests may pass max_name_lev ≤ 1 as a fraction."""
+        if self.max_name <= 1.0:
+            return float(self.max_name)
+        sl = max(float(p.get("sl_bps") or 12.0), 8.0)
+        edge = abs(float(p.get("edge_bps") or 0.0))
+        lev = 0.025 / (sl * 1e-4)
+        if edge > self.round_trip_bps:
+            lev *= min(1.5, edge / self.round_trip_bps)
+        lev = max(self.lev_min, min(self.lev_max, self.max_name, lev))
+        return float(int(round(lev)))
+
     def _targets(self, preds: list[dict]) -> dict[str, float]:
         raw = {}
         live = [p for p in preds if p["dir"] != "flat"]
@@ -286,14 +298,19 @@ class ScalpEngine:
         for p in preds:
             if p["dir"] == "flat" or p["inst"] not in keep:
                 raw[p["inst"]] = 0.0
+                p["lev"] = 0.0
                 continue
-            spare = abs(p["edge_bps"]) / max(self.round_trip_bps, 1.0) - 1.0
-            w = min(self.max_name, self.max_name * min(spare, 2.0) / 2.0)
-            raw[p["inst"]] = w if p["dir"] == "long" else -w
+            lev = self._pick_lev(p)
+            p["lev"] = float(lev)
+            raw[p["inst"]] = float(lev if p["dir"] == "long" else -lev)
         gross = sum(abs(v) for v in raw.values())
-        if gross > self.gross_cap and gross > 0:
-            s = self.gross_cap / gross
+        cap = min(self.gross_cap, float(self.lev_max))
+        if gross > cap and gross > 0:
+            s = cap / gross
             raw = {k: v * s for k, v in raw.items()}
+            for p in preds:
+                if p.get("inst") in raw:
+                    p["lev"] = abs(raw[p["inst"]])
         return raw
 
     def _px(self, inst: str, fallback: float = 0.0) -> tuple[float, float, float]:

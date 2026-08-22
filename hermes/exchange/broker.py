@@ -65,6 +65,7 @@ class PaperBroker(Broker):
 
     def mark_prices(self, prices: dict[str, float]) -> None:
         self.prices.update(prices)
+        self._maybe_liquidate()
 
     def mark_ticks(self, ticks: dict[str, dict]) -> None:
         """OKX ticker snapshot: last/bid/ask. Fills use bid/ask, MTM uses last."""
@@ -75,6 +76,23 @@ class PaperBroker(Broker):
             if last > 0:
                 self.prices[inst] = last
             self.book[inst] = {"last": last, "bid": bid, "ask": ask}
+        self._maybe_liquidate()
+
+    def _maybe_liquidate(self) -> None:
+        """USDT-M: wipe when equity ≤ ~maintenance (0.4% of notional), like ~20x."""
+        notion = 0.0
+        for inst, q in self.pos.items():
+            notion += abs(q) * float(self.prices.get(inst) or 0.0)
+        if notion <= 0:
+            return
+        eq = self.equity()
+        if eq > 0.004 * notion and eq > 0:
+            return
+        for inst, q in list(self.pos.items()):
+            px = float(self.prices.get(inst) or 0.0)
+            if px > 0 and abs(q) > 0:
+                self.market_order(inst, -q, px, force_taker=True)
+        self.cash = max(self.cash, 0.0)
 
     def equity(self) -> float:
         eq = self.cash

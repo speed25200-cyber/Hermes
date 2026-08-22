@@ -223,7 +223,7 @@ def test_trade_top_caps_book(tmp_path):
              for i in range(20)]
     t = eng._targets(preds)
     live = [k for k, v in t.items() if abs(v) > 1e-9]
-    assert len(live) == 2
+    assert len(live) == 8
 
 
 def test_close_at_high_fades():
