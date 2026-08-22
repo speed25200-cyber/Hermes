@@ -506,7 +506,7 @@
         <div class="radar" aria-hidden="true"></div>
         <div>
           <div class="scan-kicker">Hermes · 1m order-flow</div>
-          <div class="scan-name">Live scan</div>
+          <div class="scan-name" id="sc_ml">Live scan</div>
         </div>
       </div>
       <div class="scan-kpis">
@@ -1105,6 +1105,14 @@ function renderScalp(s){
   else if(age < 60) ageEl.textContent = Math.round(age)+"s";
   else ageEl.textContent = Math.round(age/60)+"m";
   ageEl.style.color = (age!==null && age < 15) ? "var(--green)" : (age!==null && age < 60) ? "var(--amber)" : "";
+  const lr = (s && s.learner) || {};
+  const mlEl = $("sc_ml");
+  if(mlEl){
+    const st = lr.status || "unfitted";
+    const ic = Number(lr.ic||0);
+    mlEl.textContent = "ML "+st+" · "+(lr.policy||"—")+" · ic "+ic.toFixed(2);
+    mlEl.style.color = st==="live" ? "var(--green)" : st==="veto" ? "var(--red)" : "";
+  }
 
   if(!n){
     empty.style.display = "block";

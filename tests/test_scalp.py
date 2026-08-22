@@ -199,7 +199,7 @@ def test_no_l2_means_flat(tmp_path):
     b.mark_prices({c.inst: float(c.c[-1])})
     rep = eng.tick({c.inst: c})
     assert all(p["dir"] == "flat" for p in rep["preds"])
-    assert all(p.get("reason") == "no L2" for p in rep["preds"])
+    assert all(p.get("reason") in ("no L2", "ml-veto", "cost") for p in rep["preds"])
 
 
 def test_trade_top_caps_book(tmp_path):

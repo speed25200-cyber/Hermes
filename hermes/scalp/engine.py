@@ -10,6 +10,7 @@ from ..data.store import Candles
 from ..exchange.broker import Broker, PaperBroker
 from . import features as F
 from . import model as M
+from .learn import ScalpLearner
 
 
 class ScalpEngine:
@@ -49,6 +50,10 @@ class ScalpEngine:
         self.flow: dict[str, float] = {}
         self.tape: dict[str, dict] = {}
         self.pending: dict[str, float] = {}  # inst -> desired coin qty
+        self.learner = ScalpLearner(
+            fee_rt_bps=self.round_trip_bps, horizon=int(s.get("max_hold_bars", 6)),
+            log=self.log,
+        )
 
     # ------------------------------------------------------------------ #
 
@@ -60,6 +65,7 @@ class ScalpEngine:
             "brackets": self.brackets,
             "round_trip_bps": self.round_trip_bps,
             "min_edge_bps": self.min_edge,
+            "learner": self.learner.to_dict(),
         }
         if extra:
             d.update(extra)
@@ -162,14 +168,23 @@ class ScalpEngine:
             feat["ofi"] = float(micro.get("ofi") or 0.0)
             feat["vwap_vs"] = float((self.tape.get(inst) or {}).get("vwap_vs") or 0.0)
             pred = M.predict(feat, btc_r1, inst.startswith("BTC-"), self.horizon)
-            edge = float(pred["edge_bps"])
+            inf = self.learner.infer(
+                feat, btc_r1, inst.startswith("BTC-"),
+                float(pred["score"]), float(pred["vol_bps"]),
+            )
+            score = float(inf["score"])
+            vol = max(float(pred["vol_bps"]) * 1e-4, 1e-6)
+            edge = score * vol * (max(self.horizon, 1) ** 0.5) * 1e4
+            pred["score"], pred["edge_bps"] = score, edge
             spread = float(micro["spread_bps"] or 0.0) or float(
                 (self.ticks.get(inst) or {}).get("spread_bps") or 0.0)
             if spread <= 0:
                 spread = 3.0
             hurdle = max(self.min_edge, self.round_trip_bps, spread + 2.0 * self.taker_fee_bps)
             reason = ""
-            if not micro["l2"] and self.require_l2:
+            if inf["veto"]:
+                direction, reason = "flat", "ml-veto"
+            elif not micro["l2"] and self.require_l2:
                 direction, reason = "flat", "no L2"
             elif abs(edge) < hurdle:
                 direction, reason = "flat", "cost"
@@ -198,6 +213,10 @@ class ScalpEngine:
                 "loc": feat.get("loc", 0.0),
                 "l2": bool(micro["l2"]),
                 "reason": reason,
+                "ml_bps": inf["ml_bps"],
+                "ml": inf["status"],
+                "tp_bps": inf["tp_bps"],
+                "sl_bps": inf["sl_bps"],
                 "bar_ts": int(c.ts[-1]),
             })
         self.last_preds = out
@@ -230,10 +249,13 @@ class ScalpEngine:
         ask = float(t.get("ask") or 0.0) or last
         return last, bid, ask
 
-    def _arm(self, inst: str, qty: float, fill, vol_bps: float) -> None:
+    def _arm(self, inst: str, qty: float, fill, vol_bps: float,
+             tp_bps: float | None = None, sl_bps: float | None = None) -> None:
         entry = float(fill.price)
-        sl_bps = max(self.stop_bps, 2.0 * max(vol_bps, 1.0))
-        tp_bps = max(self.take_bps, 1.2 * max(vol_bps, 1.0))
+        sl_bps = float(sl_bps if sl_bps is not None else self.stop_bps)
+        tp_bps = float(tp_bps if tp_bps is not None else self.take_bps)
+        sl_bps = max(sl_bps, 2.0 * max(vol_bps, 1.0) * 0.5, 8.0)
+        tp_bps = max(tp_bps, 1.0 * max(vol_bps, 1.0) * 0.5, 6.0)
         if qty > 0:
             sl = entry * (1.0 - sl_bps * 1e-4)
             tp = entry * (1.0 + tp_bps * 1e-4)
@@ -361,7 +383,9 @@ class ScalpEngine:
                 self.brackets.pop(inst, None)
             elif opening:
                 self.opened_bar[inst] = int(time.time() * 1000)
-                self._arm(inst, tgt_qty, fill, vol.get(inst, 0.0))
+                plan = next((p for p in self.last_preds if p.get("inst") == inst), {})
+                self._arm(inst, tgt_qty, fill, vol.get(inst, 0.0),
+                          plan.get("tp_bps"), plan.get("sl_bps"))
             self.log(f"scalp fill {inst} {delta:+.6f} @ {fill.price:.6f}")
         self.risk.update_equity(self.broker.equity(), time.time())
         self._snapshot({"equity": self.broker.equity()})

@@ -90,17 +90,17 @@ DEFAULTS: dict[str, Any] = {
         "bar": "1m",
         "instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"],
         "universe_n": 40,
-        "trade_top": 8,              # only the 8 strongest L2 edges
-        "require_l2": True,          # no fire without a fresh book
+        "trade_top": 4,
+        "require_l2": True,
         "max_spread_bps": 6.0,
         "min_vol_usd": 10_000_000.0,
-        "stop_bps": 15.0,
+        "stop_bps": 15.0,            # fallback; learner overwrites per trade
         "take_bps": 10.0,
         "horizon": 3,
-        "min_edge_bps": 8.0,         # must beat ~10 bp taker round-trip
+        "min_edge_bps": 8.0,
         "max_hold_bars": 6,
-        "max_name_lev": 0.18,
-        "gross_cap": 1.00,
+        "max_name_lev": 0.15,
+        "gross_cap": 0.60,           # half-size until the learner's holdout is green
         "poll_seconds": 5,
         "history_days": 7,
         "maker_wait_s": 3,

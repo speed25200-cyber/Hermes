@@ -745,6 +745,12 @@ class LiveRunner:
                 time.sleep(30)
         if self.scalp:
             self._ensure_scalp_data()
+            try:
+                names = self.scalp.instruments or ["BTC-USDT-SWAP"]
+                c1 = {i: self.store.load(i, "1m") for i in names}
+                self.scalp.learner.fit(c1)
+            except Exception as exc:
+                self.log(f"learner fit: {type(exc).__name__}: {exc}")
             threading.Thread(target=self._bg_sync, daemon=True).start()
         else:
             self.ensure_data()
@@ -752,6 +758,7 @@ class LiveRunner:
         last_cycle_bar = 0
         last_scalp_bar = 0
         last_uni = 0.0
+        last_learn = time.time()
         rr = 0
         book_rr = 0
         poll = int((self.cfg.raw.get("scalp") or {}).get("poll_seconds", 5)
@@ -780,6 +787,15 @@ class LiveRunner:
                     if ticks and hasattr(self.broker, "mark_ticks"):
                         self.broker.mark_ticks(ticks)
                     names = self.scalp.instruments or ["BTC-USDT-SWAP"]
+                    if time.time() - last_learn > 3600:
+                        last_learn = time.time()
+                        def _refit(ns=list(names)):
+                            try:
+                                cc = {i: self.store.load(i, "1m") for i in ns}
+                                self.scalp.learner.fit(cc)
+                            except Exception as exc:
+                                self.log(f"learner refit: {type(exc).__name__}: {exc}")
+                        threading.Thread(target=_refit, daemon=True).start()
                     # L2: 4 books/poll, positions + BTC first, then rotate.
                     # Never 50 books — that 429s the public API and freezes MTM.
                     prio: list[str] = []
