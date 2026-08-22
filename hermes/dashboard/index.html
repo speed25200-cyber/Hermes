@@ -359,7 +359,8 @@
   .scan-kpis > div{padding:0 18px;border-left:1px solid var(--hair);text-align:right}
   .scan-kpis b{display:block;font-size:18px;font-weight:480;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--txt);line-height:1.15}
   .scan-kpis span{font-size:9.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
-  .scan-live{display:flex;gap:10px;padding:6px 16px 0;overflow-x:auto;scrollbar-width:none}
+  .scan-live{display:none}
+  .scard{display:none}
   .scan-live:empty{display:none;padding:0}
   .scan-live::-webkit-scrollbar{display:none}
   .scard{flex:1 1 180px;min-width:176px;max-width:280px;padding:14px 16px 13px;border-radius:14px;
@@ -383,7 +384,7 @@
   .dcard.short{border-color:rgba(240,84,79,.3)}
   .dcard.short .dir{color:var(--red)}
   .dcard .clk{grid-column:1/-1;display:flex;gap:3px;margin:4px 0 2px}
-  .dcard .lvls{grid-column:1/-1;display:flex;gap:14px;font-variant-numeric:tabular-nums}
+  .dcard .lvls{grid-column:1/-1;display:flex;gap:12px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
   .dcard .lvls b{display:block;font-size:13px;font-weight:600;line-height:1.15}
   .dcard .lvls span{font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
   .dcard .lvls .tp b{color:var(--green)}
@@ -409,7 +410,7 @@
   .scan-empty{padding:10px 22px 16px;font-size:12px;color:var(--faint);font-weight:460}
   .scan-board{max-height:min(52vh, 560px);overflow:auto;scrollbar-width:thin;
     scrollbar-color:rgba(255,255,255,.12) transparent;padding:4px 8px 10px}
-  .shead,.srow{display:grid;grid-template-columns:56px 1fr 44px 56px 52px 52px 56px;
+  .shead,.srow{display:grid;grid-template-columns:56px minmax(0,1fr) 48px 48px 56px;
     gap:8px;align-items:center;padding:0 12px}
   .shead{position:sticky;top:0;z-index:1;padding:8px 12px 6px;
     font-size:9px;font-weight:650;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);
@@ -435,8 +436,8 @@
     .scan-kpis{margin-left:0;width:100%;display:grid;grid-template-columns:repeat(4,1fr)}
     .scan-kpis > div{padding:0 8px;text-align:left}
     .scan-kpis b{font-size:16px}
-    .shead,.srow{grid-template-columns:48px 1fr 40px 48px 48px 48px}
-    .srow .spr,.shead .h-spr{display:none}
+    .shead,.srow{grid-template-columns:48px 1fr 44px 44px 52px}
+    .scan-kpis b{font-size:13px}
   }
 
   .haltbanner{display:none;margin-bottom:14px;border:1px solid rgba(240,84,79,.3);border-radius:14px;
@@ -547,7 +548,7 @@
     <div class="scan-live" id="scanlive"></div>
     <div class="scan-empty" id="scanempty">Waiting for the first 1-minute print…</div>
     <div class="shead" id="scanhead" style="display:none">
-      <span>Name</span><span>Bias</span><span style="text-align:right">P(up)</span>
+      <span>Name</span>
       <span class="h-edge" style="text-align:right">Pred</span>
       <span style="text-align:right">TP</span>
       <span style="text-align:right">SL</span>
@@ -1197,30 +1198,7 @@ function renderScalp(s, dataNow){
   empty.style.display = "none";
   head.style.display = "grid";
 
-  const watching = preds.filter(p => p.dir === "flat")
-    .sort((a,b) => Math.abs(b.edge_bps||0) - Math.abs(a.edge_bps||0)).slice(0, 3);
-  const featured = live.length ? live.slice(0, 4) : [];
-  liveEl.innerHTML = featured.map(p => {
-    const dir = p.dir || "flat";
-    const cls = dir === "flat" ? "watch" : dir;
-    const tag = dir === "long" ? "FIRING"+(p.bar && p.bar!=="1m" ? " · "+p.bar : (p.l2 ? " · L2" : ""))
-              : dir === "short" ? "FIRING"+(p.bar && p.bar!=="1m" ? " · "+p.bar : (p.l2 ? " · L2" : "")) : "WATCH";
-    const lab = dir === "long" ? "LONG" : dir === "short" ? "SHORT" : "GATED";
-    const pct = Math.round((p.p_up || 0.5) * 100);
-    const edge = p.edge_bps || 0;
-    const spr = p.spread_bps || 0;
-    const sym = (p.inst || "").replace("-USDT-SWAP","");
-    return `<div class="scard ${cls}" onclick="openTrade('${p.inst}')">
-      <div class="topline"><span class="sym">${sym}</span><span class="tag">${tag}</span></div>
-      <div class="dir">${lab}</div>
-      <div class="nums">
-        <div><b>${pct}%</b><span>p(up)</span></div>
-        <div><b>${edge>=0?"+":""}${edge.toFixed(1)}</b><span>edge bps</span></div>
-        <div><b class="up">+${(p.tp_bps||0).toFixed(0)}</b><span>tp bp</span></div>
-        <div><b class="down">−${(p.sl_bps||0).toFixed(0)}</b><span>sl bp</span></div>
-      </div>
-    </div>`;
-  }).join("");
+  liveEl.innerHTML = "";
 
   const ranked = preds.slice().sort((a,b)=>{
     const al = (a.dir==="flat")?0:1, bl = (b.dir==="flat")?0:1;
@@ -1229,7 +1207,7 @@ function renderScalp(s, dataNow){
   });
   board.innerHTML = ranked.map(p=>{
     const dir = p.dir || "flat";
-    const pct = Math.round((p.p_up || 0.5) * 100);
+    const pct = Math.max(0, Math.min(100, Math.round((p.p_up || 0.5) * 100)));
     const edge = p.edge_bps || 0;
     const spr = p.spread_bps || 0;
     const w = Math.min(50, Math.abs(pct-50));
@@ -1238,8 +1216,6 @@ function renderScalp(s, dataNow){
     const sym = (p.inst || "").replace("-USDT-SWAP","");
     return `<div class="srow ${dir}" onclick="openTrade('${p.inst}')">
       <span class="sym">${sym}</span>
-      <span class="bias ${biasCls}"><i style="width:${w}%"></i></span>
-      <span class="pct">${pct}%</span>
       <span class="edge">${edge>=0?"+":""}${edge.toFixed(1)}</span>
       <span class="edge up">+${(p.tp_bps||0).toFixed(0)}</span>
       <span class="edge down">−${(p.sl_bps||0).toFixed(0)}</span>
