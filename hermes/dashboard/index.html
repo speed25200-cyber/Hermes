@@ -268,7 +268,30 @@
   #logfeed .ts{color:var(--faint)}
   #logfeed div{animation:slidein .4s ease}
 
-  .empty{color:var(--faint);font-size:12.5px;font-weight:460;padding:22px 4px;text-align:center}
+  .pcard{padding:10px 12px;border:1px solid var(--stroke);border-radius:10px;margin:0 0 8px;
+    background:rgba(255,255,255,.03);cursor:pointer}
+  .pcard.long{border-color:rgba(62,207,142,.3)}
+  .pcard.short{border-color:rgba(240,84,79,.3)}
+  .pcard .prow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .pcard .prow b.sym{font-size:14px;font-weight:650}
+  .pcard .levx{margin-left:auto;font-size:13px;font-weight:650;font-variant-numeric:tabular-nums}
+  .pcard .nums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}
+  .pcard .nums b{display:block;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums}
+  .pcard .nums span{font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .pcard .nums .tp b{color:var(--green)}
+  .pcard .nums .sl b{color:var(--red)}
+  .hist{display:flex;align-items:center;gap:8px;padding:8px 2px;border-bottom:1px solid var(--hair);
+    font-size:12.5px;font-variant-numeric:tabular-nums;flex-wrap:wrap}
+  .hist:last-child{border-bottom:none}
+  .hist .why{font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+    min-width:44px;color:var(--faint)}
+  .hist .why.tp{color:var(--green)} .hist .why.sl{color:var(--red)} .hist .why.open{color:var(--gold)}
+  .hist .pnl{margin-left:auto;font-weight:620}
+  @media (max-width:740px){
+    .hide-phone{display:none !important}
+    .pcard .nums{grid-template-columns:repeat(2,minmax(0,1fr))}
+    #orderfeed, #orderempty { }
+  }
 
   /* ================= trade inspector ================= */
   #postable tbody tr{cursor:pointer}
@@ -622,7 +645,7 @@
         </div>
       </div>
 
-      <div class="panel">
+      <div class="panel hide-phone">
         <div class="ptitle"><span class="tick"></span>Allocation
           <span class="sub">capital weights</span></div>
         <div id="allocbar"></div>
@@ -630,7 +653,7 @@
         <div class="empty" id="allocempty">Awaiting deployed strategies</div>
       </div>
 
-      <div class="panel">
+      <div class="panel hide-phone">
         <div class="ptitle"><span class="tick"></span>Alpha research</div>
         <div class="rstat">Last pass <b class="num" id="r_when">—</b></div>
         <div class="rstat">Genomes evaluated <b class="num" id="r_trials">—</b></div>
@@ -641,25 +664,22 @@
     </div>
   </div>
 
-  <!-- row 2: positions + strategies -->
+  <!-- row 2: open positions + history -->
   <div class="grid row2">
     <div class="panel">
-      <div class="ptitle"><span class="tick"></span>Positions &amp; targets</div>
-      <div class="tscroll"><table id="postable">
-        <thead><tr><th>Instrument</th><th>Side</th><th class="r">Qty</th><th class="r">Price</th><th class="r">TP</th><th class="r">SL</th><th class="r">Notional</th><th style="width:140px">Exposure</th></tr></thead>
-        <tbody></tbody>
-      </table></div>
-      <div class="empty" id="posempty">No open positions — book is flat</div>
+      <div class="ptitle"><span class="tick"></span>Positions ouvertes</div>
+      <div id="poscards"></div>
+      <div class="empty" id="posempty">Aucune position</div>
+      <table id="postable" style="display:none"><tbody></tbody></table>
     </div>
-
     <div class="panel">
-      <div class="ptitle"><span class="tick"></span>Deployed strategies
-        <span class="sub" id="researchage"></span></div>
-      <div class="tscroll"><table id="strattable">
-        <thead><tr><th>ID</th><th>Instrument</th><th>Alpha</th><th class="r">OOS Sharpe</th><th class="r">DSR</th><th style="width:104px">Weight</th></tr></thead>
-        <tbody></tbody>
-      </table></div>
-      <div class="empty" id="stratempty">No strategies deployed — research pending</div>
+      <div class="ptitle"><span class="tick"></span>Historique
+        <span class="sub num" id="histcount"></span></div>
+      <div class="feed" id="histfeed"></div>
+      <div class="empty" id="histempty">Pas encore de trade</div>
+      <table id="strattable" style="display:none"><thead></thead><tbody></tbody></table>
+      <div id="stratempty" style="display:none"></div>
+      <span id="researchage" style="display:none"></span>
     </div>
   </div>
 
@@ -1235,40 +1255,82 @@ function regimeTag(r){
     font-size:9.5px;font-weight:580;letter-spacing:.04em;background:${col}1a;color:${col}">${name}</span>`;
 }
 function renderPositions(last, equity){
-  const tbody = $("postable").querySelector("tbody");
+  const box = $("poscards");
   const pos = (last && last.positions) || {};
   const targets = (last && last.targets) || {};
   const prices = (last && last.prices) || {};
-  const regimes = (last && last.regimes) || {};
-  const insts = [...new Set([...Object.keys(pos),...Object.keys(targets)])].sort()
-    .filter(inst=>{
-      const notional = Math.abs((pos[inst]||0)*(prices[inst]||0));
-      return notional>=2 || Math.abs(targets[inst]||0)>=0.005;
-    });
+  const insts = Object.keys(pos).sort().filter(inst=>{
+    return Math.abs((pos[inst]||0)*(prices[inst]||0)) >= 2;
+  });
   $("posempty").style.display = insts.length? "none":"block";
-  tbody.innerHTML = insts.map(inst=>{
-    const q = pos[inst]||0, px = prices[inst]||0, notional=q*px;
-    const expo = equity? notional/equity : 0;
+  if(!box) return;
+  box.innerHTML = insts.map(inst=>{
+    const q = pos[inst]||0, px = prices[inst]||0, notional=Math.abs(q*px);
+    const expo = equity? (q*px)/equity : 0;
     const tgt = targets[inst]||0;
-    const br = ((last && last.brackets) || {})[inst];
-    const side = Math.abs(expo)<0.005? "flat" : expo>0? "long":"short";
-    const sideLbl = side==="flat"? "Flat" : side==="long"? "Long":"Short";
-    const w = clamp(Math.abs(expo)/20,0,1)*50;
-    const tpLbl = br && br.tp ? fmtUsd(br.tp) : "—";
-    const slLbl = br && br.sl ? fmtUsd(br.sl) : "—";
-    return `<tr data-inst="${inst}">
-      <td class="symc">${shortInst(inst)}${regimeTag(regimes[inst])}</td>
-      <td><span class="side ${side}">${sideLbl}</span></td>
-      <td class="r">${fmtQty(q)}</td>
-      <td class="r">${px?fmtUsd(px):"—"}</td>
-      <td class="r up">${tpLbl}</td>
-      <td class="r down">${slLbl}</td>
-      <td class="r">${fmtUsd(Math.abs(notional))}</td>
-      <td><div class="expo"><span class="mid"></span>
-        <i style="${expo>=0?`left:50%`:`right:50%`};width:${w}%;background:${expo>=0?'var(--green)':'var(--red)'}"></i>
+    const lev = Math.max(Math.abs(tgt), Math.abs(expo), 1);
+    const margin = notional / lev;
+    const br = ((last && last.brackets) || {})[inst] || {};
+    const side = expo>0? "long":"short";
+    const sideLbl = side==="long"? "LONG":"SHORT";
+    const tpLbl = br.tp ? fmtUsd(br.tp) : "—";
+    const slLbl = br.sl ? fmtUsd(br.sl) : "—";
+    return `<div class="pcard ${side}" data-inst="${inst}" onclick="openTrade('${inst}')">
+      <div class="prow">
+        <b class="sym">${shortInst(inst)}</b>
+        <span class="side ${side}">${sideLbl}</span>
+        <span class="levx">${Math.abs(expo).toFixed(1)}×</span>
       </div>
-      <div class="subnum">${Math.abs(expo).toFixed(2)}× now · ${Math.abs(tgt).toFixed(2)}× tgt</div></td>
-    </tr>`;
+      <div class="nums">
+        <div><b>${fmtUsd(px)}</b><span>mark</span></div>
+        <div><b>${fmtUsd(margin)}</b><span>marge</span></div>
+        <div><b>${fmtUsd(notional)}</b><span>notionnel ${lev.toFixed(1)}×</span></div>
+        <div class="tp"><b>${tpLbl}</b><span>take profit</span></div>
+        <div class="sl"><b>${slLbl}</b><span>stop loss</span></div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function renderHistory(data){
+  const feed=$("histfeed"), empty=$("histempty"), cnt=$("histcount");
+  if(!feed) return;
+  const raw = ((data.scalp && data.scalp.trades) || []).slice();
+  const book={};
+  const rows=raw.map(t=>{
+    const q=+t.qty||0, px=+t.px||0, inst=t.inst;
+    let pnl=null;
+    const b=book[inst]||{q:0,e:0};
+    if(b.q && q*b.q<0){
+      const closed=Math.min(Math.abs(b.q), Math.abs(q));
+      pnl=(b.q>0?1:-1)*closed*(px-b.e)-(+t.fee||0);
+    }
+    const nq=b.q+q;
+    if(!b.q || b.q*q>0){
+      const tot=Math.abs(b.q)+Math.abs(q);
+      b.e=tot? (Math.abs(b.q)*b.e+Math.abs(q)*px)/tot : px;
+    } else if(b.q*nq<0) b.e=px;
+    b.q=nq; book[inst]=b;
+    return {...t, pnl};
+  }).slice().reverse();
+  if(empty) empty.style.display = rows.length? "none":"block";
+  if(cnt) cnt.textContent = rows.length? rows.length+" fills" : "";
+  feed.innerHTML = rows.slice(0,80).map(t=>{
+    const buy=(+t.qty)>0;
+    const why=(t.reason||"").toLowerCase();
+    const wcls = why.includes("tp")?"tp": why.includes("sl")?"sl": why.includes("open")?"open":"";
+    const pnl = t.pnl;
+    const pnlS = pnl==null? "" : `<span class="pnl ${pnl>=0?"up":"down"}">${pnl>=0?"+":""}${fmtUsd(pnl)}</span>`;
+    const when = t.ts? new Date(t.ts*1000).toISOString().slice(5,16).replace("T"," ") : "";
+    return `<div class="hist">
+      <span class="why ${wcls}">${(t.reason||"—").split(" ")[0]}</span>
+      <span class="side ${buy?"long":"short"}">${buy?"BUY":"SELL"}</span>
+      <span class="symc">${shortInst(t.inst)}</span>
+      <span>${fmtQty(Math.abs(t.qty||0))}</span>
+      <span style="color:var(--dim)">@ ${fmtUsd(t.px||0)}</span>
+      ${pnlS}
+      <span class="when num">${when}</span>
+    </div>`;
   }).join("");
 }
 
@@ -1810,6 +1872,7 @@ async function refresh(){
     brackets: (data.scalp && data.scalp.brackets) || {},
   };
   renderPositions(liveLast, liveLast.equity);
+  renderHistory(data);
   renderOrders(journal);
   renderLog(data.log||[]);
   if(tOpen) updateTradeStats();

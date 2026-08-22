@@ -59,6 +59,13 @@ class ScalpEngine:
         self.preds_h: dict[str, list] = {b: [] for b in BARS}
         self.hold_ms: dict[str, int] = {}
         self.opened_h: dict[str, str] = {}
+        self.trades: list[dict] = []
+        try:
+            with open(self.state_path) as f:
+                prev = json.load(f)
+            self.trades = list(prev.get("trades") or [])[-200:]
+        except (OSError, ValueError):
+            pass
 
     # ------------------------------------------------------------------ #
 
@@ -106,6 +113,7 @@ class ScalpEngine:
                 "dd_pct": self.risk.max_drawdown_pct,
                 "scale": self._risk_scale(),
             },
+            "trades": self.trades[-80:],
             "desk": { (p.get("inst") or "").split("-")[0]: {
                 "bar": p.get("bar"), "policy": p.get("policy"),
                 "status": p.get("ml") or p.get("reason"),
@@ -358,6 +366,21 @@ class ScalpEngine:
         ask = float(t.get("ask") or 0.0) or last
         return last, bid, ask
 
+    def _record(self, fill, qty: float, reason: str, lev: float = 0.0) -> None:
+        if not fill:
+            return
+        self.trades.append({
+            "ts": float(fill.ts),
+            "inst": fill.inst,
+            "qty": float(qty),
+            "px": float(fill.price),
+            "fee": float(fill.fee),
+            "reason": reason,
+            "notional": abs(float(qty)) * float(fill.price),
+            "lev": float(lev or 0.0),
+        })
+        self.trades = self.trades[-200:]
+
     def _arm(self, inst: str, qty: float, fill, vol_bps: float,
              tp_bps: float | None = None, sl_bps: float | None = None) -> None:
         entry = float(fill.price)
@@ -414,6 +437,7 @@ class ScalpEngine:
             self.hold_ms.pop(inst, None)
             self.opened_h.pop(inst, None)
             if fill:
+                self._record(fill, -qty, reason, 0.0)
                 self.log(f"scalp {reason} {inst} {qty:+.6f} @ {fill.price:.6f}")
                 hit.append(inst)
                 self.pending.pop(inst, None)
@@ -500,6 +524,8 @@ class ScalpEngine:
             )
             if not fill:
                 continue
+            why = "close" if flatten else ("open" if opening else "resize")
+            self._record(fill, delta, why, lev)
             if abs(tgt_qty) < 1e-9:
                 self.opened_bar.pop(inst, None)
                 self.brackets.pop(inst, None)
