@@ -41,6 +41,33 @@ def _read_json(path: str) -> dict:
         return {}
 
 
+def _paper_equity(pb: dict, ticks: dict | None = None) -> float:
+    """Wallet + uPnL when margin_mode, else legacy cash + qty*mark."""
+    if not pb or not isinstance(pb.get("cash"), (int, float)):
+        return 0.0
+    cash = float(pb["cash"])
+    pos = pb.get("pos") or {}
+    pr = pb.get("prices") or {}
+    entry = pb.get("entry") or {}
+    ticks = ticks or {}
+    eq = cash
+    for inst, q in pos.items():
+        try:
+            q = float(q)
+        except (TypeError, ValueError):
+            continue
+        if not q:
+            continue
+        mark = float(((ticks.get(inst) or {}).get("last")
+                      or pr.get(inst) or entry.get(inst) or 0.0) or 0.0)
+        if pb.get("margin_mode"):
+            ent = float(entry.get(inst) or mark or 0.0)
+            eq += q * (mark - ent)
+        else:
+            eq += q * mark
+    return eq
+
+
 class StateReader:
     def __init__(self, state_dir: str, mode_hint: str = "",
                  instruments: list[str] | None = None, ticker_fn=None,
@@ -103,19 +130,8 @@ class StateReader:
         ticks = self._live_tickers()
         trader = _read_json(os.path.join(sd, "trader.json"))
         scalp = _read_json(os.path.join(sd, "scalp.json"))
-        pb = trader.get("paper_broker") or {}
-        eq_live = pb.get("cash")
-        if isinstance(eq_live, (int, float)):
-            pos = pb.get("pos") or {}
-            pr = pb.get("prices") or {}
-            for inst, q in pos.items():
-                last = ((ticks.get(inst) or {}).get("last")
-                        or pr.get(inst) or 0.0)
-                try:
-                    eq_live += float(q) * float(last or 0)
-                except (TypeError, ValueError):
-                    pass
-        elif scalp.get("equity"):
+        eq_live = _paper_equity(trader.get("paper_broker") or {}, ticks)
+        if not eq_live and scalp.get("equity"):
             eq_live = scalp.get("equity")
         return {
             "mode": self.mode_hint,

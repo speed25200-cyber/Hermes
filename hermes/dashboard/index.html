@@ -736,22 +736,24 @@ const clamp = (v,a,b)=>Math.min(b,Math.max(a,v));
 /* rAF number tweening -------------------------------------------------- */
 const tweens = new Map();
 function liveEquity(data, last){
-  if(data && data.equity_live > 0) return data.equity_live;
   const pb = (data.trader || {}).paper_broker;
   const ticks = data.tickers || {};
   if(pb && typeof pb.cash === "number"){
     let eq = pb.cash;
-    const pos = pb.pos || {}, pr = pb.prices || {};
+    const pos = pb.pos || {}, pr = pb.prices || {}, en = pb.entry || {};
+    const margin = !!pb.margin_mode;
     for(const inst of Object.keys(pos)){
       const q = pos[inst] || 0;
       if(!q) continue;
       const t = ticks[inst];
-      const px = (t && t.last) || pr[inst] || 0;
-      eq += q * px;
+      const px = (t && t.last) || pr[inst] || en[inst] || 0;
+      if(margin) eq += q * (px - (en[inst] || px));
+      else eq += q * px;
     }
     return eq;
   }
-  if(data.scalp && data.scalp.equity > 0) return data.scalp.equity;
+  if(data.equity_live) return data.equity_live;
+  if(data.scalp && data.scalp.equity) return data.scalp.equity;
   return (last && last.equity) || 0;
 }
 function tweenNum(el, to, fmt, dur=700){
@@ -1251,7 +1253,22 @@ function renderPositions(last, equity){
     const br = ((last && last.brackets) || {})[inst];
     const side = Math.abs(expo)<0.005? "flat" : expo>0? "long":"short";
     const sideLbl = side==="flat"? "Flat" : side==="long"? "Long":"Short";
-    const w = clamp(Math.abs(expo),0,1)*50;
+    const w = clamp(Math.abs(expo)/20,0,1)*50;
+    const tpLbl = br && br.tp ? fmtUsd(br.tp) : "—";
+    const slLbl = br && br.sl ? fmtUsd(br.sl) : "—";
+    return `<tr data-inst="${inst}">
+      <td class="symc">${shortInst(inst)}${regimeTag(regimes[inst])}</td>
+      <td><span class="side ${side}">${sideLbl}</span></td>
+      <td class="r">${fmtQty(q)}</td>
+      <td class="r">${px?fmtUsd(px):"—"}</td>
+      <td class="r up">${tpLbl}</td>
+      <td class="r down">${slLbl}</td>
+      <td class="r">${fmtUsd(Math.abs(notional))}</td>
+      <td><div class="expo"><span class="mid"></span>
+        <i style="${expo>=0?`left:50%`:`right:50%`};width:${w}%;background:${expo>=0?'var(--green)':'var(--red)'}"></i>
+      </div>
+      <div class="subnum">${Math.abs(expo).toFixed(2)}× now · ${Math.abs(tgt).toFixed(2)}× tgt</div></td>
+    </tr>`;
     const tpLbl = br && br.tp ? fmtUsd(br.tp) : "—";
     const slLbl = br && br.sl ? fmtUsd(br.sl) : "—";
     return `<tr data-inst="${inst}">
