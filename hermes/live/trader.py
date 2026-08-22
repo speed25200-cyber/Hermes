@@ -660,11 +660,22 @@ class LiveRunner:
         if self.scalp is None:
             return
         from ..data.fetcher import fetch_candles
-        days = int((self.cfg.raw.get("scalp") or {}).get("history_days", 7))
+        from ..scalp.learn import BARS, DAYS
+        days_1m = int((self.cfg.raw.get("scalp") or {}).get("history_days", 7))
+        leaders = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+        for bar in BARS:
+            d = DAYS[bar] if bar != "1m" else days_1m
+            for inst in leaders:
+                try:
+                    self.log(f"scalp backfill {inst} {bar} ({d}d)...")
+                    fetch_candles(self.client, self.store, inst, bar, d, log=self.log)
+                except Exception as exc:
+                    self.log(f"scalp backfill {inst} {bar}: {type(exc).__name__}: {exc}")
         for inst in self.scalp.instruments:
+            if inst in leaders:
+                continue
             try:
-                self.log(f"scalp backfill {inst} 1m ({days}d)...")
-                fetch_candles(self.client, self.store, inst, "1m", days, log=self.log)
+                fetch_candles(self.client, self.store, inst, "1m", days_1m, log=self.log)
             except Exception as exc:
                 self.log(f"scalp backfill {inst}: {type(exc).__name__}: {exc}")
 
@@ -746,9 +757,8 @@ class LiveRunner:
         if self.scalp:
             self._ensure_scalp_data()
             try:
-                names = self.scalp.instruments or ["BTC-USDT-SWAP"]
-                c1 = {i: self.store.load(i, "1m") for i in names}
-                self.scalp.learner.fit(c1)
+                names = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+                self.scalp.horizons.fit_store(self.store, names)
             except Exception as exc:
                 self.log(f"learner fit: {type(exc).__name__}: {exc}")
             threading.Thread(target=self._bg_sync, daemon=True).start()
@@ -756,7 +766,7 @@ class LiveRunner:
             self.ensure_data()
             threading.Thread(target=self._research_bg, daemon=True).start()
         last_cycle_bar = 0
-        last_scalp_bar = 0
+        last_scalp_bar = {b: 0 for b in ("1m", "5m", "15m", "1H")}
         last_uni = 0.0
         last_learn = time.time()
         rr = 0
@@ -789,10 +799,11 @@ class LiveRunner:
                     names = self.scalp.instruments or ["BTC-USDT-SWAP"]
                     if time.time() - last_learn > 3600:
                         last_learn = time.time()
-                        def _refit(ns=list(names)):
+                        def _refit():
                             try:
-                                cc = {i: self.store.load(i, "1m") for i in ns}
-                                self.scalp.learner.fit(cc)
+                                self.scalp.horizons.fit_store(
+                                    self.store,
+                                    ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"])
                             except Exception as exc:
                                 self.log(f"learner refit: {type(exc).__name__}: {exc}")
                         threading.Thread(target=_refit, daemon=True).start()
@@ -838,22 +849,45 @@ class LiveRunner:
                             self.log(f"scalp data {inst}: {type(exc).__name__}: {exc}")
                         finally:
                             self.client.timeout, self.client.max_retries = t0, r0
-                    c1 = {inst: self.store.load(inst, "1m") for inst in names}
-                    newest_1m = max((int(c.ts[-1]) for c in c1.values() if len(c)),
-                                    default=0)
-                    if newest_1m > last_scalp_bar:
-                        last_scalp_bar = newest_1m
-                        rep = self.scalp.tick(c1, time.time())
-                        if rep.get("targets") is not None:
-                            self.trader._last_targets = rep["targets"]
-                        live = [p for p in rep.get("preds", []) if p["dir"] != "flat"]
-                        self.log(f"scalp @ {newest_1m}: eq={rep.get('equity', 0):.2f} "
-                                 f"live={len(live)}/{len(rep.get('preds', []))}")
-                        if self.risk.state.killed:
-                            self.log("KILL SWITCH TRIPPED - idling (no systemd restart mill).")
-                            while True:
-                                time.sleep(30)
-                    else:
+                    # slower bars: leaders every poll, rest rotated
+                    slow = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+                    if names[0] not in slow:
+                        slow.append(names[rr % len(names)])
+                    t0, r0 = self.client.timeout, self.client.max_retries
+                    self.client.timeout, self.client.max_retries = 6.0, 1
+                    try:
+                        for inst in slow[:4]:
+                            for bar in ("5m", "15m", "1H"):
+                                try:
+                                    update_latest(self.client, self.store, inst, bar, limit=120)
+                                except Exception:
+                                    pass
+                    finally:
+                        self.client.timeout, self.client.max_retries = t0, r0
+                    from ..scalp.learn import BARS as _BARS
+                    any_new = False
+                    last_rep = None
+                    for bar in _BARS:
+                        if bar == "1m":
+                            cbar = {inst: self.store.load(inst, "1m") for inst in names}
+                        else:
+                            cbar = {inst: self.store.load(inst, bar) for inst in slow}
+                        newest = max((int(c.ts[-1]) for c in cbar.values() if len(c)), default=0)
+                        if newest > last_scalp_bar[bar]:
+                            last_scalp_bar[bar] = newest
+                            any_new = True
+                            last_rep = self.scalp.tick(cbar, time.time(), bar=bar)
+                            live = [p for p in (last_rep.get("preds") or []) if p.get("dir") != "flat"]
+                            self.log(f"scalp {bar} @ {newest}: eq={last_rep.get('equity', 0):.2f} "
+                                     f"live={len(live)}/{len(last_rep.get('preds') or [])} "
+                                     f"hz={last_rep.get('live_bars')}")
+                    if last_rep and last_rep.get("targets") is not None:
+                        self.trader._last_targets = last_rep["targets"]
+                    if self.risk.state.killed:
+                        self.log("KILL SWITCH TRIPPED - idling (no systemd restart mill).")
+                        while True:
+                            time.sleep(30)
+                    if not any_new:
                         if self.risk.trading_allowed:
                             self.scalp.check_exits()
                             self.scalp.execute_pending()

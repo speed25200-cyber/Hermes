@@ -236,3 +236,41 @@ class ScalpLearner:
             "veto": veto, "alpha": self.alpha, "ic": self.ic, "status": self.status,
             "policy": self.policy,
         }
+
+
+BARS = ("1m", "5m", "15m", "1H")
+HOLD = {"1m": 6, "5m": 8, "15m": 8, "1H": 6}
+DAYS = {"1m": 7, "5m": 14, "15m": 30, "1H": 90}
+
+
+class HorizonBook:
+    """One learner per bar. Only bars with holdout_mean>0 after fees go live."""
+
+    def __init__(self, fee_rt_bps: float, log=None):
+        self.log = log or (lambda m: None)
+        self.learners = {
+            bar: ScalpLearner(fee_rt_bps=fee_rt_bps, horizon=HOLD[bar], log=log)
+            for bar in BARS
+        }
+
+    def fit_store(self, store, names: list[str]) -> dict:
+        out = {}
+        for bar, lr in self.learners.items():
+            candles: dict = {}
+            for inst in names:
+                try:
+                    c = store.load(inst, bar)
+                except Exception:
+                    continue
+                if len(c) > 80:
+                    candles[inst] = c
+            self.log(f"learner fit {bar} names={len(candles)}")
+            out[bar] = lr.fit(candles)
+        self.log(f"horizons live={self.live_bars() or ['none']}")
+        return out
+
+    def live_bars(self) -> list[str]:
+        return [b for b, l in self.learners.items() if l.status == "live"]
+
+    def to_dict(self) -> dict:
+        return {b: l.to_dict() for b, l in self.learners.items()}

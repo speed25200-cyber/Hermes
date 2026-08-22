@@ -1105,13 +1105,20 @@ function renderScalp(s){
   else if(age < 60) ageEl.textContent = Math.round(age)+"s";
   else ageEl.textContent = Math.round(age/60)+"m";
   ageEl.style.color = (age!==null && age < 15) ? "var(--green)" : (age!==null && age < 60) ? "var(--amber)" : "";
+  const hz = (s && s.horizons) || {};
   const lr = (s && s.learner) || {};
   const mlEl = $("sc_ml");
   if(mlEl){
-    const st = lr.status || "unfitted";
-    const ic = Number(lr.ic||0);
-    mlEl.textContent = "ML "+st+" · "+(lr.policy||"—")+" · ic "+ic.toFixed(2);
-    mlEl.style.color = st==="live" ? "var(--green)" : st==="veto" ? "var(--red)" : "";
+    const bits = Object.keys(hz).length
+      ? Object.entries(hz).map(([b,v]) => {
+          const st = (v && v.status) || "?";
+          const pol = (v && v.policy) || "";
+          return b+":"+(st==="live"?pol:st);
+        }).join("  ")
+      : "ML "+(lr.status||"unfitted");
+    mlEl.textContent = bits;
+    const anyLive = Object.values(hz).some(v => v && v.status==="live");
+    mlEl.style.color = anyLive ? "var(--green)" : (lr.status==="veto" || Object.values(hz).every(v => v && v.status==="veto") ? "var(--red)" : "");
   }
 
   if(!n){
@@ -1131,8 +1138,8 @@ function renderScalp(s){
   liveEl.innerHTML = featured.map(p => {
     const dir = p.dir || "flat";
     const cls = dir === "flat" ? "watch" : dir;
-    const tag = dir === "long" ? (p.l2 ? "FIRING · L2" : "FIRING")
-              : dir === "short" ? (p.l2 ? "FIRING · L2" : "FIRING") : "WATCH";
+    const tag = dir === "long" ? "FIRING"+(p.bar && p.bar!=="1m" ? " · "+p.bar : (p.l2 ? " · L2" : ""))
+              : dir === "short" ? "FIRING"+(p.bar && p.bar!=="1m" ? " · "+p.bar : (p.l2 ? " · L2" : "")) : "WATCH";
     const lab = dir === "long" ? "LONG" : dir === "short" ? "SHORT" : "GATED";
     const pct = Math.round((p.p_up || 0.5) * 100);
     const edge = p.edge_bps || 0;

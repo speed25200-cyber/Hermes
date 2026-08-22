@@ -35,3 +35,10 @@ def test_learner_fits_or_vetoes():
     feat = {"r1": 0.002, "r3": 0.0, "r12": 0.0, "vol": 0.0008, "px": 100.0}
     inf = lr.infer(feat, 0.0, True, prior_score=-1.0, vol_bps=8.0)
     assert "veto" in inf and inf["tp_bps"] > 0 and inf["sl_bps"] > inf["tp_bps"] - 1e-9
+
+
+def test_horizon_book_four_bars():
+    from hermes.scalp.learn import BARS, HorizonBook
+    hb = HorizonBook(10.0, log=lambda m: None)
+    assert tuple(hb.learners) == BARS
+    assert hb.live_bars() == []

@@ -6,11 +6,11 @@ import json
 import os
 import time
 
-from ..data.store import Candles
+from ..data.store import Candles, BAR_MS
 from ..exchange.broker import Broker, PaperBroker
 from . import features as F
 from . import model as M
-from .learn import ScalpLearner
+from .learn import BARS, HOLD, ScalpLearner, HorizonBook
 
 
 class ScalpEngine:
@@ -50,10 +50,11 @@ class ScalpEngine:
         self.flow: dict[str, float] = {}
         self.tape: dict[str, dict] = {}
         self.pending: dict[str, float] = {}  # inst -> desired coin qty
-        self.learner = ScalpLearner(
-            fee_rt_bps=self.round_trip_bps, horizon=int(s.get("max_hold_bars", 6)),
-            log=self.log,
-        )
+        self.horizons = HorizonBook(self.round_trip_bps, log=self.log)
+        self.learner = self.horizons.learners["1m"]
+        self.preds_h: dict[str, list] = {b: [] for b in BARS}
+        self.hold_ms: dict[str, int] = {}
+        self.opened_h: dict[str, str] = {}  # inst -> bar that opened it
 
     # ------------------------------------------------------------------ #
 
@@ -66,6 +67,8 @@ class ScalpEngine:
             "round_trip_bps": self.round_trip_bps,
             "min_edge_bps": self.min_edge,
             "learner": self.learner.to_dict(),
+            "horizons": self.horizons.to_dict(),
+            "live_bars": self.horizons.live_bars(),
         }
         if extra:
             d.update(extra)
@@ -150,7 +153,7 @@ class ScalpEngine:
         return {"imb": imb, "book": imb, "depth": 0.0, "micro": vs,
                 "spread_bps": spr, "l2": 0.0, "ofi": 0.0}
 
-    def predict_all(self, candles_1m: dict[str, Candles]) -> list[dict]:
+    def predict_all(self, candles_1m: dict[str, Candles], bar: str = "1m") -> list[dict]:
         btc = candles_1m.get("BTC-USDT-SWAP")
         btc_r1 = 0.0
         if btc is not None and len(btc) >= 2 and btc.c[-2] > 0:
@@ -168,7 +171,8 @@ class ScalpEngine:
             feat["ofi"] = float(micro.get("ofi") or 0.0)
             feat["vwap_vs"] = float((self.tape.get(inst) or {}).get("vwap_vs") or 0.0)
             pred = M.predict(feat, btc_r1, inst.startswith("BTC-"), self.horizon)
-            inf = self.learner.infer(
+            learner = self.horizons.learners.get(bar, self.learner)
+            inf = learner.infer(
                 feat, btc_r1, inst.startswith("BTC-"),
                 float(pred["score"]), float(pred["vol_bps"]),
             )
@@ -184,7 +188,7 @@ class ScalpEngine:
             reason = ""
             if inf["veto"]:
                 direction, reason = "flat", "ml-veto"
-            elif not micro["l2"] and self.require_l2:
+            elif bar == "1m" and (not micro["l2"]) and self.require_l2:
                 direction, reason = "flat", "no L2"
             elif abs(edge) < hurdle:
                 direction, reason = "flat", "cost"
@@ -217,10 +221,27 @@ class ScalpEngine:
                 "ml": inf["status"],
                 "tp_bps": inf["tp_bps"],
                 "sl_bps": inf["sl_bps"],
+                "bar": bar,
                 "bar_ts": int(c.ts[-1]),
             })
-        self.last_preds = out
+        self.preds_h[bar] = out
+        self._refresh_dashboard_preds()
         return out
+
+    def _refresh_dashboard_preds(self) -> None:
+        by: dict[str, dict] = {}
+        live = set(self.horizons.live_bars()) or {"1m"}
+        for bar, preds in self.preds_h.items():
+            if bar not in live and bar != "1m":
+                continue
+            for p in preds:
+                cur = by.get(p["inst"])
+                if cur is None or abs(p.get("edge_bps") or 0) > abs(cur.get("edge_bps") or 0):
+                    by[p["inst"]] = p
+        if by:
+            self.last_preds = list(by.values())
+        elif self.preds_h.get("1m"):
+            self.last_preds = self.preds_h["1m"]
 
     def _targets(self, preds: list[dict]) -> dict[str, float]:
         raw = {}
@@ -290,29 +311,53 @@ class ScalpEngine:
                         reason = f"SL {br['sl_bps']:.0f}bps"
                     elif ask <= br["tp"]:
                         reason = f"TP {br['tp_bps']:.0f}bps"
-            if reason is None and candles_1m:
-                c = candles_1m.get(inst)
-                if c is not None and len(c):
-                    opened = self.opened_bar.get(inst, int(c.ts[-1]))
-                    held = int((int(c.ts[-1]) - opened) / 60_000)
-                    if held >= self.max_hold:
-                        reason = f"time-stop {held}m"
+            if reason is None:
+                opened = self.opened_bar.get(inst)
+                if opened:
+                    held_ms = int(time.time() * 1000) - int(opened)
+                    lim = int(self.hold_ms.get(inst) or self.max_hold * 60_000)
+                    if held_ms >= lim:
+                        reason = f"time-stop {held_ms // 60_000}m"
             if not reason:
                 continue
             fill = self.broker.market_order(inst, -qty, last, force_taker=True)
             self.brackets.pop(inst, None)
             self.opened_bar.pop(inst, None)
+            self.hold_ms.pop(inst, None)
+            self.opened_h.pop(inst, None)
             if fill:
                 self.log(f"scalp {reason} {inst} {qty:+.6f} @ {fill.price:.6f}")
                 hit.append(inst)
                 self.pending.pop(inst, None)
         return hit
 
-    def tick(self, candles_1m: dict[str, Candles], now: float | None = None) -> dict:
+    def _blend_targets(self) -> dict[str, float]:
+        live = self.horizons.live_bars()
+        if not live:
+            return {inst: 0.0 for inst in self.instruments}
+        acc: dict[str, float] = {}
+        vol: dict[str, float] = {}
+        n = float(len(live))
+        for bar in live:
+            preds = self.preds_h.get(bar) or []
+            t = self._targets(preds)
+            for k, v in t.items():
+                acc[k] = acc.get(k, 0.0) + v / n
+            for p in preds:
+                vol[p["inst"]] = float(p.get("vol_bps") or 0.0)
+        self._vol = vol
+        gross = sum(abs(v) for v in acc.values())
+        if gross > self.gross_cap and gross > 0:
+            s = self.gross_cap / gross
+            acc = {k: v * s for k, v in acc.items()}
+        return acc
+
+    def tick(self, candles_1m: dict[str, Candles], now: float | None = None,
+             bar: str = "1m") -> dict:
         now = now or time.time()
         if hasattr(self.broker, "mark_ticks") and self.ticks:
             self.broker.mark_ticks(self.ticks)
-        preds = self.predict_all(candles_1m)
+        preds = self.predict_all(candles_1m, bar=bar)
         prices = {p["inst"]: p["px"] for p in preds if p["px"] > 0}
         extra = {i: float((t or {}).get("last") or 0) for i, t in self.ticks.items()}
         prices.update({k: v for k, v in extra.items() if v > 0})
@@ -326,17 +371,17 @@ class ScalpEngine:
                     self.broker.market_order(inst, -qty, px, force_taker=True)
             self.brackets.clear()
             self._snapshot({"halted": True})
-            return {"preds": preds, "equity": self.broker.equity(), "halted": True}
+            return {"preds": self.last_preds, "equity": self.broker.equity(), "halted": True}
 
         self.check_exits(candles_1m)
 
         if not self.risk.trading_allowed:
             self.pending = {}
             self._snapshot()
-            return {"preds": preds, "equity": self.broker.equity()}
+            return {"preds": self.last_preds, "equity": self.broker.equity()}
 
         equity = max(self.broker.equity(), 1.0)
-        targets = self._targets(preds)
+        targets = self._blend_targets()
         pending: dict[str, float] = {}
         for inst, tgt_w in targets.items():
             last, _, _ = self._px(inst, prices.get(inst, 0.0))
@@ -349,7 +394,8 @@ class ScalpEngine:
         self._vol = vol
         self.risk.update_equity(self.broker.equity(), now)
         self._snapshot({"equity": self.broker.equity(), "targets": targets})
-        return {"preds": preds, "equity": self.broker.equity(), "targets": targets}
+        return {"preds": self.last_preds, "equity": self.broker.equity(), "targets": targets,
+                "bar": bar, "live_bars": self.horizons.live_bars()}
 
     def execute_pending(self) -> None:
         """Fill last bar's targets once at the current bid/ask. Consumed.
@@ -381,9 +427,14 @@ class ScalpEngine:
             if abs(tgt_qty) < 1e-9:
                 self.opened_bar.pop(inst, None)
                 self.brackets.pop(inst, None)
+                self.hold_ms.pop(inst, None)
+                self.opened_h.pop(inst, None)
             elif opening:
                 self.opened_bar[inst] = int(time.time() * 1000)
                 plan = next((p for p in self.last_preds if p.get("inst") == inst), {})
+                hb = plan.get("bar") or "1m"
+                self.opened_h[inst] = hb
+                self.hold_ms[inst] = int(HOLD.get(hb, 6)) * int(BAR_MS.get(hb, 60_000))
                 self._arm(inst, tgt_qty, fill, vol.get(inst, 0.0),
                           plan.get("tp_bps"), plan.get("sl_bps"))
             self.log(f"scalp fill {inst} {delta:+.6f} @ {fill.price:.6f}")
