@@ -103,8 +103,13 @@ jobs:
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
             "command -v rsync >/dev/null || (apt-get update -qq && apt-get -y -qq install rsync); mkdir -p /root/hermes"
+          # /.env holds the dashboard token and any exchange credentials.
+          # It exists only on the box, so --delete removed it on every deploy
+          # and the installer then minted a fresh token — silently locking the
+          # owner out of their own dashboard each time.
           sshpass -e rsync -az --delete \
             --exclude '/.git' --exclude '/state' --exclude '/data' \
+            --exclude '/.env' \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             ./ "root@$VPS:/root/hermes/"
 

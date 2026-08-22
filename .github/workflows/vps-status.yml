@@ -53,6 +53,21 @@ jobs:
             echo "===== hermes state ====="
             cd /root/hermes 2>/dev/null && /root/venv/bin/python -m hermes status 2>/dev/null | head -40 || echo "no state yet"
             echo
+            echo "===== dashboard access ====="
+            # Printed on purpose: without it the owner cannot open their own
+            # console. The token already travels in cleartext in the URL of a
+            # plain-HTTP page, so a private Actions log adds little exposure —
+            # but it does persist, so rotate the token if that matters:
+            #   sed -i /^HERMES_DASH_TOKEN=/d /root/hermes/.env
+            #   bash /root/hermes/deploy/install.sh
+            if [ -f /root/hermes/.env ]; then
+              TOK=$(grep "^HERMES_DASH_TOKEN=" /root/hermes/.env | tail -1 | cut -d= -f2-)
+              [ -n "$TOK" ] && echo "url: http://178.104.191.79:8899/?key=$TOK" \
+                            || echo "no HERMES_DASH_TOKEN in .env"
+            else
+              echo ".env absent — the installer will mint a token on next run"
+            fi
+            echo
             echo "===== disk / memory ====="
             df -h / | tail -1; free -m | head -2
           '
