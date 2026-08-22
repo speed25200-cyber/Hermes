@@ -537,7 +537,7 @@
         </div>
       </div>
       <div class="scan-kpis">
-        <div><b class="num" id="sc_n">—</b><span>universe</span></div>
+        <div><b class="num" id="sc_n">—</b><span>leverage</span></div>
         <div><b class="num" id="sc_live">—</b><span>firing</span></div>
         <div><b class="num" id="sc_gate">—</b><span>gated</span></div>
         <div><b class="num" id="sc_age">—</b><span>last print</span></div>
@@ -574,7 +574,7 @@
       <div class="delta" id="k_dd_d"></div>
     </div>
     <div class="metric">
-      <div class="label">Gross exposure</div>
+      <div class="label">Leverage</div>
       <div class="value num" id="k_gross">—</div>
       <div class="delta" id="k_gross_d"></div>
     </div>
@@ -1124,7 +1124,10 @@ function renderScalp(s, dataNow){
   const live = preds.filter(p => p.dir === "long" || p.dir === "short")
     .sort((a,b) => Math.abs(b.edge_bps||0) - Math.abs(a.edge_bps||0));
   const gated = n - live.length;
-  $("sc_n").textContent = n ? String(n) : "—";
+  const lev = (s && s.lev) || {};
+  const used = Number(lev.used || 0);
+  const gcap = Number(lev.gross_cap || 0.55);
+  $("sc_n").textContent = n ? used.toFixed(2)+"× / "+gcap.toFixed(2)+"×" : "—";
   $("sc_live").textContent = n ? String(live.length) : "—";
   $("sc_live").style.color = live.length ? "var(--green)" : "";
   $("sc_gate").textContent = n ? String(gated) : "—";
@@ -1177,6 +1180,7 @@ function renderScalp(s, dataNow){
           <div class="pred"><b>${edge>=0?"+":""}${edge.toFixed(1)}</b><span>pred bp</span></div>
           <div class="tp"><b>${tpPx?fmtUsd(tpPx): (tp?("+"+tp.toFixed(0)+" bp"):"—")}</b><span>take profit</span></div>
           <div class="sl"><b>${slPx?fmtUsd(slPx): (sl?("−"+sl.toFixed(0)+" bp"):"—")}</b><span>stop loss</span></div>
+          <div><b>${Math.abs(p.lev||d.lev||0).toFixed(2)}×</b><span>lev</span></div>
         </div>
       </div>`;
     }).join("");
@@ -1283,7 +1287,7 @@ function renderPositions(last, equity){
       <td><div class="expo"><span class="mid"></span>
         <i style="${expo>=0?`left:50%`:`right:50%`};width:${w}%;background:${expo>=0?'var(--green)':'var(--red)'}"></i>
       </div>
-      <div class="subnum">now ${fmtPct(expo,1)} · target ${fmtPct(tgt,1)}</div></td>
+      <div class="subnum">now ${fmtPct(expo,1)} · ${Math.abs(expo).toFixed(2)}× · target ${fmtPct(tgt,1)}</div></td>
     </tr>`;
   }).join("");
 }
@@ -1474,7 +1478,7 @@ function updateTradeStats(){
   se.textContent = side==="long" ? "Long" : side==="short" ? "Short" : "Flat";
   $("t_sub").textContent = t.qty
     ? `${fmtQty(Math.abs(t.qty))} contrats · ${fmtUsd(Math.abs(t.notional))} USDT · `
-      + `${fmtPct(Math.abs(t.notional)/(t.eq||1),1)} de l'équité`
+      + `${(Math.abs(t.notional)/(t.eq||1)).toFixed(2)}× leverage`
       + (t.mult!==undefined && Math.abs(t.mult-1)>1e-9 ? ` · gouverneur ×${t.mult.toFixed(2)}` : "")
     : "position fermée — le signal est sous son seuil";
   $("t_entry").textContent = t.entry!==undefined ? (t.approx?"≈ ":"")+fmtPx(t.entry) : "—";
@@ -1760,9 +1764,14 @@ async function refresh(){
     tweenNum($("k_dd"), ddNow, v=>fmtPct(Math.max(0,v)));
     $("k_dd").className="value num "+(ddNow>0.05?"down":"");
     const tgt = (data.scalp && data.scalp.targets) || (last && last.targets) || {};
-    const gross = Object.values(tgt).reduce((a,b)=>a+Math.abs(b),0);
-    tweenNum($("k_gross"), gross, v=>fmtPct(v,0));
-    $("k_gross_d").textContent = "of equity, leverage-adjusted";
+    const lev = (data.scalp && data.scalp.lev) || {};
+    const usedLev = (typeof lev.used === "number")
+      ? lev.used
+      : Object.values(tgt).reduce((a,b)=>a+Math.abs(b),0);
+    const capLev = Number(lev.gross_cap || 0.55);
+    const nameLev = Number(lev.name_cap || 0.22);
+    tweenNum($("k_gross"), usedLev, v=>v.toFixed(2)+"×");
+    $("k_gross_d").textContent = "used / cap "+capLev.toFixed(2)+"× · max "+nameLev.toFixed(2)+"× per coin";
     drawChart();
     $("chartrange").textContent = series.length+" ticks";
     const cap = 0.15;

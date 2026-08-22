@@ -63,9 +63,29 @@ class ScalpEngine:
     # ------------------------------------------------------------------ #
 
     def _snapshot(self, extra: dict | None = None) -> None:
+        tg = self._targets(self.last_preds or []) if self.last_preds else {}
+        eq = 0.0
+        if extra and extra.get("equity"):
+            eq = float(extra["equity"])
+        else:
+            try:
+                eq = float(self.broker.equity())
+            except Exception:
+                eq = 0.0
+        used = 0.0
+        if eq > 0:
+            pos = self.broker.positions()
+            for inst, q in pos.items():
+                last, _, _ = self._px(inst)
+                used += abs(float(q) * last) / eq
+        preds = []
+        for p in (self.last_preds or []):
+            q = dict(p)
+            q["lev"] = float(tg.get(p.get("inst"), 0.0) or 0.0)
+            preds.append(q)
         d = {
             "ts": time.time(),
-            "preds": self.last_preds,
+            "preds": preds,
             "universe": self.instruments,
             "brackets": self.brackets,
             "round_trip_bps": self.round_trip_bps,
@@ -73,11 +93,19 @@ class ScalpEngine:
             "horizons": self.horizons.to_dict(),
             "live_bars": self.horizons.live_bars(),
             "flow": self.brain.to_dict(),
+            "lev": {
+                "name_cap": self.max_name,
+                "gross_cap": self.gross_cap,
+                "used": used,
+                "okx": 2,
+                "targets": tg,
+            },
             "desk": { (p.get("inst") or "").split("-")[0]: {
                 "bar": p.get("bar"), "policy": p.get("policy"),
                 "status": p.get("ml") or p.get("reason"),
                 "holdout": p.get("edge_bps"), "clocks": p.get("clocks"),
-            } for p in (self.last_preds or [])},
+                "lev": p.get("lev"),
+            } for p in preds},
         }
         if extra:
             d.update(extra)
