@@ -563,11 +563,25 @@ class LiveRunner:
                 maker_wait_s=cfg["live"].get("maker_wait_s", 20))
             self._configure_account()
         else:
-            pb_fee, pb_slip = effective_costs(cfg["costs"])
+            # Paper = taker at bid/ask. Do not blend in phantom maker rebates.
             self.broker = PaperBroker(
                 cash=cfg["live"]["paper_equity"],
-                fee_bps=pb_fee, slippage_bps=pb_slip,
+                fee_bps=float(cfg["costs"]["taker_fee_bps"]),
+                slippage_bps=float(cfg["costs"]["slippage_bps"]),
             )
+            try:
+                specs = {}
+                for row in self.client.instruments("SWAP"):
+                    inst = row.get("instId") or ""
+                    if inst.endswith("-USDT-SWAP"):
+                        specs[inst] = {
+                            "ctVal": float(row.get("ctVal") or 0) or 1.0,
+                            "lotSz": float(row.get("lotSz") or 0) or 1.0,
+                            "minSz": float(row.get("minSz") or 0) or 1.0,
+                        }
+                self.broker.set_specs(specs)
+            except Exception as exc:
+                self.log(f"lot specs: {type(exc).__name__}: {exc}")
 
         bpy = BARS_PER_YEAR[cfg["bar"]]
         self.allocator = Allocator(
@@ -756,6 +770,8 @@ class LiveRunner:
                                      + ("…" if len(uni) > 12 else ""))
                     elif ticks:
                         self.scalp.ticks = ticks
+                    if ticks and hasattr(self.broker, "mark_ticks"):
+                        self.broker.mark_ticks(ticks)
                     names = self.scalp.instruments or ["BTC-USDT-SWAP"]
                     batch = 8
                     chunk = names[rr:rr + batch]
@@ -786,6 +802,10 @@ class LiveRunner:
                         if self.risk.state.killed:
                             self.log("KILL SWITCH TRIPPED - halting.")
                             return
+                    else:
+                        # between 1m closes: SL/TP still fire on live bid/ask
+                        self.scalp.check_exits()
+                        self.scalp._snapshot({"equity": self.broker.equity()})
                     px = {i: float((t or {}).get("last") or 0)
                           for i, t in (self.scalp.ticks or {}).items()}
                     px = {k: v for k, v in px.items() if v > 0}

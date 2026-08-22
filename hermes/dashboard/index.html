@@ -1187,6 +1187,7 @@ function renderPositions(last, equity){
     const q = pos[inst]||0, px = prices[inst]||0, notional=q*px;
     const expo = equity? notional/equity : 0;
     const tgt = targets[inst]||0;
+    const br = ((last && last.brackets) || {})[inst];
     const side = Math.abs(expo)<0.005? "flat" : expo>0? "long":"short";
     const sideLbl = side==="flat"? "Flat" : side==="long"? "Long":"Short";
     const w = clamp(Math.abs(expo),0,1)*50;
@@ -1199,7 +1200,9 @@ function renderPositions(last, equity){
       <td><div class="expo"><span class="mid"></span>
         <i style="${expo>=0?`left:50%`:`right:50%`};width:${w}%;background:${expo>=0?'var(--green)':'var(--red)'}"></i>
       </div>
-      <div class="subnum">now ${fmtPct(expo,1)} · target ${fmtPct(tgt,1)}</div></td>
+      <div class="subnum">now ${fmtPct(expo,1)} · target ${fmtPct(tgt,1)}`
+        + (br? ` · SL ${fmtUsd(br.sl)} / TP ${fmtUsd(br.tp)}` : "")
+        + `</div></td>
     </tr>`;
   }).join("");
 }
@@ -1707,6 +1710,7 @@ async function refresh(){
     positions: Object.keys(pb.pos||{}).length ? pb.pos : (last && last.positions) || {},
     prices: {...((last&&last.prices)||{}), ...(pb.prices||{})},
     targets: (data.scalp && data.scalp.targets) || (last && last.targets) || {},
+    brackets: (data.scalp && data.scalp.brackets) || {},
   };
   renderPositions(liveLast, liveLast.equity);
   renderOrders(journal);

@@ -50,15 +50,30 @@ class Broker:
 @dataclass
 class PaperBroker(Broker):
     cash: float = 10000.0
-    fee_bps: float = 5.0
-    slippage_bps: float = 2.0
-    pos: dict[str, float] = field(default_factory=dict)      # inst -> qty
-    prices: dict[str, float] = field(default_factory=dict)   # inst -> last px
-    entry: dict[str, float] = field(default_factory=dict)    # inst -> avg entry px
+    fee_bps: float = 5.0          # taker — paper is not a maker rebate sim
+    slippage_bps: float = 2.0     # used only when bid/ask missing
+    pos: dict[str, float] = field(default_factory=dict)
+    prices: dict[str, float] = field(default_factory=dict)
+    entry: dict[str, float] = field(default_factory=dict)
     fills: list[Fill] = field(default_factory=list)
+    book: dict[str, dict] = field(default_factory=dict)   # inst -> bid/ask/last
+    specs: dict[str, dict] = field(default_factory=dict)  # ctVal/lotSz/minSz
+
+    def set_specs(self, specs: dict[str, dict]) -> None:
+        self.specs = dict(specs)
 
     def mark_prices(self, prices: dict[str, float]) -> None:
         self.prices.update(prices)
+
+    def mark_ticks(self, ticks: dict[str, dict]) -> None:
+        """OKX ticker snapshot: last/bid/ask. Fills use bid/ask, MTM uses last."""
+        for inst, t in (ticks or {}).items():
+            last = float(t.get("last") or 0.0)
+            bid = float(t.get("bid") or 0.0)
+            ask = float(t.get("ask") or 0.0)
+            if last > 0:
+                self.prices[inst] = last
+            self.book[inst] = {"last": last, "bid": bid, "ask": ask}
 
     def equity(self) -> float:
         eq = self.cash
@@ -69,21 +84,47 @@ class PaperBroker(Broker):
     def positions(self) -> dict[str, float]:
         return {k: v for k, v in self.pos.items() if abs(v) > 1e-12}
 
+    def _round_qty(self, inst: str, qty: float) -> float:
+        spec = self.specs.get(inst)
+        if not spec or qty == 0:
+            return qty
+        ct = float(spec.get("ctVal") or 0.0)
+        lot = float(spec.get("lotSz") or 0.0)
+        mn = float(spec.get("minSz") or 0.0)
+        if ct <= 0 or lot <= 0:
+            return qty
+        contracts = abs(qty) / ct
+        contracts = math.floor(contracts / lot + 1e-12) * lot
+        if contracts < mn:
+            return 0.0
+        return math.copysign(contracts * ct, qty)
+
+    def _taker_px(self, inst: str, qty: float, price_hint: float) -> float:
+        b = self.book.get(inst) or {}
+        bid, ask = float(b.get("bid") or 0.0), float(b.get("ask") or 0.0)
+        if bid > 0 and ask > bid:
+            return ask if qty > 0 else bid
+        slip = self.slippage_bps * 1e-4
+        hint = price_hint or float(self.prices.get(inst) or 0.0)
+        if hint <= 0:
+            return 0.0
+        return hint * (1 + slip) if qty > 0 else hint * (1 - slip)
+
     def market_order(self, inst: str, qty: float, price_hint: float,
                      force_taker: bool = False) -> Fill | None:
-        if qty == 0 or price_hint <= 0:
+        qty = self._round_qty(inst, qty)
+        if qty == 0 or (price_hint <= 0 and not (self.book.get(inst) or {}).get("bid")):
+            return None
+        px = self._taker_px(inst, qty, price_hint)
+        if px <= 0:
             return None
         side = "buy" if qty > 0 else "sell"
-        slip = self.slippage_bps * 1e-4
-        px = price_hint * (1 + slip) if qty > 0 else price_hint * (1 - slip)
         notional = abs(qty) * px
         fee = notional * self.fee_bps * 1e-4
         self.cash -= qty * px
         self.cash -= fee
         old = self.pos.get(inst, 0.0)
         new = old + qty
-        # volume-weighted average entry: adding to a position averages in the
-        # fill; reducing keeps the entry; flipping through zero restarts it
         if old == 0.0 or old * qty > 0:
             tot = abs(old) + abs(qty)
             self.entry[inst] = ((abs(old) * self.entry.get(inst, px)

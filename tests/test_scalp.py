@@ -80,3 +80,74 @@ def test_universe_top_volume_drops_wide_spread():
     assert "SOL-USDT-SWAP" in u and "AAA-USDT-SWAP" in u
     assert "PEPE-USDT-SWAP" not in u
     assert "BBB-USDT-SWAP" not in u
+
+
+import pytest
+
+
+def test_paper_buy_fills_at_ask_not_last():
+    from hermes.exchange.broker import PaperBroker
+    b = PaperBroker(cash=10_000, fee_bps=5.0, slippage_bps=2.0)
+    b.mark_ticks({"X": {"last": 100.0, "bid": 99.9, "ask": 100.2}})
+    fill = b.market_order("X", 1.0, 100.0, force_taker=True)
+    assert fill is not None
+    assert fill.price == pytest.approx(100.2)
+    assert fill.fee == pytest.approx(100.2 * 5e-4)
+
+
+def test_paper_sell_fills_at_bid():
+    from hermes.exchange.broker import PaperBroker
+    b = PaperBroker(cash=10_000, fee_bps=5.0)
+    b.mark_ticks({"X": {"last": 100.0, "bid": 99.8, "ask": 100.1}})
+    b.pos["X"] = 1.0
+    b.prices["X"] = 100.0
+    fill = b.market_order("X", -1.0, 100.0, force_taker=True)
+    assert fill.price == pytest.approx(99.8)
+
+
+def test_paper_lot_rounding():
+    from hermes.exchange.broker import PaperBroker
+    b = PaperBroker(cash=10_000, fee_bps=5.0)
+    b.set_specs({"X": {"ctVal": 0.1, "lotSz": 1, "minSz": 1}})
+    b.mark_ticks({"X": {"last": 100, "bid": 100, "ask": 100}})
+    fill = b.market_order("X", 0.15, 100.0)
+    assert fill is not None
+    assert fill.qty == pytest.approx(0.1)
+
+
+def test_sl_stops_long(tmp_path):
+    from hermes.exchange.broker import PaperBroker, Fill
+    from hermes.risk import RiskEngine
+    from hermes.scalp.engine import ScalpEngine
+    b = PaperBroker(cash=10_000, fee_bps=5.0)
+    b.pos["BTC-USDT-SWAP"] = 0.01
+    b.prices["BTC-USDT-SWAP"] = 100.0
+    b.entry["BTC-USDT-SWAP"] = 100.0
+    b.mark_ticks({"BTC-USDT-SWAP": {"last": 99.7, "bid": 99.6, "ask": 99.8}})
+    risk = RiskEngine(daily_loss_limit_pct=50, max_drawdown_pct=90)
+    eng = ScalpEngine({"scalp": {"instruments": ["BTC-USDT-SWAP"], "stop_bps": 15,
+                                 "take_bps": 10}, "costs": {"taker_fee_bps": 5}},
+                      b, None, risk, log=lambda m: None, state_dir=str(tmp_path))
+    fill = Fill("BTC-USDT-SWAP", "buy", 0.01, 100.0, 0.0, 0.0)
+    eng._arm("BTC-USDT-SWAP", 0.01, fill, vol_bps=5.0)
+    hit = eng.check_exits()
+    assert "BTC-USDT-SWAP" in hit
+    assert "BTC-USDT-SWAP" not in b.positions()
+
+
+def test_tp_takes_long(tmp_path):
+    from hermes.exchange.broker import PaperBroker, Fill
+    from hermes.risk import RiskEngine
+    from hermes.scalp.engine import ScalpEngine
+    b = PaperBroker(cash=10_000, fee_bps=5.0)
+    b.pos["BTC-USDT-SWAP"] = 0.01
+    b.prices["BTC-USDT-SWAP"] = 100.2
+    b.mark_ticks({"BTC-USDT-SWAP": {"last": 100.2, "bid": 100.15, "ask": 100.25}})
+    risk = RiskEngine(daily_loss_limit_pct=50, max_drawdown_pct=90)
+    eng = ScalpEngine({"scalp": {"instruments": ["BTC-USDT-SWAP"], "stop_bps": 15,
+                                 "take_bps": 10}, "costs": {"taker_fee_bps": 5}},
+                      b, None, risk, log=lambda m: None, state_dir=str(tmp_path))
+    fill = Fill("BTC-USDT-SWAP", "buy", 0.01, 100.0, 0.0, 0.0)
+    eng._arm("BTC-USDT-SWAP", 0.01, fill, vol_bps=1.0)
+    hit = eng.check_exits()
+    assert "BTC-USDT-SWAP" in hit

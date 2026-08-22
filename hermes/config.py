@@ -92,6 +92,8 @@ DEFAULTS: dict[str, Any] = {
         "universe_n": 50,            # top-N by 24h quote volume
         "max_spread_bps": 8.0,       # 1m scalp dies on wide-spread alts
         "min_vol_usd": 5_000_000.0,
+        "stop_bps": 15.0,            # SL: 15 bps adverse (or 2× 1m vol)
+        "take_bps": 10.0,            # TP: 10 bps (or 1.2× 1m vol)
         "horizon": 3,
         "min_edge_bps": 5.0,
         "max_hold_bars": 6,
