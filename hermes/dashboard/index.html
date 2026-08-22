@@ -729,11 +729,12 @@ const clamp = (v,a,b)=>Math.min(b,Math.max(a,v));
 /* rAF number tweening -------------------------------------------------- */
 const tweens = new Map();
 function liveEquity(data, last){
+  if(data && data.equity_live > 0) return data.equity_live;
   const pb = (data.trader || {}).paper_broker;
+  const ticks = data.tickers || {};
   if(pb && typeof pb.cash === "number"){
     let eq = pb.cash;
     const pos = pb.pos || {}, pr = pb.prices || {};
-    const ticks = data.tickers || {};
     for(const inst of Object.keys(pos)){
       const q = pos[inst] || 0;
       if(!q) continue;
@@ -1110,7 +1111,7 @@ function renderLog(lines){
   }).join("");
 }
 
-function renderScalp(s){
+function renderScalp(s, dataNow){
   const box = $("scalpbox");
   if(!box) return;
   const preds = ((s && s.preds) || []).slice();
@@ -1123,7 +1124,7 @@ function renderScalp(s){
   $("sc_live").textContent = n ? String(live.length) : "—";
   $("sc_live").style.color = live.length ? "var(--green)" : "";
   $("sc_gate").textContent = n ? String(gated) : "—";
-  const age = s && s.ts ? (Date.now()/1000 - s.ts) : null;
+  const age = s && s.ts ? ((dataNow||Date.now()/1000) - s.ts) : null;
   const ageEl = $("sc_age");
   if(age===null) ageEl.textContent = "—";
   else if(age < 8) ageEl.textContent = "now";
@@ -1763,7 +1764,7 @@ async function refresh(){
   $("researchage").textContent = age!==null? "refreshed "+(age<1? Math.round(age*60)+"m ago" : age.toFixed(1)+"h ago"):"";
 
   renderMarkets(data, last, journal);
-  renderScalp(data.scalp);
+  renderScalp(data.scalp, data.now);
   renderResearch(registry, data.meta);
   renderFreshness(journal);
   const weights = (last&&last.weights)||{};
@@ -1775,7 +1776,16 @@ async function refresh(){
     ...(last||{}),
     equity: eqLive || (last && last.equity) || 0,
     positions: Object.keys(pb.pos||{}).length ? pb.pos : (last && last.positions) || {},
-    prices: {...((last&&last.prices)||{}), ...(pb.prices||{})},
+    prices: (()=>{
+      const o = {...((last&&last.prices)||{}), ...(pb.prices||{})};
+      for(const [k,t] of Object.entries(data.tickers||{})){
+        if(t && t.last) o[k] = t.last;
+      }
+      for(const p of ((data.scalp||{}).preds||[])){
+        if(p.inst && p.px) o[p.inst] = p.px;
+      }
+      return o;
+    })(),
     targets: (data.scalp && data.scalp.targets) || (last && last.targets) || {},
     brackets: (data.scalp && data.scalp.brackets) || {},
   };
@@ -1785,7 +1795,7 @@ async function refresh(){
   if(tOpen) updateTradeStats();
 }
 refresh();
-setInterval(refresh, 1500);
+setInterval(refresh, 5000);
 </script>
 </body>
 </html>

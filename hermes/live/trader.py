@@ -422,7 +422,7 @@ class Trader:
         if self.risk.must_flatten and self.broker.positions():
             self.log("risk tripped between bars -> flattening")
             self._flatten(prices)
-        if now_ts - self.last_hb_journal >= 15.0:
+        if now_ts - self.last_hb_journal >= 5.0:
             self._journal({
                 "ts": now_ts, "equity": equity, "halted": self.risk.must_flatten,
                 "prices": prices,
@@ -852,8 +852,9 @@ class LiveRunner:
                           for i, t in (self.scalp.ticks or {}).items()}
                     px = {k: v for k, v in px.items() if v > 0}
                     if px:
-                        self.trader.heartbeat(px, time.time())
+                        eq = self.trader.heartbeat(px, time.time())
                         self.trader.save_state(self.cfg["state_dir"])
+                        self.scalp._snapshot({"equity": eq})
                 else:
                     for inst in self.cfg["instruments"]:
                         try:

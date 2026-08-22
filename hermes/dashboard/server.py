@@ -16,7 +16,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
-TICKER_TTL = 5.0  # seconds between live-price fetches
+TICKER_TTL = 4.0  # seconds between live-price fetches
 
 
 def _tail_lines(path: str, max_lines: int, max_bytes: int = 2_000_000) -> list[str]:
@@ -100,18 +100,37 @@ class StateReader:
                 s["sid"] = f"{s['inst']}:{Genome.from_dict(s['genome']).gid}"
         except Exception:
             pass
+        ticks = self._live_tickers()
+        trader = _read_json(os.path.join(sd, "trader.json"))
+        scalp = _read_json(os.path.join(sd, "scalp.json"))
+        pb = trader.get("paper_broker") or {}
+        eq_live = pb.get("cash")
+        if isinstance(eq_live, (int, float)):
+            pos = pb.get("pos") or {}
+            pr = pb.get("prices") or {}
+            for inst, q in pos.items():
+                last = ((ticks.get(inst) or {}).get("last")
+                        or pr.get(inst) or 0.0)
+                try:
+                    eq_live += float(q) * float(last or 0)
+                except (TypeError, ValueError):
+                    pass
+        elif scalp.get("equity"):
+            eq_live = scalp.get("equity")
         return {
             "mode": self.mode_hint,
             "state_dir": sd,
+            "now": time.time(),
+            "equity_live": eq_live,
             "meta": self.meta,
             "instruments": self.instruments,
-            "tickers": self._live_tickers(),
+            "tickers": ticks,
             "registry": registry,
             "risk": _read_json(os.path.join(sd, "risk.json")),
-            "trader": _read_json(os.path.join(sd, "trader.json")),
+            "trader": trader,
             "journal": journal,
             "log": _tail_lines(os.path.join(sd, "hermes.log"), 120),
-            "scalp": _read_json(os.path.join(sd, "scalp.json")),
+            "scalp": scalp,
         }
 
     # timeframe -> number of base 15m bars per bucket

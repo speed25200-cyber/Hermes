@@ -320,7 +320,10 @@ def cmd_dashboard(args) -> None:
     instruments = None
     if not args.demo:
         from .exchange.okx_client import OKXClient
-        instruments = cfg["instruments"]
+        instruments = list(dict.fromkeys(
+            ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+            + list(cfg["instruments"] or [])
+        ))
         ticker_fn = OKXClient(cfg.credentials).tickers_full  # public endpoint
     serve(state_dir, host=args.host, port=args.port,
           mode_hint="demo" if args.demo else cfg["live"]["mode"],
