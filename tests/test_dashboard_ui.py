@@ -139,3 +139,11 @@ def test_the_quietest_ink_still_clears_small_text_contrast(page):
     for encre, fond in zip(encres, fonds):
         r = _contraste(encre, fond)
         assert r >= 4.5, f"{encre} sur {fond} : {r:.2f}:1"
+
+
+def test_irregular_plurals_are_written_out(page):
+    """« signal » fait « signaux ». Coller un s au singulier donnait
+    « 2 signals prêts » — la faute est visible dans le titre du verdict,
+    la première ligne que quiconque lit."""
+    assert "signals" not in page
+    assert "signaux prêts" in page and "signal prêt" in page

@@ -511,7 +511,10 @@ function rendreVerdict(d){
           + "Le rail ci-dessous montre où se trouve le prix entre les deux.";
   } else if (actifs.length) {
     jeton = ["actif","Signal"];
-    titre = actifs.length + " signal" + (actifs.length>1?"s":"") + " prêt" + (actifs.length>1?"s":"") + " à l'exécution";
+    // « signal » fait « signaux » : le pluriel ne s'obtient pas en ajoutant
+    // un s. Ailleurs sur la page les pluriels sont écrits en toutes lettres.
+    const n = actifs.length;
+    titre = n + (n > 1 ? " signaux prêts" : " signal prêt") + " à l'exécution";
     texte = "Le bracket est rentable après frais. L'ordre part à la prochaine barre.";
   } else {
     jeton = ["attente","En attente"];
