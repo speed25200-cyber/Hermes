@@ -20,6 +20,12 @@ on:
       root_password:
         description: "Root password (optional if VPS_PASSWORD secret is set)"
         required: false
+      mode:
+        description: "full = code + installeur + relance la recherche ; code = code + installeur seulement (une recherche en cours continue, le moteur reprendra le nouveau code a sa fin)"
+        required: false
+        default: "full"
+        type: choice
+        options: ["full", "code"]
 
 concurrency:
   group: vps-deploy
@@ -119,6 +125,7 @@ jobs:
             "bash /root/hermes/deploy/install.sh"
 
       - name: Start data backfill + research (runs on the VPS, detached)
+        if: ${{ inputs.mode != 'code' }}
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
             "systemctl start --no-block hermes-research && echo research started"

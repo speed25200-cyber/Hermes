@@ -12,7 +12,7 @@ from . import features as F
 from . import economics as ECON
 from . import model as M
 from .clock import BARS, HOLD, ScaleDesk
-from .flow import FlowBrain
+from .flow import HORIZON_S, FlowBrain
 
 
 class ScalpEngine:
@@ -236,8 +236,39 @@ class ScalpEngine:
             if bar == "1m":
                 self.brain.settle(mids)
             inf = self.brain.infer(x, micro)
-            score = float(inf["score"])
-            edge = float(inf.get("r_bps") or 0.0)
+            # The clocks used to vote and be ignored: fuse() was computed for
+            # the dashboard while every order followed the flow model alone.
+            # Two validated sources now co-decide. Agreement adds size,
+            # disagreement sits out, and either alone may still trade.
+            cinf = self.horizons.fuse(inst)
+            h_flow = max(1, round(HORIZON_S / 60.0))
+            mins = {"1m": 1, "3m": 3, "5m": 5, "15m": 15}
+            h_clock = mins.get(cinf.get("bar") or "5m", 5) * HOLD.get(cinf.get("bar") or "5m", 3)
+            sources = []
+            if not inf.get("veto"):
+                sources.append((float(inf.get("r_bps") or 0.0),
+                                max(float(inf.get("q_bps") or 8.0), 4.0), h_flow, "flow"))
+            if not cinf.get("veto"):
+                sources.append((float(cinf.get("r_bps") or 0.0),
+                                max(float(cinf.get("q_bps") or 12.0), 4.0), h_clock, "candle"))
+            fused_veto = not sources
+            if len(sources) == 2 and sources[0][0] * sources[1][0] < 0:
+                # validated sources that disagree are a fact worth respecting
+                sources, fused_veto = [], True
+                inf = dict(inf); inf["status"] = "disagree"
+            if sources:
+                wts = [1.0 / q for _, q, _, _ in sources]
+                edge = sum(e * w for (e, _, _, _), w in zip(sources, wts)) / sum(wts)
+                h_use = max(h for _, _, h, _ in sources)
+                inf = dict(inf)
+                inf["veto"] = False
+                inf["policy"] = "+".join(nom for *_, nom in sources)
+                inf["bar"] = cinf.get("bar") if any(n == "candle" for *_, n in sources) else inf.get("bar")
+            else:
+                edge = float(inf.get("r_bps") or 0.0)
+                h_use = h_flow
+                inf = dict(inf); inf["veto"] = True
+            score = edge / 8.0
             pred["score"], pred["edge_bps"] = score, edge
             pred["p_up"] = 0.5 + 0.5 * max(-1.0, min(1.0, edge / 12.0))
             spread = float(micro["spread_bps"] or 0.0) or float(
@@ -256,7 +287,7 @@ class ScalpEngine:
             else:
                 bracket = ECON.choose_bracket(
                     edge_bps=edge, vol_bps=max(pred["vol_bps"], 1.0),
-                    horizon=self.horizon, cost_bps=cost_bps)
+                    horizon=h_use, cost_bps=cost_bps)
                 if bracket is None:
                     # No take/stop pair on this forecast is worth its own
                     # friction. Predicting a direction is not the same as
@@ -291,8 +322,9 @@ class ScalpEngine:
                 "cost_bps": cost_bps,
                 # what this horizon demands of the forecast before trading it
                 # can pay — the number a flat book is really reporting
-                "required_ic": ECON.required_ic(cost_bps, self.horizon,
+                "required_ic": ECON.required_ic(cost_bps, h_use,
                                                 max(pred["vol_bps"], 1.0)),
+                "h_bars": h_use,
                 "bar": inf.get("bar") or bar,
                 "clocks": inf.get("clocks") or {},
                 "bar_ts": int(c.ts[-1]),
@@ -408,6 +440,12 @@ class ScalpEngine:
     def _arm(self, inst: str, qty: float, fill, vol_bps: float,
              tp_bps: float | None = None, sl_bps: float | None = None) -> None:
         entry = float(fill.price)
+        # A 45-minute clock signal cut by the global 16-minute time-stop was
+        # never given the time its own forecast asked for.
+        plan = next((q for q in (self.last_preds or [])
+                     if q.get("inst") == inst), {})
+        h = int(plan.get("h_bars") or self.horizon)
+        self.hold_ms[inst] = int(min(90, max(6, 2 * h)) * 60_000)
         sl_bps = float(sl_bps if sl_bps is not None else self.stop_bps)
         tp_bps = float(tp_bps if tp_bps is not None else self.take_bps)
         # These arrive already chosen by expected value; the floors that used

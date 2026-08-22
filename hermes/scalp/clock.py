@@ -18,6 +18,7 @@ import time
 
 import numpy as np
 
+from ..backtest.metrics import expected_max_sharpe
 from ..data.store import Candles
 from ..ml.models import RidgeRegressor
 
@@ -159,8 +160,16 @@ class CandleModel:
         signed = np.sign(pred) * y_r[hold] * 1e4 - self.fee
         self.holdout_bps = float(np.mean(signed))
         self.n_train = int(len(train))
-        # live only if we predict the *direction* and beat fees after conformal
-        if self.ic > 0.03 and self.holdout_bps > 0:
+        sd = float(np.std(signed, ddof=1))
+        sr = self.holdout_bps / sd if sd > 1e-12 else 0.0
+        # Twelve cells are searched every refit (3 assets x 4 bars), so the
+        # bar each one must clear is the expected max of twelve pure-noise
+        # draws — and the ic floor is its own sampling noise, 2/sqrt(n).
+        # The old fixed ic>0.03 sat BELOW that floor at every bar size.
+        n_cells = len(ASSETS) * len(BARS)
+        sel_bar = expected_max_sharpe(n_cells, len(hold))
+        ic_floor = 2.0 / math.sqrt(max(len(hold), 4))
+        if self.holdout_bps > 0 and sr > sel_bar and self.ic > ic_floor:
             self.shrink = float(min(0.6, 0.2 + 2.0 * self.ic))
             self.status = "live"
         else:

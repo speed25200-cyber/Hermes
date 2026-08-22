@@ -49,8 +49,8 @@ BETA = 0.5826   # -zeta(1/2)/sqrt(2*pi)
 # Grids are in units of the move the forecast predicts. Fixed and coarse on
 # purpose: these are not parameters fitted to data, so they cannot be
 # overfitted to it.
-TP_GRID = (0.4, 0.6, 0.8, 1.0, 1.3, 1.7)
-SL_GRID = (0.4, 0.6, 0.8, 1.0, 1.4, 2.0)
+TP_GRID = (0.4, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2)
+SL_GRID = (0.4, 0.6, 0.8, 1.0, 1.4, 2.0, 2.6)
 
 
 def _unit_paths(horizon: int, n_paths: int = N_PATHS) -> np.ndarray:
