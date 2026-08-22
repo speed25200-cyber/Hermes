@@ -1269,21 +1269,6 @@ function renderPositions(last, equity){
       </div>
       <div class="subnum">${Math.abs(expo).toFixed(2)}× now · ${Math.abs(tgt).toFixed(2)}× tgt</div></td>
     </tr>`;
-    const tpLbl = br && br.tp ? fmtUsd(br.tp) : "—";
-    const slLbl = br && br.sl ? fmtUsd(br.sl) : "—";
-    return `<tr data-inst="${inst}">
-      <td class="symc">${shortInst(inst)}${regimeTag(regimes[inst])}</td>
-      <td><span class="side ${side}">${sideLbl}</span></td>
-      <td class="r">${fmtQty(q)}</td>
-      <td class="r">${px?fmtUsd(px):"—"}</td>
-      <td class="r up">${tpLbl}</td>
-      <td class="r down">${slLbl}</td>
-      <td class="r">${fmtUsd(Math.abs(notional))}</td>
-      <td><div class="expo"><span class="mid"></span>
-        <i style="${expo>=0?`left:50%`:`right:50%`};width:${w}%;background:${expo>=0?'var(--green)':'var(--red)'}"></i>
-      </div>
-      <div class="subnum">now ${fmtPct(expo,1)} · ${Math.abs(expo).toFixed(2)}× · target ${fmtPct(tgt,1)}</div></td>
-    </tr>`;
   }).join("");
 }
 
