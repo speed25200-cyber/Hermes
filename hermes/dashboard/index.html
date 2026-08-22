@@ -194,10 +194,15 @@ button.ghost:active{transform:translateY(1px)}
 .marche{margin-bottom:var(--e4)}
 .mtete{display:flex;align-items:center;gap:var(--e3);flex-wrap:wrap;
   padding:var(--e3) var(--e4);border-bottom:1px solid var(--filet)}
-.onglets{display:flex;gap:var(--e1);flex-wrap:wrap}
+/* Une seule rangée qui défile : huit marchés empilés en grille faisaient
+   de l'en-tête du graphe un mur. Sur mobile le doigt balaie la rangée. */
+.onglets{display:flex;gap:var(--e1);flex-wrap:nowrap;overflow-x:auto;
+  scrollbar-width:none;-webkit-overflow-scrolling:touch;max-width:100%}
+.onglets::-webkit-scrollbar{display:none}
 .ong{font:inherit;border:1px solid transparent;background:transparent;
-  color:var(--encre-2);border-radius:var(--r-s);padding:7px 13px;cursor:pointer;
-  display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:96px;
+  color:var(--encre-2);border-radius:var(--r-s);padding:7px 12px;cursor:pointer;
+  display:flex;flex-direction:column;align-items:flex-start;gap:1px;
+  flex:none;
   transition:background var(--duree) var(--courbe),color var(--duree) var(--courbe),
              border-color var(--duree) var(--courbe),transform .12s var(--courbe)}
 .ong:active{transform:scale(.97)}
@@ -369,6 +374,26 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0
 }
 @media(max-width:900px){
   .g2,.g3{grid-template-columns:1fr}
+  .mtete{padding:var(--e2) var(--e3);gap:var(--e2)}
+  .onglets{flex-basis:100%;order:1}
+  .seg{order:2;margin-left:0;width:100%;justify-content:space-between}
+  .seg button{flex:1}
+  .gzone{height:340px}
+  /* Grille déterministe : rangée 1 = marque + bouton thème, rangée 2 =
+     les pastilles d'état. Le flux flexible laissait « Clair » seul sur une
+     ligne ou le glissait entre la marque et une pastille selon la longueur
+     des textes. */
+  header{display:grid;grid-template-columns:auto 1fr auto;
+    align-items:center;gap:var(--e2)}
+  .marque{grid-area:1/1}
+  .pousse{grid-area:1/3;margin-left:0}
+  #lien{grid-area:2/1;justify-self:start}
+  #horloge{grid-area:2/2/2/4;justify-self:start}
+  .marque b{font-size:17px}
+  .pastille{font-size:11px;padding:4px 9px}
+  button.ghost{padding:5px 11px}
+  .verdict h1{font-size:19px}
+  .vide{padding:var(--e4)}
   /* Les deux moitiés de légende se chevauchent dès qu'elles enroulent :
      en colonne, la seconde devient une phrase et non un débris de ligne. */
   .barre .leg,.rail .leg{flex-direction:column;align-items:flex-start;gap:2px}
@@ -433,7 +458,7 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0
   <div class="grille g2">
     <div class="carte">
       <h2>Décisions en cours <span class="aide" id="dec-aide"></span></h2>
-      <div id="decisions"><div class="vide">Aucune donnée moteur.</div></div>
+      <div id="decisions"><div class="vide">En attente des premières décisions du moteur.</div></div>
     </div>
     <div>
       <div class="carte" style="margin-bottom:16px">
@@ -572,16 +597,28 @@ function rendreVerdict(d){
     preds.forEach(p => { const r = p.reason || ""; comptes[r] = (comptes[r]||0)+1; });
     const top = Object.entries(comptes).sort((a,b)=>b[1]-a[1])[0];
     const [nom, expl] = motif(top ? top[0] : "");
-    titre = preds.length ? nom : "Moteur sans données";
-    const rt = s.round_trip_bps, h = s.horizon_bars;
-    const ric = preds.length ? Math.min(...preds.map(p => p.required_ic ?? Infinity)) : null;
-    const maj1 = t => t ? t[0].toUpperCase() + t.slice(1) : t;
-    texte = preds.length
-      ? maj1(expl) + ". Sur cet horizon (" + (h||"?") + " barres) et avec un aller-retour de "
-        + bps(rt) + ", la prévision doit capter au moins "
-        + (isFinite(ric) ? nf(ric,3) : "—") + " de corrélation avec le mouvement à venir "
-        + "pour qu'un trade soit rentable. Rester plat est la décision correcte tant que ce seuil n'est pas franchi."
-      : "Le moteur n'a pas encore publié de prédiction.";
+    const svc = d.services || {};
+    const recherche = svc.recherche === "activating" || svc.recherche === "active";
+    if (!preds.length && recherche) {
+      // Un écran qui affiche « rien » sans dire pourquoi fait croire à une
+      // panne. Le moteur est volontairement à l'arrêt pendant la passe.
+      titre = "Recherche en cours";
+      texte = "La passe de recherche reconstruit le carnet de stratégies sous "
+            + "les portes de validation. Le moteur est volontairement à l'arrêt "
+            + "pendant ce travail et démarrera tout seul à la fin — aucune "
+            + "action n'est requise.";
+    } else {
+      titre = preds.length ? nom : "Moteur sans données";
+      const rt = s.round_trip_bps, h = s.horizon_bars;
+      const ric = preds.length ? Math.min(...preds.map(p => p.required_ic ?? Infinity)) : null;
+      const maj1 = t => t ? t[0].toUpperCase() + t.slice(1) : t;
+      texte = preds.length
+        ? maj1(expl) + ". Sur cet horizon (" + (h||"?") + " barres) et avec un aller-retour de "
+          + bps(rt) + ", la prévision doit capter au moins "
+          + (isFinite(ric) ? nf(ric,3) : "—") + " de corrélation avec le mouvement à venir "
+          + "pour qu'un trade soit rentable. Rester plat est la décision correcte tant que ce seuil n'est pas franchi."
+        : "Le moteur n'a pas encore publié de prédiction.";
+    }
   }
   $("etat").className = "jeton " + jeton[0];
   $("etat").textContent = jeton[1];
@@ -600,7 +637,7 @@ function rendreDecisions(d){
   $("dec-aide").textContent = preds.length
     ? "horizon " + (s.horizon_bars||"?") + " barres · aller-retour " + bps(s.round_trip_bps)
     : "";
-  if (!preds.length) { $("decisions").innerHTML = '<div class="vide">Aucune donnée moteur.</div>'; return; }
+  if (!preds.length) { $("decisions").innerHTML = '<div class="vide">En attente des premières décisions du moteur.</div>'; return; }
 
   $("decisions").innerHTML = preds.map(p => {
     const dir = p.dir === "long" ? ["long","▲ LONG"] : p.dir === "short" ? ["short","▼ SHORT"] : ["plat","— PLAT"];
@@ -1356,12 +1393,16 @@ function rendre(d){
   const eq = Number(d.equity_live || (d.scalp||{}).equity || 0);
   const dep = Number(((d.trader||{}).paper_broker||{}).start_cash || 10000);
   const el = $("pnl");
+  const bloc = $("equity").closest(".chiffre");
   if (!(eq > 0)) {
     // Sans état de courtier, l'équité n'est pas nulle : elle est inconnue.
-    // Afficher « -100 % » ferait passer une absence de donnée pour une ruine.
+    // Afficher « -100 % » ferait passer une absence de donnée pour une ruine,
+    // et un « — » de 44 px pour un écran cassé : le bloc se retire.
+    if (bloc) bloc.style.display = "none";
     $("equity").textContent = "—";
     el.textContent = "en attente du moteur"; el.className = "";
   } else {
+    if (bloc) bloc.style.display = "";
     majChiffre($("equity"), usdt(eq));
     const dp = eq - dep;
     el.textContent = sgn(dp) + " USDT (" + pct(dep?dp/dep:0,2) + ")";
@@ -1375,8 +1416,14 @@ function rendre(d){
   const age = (d.scalp||{}).ts ? (ts - d.scalp.ts) : null;
   const h = $("horloge");
   h.className = "pastille" + (age==null ? "" : age < 120 ? " vif" : " mort");
-  h.querySelector("span").textContent = age==null ? "moteur inconnu"
-    : age < 120 ? "moteur actif" : "moteur muet depuis " + Math.round(age/60) + " min";
+  const rech = (d.services||{}).recherche;
+  const enRecherche = rech === "activating" || rech === "active";
+  h.querySelector("span").textContent =
+      age != null && age < 120 ? "moteur actif"
+    : enRecherche ? "recherche en cours"
+    : age == null ? "moteur à l'arrêt"
+    : "moteur muet depuis " + Math.round(age/60) + " min";
+  if (enRecherche && (age == null || age >= 120)) h.className = "pastille";
 }
 
 async function battre(){

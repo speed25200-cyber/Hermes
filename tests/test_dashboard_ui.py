@@ -200,3 +200,14 @@ def test_the_paper_badge_is_gone_but_real_money_still_announces_itself(page):
 def test_chart_levels_never_ride_on_colour_alone(page):
     for etiquette in ('"ENTRÉE"', '"TP"', '"SL"'):
         assert etiquette in page, etiquette
+
+
+def test_a_running_research_pass_explains_the_silence(page):
+    """Un moteur volontairement à l'arrêt pendant la recherche affichait
+    « Moteur sans données » — l'écran d'une panne. L'état des services est
+    maintenant servi par l'API et la page le dit en toutes lettres."""
+    assert "Recherche en cours" in page
+    assert "démarrera tout seul" in page
+    from hermes.dashboard.server import StateReader  # l'API le sert bien
+    import inspect
+    assert "services" in inspect.getsource(StateReader.snapshot)

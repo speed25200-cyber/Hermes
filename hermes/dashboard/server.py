@@ -33,6 +33,32 @@ def _tail_lines(path: str, max_lines: int, max_bytes: int = 2_000_000) -> list[s
     return lines[-max_lines:]
 
 
+_UNITS_CACHE: dict = {"at": 0.0, "v": {}}
+
+
+def _units_state() -> dict:
+    """hermes / hermes-research vus par systemd, en cache 15 s.
+
+    Sans cet état la page ne peut pas distinguer « le moteur est cassé » de
+    « la recherche reconstruit le carnet et le moteur démarrera à sa fin » —
+    et un écran qui laisse planer le doute fait croire à une panne.
+    """
+    now = time.time()
+    if now - _UNITS_CACHE["at"] < 15.0:
+        return _UNITS_CACHE["v"]
+    out = {}
+    for unit, cle in (("hermes", "moteur"), ("hermes-research", "recherche")):
+        try:
+            import subprocess
+            r = subprocess.run(["systemctl", "is-active", unit],
+                               capture_output=True, text=True, timeout=2)
+            out[cle] = (r.stdout or "").strip() or "inconnu"
+        except Exception:
+            out[cle] = "inconnu"
+    _UNITS_CACHE["at"], _UNITS_CACHE["v"] = now, out
+    return out
+
+
 def _read_json(path: str) -> dict:
     try:
         with open(path) as f:
@@ -147,6 +173,7 @@ class StateReader:
             "journal": journal,
             "log": _tail_lines(os.path.join(sd, "hermes.log"), 120),
             "scalp": scalp,
+            "services": _units_state(),
         }
 
     # Each timeframe reads the finest stored bar that can build it exactly.
