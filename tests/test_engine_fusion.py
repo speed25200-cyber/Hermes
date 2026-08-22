@@ -194,3 +194,17 @@ def test_sizing_is_kelly_under_ruin_caps(tmp_path):
     lev = eng._pick_lev(fort)
     assert 2.0 <= lev <= 20.0
     assert lev <= 0.025 / (18.0 * 1e-4) + 1e-9, "la règle de ruine plafonne Kelly"
+
+
+def test_the_evidence_card_receives_what_it_displays():
+    """L'écran juge sur holdout_sr / sel_bar / n_holdout ; une horloge qui
+    les calcule sans les exporter ferait afficher des zéros."""
+    rng = np.random.default_rng(4)
+    desk = ScaleDesk()
+    m = CandleModel("5m")
+    m.fit(_marche(rng, 900))
+    desk.models[("BTC-USDT-SWAP", "5m")] = m
+    d = m.to_dict()
+    for k in ("holdout_sr", "sel_bar", "n_holdout"):
+        assert k in d, k
+    assert d["n_holdout"] > 0 and d["sel_bar"] > 0

@@ -140,12 +140,17 @@ class CandleModel:
         self.status = "unfitted"
         self.n_train = 0
         self.holdout_bps = 0.0
+        self.hold_sr = 0.0     # Sharpe par barre du holdout
+        self.sel_bar = 0.0     # ce que le hasard aurait produit (12 cellules)
+        self.n_hold = 0
 
     def to_dict(self) -> dict:
         return {
             "bar": self.bar, "ic": self.ic, "q_bps": self.q * 1e4,
             "shrink": self.shrink, "status": self.status,
             "n_train": self.n_train, "holdout_bps": self.holdout_bps,
+            "holdout_sr": self.hold_sr, "sel_bar": self.sel_bar,
+            "n_holdout": self.n_hold,
         }
 
     def fit(self, c: Candles, btc: Candles | None = None) -> dict:
@@ -191,6 +196,7 @@ class CandleModel:
         n_cells = len(ASSETS) * len(BARS)
         sel_bar = expected_max_sharpe(n_cells, len(hold))
         ic_floor = 2.0 / math.sqrt(max(len(hold), 4))
+        self.hold_sr, self.sel_bar, self.n_hold = sr, sel_bar, int(len(hold))
         if self.holdout_bps > 0 and sr > sel_bar and self.ic > ic_floor:
             self.shrink = float(min(0.6, 0.2 + 2.0 * self.ic))
             self.status = "live"
@@ -343,7 +349,20 @@ class ScaleDesk:
 
     def to_dict(self) -> dict:
         d = {f"{i.split('-')[0]}:{b}": m.to_dict() for (i, b), m in self.models.items()}
-        d["_best"] = {i.split("-")[0]: {"bar": bar, "policy": lr.policy,
-                                        "status": lr.status, "holdout": lr.holdout_mean}
-                      for i, (bar, lr) in self.best.items()}
+        # l'écran juge sur l'évidence : le sr du holdout de l'horloge
+        # dominante, la barre du hasard qu'il a (ou non) franchie, et le
+        # nombre d'observations derrière — pas seulement un mot "live"
+        best = {}
+        for i, (bar, lr) in self.best.items():
+            m = self.models.get((i, bar))
+            best[i.split("-")[0]] = {
+                "bar": bar, "policy": lr.policy, "status": lr.status,
+                "holdout": lr.holdout_mean,
+                "holdout_sr": getattr(m, "hold_sr", 0.0) if m else 0.0,
+                "sel_bar": getattr(m, "sel_bar", 0.0) if m else 0.0,
+                "n_holdout": getattr(m, "n_hold", 0) if m else 0,
+                "n_trials": len(ASSETS) * len(BARS),
+                "alpha": getattr(m, "shrink", 0.0) if m else 0.0,
+            }
+        d["_best"] = best
         return d
