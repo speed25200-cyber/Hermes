@@ -11,6 +11,7 @@ from ..exchange.broker import Broker, PaperBroker
 from . import features as F
 from . import model as M
 from .clock import BARS, HOLD, ScaleDesk
+from .flow import FlowBrain
 
 
 class ScalpEngine:
@@ -50,6 +51,11 @@ class ScalpEngine:
         self.tape: dict[str, dict] = {}
         self.pending: dict[str, float] = {}
         self.horizons = ScaleDesk(fee_bps=7.0, log=self.log)
+        self.brain = FlowBrain(state_dir, fee_bps=7.0, log=self.log)
+        self._px_t: dict[str, tuple[float, float]] = {}
+        self.max_name = 0.22
+        self.gross_cap = 0.55
+        self.trade_top = 2
         self.preds_h: dict[str, list] = {b: [] for b in BARS}
         self.hold_ms: dict[str, int] = {}
         self.opened_h: dict[str, str] = {}
@@ -66,12 +72,12 @@ class ScalpEngine:
             "min_edge_bps": self.min_edge,
             "horizons": self.horizons.to_dict(),
             "live_bars": self.horizons.live_bars(),
-            "desk": {i.split("-")[0]: {"bar": inf.get("bar"),
-                                       "policy": inf.get("policy"),
-                                       "status": inf.get("status"),
-                                       "holdout": inf.get("ml_bps"),
-                                       "clocks": inf.get("clocks")}
-                     for i, inf in ((k, self.horizons.fuse(k)) for k in self.instruments)},
+            "flow": self.brain.to_dict(),
+            "desk": { (p.get("inst") or "").split("-")[0]: {
+                "bar": p.get("bar"), "policy": p.get("policy"),
+                "status": p.get("ml") or p.get("reason"),
+                "holdout": p.get("edge_bps"), "clocks": p.get("clocks"),
+            } for p in (self.last_preds or [])},
         }
         if extra:
             d.update(extra)
@@ -161,16 +167,36 @@ class ScalpEngine:
             feat["vwap_vs"] = float((self.tape.get(inst) or {}).get("vwap_vs") or 0.0)
             pred = M.predict(feat, btc_r1, inst.startswith("BTC-"), self.horizon)
             self.horizons.vote_clock(inst, bar, c, btc)
-            inf = self.horizons.fuse(inst)
+            last = float(feat["px"] or 0.0)
+            btc_last = float((self.ticks.get("BTC-USDT-SWAP") or {}).get("last") or 0.0)
+            if btc is not None and len(btc) and btc.c[-1] > 0:
+                btc_last = float(btc.c[-1])
+            prev = self._px_t.get(inst)
+            own = 0.0
+            nowt = time.time()
+            if prev and last > 0 and prev[1] > 0 and nowt - prev[0] < 120:
+                own = (last / prev[1] - 1.0) * 1e4
+            self._px_t[inst] = (nowt, last)
+            x = self.brain.vec(inst, micro, self.tape.get(inst) or {}, last, btc_last, own)
+            if last > 0 and micro.get("l2") and bar == "1m":
+                self.brain.push(inst, x, last)
+            mids = {i: float((self.ticks.get(i) or {}).get("last") or 0.0)
+                    for i in self.instruments}
+            mids = {k: v for k, v in mids.items() if v > 0}
+            if last > 0:
+                mids[inst] = last
+            if bar == "1m":
+                self.brain.settle(mids)
+            inf = self.brain.infer(x, micro)
             score = float(inf["score"])
-            edge = float(inf.get("r_bps") or inf.get("ml_bps") or 0.0)
+            edge = float(inf.get("r_bps") or 0.0)
             pred["score"], pred["edge_bps"] = score, edge
             pred["p_up"] = 0.5 + 0.5 * max(-1.0, min(1.0, edge / 12.0))
             spread = float(micro["spread_bps"] or 0.0) or float(
                 (self.ticks.get(inst) or {}).get("spread_bps") or 0.0)
             if spread <= 0:
                 spread = 3.0
-            hurdle = max(self.min_edge, self.round_trip_bps, spread + 2.0 * self.taker_fee_bps)
+            hurdle = max(self.min_edge, self.round_trip_bps, spread + 1.5)
             reason = ""
             if inf["veto"]:
                 direction, reason = "flat", inf.get("status") or "veto"
@@ -396,9 +422,12 @@ class ScalpEngine:
             elif opening:
                 self.opened_bar[inst] = int(time.time() * 1000)
                 plan = next((p for p in self.last_preds if p.get("inst") == inst), {})
-                hb = plan.get("bar") or "1m"
+                hb = plan.get("bar") or "90s"
                 self.opened_h[inst] = hb
-                self.hold_ms[inst] = int(HOLD.get(hb, 6)) * int(BAR_MS.get(hb, 60_000))
+                if hb in ("90s", "flow") or plan.get("policy") in ("prior", "flow"):
+                    self.hold_ms[inst] = 180_000
+                else:
+                    self.hold_ms[inst] = int(HOLD.get(hb, 3)) * int(BAR_MS.get(hb, 60_000))
                 self._arm(inst, tgt_qty, fill, vol.get(inst, 0.0),
                           plan.get("tp_bps"), plan.get("sl_bps"))
             self.log(f"scalp fill {inst} {delta:+.6f} @ {fill.price:.6f}")

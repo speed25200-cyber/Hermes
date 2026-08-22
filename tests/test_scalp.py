@@ -208,8 +208,9 @@ def test_no_l2_means_flat(tmp_path):
     b.mark_prices({c.inst: float(c.c[-1])})
     rep = eng.tick({c.inst: c})
     assert all(p["dir"] == "flat" for p in rep["preds"])
-    assert all(p.get("reason") in ("no L2", "ml-veto", "cost", "incoherent", "veto",
-                                  "unfitted", "disagree", "few-samples") for p in rep["preds"])
+    ok = ("no L2", "ml-veto", "cost", "incoherent", "veto", "unfitted",
+          "disagree", "few-samples", "wait")
+    assert all(p.get("reason") in ok for p in rep["preds"]), [p.get("reason") for p in rep["preds"]]
 
 
 def test_trade_top_caps_book(tmp_path):
@@ -222,7 +223,7 @@ def test_trade_top_caps_book(tmp_path):
              for i in range(20)]
     t = eng._targets(preds)
     live = [k for k, v in t.items() if abs(v) > 1e-9]
-    assert len(live) == 3
+    assert len(live) == 2
 
 
 def test_close_at_high_fades():
