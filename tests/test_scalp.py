@@ -213,3 +213,25 @@ def test_trade_top_caps_book(tmp_path):
     t = eng._targets(preds)
     live = [k for k, v in t.items() if abs(v) > 1e-9]
     assert len(live) == 8
+
+
+def test_close_at_high_fades():
+    """Close glued to the high of the bar → short tilt (exhaustion)."""
+    base = {"r1": 0.0, "r3": 0.0, "r12": 0.0, "vol": 0.0008, "px": 100.0,
+            "imb": 0.0, "book": 0.0, "micro": 0.0}
+    up = dict(base, loc=0.5)
+    dn = dict(base, loc=-0.5)
+    assert M.predict(up, 0.0, True)["p_up"] < M.predict(dn, 0.0, True)["p_up"]
+
+
+def test_ofi_bid_improve_is_long():
+    prev = {"bids": [["100.0", "5"]], "asks": [["100.1", "5"]]}
+    now = {"bids": [["100.0", "20"]], "asks": [["100.1", "5"]]}
+    assert F.ofi_l1(prev, now) > 0
+
+
+def test_idio_fade_vs_btc():
+    feat = {"r1": 0.006, "r3": 0.0, "r12": 0.0, "vol": 0.0008, "px": 10.0,
+            "imb": 0.0, "book": 0.0, "micro": 0.0}
+    p = M.predict(feat, btc_r1=0.0, is_btc=False, horizon=3)
+    assert p["edge_bps"] < 0  # alt jumped alone → fade

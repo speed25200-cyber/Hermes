@@ -47,6 +47,7 @@ class ScalpEngine:
         self.brackets: dict[str, dict] = {}
         self.l2: dict[str, dict] = {}  # inst -> {ts, feats}
         self.flow: dict[str, float] = {}
+        self.tape: dict[str, dict] = {}
         self.pending: dict[str, float] = {}  # inst -> desired coin qty
 
     # ------------------------------------------------------------------ #
@@ -109,11 +110,17 @@ class ScalpEngine:
 
     def ingest_trades(self, inst: str, trades: list) -> None:
         now_ms = int(time.time() * 1000)
-        self.flow[inst] = F.trade_imbalance(trades, now_ms)
+        last = float((self.ticks.get(inst) or {}).get("last") or 0.0)
+        tape = F.trade_tape(trades, now_ms, last)
+        self.flow[inst] = tape["flow"]
+        self.tape[inst] = tape
 
     def ingest_book(self, inst: str, book: dict) -> None:
         last = float((self.ticks.get(inst) or {}).get("last") or 0.0)
-        self.l2[inst] = {"ts": time.time(), "feats": F.book_l2(book, last)}
+        feats = F.book_l2(book, last)
+        prev = (self.l2.get(inst) or {}).get("raw")
+        feats["ofi"] = F.ofi_l1(prev, book)
+        self.l2[inst] = {"ts": time.time(), "feats": feats, "raw": book}
 
     def _micro(self, inst: str, last: float) -> dict[str, float]:
         rec = self.l2.get(inst)
@@ -122,6 +129,7 @@ class ScalpEngine:
             return {
                 "imb": f["imb1"], "book": f["imb5"], "depth": f["depth_imb"],
                 "micro": f["micro"], "spread_bps": f["spread_bps"], "l2": 1.0,
+                "ofi": float(f.get("ofi") or 0.0),
             }
         t = self.ticks.get(inst) or {}
         bsz = float(t.get("bid_sz") or 0.0)
@@ -134,7 +142,7 @@ class ScalpEngine:
         vs = (micro_px / last - 1.0) if last > 0 else 0.0
         spr = ((ask - bid) / last * 1e4) if last > 0 and bid > 0 and ask > bid else 0.0
         return {"imb": imb, "book": imb, "depth": 0.0, "micro": vs,
-                "spread_bps": spr, "l2": 0.0}
+                "spread_bps": spr, "l2": 0.0, "ofi": 0.0}
 
     def predict_all(self, candles_1m: dict[str, Candles]) -> list[dict]:
         btc = candles_1m.get("BTC-USDT-SWAP")
@@ -151,6 +159,8 @@ class ScalpEngine:
             feat["imb"], feat["book"] = micro["imb"], micro["book"]
             feat["micro"], feat["depth"] = micro["micro"], micro["depth"]
             feat["flow"] = float(self.flow.get(inst) or 0.0)
+            feat["ofi"] = float(micro.get("ofi") or 0.0)
+            feat["vwap_vs"] = float((self.tape.get(inst) or {}).get("vwap_vs") or 0.0)
             pred = M.predict(feat, btc_r1, inst.startswith("BTC-"), self.horizon)
             edge = float(pred["edge_bps"])
             spread = float(micro["spread_bps"] or 0.0) or float(
@@ -184,6 +194,8 @@ class ScalpEngine:
                 "r1": feat["r1"],
                 "book": micro["book"],
                 "depth": micro["depth"],
+                "ofi": feat["ofi"],
+                "loc": feat.get("loc", 0.0),
                 "l2": bool(micro["l2"]),
                 "reason": reason,
                 "bar_ts": int(c.ts[-1]),
