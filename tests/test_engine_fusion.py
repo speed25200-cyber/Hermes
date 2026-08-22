@@ -57,10 +57,14 @@ def _moteur(tmp_path):
     class _B:
         def positions(self): return {}
         def equity(self): return 10_000.0
+    class _E:
+        peak_equity = 10_000.0
+        day_start_equity = 10_000.0
     class _R:
         trading_allowed = True
         daily_loss_limit_pct = 8.0
         max_drawdown_pct = 25.0
+        state = _E()
     return ScalpEngine({"scalp": {}, "costs": {}}, _B(), None, _R(),
                        lambda m: None, str(tmp_path))
 
@@ -175,3 +179,18 @@ def test_aux_features_stay_bounded_on_garbage():
     assert np.isfinite(X).all()
     assert np.abs(X[:, 8]).max() <= 10.0
     assert np.abs(X[:, 11]).max() <= 0.2
+
+
+def test_sizing_is_kelly_under_ruin_caps(tmp_path):
+    """La taille vient du bracket lui-même : nulle quand l'avantage ne paie
+    pas sa friction, plafonnée par la règle de ruine quand Kelly s'emballe,
+    jamais forcée au minimum d'échange sur un avantage trop mince."""
+    eng = _moteur(tmp_path)
+    faible = {"tp_bps": 12.0, "sl_bps": 15.0, "edge_bps": 4.0, "vol_bps": 9.0,
+              "h_bars": 3, "cost_bps": 8.0}
+    assert eng._pick_lev(faible) == 0.0
+    fort = {"tp_bps": 14.0, "sl_bps": 18.0, "edge_bps": 26.0, "vol_bps": 9.0,
+            "h_bars": 3, "cost_bps": 8.0}
+    lev = eng._pick_lev(fort)
+    assert 2.0 <= lev <= 20.0
+    assert lev <= 0.025 / (18.0 * 1e-4) + 1e-9, "la règle de ruine plafonne Kelly"

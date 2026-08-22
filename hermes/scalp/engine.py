@@ -368,17 +368,32 @@ class ScalpEngine:
         return min(taper(dd, dd_lim), taper(day, day_lim))
 
     def _pick_lev(self, p: dict) -> float:
-        """OKX integer leverage 2–20. Tests may pass max_name_lev ≤ 1 as a fraction."""
+        """Growth-optimal size, then the caps.
+
+        Quarter-Kelly from the same simulation that priced the bracket sets
+        the notional; the 2.5%-per-stop rule survives as a ruin ceiling, not
+        as the size. The old rule sized every trade at the ceiling — the
+        -8.33% day was three stop-outs at maximum size. And when the
+        growth-optimal size lands below the exchange minimum, the honest
+        answer is no trade at all: forcing 2x onto a 0.4x edge is trading
+        at five times Kelly, where expected log growth is negative.
+        """
         if self.max_name <= 1.0:
             return float(self.max_name)
         sl = max(float(p.get("sl_bps") or 12.0), 8.0)
+        tp = max(float(p.get("tp_bps") or 10.0), 1.0)
         edge = abs(float(p.get("edge_bps") or 0.0))
-        lev = 0.025 / (sl * 1e-4)
-        if edge > self.round_trip_bps:
-            lev *= min(1.5, edge / self.round_trip_bps)
-        lev *= self._risk_scale()
-        lev = max(self.lev_min, min(self.lev_max, self.max_name, lev))
-        return float(int(round(lev)))
+        vol = max(float(p.get("vol_bps") or 4.0), 1.0)
+        h = int(p.get("h_bars") or self.horizon)
+        cost = float(p.get("cost_bps") or self.round_trip_bps)
+        kelly = ECON.kelly_fraction(tp, sl, edge, vol, h, cost)
+        lev = kelly * self._risk_scale()
+        lev = min(lev, 0.025 / (sl * 1e-4), self.lev_max, self.max_name)
+        if lev < self.lev_min:
+            return 0.0
+        # arrondi vers le bas : round() ferait franchir le plafond de ruine
+        # d'un demi-cran (13,89x -> 14x)
+        return float(int(lev))
 
     def _targets(self, preds: list[dict]) -> dict[str, float]:
         """Weights are notional/equity. Margin = |w|/lev ≤ 0.92 of equity total."""

@@ -106,6 +106,29 @@ def win_rate(tp_bps: float, sl_bps: float, edge_bps: float, vol_bps: float,
     return float((pnl > float(cost_bps)).mean())
 
 
+def kelly_fraction(tp_bps: float, sl_bps: float, edge_bps: float,
+                   vol_bps: float, horizon: int, cost_bps: float,
+                   n_paths: int = N_PATHS) -> float:
+    """Growth-optimal notional/equity for this bracket — quarter-Kelly.
+
+    The same simulation that priced the bracket carries its whole net PnL
+    distribution, so the Kelly fraction needs no binomial approximation:
+    f* = E[R] / E[R^2] maximises expected log growth for the small, bounded
+    returns a bracket produces (exact to O(f^3), and R is capped by the
+    stop). A quarter of f* is kept — the classic haircut for the fact that
+    E[R] is an estimate, and estimated edges are biased upward by the very
+    selection that surfaced them. Zero when the bracket loses money.
+    """
+    pnl = _simulate(float(tp_bps), float(sl_bps), float(edge_bps),
+                    float(vol_bps), horizon, n_paths)
+    r = (pnl - float(cost_bps)) * 1e-4
+    mu = float(r.mean())
+    m2 = float((r * r).mean())
+    if mu <= 0.0 or m2 <= 0.0:
+        return 0.0
+    return 0.25 * mu / m2
+
+
 def choose_bracket(edge_bps: float, vol_bps: float, horizon: int,
                    cost_bps: float, min_ev_bps: float | None = None
                    ) -> tuple[float, float, float] | None:

@@ -9,7 +9,8 @@ import math
 import numpy as np
 import pytest
 
-from hermes.scalp.economics import (bracket_ev, choose_bracket, viable_horizon,
+from hermes.scalp.economics import (bracket_ev, choose_bracket, kelly_fraction,
+                                    viable_horizon,
                                     win_rate)
 
 
@@ -132,3 +133,49 @@ def test_one_minute_demands_impossible_skill():
 def test_a_four_hour_horizon_is_reachable():
     from hermes.scalp.economics import required_ic
     assert required_ic(7.0, 240, 9.0) < 0.06
+
+
+# --- taille optimale : Kelly depuis le bracket lui-même ------------------ #
+
+def test_a_losing_bracket_gets_zero_size():
+    """Kelly d'un bracket sans avantage est nul — pas petit, nul."""
+    assert kelly_fraction(10.0, 15.0, 0.0, 9.0, 3, 7.0) == 0.0
+
+
+def test_size_grows_with_edge_and_stays_bounded():
+    """À 10 bps d'avantage contre 7 de coût ce bracket PERD dans la
+    simulation — Kelly dit zéro, et c'est le comportement voulu. À 25 bps
+    le Kelly brut est énorme (des paris bornés minuscules le permettent) :
+    c'est le rôle des plafonds du moteur, pas de cette fonction."""
+    assert kelly_fraction(12.0, 15.0, 10.0, 9.0, 3, 7.0) == 0.0
+    petits = kelly_fraction(12.0, 15.0, 14.0, 9.0, 3, 7.0)
+    grands = kelly_fraction(12.0, 15.0, 25.0, 9.0, 3, 7.0)
+    assert 0.0 < petits < grands < 400.0
+
+
+def test_quarter_kelly_is_a_quarter():
+    """Le facteur 0,25 est la décote d'estimation — vérifié, pas supposé."""
+    import numpy as np
+    from hermes.scalp.economics import _simulate
+    tp, sl, edge, vol, h, cost = 14.0, 18.0, 20.0, 9.0, 3, 7.0
+    pnl = _simulate(tp, sl, edge, vol, h, 16_384)
+    r = (pnl - cost) * 1e-4
+    plein = float(r.mean() / (r * r).mean())
+    quart = kelly_fraction(tp, sl, edge, vol, h, cost)
+    assert abs(quart - 0.25 * plein) < 1e-9
+
+
+def test_quarter_kelly_has_positive_log_growth():
+    """La taille retenue doit produire une croissance log positive sur la
+    distribution même qui l'a produite — c'est la définition du travail."""
+    import numpy as np
+    from hermes.scalp.economics import _simulate
+    tp, sl, edge, vol, h, cost = 14.0, 18.0, 20.0, 9.0, 3, 7.0
+    f = kelly_fraction(tp, sl, edge, vol, h, cost)
+    pnl = _simulate(tp, sl, edge, vol, h, 16_384)
+    r = (pnl - cost) * 1e-4
+    croissance = float(np.mean(np.log1p(f * r)))
+    assert croissance > 0
+    # et sur-dimensionner 8x cette taille doit faire pire
+    pire = float(np.mean(np.log1p(min(8 * f, 100.0) * r)))
+    assert croissance > pire or pire < 0
