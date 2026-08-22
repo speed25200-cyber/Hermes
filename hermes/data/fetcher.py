@@ -220,7 +220,7 @@ def fetch_microstructure(client: OKXClient, store: DataStore, inst: str,
 
 
 def update_latest(client: OKXClient, store: DataStore, inst: str, bar: str,
-                  limit: int = 300) -> int:
+                  limit: int = 300, micro: bool = False) -> int:
     """Light refresh for the live loop: latest confirmed candles + funding."""
     rows = client.candles(inst, bar, limit=limit)
     keep = [(int(r[0]), r[1], r[2], r[3], r[4], r[5])
@@ -232,8 +232,9 @@ def update_latest(client: OKXClient, store: DataStore, inst: str, bar: str,
                                     for r in fr])
     except Exception:
         pass  # funding refresh is best-effort
-    try:
-        fetch_microstructure(client, store, inst, bar, days=7, log=None)
-    except Exception:
-        pass
+    if micro:
+        try:
+            fetch_microstructure(client, store, inst, bar, days=7, log=None)
+        except Exception:
+            pass
     return n
