@@ -283,6 +283,7 @@ class ScalpEngine:
             if fill:
                 self.log(f"scalp {reason} {inst} {qty:+.6f} @ {fill.price:.6f}")
                 hit.append(inst)
+                self.pending.pop(inst, None)
         return hit
 
     def tick(self, candles_1m: dict[str, Candles], now: float | None = None) -> dict:
@@ -329,16 +330,24 @@ class ScalpEngine:
         return {"preds": preds, "equity": self.broker.equity(), "targets": targets}
 
     def execute_pending(self) -> None:
-        """Fill last bar's targets at the *current* bid/ask — not the signal print."""
-        if not self.pending:
+        """Fill last bar's targets once at the current bid/ask. Consumed.
+        Re-firing the same delta every poll is a fee mill."""
+        if not self.risk.trading_allowed:
+            self.pending = {}
+            return
+        orders = self.pending
+        self.pending = {}
+        if not orders:
             return
         equity = max(self.broker.equity(), 1.0)
         current = self.broker.positions()
         vol = getattr(self, "_vol", {})
-        for inst, tgt_qty in list(self.pending.items()):
+        for inst, tgt_qty in list(orders.items()):
             last, _, _ = self._px(inst)
             if last <= 0:
                 continue
+            if hasattr(self.broker, "_round_qty"):
+                tgt_qty = self.broker._round_qty(inst, tgt_qty)
             cur = current.get(inst, 0.0)
             delta = tgt_qty - cur
             if abs(delta) * last < max(10.0, 0.002 * equity):

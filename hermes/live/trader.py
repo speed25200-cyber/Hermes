@@ -737,6 +737,12 @@ class LiveRunner:
         self.log(f"Hermes starting: mode={self.cfg['live']['mode']} "
                  f"bar={self.cfg['bar']} instruments={self.cfg['instruments']}"
                  + (" scalp=1m" if self.scalp else ""))
+        if self.risk.state.killed:
+            self.log("KILL SWITCH is set — idling, no orders. "
+                     f"reason={self.risk.state.kill_reason!r}. "
+                     "reset_kill to resume. systemd must NOT respawn a halt.")
+            while True:
+                time.sleep(30)
         if self.scalp:
             self._ensure_scalp_data()
             threading.Thread(target=self._bg_sync, daemon=True).start()
@@ -828,11 +834,15 @@ class LiveRunner:
                         self.log(f"scalp @ {newest_1m}: eq={rep.get('equity', 0):.2f} "
                                  f"live={len(live)}/{len(rep.get('preds', []))}")
                         if self.risk.state.killed:
-                            self.log("KILL SWITCH TRIPPED - halting.")
-                            return
+                            self.log("KILL SWITCH TRIPPED - idling (no systemd restart mill).")
+                            while True:
+                                time.sleep(30)
                     else:
-                        self.scalp.check_exits()
-                        self.scalp.execute_pending()
+                        if self.risk.trading_allowed:
+                            self.scalp.check_exits()
+                            self.scalp.execute_pending()
+                        else:
+                            self.scalp.pending = {}
                         self.scalp._snapshot({"equity": self.broker.equity()})
                     px = {i: float((t or {}).get("last") or 0)
                           for i, t in (self.scalp.ticks or {}).items()}
@@ -855,8 +865,9 @@ class LiveRunner:
                         self.trader.save_state(self.cfg["state_dir"])
                         self.log(f"swing @ {newest}: equity={report['equity']:.2f}")
                         if self.risk.state.killed:
-                            self.log("KILL SWITCH TRIPPED - halting.")
-                            return
+                            self.log("KILL SWITCH TRIPPED - idling (no systemd restart mill).")
+                            while True:
+                                time.sleep(30)
                     else:
                         try:
                             ticks = self.client.tickers(self.cfg["instruments"])
