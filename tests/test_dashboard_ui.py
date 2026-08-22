@@ -93,3 +93,49 @@ def test_no_stray_template_placeholder(page):
     body = page.split("<body", 1)[1]
     markup = re.sub(r"<script[\s\S]*?</script>", "", body)
     assert "${" not in markup
+
+
+# --- thème et lisibilité ------------------------------------------------ #
+
+def test_the_light_palette_is_reachable_from_the_system_preference(page):
+    """`data-theme="dark"` was hardcoded on <html>, so a viewer whose system
+    asks for light got the dark page and no way to know a light one existed
+    short of finding the toggle."""
+    assert 'data-theme="dark"' not in page.split("<head", 1)[0]
+    bloc = re.search(r"@media\s*\(prefers-color-scheme:\s*light\)\s*\{(.+?)\n\s*\}\s*\n\}",
+                     page, re.S)
+    assert bloc, "aucune règle ne suit la préférence système"
+    for jeton in ("--fond", "--surface", "--encre", "--long", "--short"):
+        assert jeton + ":" in bloc.group(1), jeton
+
+
+def test_an_explicit_choice_still_wins_in_both_directions(page):
+    """Following the system must not cost the viewer the ability to override
+    it — the toggle has to beat the media query either way."""
+    assert ':root[data-theme="light"]' in page
+    assert ':root:not([data-theme="dark"])' in page
+
+
+def _contraste(a, b):
+    def lin(c):
+        c /= 255
+        return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+    def lum(h):
+        h = h.lstrip("#")
+        r, g, bb = (int(h[i:i + 2], 16) for i in (0, 2, 4))
+        return .2126 * lin(r) + .7152 * lin(g) + .0722 * lin(bb)
+
+    la, lb = lum(a), lum(b)
+    return (max(la, lb) + .05) / (min(la, lb) + .05)
+
+
+def test_the_quietest_ink_still_clears_small_text_contrast(page):
+    """--encre-3 carries the 10px measure labels and the legends. At 3.3:1 it
+    was decoration, not text."""
+    fonds = re.findall(r"--surface:(#[0-9a-fA-F]{6})", page)
+    encres = re.findall(r"--encre-3:(#[0-9a-fA-F]{6})", page)
+    assert fonds and encres
+    for encre, fond in zip(encres, fonds):
+        r = _contraste(encre, fond)
+        assert r >= 4.5, f"{encre} sur {fond} : {r:.2f}:1"

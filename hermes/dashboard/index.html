@@ -1,173 +1,356 @@
 <!doctype html>
-<html lang="fr" data-theme="dark">
+<html lang="fr">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Hermes — poste de pilotage</title>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#101211">
+<meta name="theme-color" content="#0a0c0f" media="(prefers-color-scheme:dark)">
+<meta name="theme-color" content="#f5f6f8" media="(prefers-color-scheme:light)">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <style>
 @font-face{font-family:Inter;src:url(fonts/InterVariable.woff2)format('woff2');font-weight:100 900;font-display:swap}
 @font-face{font-family:'JetBrains Mono';src:url(fonts/JetBrainsMono-Regular.woff2)format('woff2');font-weight:400;font-display:swap}
 
-/* ── Jetons ───────────────────────────────────────────────────────────
-   Sombre par défaut : un poste de trading se regarde des heures durant.
-   Le clair reste complet, pas un négatif automatique.                  */
+/* ═══════════════════════════════════════════════════════════════════
+   JETONS
+   Un poste de trading se regarde des heures : le sombre est le défaut
+   et le clair est une palette choisie, pas un négatif automatique.
+   Chaque valeur est définie sur :root puis redéfinie entièrement pour
+   le thème clair — aucune couleur n'existe dans un seul des deux.
+   ═══════════════════════════════════════════════════════════════════ */
 :root{
   color-scheme:dark;
-  --fond:#101211; --surface:#171a19; --surface-2:#1e2221; --bord:#2a2f2d;
-  --encre:#f4f5f3; --encre-2:#a8aea9; --encre-3:#6f7671;
+
+  /* Fonds : un noir froid très légèrement bleuté. Le noir pur écrase
+     les ombres et fait paraître les cartes collées au verre. */
+  --fond:#0a0c0f; --fond-2:#070809;
+  --surface:#111419; --surface-2:#171b21; --surface-3:#1d222a;
+
+  /* Traits : des filets par transparence plutôt que des gris opaques.
+     Ils restent justes quel que soit le fond qu'ils traversent. */
+  --filet:rgba(255,255,255,.075);
+  --filet-fort:rgba(255,255,255,.13);
+  --bord:var(--filet);
+
+  /* Encres : trois niveaux et pas un de plus. */
+  --encre:#f0f2f5; --encre-2:#9aa4b0; --encre-3:#74808f;
+
   /* Direction = polarité : paire divergente bleu↔rouge, ΔE 19,2 en
      protanopie. Le vert/rouge habituel échoue ce test ; ici la couleur
-     est en plus toujours doublée du mot LONG / SHORT.                  */
+     est en plus toujours doublée du mot LONG / SHORT. */
   --long:#3987e5; --short:#e66767;
-  --bon:#0ca30c; --attention:#fab219; --serieux:#ec835a; --critique:#d03b3b;
-  --accent:#3987e5;
-  --r:14px; --r-s:9px;
-  --ombre:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
+
+  /* États réservés : jamais recyclés comme couleurs de série. */
+  --bon:#2ea043; --attention:#d99320; --serieux:#e07a4f; --critique:#e5484d;
+  --accent:#3987e5; --accent-2:#5aa0f0;
+
+  /* Rythme : une échelle, pas des valeurs au jugé. */
+  --e1:4px; --e2:8px; --e3:12px; --e4:16px; --e5:24px; --e6:32px; --e7:48px;
+  --r:16px; --r-s:10px; --r-xs:6px; --r-plein:999px;
+
+  /* Élévation : trois niveaux, chacun avec un liseré de lumière interne
+     qui donne l'épaisseur qu'une ombre seule ne rend pas. */
+  --lueur:inset 0 1px 0 rgba(255,255,255,.05);
+  --ombre-1:0 1px 2px rgba(0,0,0,.3);
+  --ombre-2:0 1px 2px rgba(0,0,0,.24),0 10px 28px -10px rgba(0,0,0,.55);
+  --ombre-3:0 2px 6px rgba(0,0,0,.3),0 24px 56px -20px rgba(0,0,0,.7);
+  --ombre:var(--ombre-2);
+
+  --vitre:rgba(10,12,15,.88);
+  --duree:.22s; --courbe:cubic-bezier(.22,.61,.36,1);
+}
+/* CLAIR — palette choisie, pas un négatif du sombre. Elle s'applique quand
+   le système la demande et qu'aucun choix explicite ne dit l'inverse, et
+   quand l'utilisateur la demande explicitement. */
+@media (prefers-color-scheme:light){
+  :root:not([data-theme="dark"]){
+    color-scheme:light;
+    --fond:#f5f6f8; --fond-2:#eceef1;
+    --surface:#ffffff; --surface-2:#f4f5f7; --surface-3:#e9ebef;
+    --filet:rgba(9,12,17,.09);
+    --filet-fort:rgba(9,12,17,.16);
+    --bord:var(--filet);
+    --encre:#0a0d12; --encre-2:#4d5563; --encre-3:#6e7683;
+    --long:#2875d2; --short:#d83a3a;
+    --bon:#177d33; --attention:#9a6200; --serieux:#b8532a; --critique:#c9282d;
+    --accent:#2875d2; --accent-2:#1a5fb4;
+    --lueur:inset 0 1px 0 rgba(255,255,255,.9);
+    --ombre-1:0 1px 2px rgba(9,12,17,.06);
+    --ombre-2:0 1px 2px rgba(9,12,17,.05),0 10px 28px -14px rgba(9,12,17,.22);
+    --ombre-3:0 2px 6px rgba(9,12,17,.07),0 24px 56px -24px rgba(9,12,17,.3);
+    --vitre:rgba(245,246,248,.9);
+  }
 }
 :root[data-theme="light"]{
   color-scheme:light;
-  --fond:#f7f7f5; --surface:#ffffff; --surface-2:#f2f2ef; --bord:#e2e2dd;
-  --encre:#0b0b0b; --encre-2:#52514e; --encre-3:#86857f;
-  --long:#2a78d6; --short:#e34948; --accent:#2a78d6;
+  --fond:#f5f6f8; --fond-2:#eceef1;
+  --surface:#ffffff; --surface-2:#f4f5f7; --surface-3:#e9ebef;
+  --filet:rgba(9,12,17,.09);
+  --filet-fort:rgba(9,12,17,.16);
+  --bord:var(--filet);
+  --encre:#0a0d12; --encre-2:#4d5563; --encre-3:#6e7683;
+  --long:#2875d2; --short:#d83a3a;
+  --bon:#177d33; --attention:#9a6200; --serieux:#b8532a; --critique:#c9282d;
+  --accent:#2875d2; --accent-2:#1a5fb4;
+  --lueur:inset 0 1px 0 rgba(255,255,255,.9);
+  --ombre-1:0 1px 2px rgba(9,12,17,.06);
+  --ombre-2:0 1px 2px rgba(9,12,17,.05),0 10px 28px -14px rgba(9,12,17,.22);
+  --ombre-3:0 2px 6px rgba(9,12,17,.07),0 24px 56px -24px rgba(9,12,17,.3);
+  --vitre:rgba(245,246,248,.9);
 }
+
 *{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
 html,body{background:var(--fond);color:var(--encre)}
-body{font:400 15px/1.5 Inter,system-ui,-apple-system,'Segoe UI',sans-serif;
-  -webkit-font-smoothing:antialiased;padding:0 0 env(safe-area-inset-bottom)}
-.num{font-family:'JetBrains Mono',ui-monospace,monospace;font-variant-numeric:tabular-nums}
-.wrap{max-width:1240px;margin:0 auto;padding:18px 16px 64px}
+body{
+  font:400 15px/1.55 Inter,system-ui,-apple-system,'Segoe UI',sans-serif;
+  font-feature-settings:"cv05" 1,"ss03" 1;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
+  padding:0 0 env(safe-area-inset-bottom);
+  /* Deux nappes très douces : le fond cesse d'être un aplat mort sans
+     jamais concurrencer une donnée. */
+  background-image:
+    radial-gradient(900px 500px at 12% -8%,color-mix(in oklab,var(--accent) 9%,transparent),transparent 62%),
+    radial-gradient(760px 460px at 92% 0%,color-mix(in oklab,var(--short) 6%,transparent),transparent 58%);
+  background-attachment:fixed;
+}
+/* Grain : casse le banding des dégradés, invisible consciemment. */
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
+  opacity:.022;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E")}
 
-/* ── En-tête ─────────────────────────────────────────────────────── */
-header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
-  padding:14px 0 18px;border-bottom:1px solid var(--bord);margin-bottom:20px}
-.marque{display:flex;align-items:baseline;gap:9px}
-.marque b{font-size:20px;font-weight:650;letter-spacing:-.02em}
-.marque span{font-size:12px;color:var(--encre-3);text-transform:uppercase;letter-spacing:.09em}
-.pastille{display:inline-flex;align-items:center;gap:6px;font-size:12px;
-  padding:4px 10px;border-radius:999px;border:1px solid var(--bord);
-  background:var(--surface);color:var(--encre-2);white-space:nowrap}
-.pastille i{width:7px;height:7px;border-radius:50%;background:var(--encre-3);flex:none}
-.pastille.vif i{background:var(--bon);box-shadow:0 0 0 3px color-mix(in oklab,var(--bon) 25%,transparent)}
-.pastille.mort i{background:var(--critique)}
-.pousse{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-button.ghost{font:inherit;font-size:12px;color:var(--encre-2);background:var(--surface);
-  border:1px solid var(--bord);border-radius:999px;padding:5px 12px;cursor:pointer}
-button.ghost:hover{color:var(--encre);border-color:var(--encre-3)}
+.num{font-family:'JetBrains Mono',ui-monospace,SFMono-Regular,monospace;
+  font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.wrap{max-width:1280px;margin:0 auto;padding:0 var(--e4) var(--e7)}
 
-/* ── Verdict : la réponse en premier ─────────────────────────────── */
-.verdict{background:var(--surface);border:1px solid var(--bord);border-radius:var(--r);
-  padding:20px 22px;margin-bottom:18px;box-shadow:var(--ombre);
-  display:grid;grid-template-columns:1fr auto;gap:18px;align-items:start}
-.verdict .titre{display:flex;align-items:center;gap:10px;margin-bottom:8px}
-.verdict h1{font-size:19px;font-weight:640;letter-spacing:-.015em}
-.verdict p{color:var(--encre-2);font-size:14px;max-width:62ch}
-.jeton{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;
-  padding:3px 9px;border-radius:6px;white-space:nowrap}
-.jeton.actif{background:color-mix(in oklab,var(--bon) 18%,transparent);color:var(--bon)}
-.jeton.attente{background:color-mix(in oklab,var(--attention) 18%,transparent);color:var(--attention)}
-.jeton.stop{background:color-mix(in oklab,var(--critique) 20%,transparent);color:var(--critique)}
-.chiffre{text-align:right}
-.chiffre .v{font-size:30px;font-weight:600;letter-spacing:-.02em;line-height:1.1}
-.chiffre .l{font-size:11px;color:var(--encre-3);text-transform:uppercase;letter-spacing:.08em;margin-top:3px}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--r-xs)}
+
+/* ── En-tête : verre dépoli, collant ─────────────────────────────── */
+header{position:sticky;top:0;z-index:50;
+  display:flex;align-items:center;gap:var(--e3);flex-wrap:wrap;
+  padding:var(--e4) 0;margin-bottom:var(--e5);
+  background:var(--vitre);backdrop-filter:blur(24px) saturate(1.7);
+  -webkit-backdrop-filter:blur(24px) saturate(1.7);
+  box-shadow:0 1px 0 var(--filet)}
+.marque{display:flex;align-items:baseline;gap:var(--e2)}
+.marque b{font-size:19px;font-weight:660;letter-spacing:-.025em}
+.marque span{font-size:10.5px;color:var(--encre-3);text-transform:uppercase;
+  letter-spacing:.13em;font-weight:550}
+.pastille{display:inline-flex;align-items:center;gap:7px;font-size:12px;
+  padding:5px 11px;border-radius:var(--r-plein);border:1px solid var(--filet);
+  background:var(--surface);color:var(--encre-2);white-space:nowrap;
+  box-shadow:var(--ombre-1)}
+.pastille i{width:6px;height:6px;border-radius:50%;background:var(--encre-3);flex:none}
+.pastille.vif i{background:var(--bon);
+  box-shadow:0 0 0 3px color-mix(in oklab,var(--bon) 22%,transparent);
+  animation:pouls 2.6s var(--courbe) infinite}
+.pastille.mort i{background:var(--critique);
+  box-shadow:0 0 0 3px color-mix(in oklab,var(--critique) 22%,transparent)}
+@keyframes pouls{0%,100%{opacity:1}50%{opacity:.45}}
+.pousse{margin-left:auto;display:flex;gap:var(--e2);align-items:center;flex-wrap:wrap}
+button.ghost{font:inherit;font-size:12px;font-weight:500;color:var(--encre-2);
+  background:var(--surface);border:1px solid var(--filet);border-radius:var(--r-plein);
+  padding:6px 14px;cursor:pointer;box-shadow:var(--ombre-1);
+  transition:color var(--duree) var(--courbe),border-color var(--duree) var(--courbe),
+             transform var(--duree) var(--courbe)}
+button.ghost:hover{color:var(--encre);border-color:var(--filet-fort)}
+button.ghost:active{transform:translateY(1px)}
+
+/* ── Verdict : la réponse avant tout le reste ────────────────────── */
+.verdict{position:relative;overflow:hidden;
+  background:linear-gradient(160deg,var(--surface-2),var(--surface) 46%);
+  border:1px solid var(--filet);border-radius:var(--r);
+  padding:var(--e5) var(--e5) calc(var(--e5) + 2px);margin-bottom:var(--e4);
+  box-shadow:var(--lueur),var(--ombre-3);
+  display:grid;grid-template-columns:1fr auto;gap:var(--e5);align-items:center}
+/* Une aura qui prend la couleur de l'état : lisible du coin de l'œil. */
+.verdict::before{content:"";position:absolute;top:-45%;right:-8%;
+  width:420px;height:420px;border-radius:50%;pointer-events:none;
+  background:radial-gradient(circle,color-mix(in oklab,var(--teinte,var(--accent)) 24%,transparent),transparent 70%);
+  filter:blur(18px);opacity:.55}
+.verdict>*{position:relative}
+.verdict .titre{display:flex;align-items:center;gap:var(--e3);margin-bottom:var(--e2)}
+.verdict h1{font-size:23px;font-weight:640;letter-spacing:-.028em;line-height:1.22}
+.verdict p{color:var(--encre-2);font-size:14.5px;max-width:64ch;line-height:1.6}
+.jeton{font-size:10.5px;font-weight:640;text-transform:uppercase;letter-spacing:.1em;
+  padding:4px 10px;border-radius:var(--r-xs);white-space:nowrap;
+  border:1px solid transparent}
+.jeton.actif{background:color-mix(in oklab,var(--bon) 15%,transparent);color:var(--bon);
+  border-color:color-mix(in oklab,var(--bon) 28%,transparent)}
+.jeton.attente{background:color-mix(in oklab,var(--attention) 15%,transparent);color:var(--attention);
+  border-color:color-mix(in oklab,var(--attention) 28%,transparent)}
+.jeton.stop{background:color-mix(in oklab,var(--critique) 16%,transparent);color:var(--critique);
+  border-color:color-mix(in oklab,var(--critique) 32%,transparent)}
+.chiffre{text-align:right;white-space:nowrap}
+.chiffre .v{font-size:44px;font-weight:600;letter-spacing:-.038em;line-height:1.02;
+  font-variant-numeric:tabular-nums}
+.chiffre .l{font-size:10.5px;color:var(--encre-3);text-transform:uppercase;
+  letter-spacing:.11em;margin-top:var(--e2);font-weight:550}
 .hausse{color:var(--bon)} .baisse{color:var(--critique)}
 
-/* ── Grille ──────────────────────────────────────────────────────── */
-.grille{display:grid;gap:16px;margin-bottom:16px;align-items:start}
+/* ── Grille et cartes ────────────────────────────────────────────── */
+.grille{display:grid;gap:var(--e4);margin-bottom:var(--e4);align-items:start}
 .g2{grid-template-columns:1fr 1fr}
 .g3{grid-template-columns:repeat(3,1fr)}
-.carte{background:var(--surface);border:1px solid var(--bord);border-radius:var(--r);
-  box-shadow:var(--ombre);overflow:hidden}
-.carte>h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;
-  color:var(--encre-3);padding:14px 18px 0;display:flex;align-items:center;gap:8px}
+.carte{background:var(--surface);border:1px solid var(--filet);border-radius:var(--r);
+  box-shadow:var(--lueur),var(--ombre-2);overflow:hidden;
+  transition:box-shadow var(--duree) var(--courbe)}
+.carte:hover{box-shadow:var(--lueur),var(--ombre-3)}
+.carte>h2{font-size:11px;font-weight:620;text-transform:uppercase;letter-spacing:.11em;
+  color:var(--encre-3);padding:var(--e4) var(--e5) 0;
+  display:flex;align-items:center;gap:var(--e2)}
 .carte>h2 .aide{font-weight:400;text-transform:none;letter-spacing:0;color:var(--encre-3);
-  font-size:12px;margin-left:auto}
-.corps{padding:14px 18px 18px}
-.vide{color:var(--encre-3);font-size:13px;padding:18px;text-align:center}
+  font-size:12px;margin-left:auto;text-align:right}
+.corps{padding:var(--e4) var(--e5) var(--e5)}
+.vide{color:var(--encre-3);font-size:13px;padding:var(--e6) var(--e4);text-align:center}
 
 /* ── Décisions ───────────────────────────────────────────────────── */
-.decision{border-top:1px solid var(--bord);padding:14px 18px}
+.decision{border-top:1px solid var(--filet);padding:var(--e4) var(--e5);
+  transition:background var(--duree) var(--courbe)}
 .decision:first-of-type{border-top:0}
-.dtete{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
-.dsym{font-weight:640;font-size:15px;letter-spacing:-.01em}
+.decision:hover{background:color-mix(in oklab,var(--surface-2) 55%,transparent)}
+.dtete{display:flex;align-items:center;gap:var(--e3);margin-bottom:var(--e3);flex-wrap:wrap}
+.dsym{font-weight:650;font-size:15px;letter-spacing:-.015em}
 .dpx{color:var(--encre-2);font-size:13px}
-.sens{font-size:11px;font-weight:650;letter-spacing:.06em;padding:3px 9px;border-radius:6px;
-  display:inline-flex;align-items:center;gap:5px}
-.sens.long{background:color-mix(in oklab,var(--long) 20%,transparent);color:var(--long)}
-.sens.short{background:color-mix(in oklab,var(--short) 20%,transparent);color:var(--short)}
-.sens.plat{background:var(--surface-2);color:var(--encre-3)}
+.sens{font-size:10.5px;font-weight:660;letter-spacing:.08em;padding:4px 10px;
+  border-radius:var(--r-xs);display:inline-flex;align-items:center;gap:5px;
+  border:1px solid transparent}
+.sens.long{background:color-mix(in oklab,var(--long) 16%,transparent);color:var(--long);
+  border-color:color-mix(in oklab,var(--long) 30%,transparent)}
+.sens.short{background:color-mix(in oklab,var(--short) 16%,transparent);color:var(--short);
+  border-color:color-mix(in oklab,var(--short) 30%,transparent)}
+.sens.plat{background:var(--surface-2);color:var(--encre-3);border-color:var(--filet)}
 .motif{margin-left:auto;font-size:12px;color:var(--encre-3)}
-.mesures{display:grid;grid-template-columns:repeat(5,1fr);gap:2px;
-  background:var(--bord);border:1px solid var(--bord);border-radius:var(--r-s);overflow:hidden}
-.mesure{background:var(--surface);padding:9px 11px}
-.mesure .l{font-size:10.5px;color:var(--encre-3);text-transform:uppercase;letter-spacing:.06em}
-.mesure .v{font-size:15px;font-weight:560;margin-top:2px}
-.mesure .v.petit{font-size:13px;font-weight:500}
 
-/* Barre « edge contre coût » : la contrainte qui mord, visible */
-.barre{margin-top:11px}
-.barre .piste{height:8px;border-radius:99px;background:var(--surface-2);position:relative;overflow:hidden}
-.barre .rempli{height:100%;border-radius:99px;background:var(--accent);position:absolute;top:0}
-.barre .rempli.faible{background:var(--encre-3)}
-.barre .zero{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--bord)}
-.barre .seuil{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--encre-2)}
-.barre .leg{display:flex;justify-content:space-between;margin-top:6px;
-  font-size:11px;color:var(--encre-3)}
+/* Les mesures : une grille de filets, pas cinq boîtes posées côte à côte. */
+.mesures{display:grid;grid-template-columns:repeat(5,1fr);gap:1px;
+  background:var(--filet);border:1px solid var(--filet);
+  border-radius:var(--r-s);overflow:hidden}
+.mesure{background:var(--surface);padding:var(--e3) var(--e3)}
+.decision:hover .mesure{background:color-mix(in oklab,var(--surface-2) 55%,var(--surface))}
+/* Les intitulés tiennent sur une ou deux lignes selon la largeur ; sans
+   hauteur commune les valeurs d'une même rangée ne s'alignent plus. */
+.mesure .l{font-size:10px;color:var(--encre-3);text-transform:uppercase;
+  letter-spacing:.09em;font-weight:550;line-height:1.32;
+  min-height:2.64em;display:flex;align-items:flex-start}
+.mesure .v{font-size:16px;font-weight:560;margin-top:3px;letter-spacing:-.02em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mesure .v.petit{font-size:13.5px;font-weight:500}
 
-/* ── Rail TP/SL ──────────────────────────────────────────────────── */
-.rail{margin-top:10px}
-.rail .piste{position:relative;height:38px;border-radius:var(--r-s);
+/* ── Barre « avantage contre coût » ──────────────────────────────── */
+.barre{margin-top:var(--e3)}
+.barre .piste{height:7px;border-radius:var(--r-plein);background:var(--surface-3);
+  position:relative;overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.22)}
+.barre .rempli{height:100%;border-radius:var(--r-plein);position:absolute;top:0;
+  background:linear-gradient(90deg,var(--accent),var(--accent-2));
+  box-shadow:0 0 12px -2px color-mix(in oklab,var(--accent) 55%,transparent);
+  transition:width var(--duree) var(--courbe),left var(--duree) var(--courbe)}
+.barre .rempli.faible{background:var(--encre-3);box-shadow:none}
+.barre .zero{position:absolute;left:50%;top:0;bottom:0;width:1px;
+  background:var(--filet-fort)}
+.barre .seuil{position:absolute;top:-3px;bottom:-3px;width:2px;
+  background:var(--encre);border-radius:1px;
+  box-shadow:0 0 0 2px var(--surface)}
+.barre .leg{display:flex;justify-content:space-between;gap:var(--e4);
+  margin-top:var(--e2);font-size:11px;color:var(--encre-3)}
+
+/* ── Rail objectif / stop ────────────────────────────────────────── */
+.rail{margin-top:var(--e3)}
+.rail .piste{position:relative;height:40px;border-radius:var(--r-s);
+  border:1px solid var(--filet);
   background:linear-gradient(90deg,
-    color-mix(in oklab,var(--critique) 16%,transparent) 0%,
+    color-mix(in oklab,var(--critique) 20%,transparent) 0%,
     var(--surface-2) 50%,
-    color-mix(in oklab,var(--bon) 16%,transparent) 100%)}
+    color-mix(in oklab,var(--bon) 20%,transparent) 100%)}
 .rail .marq{position:absolute;top:0;bottom:0;width:2px;background:var(--encre-3)}
 .rail .marq.sl{background:var(--critique)} .rail .marq.tp{background:var(--bon)}
-.rail .marq.now{background:var(--encre);width:3px;border-radius:2px}
-/* PRIX se place sous le rail : colle a l'objectif il chevauchait son
-   etiquette, et les deux comptent. */
+.rail .marq.now{background:var(--encre);width:3px;border-radius:2px;
+  box-shadow:0 0 10px -1px color-mix(in oklab,var(--encre) 60%,transparent)}
+/* PRIX passe sous le rail : collé à l'objectif il chevauchait son
+   étiquette, et les deux comptent. */
 .rail .marq.now b{top:auto;bottom:-1px;color:var(--encre)}
 .rail .marq b.g{left:0;transform:none}
 .rail .marq b.d{left:auto;right:0;transform:none}
 .rail .marq b{position:absolute;top:-1px;left:50%;transform:translateX(-50%);
-  font-size:9.5px;font-weight:600;letter-spacing:.05em;white-space:nowrap;
-  color:var(--encre-3);background:var(--surface);padding:0 4px;border-radius:3px}
-.rail .leg{display:flex;justify-content:space-between;margin-top:5px;font-size:11px;color:var(--encre-3)}
+  font-size:9.5px;font-weight:620;letter-spacing:.06em;white-space:nowrap;
+  color:var(--encre-3);background:var(--surface);padding:1px 5px;border-radius:var(--r-xs)}
+.rail .leg{display:flex;justify-content:space-between;margin-top:var(--e2);
+  font-size:11px;color:var(--encre-3)}
 
 /* ── Jauges de risque ────────────────────────────────────────────── */
-.jauge+.jauge{margin-top:14px}
-.jauge .t{display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px}
+.jauge+.jauge{margin-top:var(--e4)}
+.jauge .t{display:flex;justify-content:space-between;gap:var(--e3);
+  font-size:12.5px;margin-bottom:7px}
 .jauge .t span:first-child{color:var(--encre-2)}
-.jauge .piste{height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden}
-.jauge .rempli{height:100%;border-radius:99px;background:var(--bon);transition:width .3s}
+.jauge .piste{height:7px;border-radius:var(--r-plein);background:var(--surface-3);
+  overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.22)}
+.jauge .rempli{height:100%;border-radius:var(--r-plein);background:var(--bon);
+  transition:width .45s var(--courbe),background var(--duree) var(--courbe)}
 .jauge.att .rempli{background:var(--attention)} .jauge.cri .rempli{background:var(--critique)}
 
 /* ── Tableaux ────────────────────────────────────────────────────── */
 .tbl{width:100%;border-collapse:collapse;font-size:13px}
-.tbl th{text-align:left;font-size:10.5px;font-weight:600;text-transform:uppercase;
-  letter-spacing:.06em;color:var(--encre-3);padding:0 10px 8px;white-space:nowrap}
-.tbl td{padding:8px 10px;border-top:1px solid var(--bord);white-space:nowrap}
+.tbl th{text-align:left;font-size:10px;font-weight:620;text-transform:uppercase;
+  letter-spacing:.09em;color:var(--encre-3);padding:0 var(--e3) var(--e2);white-space:nowrap}
+.tbl td{padding:var(--e2) var(--e3);border-top:1px solid var(--filet);white-space:nowrap}
+.tbl tbody tr{transition:background var(--duree) var(--courbe)}
+.tbl tbody tr:hover{background:color-mix(in oklab,var(--surface-2) 60%,transparent)}
 .tbl th.r,.tbl td.r{text-align:right}
-.defile{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.defile{overflow-x:auto;-webkit-overflow-scrolling:touch;
+  scrollbar-width:thin;scrollbar-color:var(--filet-fort) transparent}
+.defile::-webkit-scrollbar{height:8px}
+.defile::-webkit-scrollbar-thumb{background:var(--filet-fort);border-radius:var(--r-plein)}
 
-/* ── Graphe ──────────────────────────────────────────────────────── */
+/* ── Courbe d'équité ─────────────────────────────────────────────── */
 .graphe{position:relative}
-.graphe svg{display:block;width:100%;height:190px;overflow:visible}
-.infobulle{position:absolute;pointer-events:none;opacity:0;transition:opacity .12s;
-  background:var(--surface-2);border:1px solid var(--bord);border-radius:var(--r-s);
-  padding:8px 11px;font-size:12px;box-shadow:var(--ombre);white-space:nowrap;z-index:5}
-.infobulle .d{color:var(--encre-3);font-size:11px;margin-bottom:2px}
+.graphe svg{display:block;width:100%;height:196px;overflow:visible}
+.infobulle{position:absolute;pointer-events:none;opacity:0;
+  transition:opacity .14s var(--courbe);
+  background:var(--surface-2);border:1px solid var(--filet-fort);border-radius:var(--r-s);
+  padding:var(--e2) var(--e3);font-size:12px;
+  box-shadow:var(--ombre-3);white-space:nowrap;z-index:5;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.infobulle .d{color:var(--encre-3);font-size:10.5px;margin-bottom:2px;
+  text-transform:uppercase;letter-spacing:.07em}
 
-footer{color:var(--encre-3);font-size:12px;text-align:center;padding:28px 0 10px}
-@media(max-width:1100px){.mesures{grid-template-columns:repeat(2,1fr)}
-  /* cinq mesures sur deux colonnes laissent la derniere orpheline a cote
-     d'une cellule vide qui se lit comme un bug : elle prend la ligne */
-  .mesures>.mesure:last-child:nth-child(odd){grid-column:1/-1}}
-@media(max-width:900px){.g2,.g3{grid-template-columns:1fr}
-  .verdict{grid-template-columns:1fr}.chiffre{text-align:left}
-  .wrap{padding:12px 12px 56px}}
+footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0 var(--e3)}
+
+/* ── Entrée : les cartes se posent, elles n'apparaissent pas ─────── */
+@keyframes pose{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.verdict,.carte{animation:pose .5s var(--courbe) both}
+.carte:nth-of-type(1){animation-delay:.04s}
+.carte:nth-of-type(2){animation-delay:.08s}
+.carte:nth-of-type(3){animation-delay:.12s}
+
+/* ── Adaptations ─────────────────────────────────────────────────── */
+@media(max-width:1100px){
+  .mesures{grid-template-columns:repeat(2,1fr)}
+  /* Cinq mesures sur deux colonnes laissent la dernière orpheline à côté
+     d'une cellule vide qui se lit comme un bug : elle prend la ligne. */
+  .mesures>.mesure:last-child:nth-child(odd){grid-column:1/-1}
+}
+@media(max-width:900px){
+  .g2,.g3{grid-template-columns:1fr}
+  /* Les deux moitiés de légende se chevauchent dès qu'elles enroulent :
+     en colonne, la seconde devient une phrase et non un débris de ligne. */
+  .barre .leg,.rail .leg{flex-direction:column;align-items:flex-start;gap:2px}
+  .barre .leg span:last-child,.rail .leg span:last-child{color:var(--encre-3);opacity:.85}
+  .verdict{grid-template-columns:1fr;gap:var(--e4);padding:var(--e4)}
+  .chiffre{text-align:left}
+  .chiffre .v{font-size:36px}
+  .verdict h1{font-size:20px}
+  .wrap{padding:0 var(--e3) var(--e6)}
+  header{padding:var(--e3) 0;margin-bottom:var(--e4)}
+  .carte>h2,.decision{padding-left:var(--e4);padding-right:var(--e4)}
+  .corps{padding:var(--e3) var(--e4) var(--e4)}
+  .carte>h2{flex-wrap:wrap}
+  .carte>h2 .aide{margin-left:0;flex-basis:100%;text-align:left}
+}
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
+    transition-duration:.001ms!important}
+}
 </style>
 </head>
 <body>
@@ -270,21 +453,43 @@ let dernier = null, serie = [], echecs = 0;
 
 /* ── Thème ───────────────────────────────────────────────────────── */
 (function(){
+  const rac = document.documentElement;
+  const sys = () => window.matchMedia
+    && window.matchMedia("(prefers-color-scheme:light)").matches ? "light" : "dark";
+  // Sans choix explicite la page suit le système ; le bouton ne fait
+  // qu'imposer l'inverse de ce qui est réellement affiché.
+  const effectif = () => rac.dataset.theme || sys();
   let t = null;
   try { t = localStorage.getItem("hermes-theme"); } catch(e){}
-  if (t) document.documentElement.dataset.theme = t;
-  const maj = () => $("theme").textContent =
-    document.documentElement.dataset.theme === "light" ? "Sombre" : "Clair";
+  if (t === "light" || t === "dark") rac.dataset.theme = t;
+  const maj = () => { $("theme").textContent = effectif() === "light" ? "Sombre" : "Clair"; };
   maj();
+  if (window.matchMedia) {
+    try {
+      window.matchMedia("(prefers-color-scheme:light)")
+        .addEventListener("change", () => { maj(); if (dernier) rendre(dernier); });
+    } catch(e){}
+  }
   $("theme").onclick = () => {
-    const n = document.documentElement.dataset.theme === "light" ? "dark" : "light";
-    document.documentElement.dataset.theme = n;
+    const n = effectif() === "light" ? "dark" : "light";
+    rac.dataset.theme = n;
     try { localStorage.setItem("hermes-theme", n); } catch(e){}
     maj(); if (dernier) rendre(dernier);
   };
 })();
 
 /* ── Verdict : la première chose qu'on lit ───────────────────────── */
+/* Une valeur qui change se signale brièvement : sur un écran laissé
+   ouvert des heures, c'est la seule façon de voir bouger un chiffre sans
+   le fixer. Silencieux si la valeur est identique. */
+function majChiffre(el, txt){
+  if (el.textContent === txt) return;
+  el.textContent = txt;
+  el.animate(
+    [{opacity:.35, transform:"translateY(-2px)"}, {opacity:1, transform:"none"}],
+    {duration:280, easing:"cubic-bezier(.22,.61,.36,1)"});
+}
+
 function rendreVerdict(d){
   const s = d.scalp || {}, preds = s.preds || [];
   const pos = Object.entries((d.trader||{}).paper_broker?.pos || s.positions || {})
@@ -330,6 +535,10 @@ function rendreVerdict(d){
   $("etat").textContent = jeton[1];
   $("verdict-t").textContent = titre;
   $("verdict-p").textContent = texte;
+  // L'aura du panneau prend la couleur de l'état : reconnaissable du coin
+  // de l'œil, avant même d'avoir lu le mot.
+  const teintes = {actif:"var(--bon)", attente:"var(--attention)", stop:"var(--critique)"};
+  document.querySelector(".verdict").style.setProperty("--teinte", teintes[jeton[0]] || "var(--accent)");
 }
 
 /* ── Décisions par instrument ────────────────────────────────────── */
@@ -361,8 +570,8 @@ function rendreDecisions(d){
           <div class="v num">${bps(cout)}</div></div>
         <div class="mesure"><div class="l">Espérance</div>
           <div class="v num ${(p.ev_bps||0)>0?"hausse":""}">${bps(p.ev_bps)}</div></div>
-        <div class="mesure"><div class="l">Objectif / Stop</div>
-          <div class="v num petit">${bps(p.tp_bps,0)} / ${bps(p.sl_bps,0)}</div></div>
+        <div class="mesure"><div class="l">Objectif / stop</div>
+          <div class="v num petit">${nf(p.tp_bps,0)} / ${nf(p.sl_bps,0)} bps</div></div>
         <div class="mesure"><div class="l">Corrélation requise</div>
           <div class="v num petit">${nf(p.required_ic,3)}</div></div>
       </div>
@@ -568,19 +777,33 @@ function rendreGraphe(){
   const aire = d + ` L${X(x1).toFixed(1)} ${H-P.b} L${X(x0).toFixed(1)} ${H-P.b} Z`;
   const base = serie[0][1], fin = serie[serie.length-1][1];
   const teinte = fin >= base ? "var(--bon)" : "var(--critique)";
+  const yb = Y(base).toFixed(1);
   svg.innerHTML = `
-    <defs><linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
-      <stop offset="0%" stop-color="${teinte}" stop-opacity=".22"/>
-      <stop offset="100%" stop-color="${teinte}" stop-opacity="0"/></linearGradient></defs>
-    <line x1="${P.l}" x2="${W-P.r}" y1="${Y(base).toFixed(1)}" y2="${Y(base).toFixed(1)}"
-          stroke="var(--bord)" stroke-dasharray="3 4"/>
+    <defs>
+      <linearGradient id="g" x1="0" x2="0" y1="0" y2="1">
+        <stop offset="0%" stop-color="${teinte}" stop-opacity=".28"/>
+        <stop offset="55%" stop-color="${teinte}" stop-opacity=".07"/>
+        <stop offset="100%" stop-color="${teinte}" stop-opacity="0"/></linearGradient>
+      <linearGradient id="tr" x1="0" x2="1" y1="0" y2="0">
+        <stop offset="0%" stop-color="${teinte}" stop-opacity=".55"/>
+        <stop offset="100%" stop-color="${teinte}" stop-opacity="1"/></linearGradient>
+      <filter id="lu" x="-20%" y="-40%" width="140%" height="180%">
+        <feGaussianBlur stdDeviation="3.2" result="f"/>
+        <feMerge><feMergeNode in="f"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+    </defs>
+    <line x1="${P.l}" x2="${W-P.r}" y1="${yb}" y2="${yb}"
+          stroke="var(--filet-fort)" stroke-dasharray="2 5" stroke-linecap="round"/>
+    <text x="${W-P.r}" y="${yb}" dy="-6" text-anchor="end" fill="var(--encre-3)"
+          font-size="8.5" font-family="Inter" letter-spacing=".1em">DÉPART</text>
     <path d="${aire}" fill="url(#g)"/>
-    <path d="${d}" fill="none" stroke="${teinte}" stroke-width="2"
+    <path d="${d}" fill="none" stroke="url(#tr)" stroke-width="2.2" filter="url(#lu)"
           stroke-linejoin="round" stroke-linecap="round"/>
     <line id="crx" x1="0" x2="0" y1="${P.t}" y2="${H-P.b}" stroke="var(--encre-3)"
-          stroke-width="1" opacity="0"/>
-    <circle id="crp" r="4" fill="${teinte}" stroke="var(--surface)" stroke-width="2" opacity="0"/>`;
-  const bulle = $("bulle"), hote = $("graphe"), crx = svg.querySelector("#crx"), crp = svg.querySelector("#crp");
+          stroke-width="1" stroke-dasharray="3 3" opacity="0"/>
+    <circle id="crh" r="9" fill="${teinte}" opacity="0"/>
+    <circle id="crp" r="4" fill="${teinte}" stroke="var(--surface)" stroke-width="2.5" opacity="0"/>`;
+  const bulle = $("bulle"), hote = $("graphe"), crx = svg.querySelector("#crx"),
+        crp = svg.querySelector("#crp"), crh = svg.querySelector("#crh");
   const bouge = ev => {
     const b = svg.getBoundingClientRect();
     const cx = ev.touches ? ev.touches[0].clientX : ev.clientX;
@@ -590,6 +813,7 @@ function rendreGraphe(){
     const p = serie[best], px = X(p[0]), py = Y(p[1]);
     crx.setAttribute("x1",px); crx.setAttribute("x2",px); crx.setAttribute("opacity","1");
     crp.setAttribute("cx",px); crp.setAttribute("cy",py); crp.setAttribute("opacity","1");
+    crh.setAttribute("cx",px); crh.setAttribute("cy",py); crh.setAttribute("opacity",".22");
     const dp = p[1]-base;
     bulle.innerHTML = `<div class="d">${heure(p[0])}</div>
       <b class="num">${usdt(p[1])}</b>
@@ -601,7 +825,8 @@ function rendreGraphe(){
   };
   svg.onmousemove = bouge; svg.ontouchmove = bouge;
   svg.onmouseleave = svg.ontouchend = () => {
-    bulle.style.opacity="0"; crx.setAttribute("opacity","0"); crp.setAttribute("opacity","0");
+    bulle.style.opacity="0"; crx.setAttribute("opacity","0");
+    crp.setAttribute("opacity","0"); crh.setAttribute("opacity","0");
   };
 }
 
@@ -618,7 +843,7 @@ function rendre(d){
     $("equity").textContent = "—";
     el.textContent = "en attente du moteur"; el.className = "";
   } else {
-    $("equity").textContent = usdt(eq);
+    majChiffre($("equity"), usdt(eq));
     const dp = eq - dep;
     el.textContent = sgn(dp) + " USDT (" + pct(dep?dp/dep:0,2) + ")";
     el.className = dp >= 0 ? "hausse" : "baisse";
