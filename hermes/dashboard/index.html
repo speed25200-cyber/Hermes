@@ -394,7 +394,7 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0
 <div class="wrap">
 
   <header>
-    <div class="marque"><b>Hermes</b><span id="mode">—</span></div>
+    <div class="marque"><b>Hermes</b><span id="mode"></span></div>
     <div class="pastille" id="lien"><i></i><span>connexion…</span></div>
     <div class="pastille" id="horloge"><i></i><span>—</span></div>
     <div class="pousse">
@@ -409,7 +409,7 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0
     </div>
     <div class="chiffre">
       <div class="v num" id="equity">—</div>
-      <div class="l">Équité · <span id="pnl">—</span></div>
+      <div class="l">Equity · <span id="pnl">—</span></div>
     </div>
   </section>
 
@@ -445,10 +445,10 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0
         <div class="corps" id="levier"><div class="vide">—</div></div>
       </div>
       <div class="carte">
-        <h2>Équité <span class="aide">marquée au marché</span></h2>
+        <h2>Equity <span class="aide">mark-to-market</span></h2>
         <div class="corps graphe" id="graphe">
           <svg id="svg" viewBox="0 0 600 190" preserveAspectRatio="none" role="img"
-               aria-label="Courbe d'équité du compte"></svg>
+               aria-label="Courbe d'equity du compte"></svg>
           <div class="infobulle" id="bulle"></div>
         </div>
       </div>
@@ -456,7 +456,7 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0
   </div>
 
   <div class="carte" style="margin-bottom:16px">
-    <h2>Preuve par pupitre <span class="aide" id="preuve-aide"></span></h2>
+    <h2>Preuve par marché <span class="aide" id="preuve-aide"></span></h2>
     <div id="preuve"><div class="vide">Aucun apprentissage enregistré.</div></div>
   </div>
 
@@ -622,7 +622,7 @@ function rendreDecisions(d){
           <div class="v num">${bps(cout)}</div></div>
         <div class="mesure"><div class="l">Espérance</div>
           <div class="v num ${(p.ev_bps||0)>0?"hausse":""}">${bps(p.ev_bps)}</div></div>
-        <div class="mesure"><div class="l">Objectif / stop</div>
+        <div class="mesure"><div class="l">TP / SL</div>
           <div class="v num petit">${nf(p.tp_bps,0)} / ${nf(p.sl_bps,0)} bps</div></div>
         <div class="mesure"><div class="l">Corrélation requise</div>
           <div class="v num petit">${nf(p.required_ic,3)}</div></div>
@@ -739,7 +739,7 @@ function rendrePositions(d){
       </div>
       <div class="rail">
         <div class="piste">
-          ${m(sl,"sl","STOP","g")}${m(entree,"","ENTRÉE")}${m(tp,"tp","OBJECTIF","d")}${m(px,"now","PRIX")}
+          ${m(sl,"sl","SL","g")}${m(entree,"","ENTRÉE")}${m(tp,"tp","TP","d")}${m(px,"now","PRIX")}
         </div>
         <div class="leg">
           <span class="num">${isFinite(sl)?nf(sl,px>1000?1:4):"—"} · perte</span>
@@ -769,7 +769,7 @@ function rendreRisque(d){
   const dlim = (lim.dd_pct ?? 25) / 100, jlim = (lim.daily_pct ?? 8) / 100;
   $("risque").innerHTML =
       jauge("Perte du jour", jour, jlim, pct(jour,2) + " / " + pct(jlim,0))
-    + jauge("Repli depuis le pic", dd, dlim, pct(dd,2) + " / " + pct(dlim,0))
+    + jauge("Drawdown depuis le pic", dd, dlim, pct(dd,2) + " / " + pct(dlim,0))
     + `<div class="jauge"><div class="t"><span>Exposition autorisée</span>
         <span class="num">${pct(lim.scale ?? 1,0)}</span></div>
         <div class="piste"><div class="rempli" style="width:${((lim.scale??1)*100).toFixed(0)}%"></div></div></div>`
@@ -780,7 +780,7 @@ function rendreLevier(d){
   const l = (d.scalp||{}).lev || {};
   const util = Number(l.used||0), cap = Number(l.gross_cap||0);
   $("levier").innerHTML =
-      jauge("Notionnel / équité", util, cap, nf(util,2) + "× / " + nf(cap,0) + "×")
+      jauge("Notionnel / equity", util, cap, nf(util,2) + "× / " + nf(cap,0) + "×")
     + jauge("Marge engagée", Number(l.margin||0), 1, pct(l.margin||0,1) + " / 100 %")
     + `<div class="jauge"><div class="t"><span>Plafond par instrument</span>
         <span class="num">${nf(l.name_cap||0,0)}×</span></div></div>`;
@@ -1048,8 +1048,8 @@ const Marche = (() => {
     };
     if (b){
       ligne(b.entry, C.e2, "ENTRÉE");
-      ligne(b.tp, C.bon, "OBJECTIF");
-      ligne(b.sl, C.critique, "STOP");
+      ligne(b.tp, C.bon, "TP");
+      ligne(b.sl, C.critique, "SL");
     }
 
     /* dernier prix : ligne + pastille sur l'axe */
@@ -1350,7 +1350,9 @@ const Marche = (() => {
 /* ── Boucle ──────────────────────────────────────────────────────── */
 function rendre(d){
   dernier = d;
-  $("mode").textContent = (d.mode === "live") ? "réel" : "papier";
+  // Le mode papier est l'état normal : il n'a pas besoin d'étiquette.
+  // Seul l'argent réel s'annonce.
+  $("mode").textContent = (d.mode === "live") ? "réel" : "";
   const eq = Number(d.equity_live || (d.scalp||{}).equity || 0);
   const dep = Number(((d.trader||{}).paper_broker||{}).start_cash || 10000);
   const el = $("pnl");

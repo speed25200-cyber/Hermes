@@ -42,10 +42,14 @@ def _visible_text(html: str) -> str:
     return " ".join(parts)
 
 
-# Words that were actually on screen in the previous build.
-ANGLAIS = ["Activity log", "Alpha research", "Drawdown", "Kill switch",
+# L'interface parle français ; le JARGON de trading garde sa langue.
+# « Drawdown », « Equity », « TP/SL », « mark-to-market » sont la langue du
+# métier — les traduire (« Repli depuis le pic », « Équité », « Objectif /
+# Stop ») gênait au lieu d'aider. Cette liste ne bannit donc que l'anglais
+# d'INTERFACE : les phrases d'habillage qui, elles, ont un français naturel.
+ANGLAIS = ["Activity log", "Alpha research", "Kill switch",
            "Live scan", "Log is empty", "No orders yet", "Deployed",
-           "Genomes evaluated", "Take profit", "Stop loss", "Equity",
+           "Genomes evaluated", "Take profit", "Stop loss",
            "Leverage", "Positions open", "Last pass", "Next pass",
            "capital weights", "firing", "gated", "last print",
            "Sharpe ratio", "Holdout", "Selection bar", "Evidence", "Trials"]
@@ -175,6 +179,24 @@ def test_time_axis_format_follows_the_visible_span(page):
     assert page.count("porteeMs >") >= 2
 
 
+def test_the_trading_jargon_keeps_its_own_language(page):
+    """Le métier se lit en anglais même chez les traders francophones :
+    imposer « Repli depuis le pic » ou « Objectif / Stop » obligeait à
+    retraduire mentalement vers le terme que tout le monde emploie."""
+    assert "Drawdown depuis le pic" in page
+    assert "TP / SL" in page
+    assert "mark-to-market" in page
+    assert "Repli depuis le pic" not in page
+    assert "Objectif / stop" not in page
+
+
+def test_the_paper_badge_is_gone_but_real_money_still_announces_itself(page):
+    """« PAPIER » à côté du nom était du bruit — le papier est l'état
+    normal. Le mode réel, lui, doit continuer de s'annoncer."""
+    assert ">papier<" not in page and "PAPIER" not in page
+    assert '"réel"' in page
+
+
 def test_chart_levels_never_ride_on_colour_alone(page):
-    for etiquette in ('"ENTRÉE"', '"OBJECTIF"', '"STOP"'):
+    for etiquette in ('"ENTRÉE"', '"TP"', '"SL"'):
         assert etiquette in page, etiquette
