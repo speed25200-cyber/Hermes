@@ -99,6 +99,7 @@ class ScalpEngine:
                 "used": used,
                 "okx": int(self.lev_max),
                 "targets": tg,
+                "margin": (self.broker.margin_used() / eq) if eq and hasattr(self.broker, "margin_used") else 0.0,
             },
             "risk_limits": {
                 "daily_pct": self.risk.daily_loss_limit_pct,
@@ -316,26 +317,36 @@ class ScalpEngine:
         return float(int(round(lev)))
 
     def _targets(self, preds: list[dict]) -> dict[str, float]:
+        """Weights are notional/equity. Margin = |w|/lev ≤ 0.92 of equity total."""
         raw = {}
         live = [p for p in preds if p["dir"] != "flat"]
         live.sort(key=lambda p: abs(p["edge_bps"]), reverse=True)
         keep = {p["inst"] for p in live[: self.trade_top]}
+        n_keep = max(1, len(keep))
+        margin_each = 0.92 / n_keep if self.max_name > 1.0 else None
         for p in preds:
             if p["dir"] == "flat" or p["inst"] not in keep:
                 raw[p["inst"]] = 0.0
                 p["lev"] = 0.0
+                p["margin"] = 0.0
                 continue
             lev = self._pick_lev(p)
             p["lev"] = float(lev)
-            raw[p["inst"]] = float(lev if p["dir"] == "long" else -lev)
+            if margin_each is None:
+                w = float(lev)
+            else:
+                w = float(margin_each * lev)
+            p["margin"] = (abs(w) / lev) if lev else 0.0
+            raw[p["inst"]] = w if p["dir"] == "long" else -w
         gross = sum(abs(v) for v in raw.values())
-        cap = min(self.gross_cap, float(self.lev_max))
+        cap = min(self.gross_cap, float(self.lev_max)) if self.max_name > 1 else self.gross_cap
         if gross > cap and gross > 0:
             s = cap / gross
             raw = {k: v * s for k, v in raw.items()}
             for p in preds:
-                if p.get("inst") in raw:
-                    p["lev"] = abs(raw[p["inst"]])
+                if p.get("inst") in raw and p.get("lev"):
+                    p["margin"] = abs(raw[p["inst"]]) / p["lev"]
+                    p["lev"] = abs(raw[p["inst"]]) / max(p["margin"], 1e-9) if p["margin"] else p["lev"]
         return raw
 
     def _px(self, inst: str, fallback: float = 0.0) -> tuple[float, float, float]:
@@ -481,7 +492,12 @@ class ScalpEngine:
                 continue
             opening = abs(cur) < 1e-9 and abs(tgt_qty) > 1e-9
             flatten = abs(tgt_qty) < 1e-9
-            fill = self.broker.market_order(inst, delta, last, force_taker=flatten)
+            plan = next((p for p in self.last_preds if p.get("inst") == inst), {})
+            lev = float(plan.get("lev") or 0.0) if self.max_name > 1 else 0.0
+            fill = self.broker.market_order(
+                inst, delta, last, force_taker=flatten,
+                leverage=(lev if lev >= 2 else None),
+            )
             if not fill:
                 continue
             if abs(tgt_qty) < 1e-9:

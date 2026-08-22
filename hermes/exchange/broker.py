@@ -36,7 +36,7 @@ class Broker:
         raise NotImplementedError
 
     def market_order(self, inst: str, qty: float, price_hint: float,
-                     force_taker: bool = False) -> Fill | None:
+                     force_taker: bool = False, leverage: float | None = None) -> Fill | None:
         """qty signed (+ buy / - sell), in coin units."""
         raise NotImplementedError
 
@@ -57,8 +57,10 @@ class PaperBroker(Broker):
     prices: dict[str, float] = field(default_factory=dict)
     entry: dict[str, float] = field(default_factory=dict)
     fills: list[Fill] = field(default_factory=list)
-    book: dict[str, dict] = field(default_factory=dict)   # inst -> bid/ask/last
-    specs: dict[str, dict] = field(default_factory=dict)  # ctVal/lotSz/minSz
+    book: dict[str, dict] = field(default_factory=dict)
+    specs: dict[str, dict] = field(default_factory=dict)
+    lever: dict[str, float] = field(default_factory=dict)  # OKX lev per inst
+    margin_mode: bool = True
 
     def set_specs(self, specs: dict[str, dict]) -> None:
         self.specs = dict(specs)
@@ -95,10 +97,28 @@ class PaperBroker(Broker):
         self.cash = max(self.cash, 0.0)
 
     def equity(self) -> float:
+        """Wallet + uPnL. Equity is the only capital — never notional."""
         eq = self.cash
         for inst, q in self.pos.items():
-            eq += q * self.prices.get(inst, 0.0)
+            mark = float(self.prices.get(inst) or self.entry.get(inst) or 0.0)
+            entry = float(self.entry.get(inst) or mark)
+            eq += q * (mark - entry)
         return eq
+
+    def margin_used(self, pos: dict | None = None, lever: dict | None = None) -> float:
+        tot = 0.0
+        pos = self.pos if pos is None else pos
+        lever = self.lever if lever is None else lever
+        for inst, q in pos.items():
+            if abs(q) < 1e-12:
+                continue
+            px = float(self.prices.get(inst) or self.entry.get(inst) or 0.0)
+            L = max(float(lever.get(inst, 1.0) or 1.0), 1.0)
+            tot += abs(q) * px / L
+        return tot
+
+    def available(self) -> float:
+        return self.equity() - self.margin_used()
 
     def positions(self) -> dict[str, float]:
         return {k: v for k, v in self.pos.items() if abs(v) > 1e-12}
@@ -140,7 +160,7 @@ class PaperBroker(Broker):
         return hint
 
     def market_order(self, inst: str, qty: float, price_hint: float,
-                     force_taker: bool = False) -> Fill | None:
+                     force_taker: bool = False, leverage: float | None = None) -> Fill | None:
         qty = self._round_qty(inst, qty)
         if qty == 0 or (price_hint <= 0 and not (self.book.get(inst) or {}).get("bid")):
             return None
@@ -152,23 +172,59 @@ class PaperBroker(Broker):
             fee_bps = self.maker_fee_bps
         if px <= 0:
             return None
-        side = "buy" if qty > 0 else "sell"
-        notional = abs(qty) * px
-        fee = notional * fee_bps * 1e-4
-        self.cash -= qty * px
-        self.cash -= fee
         old = self.pos.get(inst, 0.0)
         new = old + qty
+        lev_now = dict(self.lever)
+        if leverage and abs(new) > 1e-12:
+            if abs(old) < 1e-12:
+                lev_now[inst] = max(float(leverage), 1.0)
+            else:
+                lev_now[inst] = max(float(lev_now.get(inst, 1) or 1), float(leverage), 1.0)
+        trial = dict(self.pos)
+        trial[inst] = new
+        reducing = abs(new) <= abs(old) + 1e-12 and (old * new > 0 or abs(new) < 1e-12)
+        if not reducing:
+            im = 0.0
+            for i, q in trial.items():
+                pxi = px if i == inst else float(self.prices.get(i) or self.entry.get(i) or 0.0)
+                L = max(float(lev_now.get(i, 1) or 1), 1.0)
+                im += abs(q) * pxi / L
+            cap = max(self.equity(), 0.0)
+            if im > cap + 1e-6 and cap > 0:
+                L = max(float(lev_now.get(inst, 1) or 1), 1.0)
+                room = cap - (im - abs(new) * px / L)
+                max_qty = max(room, 0.0) * L / px
+                if old * qty > 0:
+                    max_delta = max(max_qty - abs(old), 0.0)
+                    qty = math.copysign(max_delta, qty)
+                else:
+                    qty = math.copysign(max_qty, qty)
+                qty = self._round_qty(inst, qty)
+                if abs(qty) * px < 1.0:
+                    return None
+                new = old + qty
+        # realize PnL on the closed slice; wallet never pays the notional
+        if old != 0.0 and old * qty < 0:
+            closed = min(abs(old), abs(qty))
+            sign = 1.0 if old > 0 else -1.0
+            self.cash += sign * closed * (px - float(self.entry.get(inst, px)))
+        notional = abs(qty) * px
+        fee = notional * fee_bps * 1e-4
+        self.cash -= fee
         if old == 0.0 or old * qty > 0:
             tot = abs(old) + abs(qty)
             self.entry[inst] = ((abs(old) * self.entry.get(inst, px)
-                                 + abs(qty) * px) / tot)
+                                 + abs(qty) * px) / tot) if tot else px
         elif old * new < 0:
             self.entry[inst] = px
         self.pos[inst] = new
+        if leverage and abs(new) > 1e-12:
+            self.lever[inst] = lev_now.get(inst, float(leverage))
         if abs(self.pos[inst]) < 1e-12:
             self.pos.pop(inst, None)
             self.entry.pop(inst, None)
+            self.lever.pop(inst, None)
+        side = "buy" if qty > 0 else "sell"
         fill = Fill(inst, side, abs(qty), px, fee, time.time())
         self.fills.append(fill)
         return fill
@@ -180,17 +236,24 @@ class PaperBroker(Broker):
         if q and px:
             self.cash -= q * px * rate
 
-    # persistence ------------------------------------------------------- #
-
     def to_dict(self) -> dict:
         return {"cash": self.cash, "pos": self.pos, "prices": self.prices,
-                "entry": self.entry}
+                "entry": self.entry, "lever": self.lever, "margin_mode": True}
 
     def restore(self, d: dict) -> None:
-        self.cash = d.get("cash", self.cash)
         self.pos = dict(d.get("pos", {}))
         self.prices = dict(d.get("prices", {}))
         self.entry = dict(d.get("entry", {}))
+        self.lever = {k: float(v) for k, v in (d.get("lever") or {}).items()}
+        cash = float(d.get("cash", self.cash))
+        if d.get("margin_mode"):
+            self.cash = cash
+        else:
+            locked = 0.0
+            for inst, q in self.pos.items():
+                locked += float(q) * float(self.entry.get(inst) or self.prices.get(inst) or 0.0)
+            self.cash = cash + locked
+
 
 
 # --------------------------------------------------------------------- #
@@ -235,7 +298,7 @@ class OKXBroker(Broker):
         return out
 
     def market_order(self, inst: str, qty: float, price_hint: float,
-                     force_taker: bool = False) -> Fill | None:
+                     force_taker: bool = False, leverage: float | None = None) -> Fill | None:
         spec = self._spec(inst)
         contracts = abs(qty) / spec["ctVal"]
         lot = spec["lotSz"]

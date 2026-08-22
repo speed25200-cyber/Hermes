@@ -1747,7 +1747,9 @@ async function refresh(){
     const capLev = Number(lev.gross_cap || 0.55);
     const nameLev = Number(lev.name_cap || 0.22);
     tweenNum($("k_gross"), usedLev, v=>v.toFixed(2)+"×");
-    $("k_gross_d").textContent = "OKX cross · used / cap "+capLev.toFixed(0)+"× · max "+nameLev.toFixed(0)+"× per coin";
+    const mgn = Number(lev.margin);
+    $("k_gross_d").textContent = (isFinite(mgn)? ("margin "+(mgn*100).toFixed(0)+"% of equity · ") : "")
+      + "OKX ≤"+capLev.toFixed(0)+"× · max "+nameLev.toFixed(0)+"×";
     drawChart();
     $("chartrange").textContent = series.length+" ticks";
     const lim = (data.scalp && data.scalp.risk_limits) || {};
