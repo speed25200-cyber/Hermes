@@ -660,24 +660,16 @@ class LiveRunner:
         if self.scalp is None:
             return
         from ..data.fetcher import fetch_candles
-        from ..scalp.learn import BARS, DAYS
-        days_1m = int((self.cfg.raw.get("scalp") or {}).get("history_days", 7))
-        leaders = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+        from ..scalp.learn import ASSETS, BARS, DAYS
+        leaders = list(ASSETS)
         for bar in BARS:
-            d = DAYS[bar] if bar != "1m" else days_1m
+            d = DAYS[bar]
             for inst in leaders:
                 try:
-                    self.log(f"scalp backfill {inst} {bar} ({d}d)...")
+                    self.log(f"desk backfill {inst} {bar} ({d}d)...")
                     fetch_candles(self.client, self.store, inst, bar, d, log=self.log)
                 except Exception as exc:
-                    self.log(f"scalp backfill {inst} {bar}: {type(exc).__name__}: {exc}")
-        for inst in self.scalp.instruments:
-            if inst in leaders:
-                continue
-            try:
-                fetch_candles(self.client, self.store, inst, "1m", days_1m, log=self.log)
-            except Exception as exc:
-                self.log(f"scalp backfill {inst}: {type(exc).__name__}: {exc}")
+                    self.log(f"desk backfill {inst} {bar}: {type(exc).__name__}: {exc}")
 
     def ensure_research(self, force: bool = False) -> None:
         age_h = (time.time() - self.registry.researched_at) / 3600.0
@@ -766,7 +758,7 @@ class LiveRunner:
             self.ensure_data()
             threading.Thread(target=self._research_bg, daemon=True).start()
         last_cycle_bar = 0
-        last_scalp_bar = {b: 0 for b in ("1m", "5m", "15m", "1H")}
+        last_scalp_bar = {b: 0 for b in ("15m", "1H")}
         last_uni = 0.0
         last_learn = time.time()
         rr = 0
@@ -796,68 +788,28 @@ class LiveRunner:
                         self.scalp.ticks = ticks
                     if ticks and hasattr(self.broker, "mark_ticks"):
                         self.broker.mark_ticks(ticks)
-                    names = self.scalp.instruments or ["BTC-USDT-SWAP"]
+                    names = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
                     if time.time() - last_learn > 3600:
                         last_learn = time.time()
                         def _refit():
                             try:
-                                self.scalp.horizons.fit_store(
-                                    self.store,
-                                    ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"])
+                                self.scalp.horizons.fit_store(self.store, names)
                             except Exception as exc:
                                 self.log(f"learner refit: {type(exc).__name__}: {exc}")
                         threading.Thread(target=_refit, daemon=True).start()
-                    # L2: 4 books/poll, positions + BTC first, then rotate.
-                    # Never 50 books — that 429s the public API and freezes MTM.
-                    prio: list[str] = []
-                    for inst in list(self.broker.positions()) + ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]:
-                        if inst in names and inst not in prio:
-                            prio.append(inst)
-                    rest = [n for n in names if n not in prio]
-                    take = rest[book_rr:book_rr + 2]
-                    book_rr = (book_rr + 2) % max(len(rest), 1)
-                    book_chunk = (prio + take)[:6]
                     t0, r0 = self.client.timeout, self.client.max_retries
-                    self.client.timeout, self.client.max_retries = 3.0, 1
+                    self.client.timeout, self.client.max_retries = 4.0, 1
                     try:
-                        for inst in book_chunk:
+                        for inst in names:
                             try:
-                                raw = self.client.books(inst, sz=10)
-                                self.scalp.ingest_book(inst, raw)
+                                self.scalp.ingest_book(inst, self.client.books(inst, sz=10))
                             except Exception as exc:
                                 self.log(f"L2 {inst}: {type(exc).__name__}")
-                        for inst in book_chunk[:3]:
                             try:
-                                tr = self.client.last_trades(inst, limit=50)
-                                self.scalp.ingest_trades(inst, tr)
+                                self.scalp.ingest_trades(inst, self.client.last_trades(inst, limit=50))
                             except Exception:
                                 pass
-                    finally:
-                        self.client.timeout, self.client.max_retries = t0, r0
-                    batch = 8
-                    chunk = names[rr:rr + batch]
-                    rr = (rr + batch) % max(len(names), 1)
-                    if "BTC-USDT-SWAP" not in chunk:
-                        chunk = ["BTC-USDT-SWAP"] + chunk
-                    for inst in chunk:
-                        try:
-                            t0, r0 = self.client.timeout, self.client.max_retries
-                            self.client.timeout, self.client.max_retries = 6.0, 1
-                            update_latest(self.client, self.store, inst, "1m",
-                                          limit=120)
-                        except Exception as exc:
-                            self.log(f"scalp data {inst}: {type(exc).__name__}: {exc}")
-                        finally:
-                            self.client.timeout, self.client.max_retries = t0, r0
-                    # slower bars: leaders every poll, rest rotated
-                    slow = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
-                    if names[0] not in slow:
-                        slow.append(names[rr % len(names)])
-                    t0, r0 = self.client.timeout, self.client.max_retries
-                    self.client.timeout, self.client.max_retries = 6.0, 1
-                    try:
-                        for inst in slow[:4]:
-                            for bar in ("5m", "15m", "1H"):
+                            for bar in ("15m", "1H"):
                                 try:
                                     update_latest(self.client, self.store, inst, bar, limit=120)
                                 except Exception:
@@ -868,17 +820,14 @@ class LiveRunner:
                     any_new = False
                     last_rep = None
                     for bar in _BARS:
-                        if bar == "1m":
-                            cbar = {inst: self.store.load(inst, "1m") for inst in names}
-                        else:
-                            cbar = {inst: self.store.load(inst, bar) for inst in slow}
+                        cbar = {inst: self.store.load(inst, bar) for inst in names}
                         newest = max((int(c.ts[-1]) for c in cbar.values() if len(c)), default=0)
-                        if newest > last_scalp_bar[bar]:
+                        if newest > last_scalp_bar.get(bar, 0):
                             last_scalp_bar[bar] = newest
                             any_new = True
                             last_rep = self.scalp.tick(cbar, time.time(), bar=bar)
                             live = [p for p in (last_rep.get("preds") or []) if p.get("dir") != "flat"]
-                            self.log(f"scalp {bar} @ {newest}: eq={last_rep.get('equity', 0):.2f} "
+                            self.log(f"desk {bar} @ {newest}: eq={last_rep.get('equity', 0):.2f} "
                                      f"live={len(live)}/{len(last_rep.get('preds') or [])} "
                                      f"hz={last_rep.get('live_bars')}")
                     if last_rep and last_rep.get("targets") is not None:

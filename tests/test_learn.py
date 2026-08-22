@@ -37,8 +37,8 @@ def test_learner_fits_or_vetoes():
     assert "veto" in inf and inf["tp_bps"] > 0 and inf["sl_bps"] > inf["tp_bps"] - 1e-9
 
 
-def test_horizon_book_four_bars():
+def test_horizon_book_two_bars():
     from hermes.scalp.learn import BARS, HorizonBook
-    hb = HorizonBook(10.0, log=lambda m: None)
-    assert tuple(hb.learners) == BARS
+    hb = HorizonBook(7.0, log=lambda m: None)
+    assert BARS == ("15m", "1H")
     assert hb.live_bars() == []

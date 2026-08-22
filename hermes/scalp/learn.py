@@ -102,12 +102,16 @@ class ScalpLearner:
             "n_train": self.n_train, "status": self.status, "policy": self.policy,
         }
 
-    def fit(self, candles: dict[str, Candles], max_names: int = 6) -> dict:
-        """Pooled walk-forward fit. Picks fade vs follow vs sit-out on holdout."""
-        names = [k for k in ("BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP")
-                 if k in candles and len(candles[k]) > 200]
-        extra = [k for k, c in candles.items() if k not in names and len(c) > 200]
-        names += extra[: max(0, max_names - len(names))]
+    def fit(self, candles: dict[str, Candles], max_names: int = 6,
+            only: str | None = None) -> dict:
+        """Walk-forward fit. Picks fade vs follow vs breakout vs sit-out."""
+        if only:
+            names = [only] if only in candles and len(candles[only]) > 200 else []
+        else:
+            names = [k for k in ("BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP")
+                     if k in candles and len(candles[k]) > 200]
+            extra = [k for k, c in candles.items() if k not in names and len(c) > 200]
+            names += extra[: max(0, max_names - len(names))]
         if not names:
             self.status, self.policy = "no-data", "flat"
             return self.to_dict()
@@ -118,6 +122,7 @@ class ScalpLearner:
         for policy, side_of in (
             ("fade", lambda r1: -1.0 if r1 > 0 else 1.0 if r1 < 0 else 0.0),
             ("follow", lambda r1: 1.0 if r1 > 0 else -1.0 if r1 < 0 else 0.0),
+            ("breakout", "breakout"),
         ):
             packed = self._collect(candles, names, btc, side_of)
             if packed is None:
@@ -161,9 +166,20 @@ class ScalpLearner:
                 f = F.candle_feats(c.slice(0, i + 1))
                 vol_bps = max(float(f.get("vol", 0.0)) * 1e4, 4.0)
                 r1 = float(f.get("r1", 0.0))
-                side = side_of(r1)
-                if side == 0.0:
-                    continue
+                if side_of == "breakout":
+                    if i < 24:
+                        continue
+                    hh, ll = float(np.max(c.h[i - 20:i])), float(np.min(c.l[i - 20:i]))
+                    if c.c[i] > hh:
+                        side = 1.0
+                    elif c.c[i] < ll:
+                        side = -1.0
+                    else:
+                        continue
+                else:
+                    side = side_of(r1)
+                    if side == 0.0:
+                        continue
                 y = barrier_pnl(c, i, side, self.tp_mult * vol_bps,
                                 self.sl_mult * vol_bps, self.horizon, self.fee_rt)
                 if not math.isfinite(y):
@@ -214,8 +230,8 @@ class ScalpLearner:
         veto = False
         ml_bps = 0.0
         score = float(prior_score)
-        if self.policy == "follow":
-            score = -score  # momentum: flip the fade prior
+        if self.policy in ("follow", "breakout"):
+            score = -score  # continuation: flip the fade prior
         if self.policy == "flat" or self.status in ("veto", "unfitted", "no-data", "few-samples"):
             veto = True
         ml_bps = 0.0
@@ -238,39 +254,75 @@ class ScalpLearner:
         }
 
 
-BARS = ("1m", "5m", "15m", "1H")
-HOLD = {"1m": 6, "5m": 8, "15m": 8, "1H": 6}
-DAYS = {"1m": 7, "5m": 14, "15m": 30, "1H": 90}
+BARS = ("15m", "1H")
+HOLD = {"15m": 16, "1H": 12}
+DAYS = {"15m": 60, "1H": 180}
+ASSETS = ("BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP")
 
 
 class HorizonBook:
-    """One learner per bar. Only bars with holdout_mean>0 after fees go live."""
+    """Per-asset, per-bar learners. Only cells with holdout>0 after maker+taker fees go live."""
 
     def __init__(self, fee_rt_bps: float, log=None):
         self.log = log or (lambda m: None)
-        self.learners = {
-            bar: ScalpLearner(fee_rt_bps=fee_rt_bps, horizon=HOLD[bar], log=log)
-            for bar in BARS
-        }
+        self.fee_rt = float(fee_rt_bps)
+        self.learners: dict[tuple[str, str], ScalpLearner] = {}
+        self.best: dict[str, tuple[str, ScalpLearner]] = {}
 
-    def fit_store(self, store, names: list[str]) -> dict:
-        out = {}
-        for bar, lr in self.learners.items():
-            candles: dict = {}
-            for inst in names:
+    def fit_store(self, store, names: list[str] | None = None) -> dict:
+        names = list(names or ASSETS)
+        out: dict = {}
+        self.learners = {}
+        self.best = {}
+        for inst in names:
+            ranked = []
+            for bar in BARS:
                 try:
                     c = store.load(inst, bar)
                 except Exception:
                     continue
-                if len(c) > 80:
-                    candles[inst] = c
-            self.log(f"learner fit {bar} names={len(candles)}")
-            out[bar] = lr.fit(candles)
-        self.log(f"horizons live={self.live_bars() or ['none']}")
+                if len(c) < 200:
+                    continue
+                pack = {inst: c}
+                if inst != "BTC-USDT-SWAP":
+                    try:
+                        btc = store.load("BTC-USDT-SWAP", bar)
+                        if len(btc) > 80:
+                            pack["BTC-USDT-SWAP"] = btc
+                    except Exception:
+                        pass
+                lr = ScalpLearner(fee_rt_bps=self.fee_rt, horizon=HOLD[bar], log=self.log)
+                d = lr.fit(pack, only=inst)
+                self.learners[(inst, bar)] = lr
+                out[f"{inst.split('-')[0]}:{bar}"] = d
+                ranked.append((d.get("holdout_mean") or -1e9, bar, lr))
+            if ranked:
+                ranked.sort(reverse=True)
+                _, bar, lr = ranked[0]
+                self.best[inst] = (bar, lr)
+                self.log(f"desk {inst.split('-')[0]} best={bar}/{lr.policy} "
+                         f"status={lr.status} holdout={lr.holdout_mean:+.2f}bps")
+        live = self.live_bars()
+        self.log(f"desk live={live or ['none']}")
         return out
 
     def live_bars(self) -> list[str]:
-        return [b for b, l in self.learners.items() if l.status == "live"]
+        return sorted({bar for inst, (bar, lr) in self.best.items() if lr.status == "live"})
+
+    def infer_asset(self, inst: str, feat, btc_r1, is_btc, prior, vol_bps) -> dict:
+        pair = self.best.get(inst)
+        if not pair:
+            return {"score": 0.0, "ml_bps": 0.0, "tp_bps": 20.0, "sl_bps": 30.0,
+                    "veto": True, "alpha": 0.0, "ic": 0.0, "status": "unfitted",
+                    "policy": "flat", "bar": "15m"}
+        bar, lr = pair
+        inf = lr.infer(feat, btc_r1, is_btc, prior, vol_bps)
+        inf["bar"] = bar
+        return inf
 
     def to_dict(self) -> dict:
-        return {b: l.to_dict() for b, l in self.learners.items()}
+        d = {f"{inst.split('-')[0]}:{bar}": lr.to_dict()
+             for (inst, bar), lr in self.learners.items()}
+        d["_best"] = {inst.split("-")[0]: {"bar": bar, **lr.to_dict()}
+                      for inst, (bar, lr) in self.best.items()}
+        return d

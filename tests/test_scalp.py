@@ -105,6 +105,15 @@ def test_paper_sell_fills_at_bid():
     assert fill.price == pytest.approx(99.8)
 
 
+def test_paper_maker_buy_joins_bid():
+    from hermes.exchange.broker import PaperBroker
+    b = PaperBroker(cash=10_000, fee_bps=5.0, maker_fee_bps=2.0)
+    b.mark_ticks({"X": {"last": 100.0, "bid": 99.9, "ask": 100.1}})
+    fill = b.market_order("X", 1.0, 100.0, force_taker=False)
+    assert fill.price == pytest.approx(99.9 + 0.25 * 0.2)
+    assert fill.fee == pytest.approx(fill.price * 2e-4)
+
+
 def test_paper_lot_rounding():
     from hermes.exchange.broker import PaperBroker
     b = PaperBroker(cash=10_000, fee_bps=5.0)
@@ -212,7 +221,7 @@ def test_trade_top_caps_book(tmp_path):
              for i in range(20)]
     t = eng._targets(preds)
     live = [k for k, v in t.items() if abs(v) > 1e-9]
-    assert len(live) == 8
+    assert len(live) == 3
 
 
 def test_close_at_high_fades():

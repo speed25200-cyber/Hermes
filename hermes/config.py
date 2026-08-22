@@ -87,23 +87,23 @@ DEFAULTS: dict[str, Any] = {
     # oracle — fade bounce + book imbalance, trade only if edge > costs.
     "scalp": {
         "enabled": True,
-        "bar": "1m",
+        "bar": "15m",
         "instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"],
-        "universe_n": 40,
-        "trade_top": 4,
-        "require_l2": True,
+        "universe_n": 3,
+        "trade_top": 3,
+        "require_l2": False,
         "max_spread_bps": 6.0,
         "min_vol_usd": 10_000_000.0,
-        "stop_bps": 15.0,            # fallback; learner overwrites per trade
-        "take_bps": 10.0,
-        "horizon": 3,
-        "min_edge_bps": 8.0,
-        "max_hold_bars": 6,
-        "max_name_lev": 0.15,
-        "gross_cap": 0.60,           # half-size until the learner's holdout is green
+        "stop_bps": 25.0,
+        "take_bps": 18.0,
+        "horizon": 8,
+        "min_edge_bps": 6.0,
+        "max_hold_bars": 16,
+        "max_name_lev": 0.45,
+        "gross_cap": 1.20,
         "poll_seconds": 5,
-        "history_days": 7,
-        "maker_wait_s": 3,
+        "history_days": 60,
+        "maker_wait_s": 8,
     },
 }
 

@@ -22,39 +22,37 @@ class ScalpEngine:
         self.risk = risk
         self.log = log
         self.state_path = os.path.join(state_dir, "scalp.json")
-        self.instruments = list(s.get("instruments") or ["BTC-USDT-SWAP"])
-        self.universe_n = int(s.get("universe_n", 40))
-        self.trade_top = int(s.get("trade_top", 8))
-        self.require_l2 = bool(s.get("require_l2", True))
+        self.instruments = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+        self.universe_n = 3
+        self.trade_top = 3
+        self.require_l2 = False
         self.max_spread = float(s.get("max_spread_bps", 6.0))
         self.min_vol = float(s.get("min_vol_usd", 10_000_000))
         self.horizon = int(s.get("horizon", 3))
-        self.min_edge = float(s.get("min_edge_bps", 5.0))
-        self.max_hold = int(s.get("max_hold_bars", 6))
-        self.max_name = float(s.get("max_name_lev", 0.12))
-        self.gross_cap = float(s.get("gross_cap", 1.50))
-        self.opened_bar: dict[str, int] = {}  # inst -> 1m ts when opened
+        self.min_edge = float(s.get("min_edge_bps", 6.0))
+        self.max_hold = int(s.get("max_hold_bars", 16))
+        self.max_name = float(s.get("max_name_lev", 0.45))
+        self.gross_cap = float(s.get("gross_cap", 1.20))
+        self.opened_bar: dict[str, int] = {}
         self.last_bar: dict[str, int] = {}
         self.last_preds: list[dict] = []
         self.ticks: dict[str, dict] = {}
         self.universe_at = 0.0
         costs = (cfg.get("costs") or {})
         taker = float(costs.get("taker_fee_bps", 5.0))
-        # paper scalp is taker: round-trip = 2 * taker; spread is added per name
         self.taker_fee_bps = taker
-        self.round_trip_bps = 2.0 * taker
+        self.round_trip_bps = 7.0  # maker 2 + taker 5
         self.stop_bps = float(s.get("stop_bps", 15.0))
         self.take_bps = float(s.get("take_bps", 10.0))
         self.brackets: dict[str, dict] = {}
-        self.l2: dict[str, dict] = {}  # inst -> {ts, feats}
+        self.l2: dict[str, dict] = {}
         self.flow: dict[str, float] = {}
         self.tape: dict[str, dict] = {}
-        self.pending: dict[str, float] = {}  # inst -> desired coin qty
-        self.horizons = HorizonBook(self.round_trip_bps, log=self.log)
-        self.learner = self.horizons.learners["1m"]
+        self.pending: dict[str, float] = {}
+        self.horizons = HorizonBook(fee_rt_bps=7.0, log=self.log)
         self.preds_h: dict[str, list] = {b: [] for b in BARS}
         self.hold_ms: dict[str, int] = {}
-        self.opened_h: dict[str, str] = {}  # inst -> bar that opened it
+        self.opened_h: dict[str, str] = {}
 
     # ------------------------------------------------------------------ #
 
@@ -66,9 +64,12 @@ class ScalpEngine:
             "brackets": self.brackets,
             "round_trip_bps": self.round_trip_bps,
             "min_edge_bps": self.min_edge,
-            "learner": self.learner.to_dict(),
             "horizons": self.horizons.to_dict(),
             "live_bars": self.horizons.live_bars(),
+            "desk": {i.split("-")[0]: {"bar": bar, "policy": lr.policy,
+                                       "status": lr.status,
+                                       "holdout": lr.holdout_mean}
+                     for i, (bar, lr) in self.horizons.best.items()},
         }
         if extra:
             d.update(extra)
@@ -79,24 +80,10 @@ class ScalpEngine:
             pass
 
     def refresh_universe(self, tickers: dict[str, dict]) -> list[str]:
-        from .universe import select_universe
         self.ticks = tickers
-        picked = select_universe(tickers, n=self.universe_n,
-                                 max_spread_bps=self.max_spread,
-                                 min_vol_usd=self.min_vol)
-        if picked:
-            dropped = [i for i in self.instruments if i not in picked]
-            self.instruments = picked
-            self.universe_at = time.time()
-            # flatten anything that fell out of the liquid set
-            pos = self.broker.positions()
-            for inst in dropped:
-                qty = pos.get(inst, 0.0)
-                px = float((tickers.get(inst) or {}).get("last") or 0.0)
-                if px > 0 and abs(qty) * px > 1:
-                    self.broker.market_order(inst, -qty, px, force_taker=True)
-                    self.opened_bar.pop(inst, None)
-                    self.log(f"scalp drop {inst}: left top-{self.universe_n} / wide spread")
+        self.instruments = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+        self.universe_at = time.time()
+        self.flatten_foreign()
         return self.instruments
 
     def flatten_foreign(self) -> None:
@@ -171,11 +158,14 @@ class ScalpEngine:
             feat["ofi"] = float(micro.get("ofi") or 0.0)
             feat["vwap_vs"] = float((self.tape.get(inst) or {}).get("vwap_vs") or 0.0)
             pred = M.predict(feat, btc_r1, inst.startswith("BTC-"), self.horizon)
-            learner = self.horizons.learners.get(bar, self.learner)
-            inf = learner.infer(
-                feat, btc_r1, inst.startswith("BTC-"),
+            inf = self.horizons.infer_asset(
+                inst, feat, btc_r1, inst.startswith("BTC-"),
                 float(pred["score"]), float(pred["vol_bps"]),
             )
+            # only fire this asset on its chosen bar
+            pair = self.horizons.best.get(inst)
+            if pair and pair[0] != bar:
+                inf = dict(inf, veto=True, status="other-bar")
             score = float(inf["score"])
             vol = max(float(pred["vol_bps"]) * 1e-4, 1e-6)
             edge = score * vol * (max(self.horizon, 1) ** 0.5) * 1e4
@@ -218,10 +208,11 @@ class ScalpEngine:
                 "l2": bool(micro["l2"]),
                 "reason": reason,
                 "ml_bps": inf["ml_bps"],
-                "ml": inf["status"],
+                "ml": inf.get("status"),
+                "policy": inf.get("policy"),
                 "tp_bps": inf["tp_bps"],
                 "sl_bps": inf["sl_bps"],
-                "bar": bar,
+                "bar": inf.get("bar") or bar,
                 "bar_ts": int(c.ts[-1]),
             })
         self.preds_h[bar] = out
@@ -230,7 +221,7 @@ class ScalpEngine:
 
     def _refresh_dashboard_preds(self) -> None:
         by: dict[str, dict] = {}
-        live = set(self.horizons.live_bars()) or {"1m"}
+        live = set(self.horizons.live_bars()) or set(BARS)
         for bar, preds in self.preds_h.items():
             if bar not in live and bar != "1m":
                 continue
@@ -332,19 +323,20 @@ class ScalpEngine:
         return hit
 
     def _blend_targets(self) -> dict[str, float]:
-        live = self.horizons.live_bars()
-        if not live:
-            return {inst: 0.0 for inst in self.instruments}
         acc: dict[str, float] = {}
         vol: dict[str, float] = {}
-        n = float(len(live))
-        for bar in live:
+        for inst in self.instruments:
+            pair = self.horizons.best.get(inst)
+            if not pair or pair[1].status != "live":
+                acc[inst] = 0.0
+                continue
+            bar, _lr = pair
             preds = self.preds_h.get(bar) or []
             t = self._targets(preds)
-            for k, v in t.items():
-                acc[k] = acc.get(k, 0.0) + v / n
+            acc[inst] = t.get(inst, 0.0)
             for p in preds:
-                vol[p["inst"]] = float(p.get("vol_bps") or 0.0)
+                if p.get("inst") == inst:
+                    vol[inst] = float(p.get("vol_bps") or 0.0)
         self._vol = vol
         gross = sum(abs(v) for v in acc.values())
         if gross > self.gross_cap and gross > 0:
@@ -421,7 +413,8 @@ class ScalpEngine:
             if abs(delta) * last < max(10.0, 0.002 * equity):
                 continue
             opening = abs(cur) < 1e-9 and abs(tgt_qty) > 1e-9
-            fill = self.broker.market_order(inst, delta, last, force_taker=True)
+            flatten = abs(tgt_qty) < 1e-9
+            fill = self.broker.market_order(inst, delta, last, force_taker=flatten)
             if not fill:
                 continue
             if abs(tgt_qty) < 1e-9:

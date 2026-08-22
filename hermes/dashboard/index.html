@@ -367,6 +367,23 @@
   .scard:hover{transform:translateY(-1px)}
   .scard.long{border-color:rgba(62,207,142,.32);box-shadow:inset 0 0 0 1px rgba(62,207,142,.06),0 18px 40px -22px rgba(62,207,142,.55)}
   .scard.short{border-color:rgba(240,84,79,.32);box-shadow:inset 0 0 0 1px rgba(240,84,79,.06),0 18px 40px -22px rgba(240,84,79,.5)}
+  .desk3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0 12px}
+  @media (max-width:720px){.desk3{grid-template-columns:1fr}}
+  .dcard{padding:16px 18px 14px;border-radius:16px;border:1px solid var(--stroke2);
+    background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.015));
+    cursor:pointer;transition:transform .2s,border-color .2s}
+  .dcard:hover{transform:translateY(-2px)}
+  .dcard .coin{font-size:22px;font-weight:640;letter-spacing:-.02em}
+  .dcard .pol{font-size:10.5px;font-weight:620;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--faint);margin-top:5px}
+  .dcard .dir{font-size:26px;font-weight:620;margin:12px 0 8px;letter-spacing:-.02em}
+  .dcard.long{border-color:rgba(62,207,142,.35)}
+  .dcard.long .dir{color:var(--green)}
+  .dcard.short{border-color:rgba(240,84,79,.35)}
+  .dcard.short .dir{color:var(--red)}
+  .dcard .meta{display:flex;gap:14px;font-variant-numeric:tabular-nums}
+  .dcard .meta b{display:block;font-size:14px;font-weight:560}
+  .dcard .meta span{font-size:9.5px;color:var(--faint);letter-spacing:.06em;text-transform:uppercase}
   .scard.watch{border-color:rgba(211,162,79,.22)}
   .scard .topline{display:flex;align-items:center;justify-content:space-between;gap:8px}
   .scard .sym{font-size:12px;font-weight:650;letter-spacing:.18em;color:var(--txt2)}
@@ -505,7 +522,7 @@
       <div class="scan-title">
         <div class="radar" aria-hidden="true"></div>
         <div>
-          <div class="scan-kicker">Hermes · 1m order-flow</div>
+          <div class="scan-kicker">Hermes · BTC ETH SOL desk</div>
           <div class="scan-name" id="sc_ml">Live scan</div>
         </div>
       </div>
@@ -516,6 +533,7 @@
         <div><b class="num" id="sc_age">—</b><span>last print</span></div>
       </div>
     </div>
+    <div class="desk3" id="desk3"></div>
     <div class="scan-live" id="scanlive"></div>
     <div class="scan-empty" id="scanempty">Waiting for the first 1-minute print…</div>
     <div class="shead" id="scanhead" style="display:none">
@@ -1106,24 +1124,45 @@ function renderScalp(s){
   else ageEl.textContent = Math.round(age/60)+"m";
   ageEl.style.color = (age!==null && age < 15) ? "var(--green)" : (age!==null && age < 60) ? "var(--amber)" : "";
   const hz = (s && s.horizons) || {};
-  const lr = (s && s.learner) || {};
   const mlEl = $("sc_ml");
+  const desk = (s && s.desk) || (hz._best) || {};
+  const coins = ["BTC","ETH","SOL"];
   if(mlEl){
-    const bits = Object.keys(hz).length
-      ? Object.entries(hz).map(([b,v]) => {
-          const st = (v && v.status) || "?";
-          const pol = (v && v.policy) || "";
-          return b+":"+(st==="live"?pol:st);
-        }).join("  ")
-      : "ML "+(lr.status||"unfitted");
-    mlEl.textContent = bits;
-    const anyLive = Object.values(hz).some(v => v && v.status==="live");
-    mlEl.style.color = anyLive ? "var(--green)" : (lr.status==="veto" || Object.values(hz).every(v => v && v.status==="veto") ? "var(--red)" : "");
+    mlEl.textContent = coins.map(c=>{
+      const d = desk[c]||{};
+      return d.status==="live" ? (c+" "+(d.bar||"")+"/"+(d.policy||"")) : (c+" "+(d.status||"…"));
+    }).join("    ");
+    const anyLive = coins.some(c => (desk[c]||{}).status==="live");
+    mlEl.style.color = anyLive ? "var(--green)" : "var(--red)";
+  }
+  const deskEl = $("desk3");
+  if(deskEl){
+    deskEl.innerHTML = coins.map(sym=>{
+      const d = desk[sym]||{};
+      const p = preds.find(x => (x.inst||"").startsWith(sym+"-")) || {};
+      const dir = p.dir || "flat";
+      const lab = dir==="long"?"LONG":dir==="short"?"SHORT":"FLAT";
+      const pol = d.policy || p.policy || "—";
+      const bar = d.bar || p.bar || "15m";
+      const st = d.status || "…";
+      const edge = p.edge_bps||0;
+      const tp = p.tp_bps||0, sl = p.sl_bps||0;
+      return `<div class="dcard ${dir}" onclick="openTrade('${sym}-USDT-SWAP')">
+        <div class="coin">${sym}</div>
+        <div class="pol">${bar} · ${pol} · ${st}</div>
+        <div class="dir">${lab}</div>
+        <div class="meta">
+          <div><b>${edge>=0?"+":""}${edge.toFixed(1)}</b><span>edge bp</span></div>
+          <div><b>${tp.toFixed(0)}/${sl.toFixed(0)}</b><span>tp / sl</span></div>
+          <div><b>${d.holdout!==undefined? (Number(d.holdout)>=0?"+":"")+Number(d.holdout).toFixed(1):"—"}</b><span>holdout</span></div>
+        </div>
+      </div>`;
+    }).join("");
   }
 
   if(!n){
     empty.style.display = "block";
-    empty.textContent = "Scanning OKX USDT perps — waiting on the next 1m close.";
+    empty.textContent = "BTC · ETH · SOL desk — fitting 15m / 1H specialists…";
     head.style.display = "none";
     liveEl.innerHTML = "";
     board.innerHTML = "";

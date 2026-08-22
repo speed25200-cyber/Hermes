@@ -50,7 +50,8 @@ class Broker:
 @dataclass
 class PaperBroker(Broker):
     cash: float = 10000.0
-    fee_bps: float = 5.0          # taker — paper is not a maker rebate sim
+    fee_bps: float = 5.0          # taker
+    maker_fee_bps: float = 2.0    # join the book
     slippage_bps: float = 2.0     # used only when bid/ask missing
     pos: dict[str, float] = field(default_factory=dict)
     prices: dict[str, float] = field(default_factory=dict)
@@ -110,17 +111,32 @@ class PaperBroker(Broker):
             return 0.0
         return hint * (1 + slip) if qty > 0 else hint * (1 - slip)
 
+    def _maker_px(self, inst: str, qty: float, price_hint: float) -> float:
+        """Join the queue: capture 75% of the spread, not the last print."""
+        b = self.book.get(inst) or {}
+        bid, ask = float(b.get("bid") or 0.0), float(b.get("ask") or 0.0)
+        if bid > 0 and ask > bid:
+            spr = ask - bid
+            return (bid + 0.25 * spr) if qty > 0 else (ask - 0.25 * spr)
+        hint = price_hint or float(self.prices.get(inst) or 0.0)
+        return hint
+
     def market_order(self, inst: str, qty: float, price_hint: float,
                      force_taker: bool = False) -> Fill | None:
         qty = self._round_qty(inst, qty)
         if qty == 0 or (price_hint <= 0 and not (self.book.get(inst) or {}).get("bid")):
             return None
-        px = self._taker_px(inst, qty, price_hint)
+        if force_taker:
+            px = self._taker_px(inst, qty, price_hint)
+            fee_bps = self.fee_bps
+        else:
+            px = self._maker_px(inst, qty, price_hint)
+            fee_bps = self.maker_fee_bps
         if px <= 0:
             return None
         side = "buy" if qty > 0 else "sell"
         notional = abs(qty) * px
-        fee = notional * self.fee_bps * 1e-4
+        fee = notional * fee_bps * 1e-4
         self.cash -= qty * px
         self.cash -= fee
         old = self.pos.get(inst, 0.0)
