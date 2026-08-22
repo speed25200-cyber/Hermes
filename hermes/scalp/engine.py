@@ -100,6 +100,11 @@ class ScalpEngine:
                 "okx": int(self.lev_max),
                 "targets": tg,
             },
+            "risk_limits": {
+                "daily_pct": self.risk.daily_loss_limit_pct,
+                "dd_pct": self.risk.max_drawdown_pct,
+                "scale": self._risk_scale(),
+            },
             "desk": { (p.get("inst") or "").split("-")[0]: {
                 "bar": p.get("bar"), "policy": p.get("policy"),
                 "status": p.get("ml") or p.get("reason"),
@@ -278,6 +283,25 @@ class ScalpEngine:
         elif self.preds_h.get("1m"):
             self.last_preds = self.preds_h["1m"]
 
+    def _risk_scale(self) -> float:
+        """Cut leverage as we spend the daily / DD budget. Never blind-trade into the kill."""
+        s = self.risk.state
+        try:
+            eq = float(self.broker.equity())
+        except Exception:
+            return 1.0
+        dd_lim = max(self.risk.max_drawdown_pct / 100.0, 1e-6)
+        day_lim = max(self.risk.daily_loss_limit_pct / 100.0, 1e-6)
+        dd = (1.0 - eq / s.peak_equity) if s.peak_equity > 0 else 0.0
+        day = (1.0 - eq / s.day_start_equity) if s.day_start_equity > 0 else 0.0
+        def taper(used, lim):
+            if used <= 0.4 * lim:
+                return 1.0
+            if used >= 0.85 * lim:
+                return 0.25
+            return max(0.25, 1.0 - (used - 0.4 * lim) / (0.45 * lim))
+        return min(taper(dd, dd_lim), taper(day, day_lim))
+
     def _pick_lev(self, p: dict) -> float:
         """OKX integer leverage 2–20. Tests may pass max_name_lev ≤ 1 as a fraction."""
         if self.max_name <= 1.0:
@@ -287,6 +311,7 @@ class ScalpEngine:
         lev = 0.025 / (sl * 1e-4)
         if edge > self.round_trip_bps:
             lev *= min(1.5, edge / self.round_trip_bps)
+        lev *= self._risk_scale()
         lev = max(self.lev_min, min(self.lev_max, self.max_name, lev))
         return float(int(round(lev)))
 

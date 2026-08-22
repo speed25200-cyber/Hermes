@@ -61,10 +61,10 @@ DEFAULTS: dict[str, Any] = {
         "portfolio_vol_target": 0.20,   # annualised
         "max_gross_leverage": 20.0,
         "max_instrument_leverage": 20.0,
-        "daily_loss_limit_pct": 3.0,    # halt for the day
-        "max_drawdown_pct": 15.0,       # kill switch: flatten + halt
+        "daily_loss_limit_pct": 8.0,    # ~2–3 SL at 20x then sit out the UTC day
+        "max_drawdown_pct": 25.0,       # kill: ~8 SL or one ~1.2% unstopped wick
         "min_trade_notional": 10.0,     # USDT
-        "max_order_notional": 25000.0,  # sanity cap per order
+        "max_order_notional": 250000.0, # 20x on $10k book + headroom
         # leverage governor: autonomous risk-on/risk-off throttle. Exposure
         # above 1x must be EARNED by live results (rolling Sharpe >= 1 with
         # tiny drawdown, ramped slowly); drawdown de-risks fast and always

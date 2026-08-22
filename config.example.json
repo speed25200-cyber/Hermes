@@ -20,10 +20,10 @@
     "portfolio_vol_target": 0.2,
     "max_gross_leverage": 20.0,
     "max_instrument_leverage": 20.0,
-    "daily_loss_limit_pct": 3.0,
-    "max_drawdown_pct": 15.0,
+    "daily_loss_limit_pct": 8.0,
+    "max_drawdown_pct": 25.0,
     "min_trade_notional": 10.0,
-    "max_order_notional": 25000.0
+    "max_order_notional": 250000.0
   },
   "allocator": {
     "ewma_halflife_bars": 168,

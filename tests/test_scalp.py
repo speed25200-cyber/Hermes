@@ -246,3 +246,20 @@ def test_idio_fade_vs_btc():
             "imb": 0.0, "book": 0.0, "micro": 0.0}
     p = M.predict(feat, btc_r1=0.0, is_btc=False, horizon=3)
     assert p["edge_bps"] < 0  # alt jumped alone → fade
+
+
+def test_leverage_tapers_into_drawdown(tmp_path):
+    b = PaperBroker(cash=10_000)
+    risk = RiskEngine(daily_loss_limit_pct=8, max_drawdown_pct=25)
+    risk.update_equity(10_000, 0)
+    eng = ScalpEngine({"scalp": {"max_name_lev": 20, "gross_cap": 20},
+                       "costs": {"taker_fee_bps": 5}},
+                      b, None, risk, log=lambda m: None, state_dir=str(tmp_path))
+    p = {"dir": "long", "edge_bps": 20, "sl_bps": 15, "inst": "BTC-USDT-SWAP"}
+    full = eng._pick_lev(p)
+    assert 10 <= full <= 20
+    risk.update_equity(7_800, 10)  # -22% of peak, near 25% kill
+    cut = eng._pick_lev(p)
+    assert cut <= full
+    assert cut >= 2
+

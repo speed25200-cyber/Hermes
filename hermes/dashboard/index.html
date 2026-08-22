@@ -1750,7 +1750,8 @@ async function refresh(){
     $("k_gross_d").textContent = "OKX cross · used / cap "+capLev.toFixed(0)+"× · max "+nameLev.toFixed(0)+"× per coin";
     drawChart();
     $("chartrange").textContent = series.length+" ticks";
-    const cap = 0.15;
+    const lim = (data.scalp && data.scalp.risk_limits) || {};
+    const cap = (Number(lim.dd_pct) || 25) / 100;
     let dayStart = risk.day_start_equity;
     if(!dayStart && fullSeries.length){
       const lastDay = new Date(fullSeries[fullSeries.length-1].ts*1000).toISOString().slice(0,10);
@@ -1759,7 +1760,7 @@ async function refresh(){
     }
     const dayRet = dayStart? eq/dayStart-1 : 0;
     drawMeters(Math.max(0,ddNow), cap, dayRet, 0.03);
-    $("k_dd_d").textContent = "from session high · kill at 15%";
+    $("k_dd_d").textContent = "from peak · kill at "+Math.round(cap*100)+"% · day halt "+(lim.daily_pct||8)+"%";
   }
 
   const nStr = (registry.strategies||[]).length;

@@ -47,12 +47,12 @@ class RiskState:
 
 @dataclass
 class RiskEngine:
-    max_gross_leverage: float = 2.0
-    max_instrument_leverage: float = 1.0
-    daily_loss_limit_pct: float = 3.0
-    max_drawdown_pct: float = 15.0
+    max_gross_leverage: float = 20.0
+    max_instrument_leverage: float = 20.0
+    daily_loss_limit_pct: float = 8.0
+    max_drawdown_pct: float = 25.0
     min_trade_notional: float = 10.0
-    max_order_notional: float = 25000.0
+    max_order_notional: float = 250000.0
     state_path: str | None = None
     state: RiskState = field(default_factory=RiskState)
 
