@@ -818,7 +818,7 @@ class LiveRunner:
                                 update_latest(self.client, self.store, inst, slow, limit=120)
                             except Exception:
                                 pass
-                    rr += 1
+                        rr += 1
                     finally:
                         self.client.timeout, self.client.max_retries = t0, r0
                     from ..scalp.clock import BARS as _BARS
