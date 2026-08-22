@@ -17,7 +17,8 @@ def test_next_bar_label_ignores_bar_after_next():
 def test_feat_row_is_finite():
     c = generate(inst="BTC-USDT-SWAP", bar="5m", n=300, seed=1)
     X = feat_matrix(c)
-    assert X.shape[1] == 8
+    # 8 colonnes OHLCV + funding, taker, basis, delta-OI
+    assert X.shape[1] == 12
     assert np.isfinite(X[-1]).all()
 
 

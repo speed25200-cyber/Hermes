@@ -46,7 +46,15 @@ def _roll_std(x: np.ndarray, w: int) -> np.ndarray:
 
 
 def feat_matrix(c: Candles) -> np.ndarray:
-    """Causal OHLCV features, one row per bar. Row i uses only bars ≤ i."""
+    """Causal features, one row per bar. Row i uses only bars ≤ i.
+
+    Beyond OHLCV, the store already carries the derivatives series the
+    exchange publishes — funding, taker flow, open interest, mark/index
+    basis — and the clocks were blind to all of them. Each series maps to
+    bars strictly causally upstream (data.store), defaults to zero when
+    absent, and is expressed as a bounded, stationary transform so a
+    missing series is indistinguishable from an uninformative one.
+    """
     n = len(c)
     px = np.asarray(c.c, dtype=np.float64)
     safe = np.where(px > 0, px, np.nan)
@@ -66,10 +74,24 @@ def feat_matrix(c: Candles) -> np.ndarray:
     s2[0] = 0
     s3[:2] = 0
     persist = (s1 + s2 + s3) / 3.0
+
+    # dérivés : chaque transforme est bornée et vaut 0 quand la série manque
+    funding = np.clip(np.nan_to_num(np.asarray(c.funding, dtype=np.float64),
+                                    nan=0.0) * 1e4, -10, 10)
+    taker = np.nan_to_num(c.taker_imb, nan=0.0)          # déjà dans [-1, 1]
+    basis = np.clip(np.nan_to_num(c.basis, nan=0.0) * 1e4, -50, 50)
+    oi = np.asarray(c.oi, dtype=np.float64)
+    d_oi = np.zeros(n)
+    prev = np.where(oi[:-1] > 0, oi[:-1], np.nan)
+    if n > 1:
+        d_oi[1:] = np.nan_to_num(oi[1:] / prev - 1.0, nan=0.0)
+    d_oi = np.clip(d_oi, -0.2, 0.2)
+
     return np.column_stack([
         r1, lagret(3), lagret(5), lagret(12),
         np.clip(loc, -0.5, 0.5), np.clip(rng, 0, 0.08),
         vol, np.clip(persist, -1, 1),
+        funding, taker, basis, d_oi,
     ])
 
 

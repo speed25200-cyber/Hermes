@@ -123,3 +123,55 @@ def test_agreeing_sources_fuse_and_can_trade(tmp_path):
     assert p["dir"] in ("long", "flat")  # flat seulement si l'EV du bracket le refuse
     if p["dir"] == "long":
         assert p["ev_bps"] > 0
+
+
+# --- les séries dérivées nourrissent les horloges ----------------------- #
+
+def test_missing_aux_series_change_nothing():
+    """Une série absente vaut zéro partout : mêmes prédictions qu'avant,
+    aucune barre de plus à franchir."""
+    from hermes.scalp.clock import feat_matrix
+    rng = np.random.default_rng(7)
+    c = _marche(rng, 800)
+    X = feat_matrix(c)
+    assert X.shape == (800, 12)
+    assert np.allclose(X[:, 8:], 0.0), "aux absentes doivent être muettes"
+    assert np.isfinite(X).all()
+
+
+def test_an_aux_only_signal_is_now_catchable():
+    """Un marché dont la direction du prochain bar est portée par le flux
+    taker — invisible à l'OHLCV seul — doit désormais pouvoir passer."""
+    vivants = 0
+    for seed in range(4):
+        rng = np.random.default_rng(300 + seed)
+        n, vol = 2000, 0.004
+        drive = rng.choice([-1.0, 1.0], n)
+        r = np.zeros(n)
+        for t in range(1, n):
+            r[t] = 0.0016 * drive[t - 1] + rng.normal(0, vol * 0.35)
+        px = 100 * np.exp(np.cumsum(r))
+        o = np.concatenate([[100.0], px[:-1]])
+        w = np.abs(rng.normal(0, vol / 5, n)) * px
+        vtot = np.abs(rng.normal(1000, 100, n))
+        buy = vtot * (0.5 + 0.45 * drive)
+        c = Candles("X", "1m", np.arange(n) * 60_000, o,
+                    np.maximum(o, px) + w, np.minimum(o, px) - w, px, vtot,
+                    taker_buy=buy, taker_sell=vtot - buy)
+        m = CandleModel("5m")
+        m.fit(c)
+        vivants += m.status == "live"
+    assert vivants >= 3, f"{vivants}/4 — le flux taker reste invisible"
+
+
+def test_aux_features_stay_bounded_on_garbage():
+    from hermes.scalp.clock import feat_matrix
+    rng = np.random.default_rng(11)
+    c = _marche(rng, 400)
+    c.funding = rng.normal(0, 1.0, 400)          # funding absurde
+    c.oi = np.abs(rng.normal(1e9, 5e8, 400))
+    c.oi[::7] = 0.0                               # trous
+    X = feat_matrix(c)
+    assert np.isfinite(X).all()
+    assert np.abs(X[:, 8]).max() <= 10.0
+    assert np.abs(X[:, 11]).max() <= 0.2
