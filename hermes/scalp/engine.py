@@ -102,6 +102,7 @@ class ScalpEngine:
             "brackets": self.brackets,
             "round_trip_bps": self.round_trip_bps,
             "min_edge_bps": self.min_edge,
+            "horizon_bars": self.horizon,
             "horizons": self.horizons.to_dict(),
             "live_bars": self.horizons.live_bars(),
             "flow": self.brain.to_dict(),
@@ -288,6 +289,10 @@ class ScalpEngine:
                 "sl_bps": bracket[1] if bracket else inf["sl_bps"],
                 "ev_bps": bracket[2] if bracket else 0.0,
                 "cost_bps": cost_bps,
+                # what this horizon demands of the forecast before trading it
+                # can pay — the number a flat book is really reporting
+                "required_ic": ECON.required_ic(cost_bps, self.horizon,
+                                                max(pred["vol_bps"], 1.0)),
                 "bar": inf.get("bar") or bar,
                 "clocks": inf.get("clocks") or {},
                 "bar_ts": int(c.ts[-1]),

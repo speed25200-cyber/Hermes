@@ -160,3 +160,18 @@ def viable_horizon(cost_bps: float, ic: float, vol_bps_per_bar: float) -> int:
     if ic <= 1e-9 or vol <= 1e-9:
         return 10 ** 9
     return max(1, math.ceil((float(cost_bps) / (ic * vol)) ** 2))
+
+
+def required_ic(cost_bps: float, horizon: int, vol_bps_per_bar: float) -> float:
+    """Forecast skill this horizon needs before trading it can pay.
+
+    The inverse of `viable_horizon`, and the more useful direction in a live
+    report: the horizon is given, so the question is what skill it demands.
+    A book sitting flat is answering this — it is not broken, it is refusing
+    a bet whose odds it can state.
+    """
+    vol = abs(float(vol_bps_per_bar))
+    h = max(int(horizon), 1)
+    if vol <= 1e-9:
+        return float("inf")
+    return float(cost_bps) / (vol * math.sqrt(h))

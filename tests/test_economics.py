@@ -113,3 +113,22 @@ def test_discrete_monitoring_is_corrected():
     for tp, sl in ((10, 15), (6, 30), (30, 6), (20, 20), (8, 8)):
         ev = bracket_ev(tp, sl, 0.0, 9.0, 16, 7.0)
         assert abs(ev + 7.0) < 0.4, (tp, sl, ev)
+
+
+def test_required_ic_inverts_the_viable_horizon():
+    from hermes.scalp.economics import required_ic
+    cost, vol, ic = 7.0, 9.0, 0.05
+    h = viable_horizon(cost, ic, vol)
+    assert required_ic(cost, h, vol) <= ic + 1e-9
+
+
+def test_one_minute_demands_impossible_skill():
+    """9bps bar, 7bps round trip, 3-bar hold: the forecast must capture
+    almost half the move available. That is why the book sits flat."""
+    from hermes.scalp.economics import required_ic
+    assert required_ic(7.0, 3, 9.0) > 0.40
+
+
+def test_a_four_hour_horizon_is_reachable():
+    from hermes.scalp.economics import required_ic
+    assert required_ic(7.0, 240, 9.0) < 0.06
