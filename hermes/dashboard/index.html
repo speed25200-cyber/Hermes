@@ -190,6 +190,42 @@ button.ghost:active{transform:translateY(1px)}
   letter-spacing:.11em;margin-top:var(--e2);font-weight:550}
 .hausse{color:var(--bon)} .baisse{color:var(--critique)}
 
+/* ── Marché : graphe navigable ───────────────────────────────────── */
+.marche{margin-bottom:var(--e4)}
+.mtete{display:flex;align-items:center;gap:var(--e3);flex-wrap:wrap;
+  padding:var(--e3) var(--e4);border-bottom:1px solid var(--filet)}
+.onglets{display:flex;gap:var(--e1);flex-wrap:wrap}
+.ong{font:inherit;border:1px solid transparent;background:transparent;
+  color:var(--encre-2);border-radius:var(--r-s);padding:7px 13px;cursor:pointer;
+  display:flex;flex-direction:column;align-items:flex-start;gap:1px;min-width:96px;
+  transition:background var(--duree) var(--courbe),color var(--duree) var(--courbe),
+             border-color var(--duree) var(--courbe),transform .12s var(--courbe)}
+.ong:active{transform:scale(.97)}
+.ong .n{font-size:13px;font-weight:650;letter-spacing:-.01em;color:var(--encre)}
+.ong .p{font-size:12px;display:flex;gap:6px;align-items:baseline}
+.ong[aria-selected="true"]{background:var(--surface-2);border-color:var(--filet-fort);
+  box-shadow:var(--lueur),var(--ombre-1)}
+/* Contrôle segmenté façon Apple : la pilule glisse sous l'unité choisie. */
+.seg{margin-left:auto;position:relative;display:flex;background:var(--surface-2);
+  border:1px solid var(--filet);border-radius:var(--r-s);padding:3px;gap:0}
+.seg .pilule{position:absolute;top:3px;bottom:3px;border-radius:calc(var(--r-s) - 3px);
+  background:var(--surface);box-shadow:var(--lueur),var(--ombre-1);
+  transition:left .28s cubic-bezier(.34,1.2,.4,1),width .28s cubic-bezier(.34,1.2,.4,1)}
+.seg button{font:inherit;font-size:12px;font-weight:560;color:var(--encre-2);
+  background:transparent;border:0;border-radius:calc(var(--r-s) - 3px);
+  padding:5px 13px;cursor:pointer;position:relative;z-index:1;white-space:nowrap;
+  transition:color var(--duree) var(--courbe)}
+.seg button[aria-selected="true"]{color:var(--encre)}
+.gzone{position:relative;height:460px;touch-action:none;cursor:crosshair}
+.gzone canvas{display:block;width:100%;height:100%}
+.gleg{position:absolute;top:10px;left:12px;font-size:11.5px;color:var(--encre-2);
+  pointer-events:none;background:color-mix(in oklab,var(--surface) 78%,transparent);
+  backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
+  padding:4px 9px;border-radius:var(--r-xs);border:1px solid var(--filet)}
+.gleg:empty{display:none}
+.gvide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  color:var(--encre-3);font-size:13px;pointer-events:none}
+
 /* ── Grille et cartes ────────────────────────────────────────────── */
 .grille{display:grid;gap:var(--e4);margin-bottom:var(--e4);align-items:start}
 .g2{grid-template-columns:1fr 1fr}
@@ -377,6 +413,23 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0
     </div>
   </section>
 
+  <div class="carte marche">
+    <div class="mtete">
+      <div class="onglets" id="onglets" role="tablist"></div>
+      <div class="seg" id="tfs" role="tablist"><span class="pilule" id="tfpil"></span></div>
+    </div>
+    <div class="gzone" id="gzone">
+      <canvas id="gc"></canvas>
+      <div class="gleg num" id="gleg"></div>
+      <div class="gvide" id="gvide">Chargement des chandelles…</div>
+    </div>
+  </div>
+
+  <div class="carte" style="margin-bottom:16px">
+    <h2>Positions ouvertes <span class="aide" id="pos-aide"></span></h2>
+    <div id="positions"><div class="vide">Aucune position ouverte.</div></div>
+  </div>
+
   <div class="grille g2">
     <div class="carte">
       <h2>Décisions en cours <span class="aide" id="dec-aide"></span></h2>
@@ -405,11 +458,6 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0
   <div class="carte" style="margin-bottom:16px">
     <h2>Preuve par pupitre <span class="aide" id="preuve-aide"></span></h2>
     <div id="preuve"><div class="vide">Aucun apprentissage enregistré.</div></div>
-  </div>
-
-  <div class="carte" style="margin-bottom:16px">
-    <h2>Positions ouvertes <span class="aide" id="pos-aide"></span></h2>
-    <div id="positions"><div class="vide">Aucune position ouverte.</div></div>
   </div>
 
   <div class="carte" style="margin-bottom:16px">
@@ -774,7 +822,10 @@ function rendreGraphe(){
   const xs = serie.map(p=>p[0]), ys = serie.map(p=>p[1]);
   const x0=Math.min(...xs), x1=Math.max(...xs);
   let y0=Math.min(...ys), y1=Math.max(...ys);
-  const pad=(y1-y0)*.12 || Math.max(1,y0*.001); y0-=pad; y1+=pad;
+  // une série encore plate (moteur relancé, équité constante) prend une
+  // plage minimale de ±0,3 % : la ligne reste centrée au lieu de coller au
+  // bord et de transformer l'aplat en bloc plein
+  const pad=Math.max((y1-y0)*.12, y1*.003, 1); y0-=pad; y1+=pad;
   const X=v=>P.l+((v-x0)/((x1-x0)||1))*(W-P.l-P.r);
   const Y=v=>P.t+(1-(v-y0)/((y1-y0)||1))*(H-P.t-P.b);
   const d = serie.map((p,i)=>(i?"L":"M")+X(p[0]).toFixed(1)+" "+Y(p[1]).toFixed(1)).join(" ");
@@ -799,7 +850,7 @@ function rendreGraphe(){
           stroke="var(--filet-fort)" stroke-dasharray="2 5" stroke-linecap="round"/>
     <text x="${W-P.r}" y="${yb}" dy="-6" text-anchor="end" fill="var(--encre-3)"
           font-size="8.5" font-family="Inter" letter-spacing=".1em">DÉPART</text>
-    <path d="${aire}" fill="url(#g)"/>
+    ${(y1 - y0) > y0 * .012 ? `<path d="${aire}" fill="url(#g)"/>` : ""}
     <path d="${d}" fill="none" stroke="url(#tr)" stroke-width="2.2" filter="url(#lu)"
           stroke-linejoin="round" stroke-linecap="round"/>
     <line id="crx" x1="0" x2="0" y1="${P.t}" y2="${H-P.b}" stroke="var(--encre-3)"
@@ -834,6 +885,468 @@ function rendreGraphe(){
   };
 }
 
+/* ── Marché : chandelles navigables ──────────────────────────────────
+   Un seul canvas, redessiné à la demande. La vue est un intervalle
+   d'indices de chandelles [va, vb] ; la molette et le pincement déplacent
+   une cible [ta, tb] vers laquelle la vue glisse à chaque image — c'est ce
+   lissage qui donne le zoom "physique", pas un easing CSS. Le glisser
+   déplace la vue directement (aucune latence sous le doigt) et lègue sa
+   vitesse à une inertie qui décélère d'elle-même. */
+const Marche = (() => {
+  const cv = $("gc"), zone = $("gzone"), ctx = cv.getContext("2d");
+  const AXE_P = 58, AXE_T = 24;            // axe prix (droite), axe temps (bas)
+  const TFS = [["15m","15 min"],["1h","1 h"],["4h","4 h"],["1d","1 j"]];
+  let inst = null, tf = "15m";
+  let rows = [], plusAncien = false, chargement = 0, majQueue = 0;
+  let va = 0, vb = 1, ta = 0, tb = 1;      // vue et cible (indices flottants)
+  let vel = 0, anim = false;
+  let cross = null;                        // {x, y} en px CSS
+  let sur = {};                            // {inst: {entry, tp, sl, side}}
+  let univers = [], ticks = {};
+  let W = 0, H = 0, DPR = 1;
+
+  /* Les couleurs viennent des jetons du thème : le graphe suit le clair et
+     le sombre sans palette parallèle à maintenir. */
+  let C = {};
+  function encres(){
+    const g = getComputedStyle(document.documentElement);
+    const v = n => g.getPropertyValue(n).trim();
+    C = { long: v("--long"), short: v("--short"), encre: v("--encre"),
+          e2: v("--encre-2"), e3: v("--encre-3"), filet: v("--filet"),
+          surface: v("--surface"), bon: v("--bon"), critique: v("--critique") };
+  }
+  encres();
+  new MutationObserver(() => { encres(); dessiner(); })
+    .observe(document.documentElement, {attributes:true, attributeFilter:["data-theme"]});
+  if (window.matchMedia) try {
+    window.matchMedia("(prefers-color-scheme:light)")
+      .addEventListener("change", () => { encres(); dessiner(); });
+  } catch(e){}
+
+  function taille(){
+    const r = zone.getBoundingClientRect();
+    DPR = Math.min(window.devicePixelRatio || 1, 3);
+    W = r.width; H = r.height;
+    cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    dessiner();
+  }
+  new ResizeObserver(taille).observe(zone);
+
+  /* — géométrie — */
+  const largeur = () => W - AXE_P;
+  const pxParChandelle = () => largeur() / Math.max(vb - va, 1e-9);
+  const X = i => (i - va) * pxParChandelle();
+  const IDX = x => va + x / pxParChandelle();
+
+  function bornesY(){
+    const i0 = Math.max(0, Math.floor(va)), i1 = Math.min(rows.length - 1, Math.ceil(vb));
+    let lo = Infinity, hi = -Infinity, vmax = 0;
+    for (let i = i0; i <= i1; i++){
+      const r = rows[i]; if (!r) continue;
+      if (r[3] < lo) lo = r[3];
+      if (r[2] > hi) hi = r[2];
+      if (r[5] > vmax) vmax = r[5];
+    }
+    if (!isFinite(lo) || !isFinite(hi) || hi <= lo){ lo = 0; hi = 1; }
+    const pad = (hi - lo) * 0.08 || hi * 0.01 || 1;
+    return { lo: lo - pad, hi: hi + pad, vmax: Math.max(vmax, 1e-9) };
+  }
+
+  function pasJoli(brut){
+    const m = Math.pow(10, Math.floor(Math.log10(brut)));
+    for (const k of [1, 2, 2.5, 5, 10]) if (m * k >= brut) return m * k;
+    return m * 10;
+  }
+  const decimales = pas => Math.max(0, Math.min(8, -Math.floor(Math.log10(pas)) + (pas < 1 ? 1 : 0)));
+
+  /* Le format d'étiquette suit l'étendue VISIBLE, pas l'unité choisie :
+     130 chandelles d'une heure espacées de 25 h étiquetées « 23:00, 00:00,
+     01:00 » se lisaient comme des heures consécutives d'une même nuit. */
+  function heureTf(ts, porteeMs){
+    const d = new Date(ts);
+    if (porteeMs > 5 * 86_400_000)
+      return d.toLocaleDateString("fr-FR", {day:"2-digit", month:"short"});
+    if (porteeMs > 86_400_000)
+      return d.toLocaleDateString("fr-FR", {day:"2-digit", month:"2-digit"})
+        + " " + d.toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"});
+    return d.toLocaleTimeString("fr-FR", {hour:"2-digit", minute:"2-digit"});
+  }
+
+  /* — dessin — */
+  function dessiner(){
+    if (!W || !ctx) return;
+    ctx.clearRect(0, 0, W, H);
+    if (!rows.length) return;
+    const hG = H - AXE_T;                   // hauteur zone graphe
+    const hVol = Math.round(hG * 0.16);     // bande volume en bas
+    const hPx = hG - hVol;
+    const { lo, hi, vmax } = bornesY();
+    const Y = p => (1 - (p - lo) / (hi - lo)) * (hPx - 8) + 4;
+
+    /* grille + axe prix */
+    ctx.font = "10.5px 'JetBrains Mono', monospace";
+    ctx.textBaseline = "middle";
+    const pas = pasJoli((hi - lo) / 5), dec = decimales(pas);
+    ctx.strokeStyle = C.filet; ctx.fillStyle = C.e3; ctx.lineWidth = 1;
+    for (let pxv = Math.ceil(lo / pas) * pas; pxv <= hi; pxv += pas){
+      const y = Math.round(Y(pxv)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(largeur(), y); ctx.stroke();
+      ctx.textAlign = "left";
+      ctx.fillText(pxv.toLocaleString("fr-FR", {minimumFractionDigits:dec, maximumFractionDigits:dec}),
+                   largeur() + 7, y);
+    }
+
+    /* axe temps : ~6 repères sur des chandelles rondes */
+    const cible = Math.max(1, Math.round((vb - va) / 5));
+    const pasT = pasJoli(cible);
+    const iA = Math.max(0, Math.floor(va)), iB = Math.min(rows.length - 1, Math.ceil(vb));
+    const porteeMs = (rows[iB] && rows[iA]) ? rows[iB][0] - rows[iA][0] : 0;
+    ctx.textAlign = "center";
+    for (let i = Math.ceil(va / pasT) * pasT; i <= vb; i += pasT){
+      const r = rows[Math.round(i)]; if (!r) continue;
+      const x = X(i) + pxParChandelle() / 2;
+      if (x < 30 || x > largeur() - 30) continue;
+      ctx.fillText(heureTf(r[0], porteeMs), x, hG + AXE_T / 2 + 1);
+    }
+
+    /* volume puis chandelles */
+    const cw = pxParChandelle(), corps = Math.max(1, Math.min(cw * 0.66, 21));
+    const i0 = Math.max(0, Math.floor(va) - 1), i1 = Math.min(rows.length - 1, Math.ceil(vb) + 1);
+    for (let i = i0; i <= i1; i++){
+      const r = rows[i], x = X(i) + cw / 2;
+      const hausse = r[4] >= r[1];
+      const teinte = hausse ? C.long : C.short;
+      ctx.globalAlpha = 0.28;
+      ctx.fillStyle = teinte;
+      const hv = (r[5] / vmax) * (hVol - 4);
+      ctx.fillRect(x - corps / 2, hG - hv, corps, hv);
+      ctx.globalAlpha = 1;
+      ctx.strokeStyle = teinte; ctx.lineWidth = Math.max(1, cw * 0.08);
+      ctx.beginPath(); ctx.moveTo(x, Y(r[2])); ctx.lineTo(x, Y(r[3])); ctx.stroke();
+      ctx.fillStyle = teinte;
+      const y1 = Y(Math.max(r[1], r[4])), y2 = Y(Math.min(r[1], r[4]));
+      ctx.fillRect(x - corps / 2, y1, corps, Math.max(y2 - y1, 1));
+    }
+
+    /* niveaux de la position en cours : entrée, objectif, stop */
+    const b = sur[inst];
+    const ligne = (pxv, teinte, lab, tirets) => {
+      if (!isFinite(pxv) || pxv <= lo || pxv >= hi) return;
+      const y = Math.round(Y(pxv)) + 0.5;
+      ctx.strokeStyle = teinte; ctx.lineWidth = 1;
+      ctx.setLineDash(tirets || [5, 4]);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(largeur(), y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.font = "9.5px Inter, sans-serif";
+      const wl = ctx.measureText(lab).width + 10;
+      ctx.fillStyle = teinte;
+      ctx.beginPath(); ctx.roundRect(8, y - 8, wl, 16, 4); ctx.fill();
+      ctx.fillStyle = C.surface; ctx.textAlign = "left";
+      ctx.fillText(lab, 13, y + 0.5);
+      ctx.font = "10.5px 'JetBrains Mono', monospace";
+    };
+    if (b){
+      ligne(b.entry, C.e2, "ENTRÉE");
+      ligne(b.tp, C.bon, "OBJECTIF");
+      ligne(b.sl, C.critique, "STOP");
+    }
+
+    /* dernier prix : ligne + pastille sur l'axe */
+    const der = rows[rows.length - 1];
+    if (der){
+      const pxv = der[4], hausse = der[4] >= der[1];
+      const y = Math.max(9, Math.min(hPx - 9, Y(pxv)));
+      ctx.strokeStyle = hausse ? C.long : C.short;
+      ctx.setLineDash([2, 4]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, y + 0.5); ctx.lineTo(largeur(), y + 0.5); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = hausse ? C.long : C.short;
+      ctx.beginPath(); ctx.roundRect(largeur() + 2, y - 9, AXE_P - 4, 18, 5); ctx.fill();
+      ctx.fillStyle = C.surface; ctx.textAlign = "left";
+      ctx.fillText(pxv.toLocaleString("fr-FR", {minimumFractionDigits:dec, maximumFractionDigits:dec}),
+                   largeur() + 7, y);
+    }
+
+    /* réticule */
+    if (cross){
+      const i = Math.max(0, Math.min(rows.length - 1, Math.round(IDX(cross.x))));
+      const r = rows[i];
+      if (r){
+        const x = Math.round(X(i) + cw / 2) + 0.5;
+        const y = Math.round(Math.max(4, Math.min(hPx - 4, cross.y))) + 0.5;
+        ctx.strokeStyle = C.e3; ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, hG); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(largeur(), y); ctx.stroke();
+        ctx.setLineDash([]);
+        const pv = lo + (1 - (y - 4) / (hPx - 8)) * (hi - lo);
+        ctx.fillStyle = C.e2;
+        ctx.beginPath(); ctx.roundRect(largeur() + 2, y - 9, AXE_P - 4, 18, 5); ctx.fill();
+        ctx.fillStyle = C.surface;
+        ctx.fillText(pv.toLocaleString("fr-FR", {minimumFractionDigits:dec, maximumFractionDigits:dec}),
+                     largeur() + 7, y);
+        const chg = r[1] > 0 ? (r[4] / r[1] - 1) * 100 : 0;
+        $("gleg").innerHTML =
+          esc(new Date(r[0]).toLocaleString("fr-FR", {day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit"}))
+          + ' · O <b>' + nf(r[1], dec) + '</b> H <b>' + nf(r[2], dec) + '</b>'
+          + ' B <b>' + nf(r[3], dec) + '</b> C <b>' + nf(r[4], dec) + '</b>'
+          + ' · <span class="' + (chg >= 0 ? "hausse" : "baisse") + '">' + sgn(chg) + ' %</span>';
+      }
+    } else {
+      $("gleg").textContent = "";
+    }
+  }
+
+  /* — vue : lissage, inertie, bornes — */
+  function bornerCible(){
+    const n = rows.length, portee = tb - ta;
+    const p = Math.max(6, Math.min(portee, Math.max(n * 1.5, 60)));
+    const c = (ta + tb) / 2;
+    ta = c - p / 2; tb = c + p / 2;
+    if (ta < -p * 0.5){ ta = -p * 0.5; tb = ta + p; }
+    if (tb > n + p * 0.35){ tb = n + p * 0.35; ta = tb - p; }
+  }
+  function animer(){
+    if (anim) return;
+    anim = true;
+    const pas = () => {
+      let actif = false;
+      if (Math.abs(vel) > 0.02){
+        ta -= vel; tb -= vel; vel *= 0.94; bornerCible(); actif = true;
+      } else vel = 0;
+      const da = ta - va, db = tb - vb;
+      if (Math.abs(da) > 1e-3 || Math.abs(db) > 1e-3){
+        va += da * 0.30; vb += db * 0.30; actif = true;
+      } else { va = ta; vb = tb; }
+      dessiner();
+      chargerAncien();
+      if (actif) requestAnimationFrame(pas); else anim = false;
+    };
+    requestAnimationFrame(pas);
+  }
+
+  /* — données — */
+  async function charger(frais){
+    if (!inst) return;
+    const jeton = ++chargement;
+    if (frais){ $("gvide").style.display = "flex"; $("gvide").textContent = "Chargement des chandelles…"; }
+    try{
+      const r = await api(`/api/candles?inst=${encodeURIComponent(inst)}&tf=${tf}&n=420`);
+      const d = await r.json();
+      if (jeton !== chargement) return;
+      rows = d.candles || []; plusAncien = !!d.has_more; cross = null;
+      $("gvide").style.display = rows.length ? "none" : "flex";
+      if (!rows.length){ $("gvide").textContent = "Aucune chandelle en magasin pour cet horizon."; dessiner(); return; }
+      const n = rows.length, p = Math.min(130, n + 4);
+      vb = tb = n + 2; va = ta = vb - p;
+      vel = 0; dessiner();
+    }catch(e){
+      if (jeton === chargement){ $("gvide").style.display = "flex"; $("gvide").textContent = "Chandelles indisponibles."; }
+    }
+  }
+  let enPrepend = false;
+  async function chargerAncien(){
+    if (enPrepend || !plusAncien || !rows.length || va > 12) return;
+    enPrepend = true;
+    try{
+      const r = await api(`/api/candles?inst=${encodeURIComponent(inst)}&tf=${tf}&n=420&before=${rows[0][0]}`);
+      const d = await r.json();
+      const anciens = d.candles || [];
+      if (anciens.length){
+        rows = anciens.concat(rows);
+        va += anciens.length; vb += anciens.length;
+        ta += anciens.length; tb += anciens.length;
+      }
+      plusAncien = !!d.has_more;
+      dessiner();
+    }catch(e){} finally { enPrepend = false; }
+  }
+  async function rafraichirQueue(){
+    if (!inst || !rows.length) return;
+    try{
+      const r = await api(`/api/candles?inst=${encodeURIComponent(inst)}&tf=${tf}&n=4`);
+      const d = await r.json();
+      for (const c of (d.candles || [])){
+        const der = rows[rows.length - 1];
+        if (!der) break;
+        if (c[0] === der[0]) rows[rows.length - 1] = c;
+        else if (c[0] > der[0]){ rows.push(c); tb += 1; ta += 1; }
+      }
+      dessiner();
+    }catch(e){}
+  }
+  setInterval(rafraichirQueue, 30000);
+
+  /* — interactions — */
+  const doigts = new Map();
+  let glisse = null, pince = null;
+  zone.addEventListener("wheel", e => {
+    e.preventDefault();
+    if (!rows.length) return;
+    const rc = zone.getBoundingClientRect();
+    const ancre = IDX(e.clientX - rc.left);
+    const f = Math.exp(e.deltaY * 0.0016);
+    ta = ancre - (ancre - ta) * f;
+    tb = ancre + (tb - ancre) * f;
+    bornerCible(); animer();
+  }, {passive:false});
+  zone.addEventListener("pointerdown", e => {
+    zone.setPointerCapture(e.pointerId);
+    const rc = zone.getBoundingClientRect();
+    doigts.set(e.pointerId, {x: e.clientX - rc.left, y: e.clientY - rc.top});
+    if (doigts.size === 1){
+      const x0 = e.clientX - rc.left;
+      glisse = {x0, a: va, b: vb, dx: x0, dt: performance.now(), vx: 0};
+      vel = 0;
+    } else if (doigts.size === 2){
+      glisse = null;
+      const pts = [...doigts.values()];
+      pince = { d: Math.abs(pts[0].x - pts[1].x) || 1,
+                ancre: IDX((pts[0].x + pts[1].x) / 2), a: ta, b: tb };
+    }
+  });
+  zone.addEventListener("pointermove", e => {
+    const rc = zone.getBoundingClientRect();
+    const x = e.clientX - rc.left, y = e.clientY - rc.top;
+    if (doigts.has(e.pointerId)) doigts.set(e.pointerId, {x, y});
+    if (pince && doigts.size === 2){
+      const pts = [...doigts.values()];
+      const d = Math.abs(pts[0].x - pts[1].x) || 1;
+      const f = pince.d / d;
+      ta = pince.ancre - (pince.ancre - pince.a) * f;
+      tb = pince.ancre + (pince.b - pince.ancre) * f;
+      bornerCible();
+      va = ta; vb = tb; dessiner();
+      return;
+    }
+    if (glisse){
+      const di = (glisse.x0 - x) / pxParChandelle();
+      // la vitesse se mesure entre deux évènements successifs, pas depuis
+      // l'origine du glisser — sinon elle fond à mesure que le geste dure
+      const t = performance.now();
+      glisse.vx = 0.7 * glisse.vx + 0.3 * ((glisse.dx - x) / Math.max(t - glisse.dt, 1));
+      glisse.dx = x; glisse.dt = t;
+      va = glisse.a + di; vb = glisse.b + di;
+      ta = va; tb = vb;
+      dessiner(); chargerAncien();
+      if (e.pointerType === "mouse") cross = null;
+      return;
+    }
+    if (e.pointerType === "mouse"){ cross = {x, y}; dessiner(); }
+  });
+  const lever = e => {
+    doigts.delete(e.pointerId);
+    if (pince && doigts.size < 2) pince = null;
+    if (glisse && doigts.size === 0){
+      // px/ms -> chandelles/image (l'inertie tourne à ~60 images/s)
+      vel = -glisse.vx * 16 / pxParChandelle();
+      glisse = null;
+      if (Math.abs(vel) > 0.05) animer();
+    }
+  };
+  zone.addEventListener("pointerup", lever);
+  zone.addEventListener("pointercancel", lever);
+  zone.addEventListener("pointerleave", () => { cross = null; dessiner(); });
+  zone.addEventListener("dblclick", () => {
+    const n = rows.length, p = Math.min(130, n + 4);
+    tb = n + 2; ta = tb - p; vel = 0; animer();
+  });
+
+  /* — onglets instruments + unités de temps — */
+  function batirTfs(){
+    const seg = $("tfs");
+    TFS.forEach(([id, lab]) => {
+      const b = document.createElement("button");
+      b.textContent = lab; b.dataset.tf = id;
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", id === tf ? "true" : "false");
+      b.onclick = () => {
+        if (tf === id) return;
+        tf = id;
+        seg.querySelectorAll("button").forEach(x =>
+          x.setAttribute("aria-selected", x.dataset.tf === tf ? "true" : "false"));
+        placerPilule(); charger(true);
+      };
+      seg.appendChild(b);
+    });
+    placerPilule();
+  }
+  function placerPilule(){
+    const seg = $("tfs"), actif = seg.querySelector('button[aria-selected="true"]');
+    if (!actif) return;
+    const pil = $("tfpil");
+    pil.style.left = actif.offsetLeft + "px";
+    pil.style.width = actif.offsetWidth + "px";
+  }
+  window.addEventListener("resize", placerPilule);
+
+  function batirOnglets(){
+    const o = $("onglets");
+    o.innerHTML = "";
+    univers.forEach(id => {
+      const b = document.createElement("button");
+      b.className = "ong"; b.dataset.inst = id;
+      b.setAttribute("role", "tab");
+      b.setAttribute("aria-selected", id === inst ? "true" : "false");
+      b.innerHTML = `<span class="n">${esc(court(id))}</span>
+        <span class="p num"><span class="px">—</span><span class="chg"></span></span>`;
+      b.onclick = () => {
+        if (inst === id) return;
+        inst = id;
+        o.querySelectorAll(".ong").forEach(x =>
+          x.setAttribute("aria-selected", x.dataset.inst === inst ? "true" : "false"));
+        charger(true);
+      };
+      o.appendChild(b);
+    });
+  }
+  let pxRepli = {};   // prix de repli par instrument quand le ticker se tait
+  function majOnglets(){
+    $("onglets").querySelectorAll(".ong").forEach(b => {
+      const t = ticks[b.dataset.inst] || {};
+      const px = Number(t.last) || Number(pxRepli[b.dataset.inst]) || NaN;
+      const chg = Number(t.chg24h);
+      b.querySelector(".px").textContent = isFinite(px) && px > 0 ? nf(px, px > 1000 ? 1 : 4) : "—";
+      const c = b.querySelector(".chg");
+      if (isFinite(chg) && chg !== 0){
+        c.textContent = sgn(chg * 100) + " %";
+        c.className = "chg " + (chg >= 0 ? "hausse" : "baisse");
+      } else c.textContent = "";
+    });
+  }
+
+  /* — alimentation depuis /api/status — */
+  function maj(d){
+    const s = d.scalp || {};
+    const u = (d.instruments && d.instruments.length ? d.instruments : s.universe) || [];
+    ticks = d.tickers || {};
+    if (u.length && (u.length !== univers.length || u.some((x, i) => x !== univers[i]))){
+      univers = u.slice(0, 8);
+      if (!inst || !univers.includes(inst)) inst = univers[0];
+      batirOnglets();
+      if (!rows.length) charger(true);
+    }
+    pxRepli = {};
+    (s.preds || []).forEach(q => { if (q.px > 0) pxRepli[q.inst] = q.px; });
+    if (inst && rows.length) pxRepli[inst] = rows[rows.length - 1][4];
+    majOnglets();
+    const pb = ((d.trader || {}).paper_broker || {});
+    const pos = pb.pos || {};
+    sur = {};
+    Object.entries(s.brackets || {}).forEach(([k, b]) => {
+      if (Math.abs(Number(pos[k] || 0)) > 1e-12)
+        sur[k] = {entry: Number(b.entry), tp: Number(b.tp), sl: Number(b.sl), side: b.side};
+    });
+    dessiner();
+  }
+
+  batirTfs();
+  taille();
+  /* sonde pour les tests d'interface : la vue est observable sans capture */
+  window.__marche = { vue: () => [va, vb], nb: () => rows.length, tf: () => tf, inst: () => inst };
+  return { maj };
+})();
+
 /* ── Boucle ──────────────────────────────────────────────────────── */
 function rendre(d){
   dernier = d;
@@ -853,6 +1366,7 @@ function rendre(d){
     el.className = dp >= 0 ? "hausse" : "baisse";
   }
   rendreVerdict(d); rendreDecisions(d); rendrePreuve(d); rendrePositions(d);
+  Marche.maj(d);
   rendreRisque(d); rendreLevier(d); rendreTrades(d);
   const ts = Number(d.now || Date.now()/1000);
   $("maj").textContent = "mis à jour " + heure(ts);

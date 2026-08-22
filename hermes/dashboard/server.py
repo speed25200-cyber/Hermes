@@ -149,42 +149,45 @@ class StateReader:
             "scalp": scalp,
         }
 
-    # timeframe -> number of base 15m bars per bucket
-    TFS = {"15m": 1, "1h": 4, "4h": 16, "1d": 96}
+    # Each timeframe reads the finest stored bar that can build it exactly.
+    # The store holds real 15m and 1H series (the backfill fetches both);
+    # 4h and 1d are calendar-aligned aggregations of the 1H series. An
+    # earlier build aggregated everything from cfg["bar"], which mislabelled
+    # every timeframe the moment the config said "1H".
+    TFS = {"15m": ("15m", 1), "1h": ("1H", 1),
+           "4h": ("1H", 4), "1d": ("1H", 24)}
 
-    def _base_rows(self, inst: str) -> list:
-        """15m OHLCV rows from the local store, cached ~45s."""
+    def _base_rows(self, inst: str, bar: str) -> list:
+        """OHLCV rows for one stored bar size, cached ~45s."""
         if not hasattr(self, "_store"):
             from ..config import Config
             from ..data.store import DataStore
             cfg = Config.load()
             self._store = DataStore(cfg["data_dir"])
-            self._bar = cfg["bar"]
             self._ccache = {}
         now = time.time()
-        hit = self._ccache.get(inst)
+        hit = self._ccache.get((inst, bar))
         if hit and hit[0] > now:
             return hit[1]
-        c = self._store.load(inst, self._bar)
+        c = self._store.load(inst, bar, with_funding=False)
         rows = [[int(c.ts[i]), float(c.o[i]), float(c.h[i]),
                  float(c.l[i]), float(c.c[i]), float(c.v[i])]
                 for i in range(len(c))]
-        self._ccache[inst] = (now + 45.0, rows)
+        self._ccache[(inst, bar)] = (now + 45.0, rows)
         return rows
 
     def candles(self, inst: str, n: int = 300, tf: str = "15m",
                 before: int | None = None) -> dict:
-        """OHLCV window for the trade inspector: any supported timeframe
-        (aggregated from the 15m store, calendar-aligned buckets) with
-        backwards pagination via `before` (exclusive, ms)."""
+        """OHLCV window for the chart: calendar-aligned buckets, backwards
+        pagination via `before` (exclusive, ms)."""
         if (self.instruments and inst not in self.instruments) \
                 or tf not in self.TFS:
             return {"inst": inst, "tf": tf, "candles": [], "has_more": False}
         try:
-            rows = self._base_rows(inst)
-            step = self.TFS[tf]
+            bar, step = self.TFS[tf]
+            rows = self._base_rows(inst, bar)
             if step > 1:
-                bucket_ms = step * 15 * 60 * 1000
+                bucket_ms = step * 3_600_000
                 agg, cur, key = [], None, None
                 for r in rows:
                     k = r[0] // bucket_ms
@@ -201,7 +204,7 @@ class StateReader:
                 if cur:
                     agg.append(cur)
                 rows = agg
-            n = max(20, min(int(n), 1000))
+            n = max(20, min(int(n), 1500))
             hi = len(rows)
             if before is not None:
                 import bisect

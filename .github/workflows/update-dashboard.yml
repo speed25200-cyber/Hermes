@@ -9,6 +9,12 @@ on:
         description: "VPS root password (fallback: VPS_PASSWORD secret)"
         required: false
         type: string
+      reset_state:
+        description: "Réinitialiser équité et drawdown (oui/non)"
+        required: false
+        default: "non"
+        type: choice
+        options: ["non", "oui"]
 
 env:
   VPS: 178.104.191.79
@@ -43,6 +49,26 @@ jobs:
           sshpass -e rsync -az --delete \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             hermes/dashboard/ "root@$VPS:/root/hermes/hermes/dashboard/"
+
+      - name: Réinitialiser équité et risque (sur demande)
+        if: ${{ inputs.reset_state == 'oui' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            set -e
+            d=/root/hermes/state
+            actif=0; systemctl is-active --quiet hermes && actif=1
+            [ "$actif" = 1 ] && systemctl stop hermes
+            ts=$(date +%Y%m%d-%H%M%S)
+            mkdir -p "$d/sauvegarde-$ts"
+            # trader.json porte le portefeuille papier, risk.json le pic
+            # d equite et le day-halt, journal.jsonl la courbe. registry.json
+            # (le carnet issu de la recherche) et data/ ne sont pas touches.
+            for f in trader.json risk.json scalp.json journal.jsonl hermes.log; do
+              [ -f "$d/$f" ] && mv "$d/$f" "$d/sauvegarde-$ts/$f" || true
+            done
+            echo "etat remis a zero — sauvegarde dans state/sauvegarde-$ts"
+            [ "$actif" = 1 ] && systemctl start hermes && echo "moteur relance" || true
+          '
 
       - name: Restart dashboard service
         run: |

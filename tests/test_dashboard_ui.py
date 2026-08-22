@@ -147,3 +147,34 @@ def test_irregular_plurals_are_written_out(page):
     la première ligne que quiconque lit."""
     assert "signals" not in page
     assert "signaux prêts" in page and "signal prêt" in page
+
+
+# --- graphe navigable --------------------------------------------------- #
+
+def test_the_market_chart_ships_with_its_interactions(page):
+    """Le graphe est un canvas piloté : zoom molette ancré au curseur,
+    glisser à inertie, pincement, unités multiples, pagination arrière."""
+    assert 'id="gc"' in page and 'id="gzone"' in page
+    assert "touch-action:none" in page
+    for geste in ('addEventListener("wheel"', 'addEventListener("pointerdown"',
+                  'addEventListener("pointermove"', 'addEventListener("dblclick"'):
+        assert geste in page, geste
+    assert "has_more" in page and "before=" in page
+
+
+def test_every_timeframe_the_server_offers_is_reachable(page):
+    from hermes.dashboard.server import StateReader
+    for tf in StateReader.TFS:
+        assert f'["{tf}"' in page, tf
+
+
+def test_time_axis_format_follows_the_visible_span(page):
+    """130 chandelles d'une heure espacées de 25 h étiquetées 23:00, 00:00,
+    01:00 se lisaient comme des heures consécutives d'une même nuit."""
+    assert "porteeMs" in page
+    assert page.count("porteeMs >") >= 2
+
+
+def test_chart_levels_never_ride_on_colour_alone(page):
+    for etiquette in ('"ENTRÉE"', '"OBJECTIF"', '"STOP"'):
+        assert etiquette in page, etiquette
