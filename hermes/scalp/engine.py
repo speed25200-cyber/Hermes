@@ -9,6 +9,7 @@ import time
 from ..data.store import Candles, BAR_MS
 from ..exchange.broker import Broker, PaperBroker
 from . import features as F
+from . import economics as ECON
 from . import model as M
 from .clock import BARS, HOLD, ScaleDesk
 from .flow import FlowBrain
@@ -45,7 +46,11 @@ class ScalpEngine:
         costs = (cfg.get("costs") or {})
         taker = float(costs.get("taker_fee_bps", 5.0))
         self.taker_fee_bps = taker
-        self.round_trip_bps = 7.0  # maker 2 + taker 5
+        # Entry is posted, exit is taken: maker + taker. Read from the same
+        # costs block the rest of the system uses — a hardcoded 7.0 meant
+        # configuring costs changed the backtest and not the live gate.
+        maker = float(costs.get("maker_fee_bps", 2.0))
+        self.round_trip_bps = float(s.get("round_trip_bps", maker + taker))
         self.stop_bps = float(s.get("stop_bps", 15.0))
         self.take_bps = float(s.get("take_bps", 10.0))
         self.brackets: dict[str, dict] = {}
@@ -240,14 +245,26 @@ class ScalpEngine:
                 spread = 3.0
             hurdle = max(self.min_edge, self.round_trip_bps, spread + 1.5)
             reason = ""
+            # The exit is taken, so it pays half the spread on top of the fees.
+            cost_bps = self.round_trip_bps + 0.5 * spread
+            bracket = None
             if inf["veto"]:
                 direction, reason = "flat", inf.get("status") or "veto"
             elif abs(edge) < hurdle:
                 direction, reason = "flat", "cost"
-            elif edge > 0:
-                direction = "long"
             else:
-                direction = "short"
+                bracket = ECON.choose_bracket(
+                    edge_bps=edge, vol_bps=max(pred["vol_bps"], 1.0),
+                    horizon=self.horizon, cost_bps=cost_bps)
+                if bracket is None:
+                    # No take/stop pair on this forecast is worth its own
+                    # friction. Predicting a direction is not the same as
+                    # having a trade.
+                    direction, reason = "flat", "no-ev"
+                elif edge > 0:
+                    direction = "long"
+                else:
+                    direction = "short"
             out.append({
                 "inst": inst,
                 "px": feat["px"],
@@ -267,8 +284,10 @@ class ScalpEngine:
                 "ml_bps": inf["ml_bps"],
                 "ml": inf.get("status"),
                 "policy": inf.get("policy"),
-                "tp_bps": inf["tp_bps"],
-                "sl_bps": inf["sl_bps"],
+                "tp_bps": bracket[0] if bracket else inf["tp_bps"],
+                "sl_bps": bracket[1] if bracket else inf["sl_bps"],
+                "ev_bps": bracket[2] if bracket else 0.0,
+                "cost_bps": cost_bps,
                 "bar": inf.get("bar") or bar,
                 "clocks": inf.get("clocks") or {},
                 "bar_ts": int(c.ts[-1]),
@@ -386,8 +405,12 @@ class ScalpEngine:
         entry = float(fill.price)
         sl_bps = float(sl_bps if sl_bps is not None else self.stop_bps)
         tp_bps = float(tp_bps if tp_bps is not None else self.take_bps)
-        sl_bps = max(sl_bps, 2.0 * max(vol_bps, 1.0) * 0.5, 8.0)
-        tp_bps = max(tp_bps, 1.0 * max(vol_bps, 1.0) * 0.5, 6.0)
+        # These arrive already chosen by expected value; the floors that used
+        # to widen them here could arm a 6bps take against a 7bps round trip,
+        # a "winning" trade that books a loss. The only floor left is the one
+        # that cannot be argued with: a take must clear its own cost.
+        tp_bps = max(tp_bps, 1.25 * self.round_trip_bps)
+        sl_bps = max(sl_bps, 1.0)
         if qty > 0:
             sl = entry * (1.0 - sl_bps * 1e-4)
             tp = entry * (1.0 + tp_bps * 1e-4)

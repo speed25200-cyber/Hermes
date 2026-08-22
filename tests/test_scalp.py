@@ -263,3 +263,68 @@ def test_leverage_tapers_into_drawdown(tmp_path):
     assert cut <= full
     assert cut >= 2
 
+
+
+# --- a trade exists only when a bracket pays for itself ------------------- #
+
+class _Quiet:
+    def last_trades(self, *a, **k): return []
+    def books(self, *a, **k): return {"bids": [["100", "1"]], "asks": [["100.1", "1"]]}
+
+
+def _engine(tmp_path, **scalp):
+    from hermes.exchange.broker import PaperBroker
+    from hermes.risk import RiskEngine
+    base = {"instruments": ["BTC-USDT-SWAP"], "horizon": 3,
+            "max_hold_bars": 6, "max_name_lev": 0.3, "gross_cap": 0.9}
+    base.update(scalp)
+    cfg = {"scalp": base,
+           "costs": {"taker_fee_bps": 5, "maker_fee_bps": 2, "slippage_bps": 2}}
+    broker = PaperBroker(cash=10_000, fee_bps=2, slippage_bps=1)
+    risk = RiskEngine(daily_loss_limit_pct=50, max_drawdown_pct=90)
+    return ScalpEngine(cfg, broker, _Quiet(), risk, log=lambda m: None,
+                       state_dir=str(tmp_path)), broker
+
+
+def test_round_trip_cost_comes_from_config(tmp_path):
+    """It was hardcoded to 7.0, so configuring costs moved the backtest and
+    left the live gate where it was."""
+    eng, _ = _engine(tmp_path)
+    assert eng.round_trip_bps == 7.0          # maker 2 + taker 5
+    eng2, _ = _engine(tmp_path, round_trip_bps=19.0)
+    assert eng2.round_trip_bps == 19.0
+
+
+def test_a_forecast_below_cost_is_not_a_trade(tmp_path):
+    """Direction is not enough: the bracket has to beat its own friction."""
+    eng, broker = _engine(tmp_path, round_trip_bps=400.0, min_edge_bps=0.0)
+    c = generate(inst="BTC-USDT-SWAP", bar="1m", n=400, seed=5)
+    broker.mark_prices({c.inst: float(c.c[-1])})
+    rep = eng.tick({c.inst: c})
+    assert all(p["dir"] == "flat" for p in rep["preds"])
+    assert any(p.get("reason") in ("cost", "no-ev", "veto", "wait")
+               for p in rep["preds"])
+
+
+def test_armed_take_profit_always_clears_the_round_trip(tmp_path):
+    """The volatility floors could arm a 6bps take against a 7bps cost."""
+    from hermes.exchange.broker import Fill
+    eng, _ = _engine(tmp_path)
+    fill = Fill(inst="BTC-USDT-SWAP", side="buy", qty=1.0, price=100.0,
+                fee=0.0, ts=0.0)
+    eng._arm("BTC-USDT-SWAP", 1.0, fill, vol_bps=1.0, tp_bps=6.0, sl_bps=30.0)
+    br = eng.brackets["BTC-USDT-SWAP"]
+    assert br["tp_bps"] > eng.round_trip_bps, br
+
+
+def test_the_bracket_carries_its_expected_value(tmp_path):
+    """Whatever is armed, the report has to be able to say what it is worth."""
+    eng, broker = _engine(tmp_path, min_edge_bps=0.0)
+    c = generate(inst="BTC-USDT-SWAP", bar="1m", n=400, seed=11)
+    broker.mark_prices({c.inst: float(c.c[-1])})
+    rep = eng.tick({c.inst: c})
+    for p in rep["preds"]:
+        assert "ev_bps" in p and "cost_bps" in p
+        if p["dir"] != "flat":
+            assert p["ev_bps"] > 0, p
+            assert p["tp_bps"] > p["cost_bps"], p
