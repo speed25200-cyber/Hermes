@@ -44,21 +44,52 @@ def trade_imbalance(trades: list[dict], now_ms: int, window_ms: int = 60_000) ->
 
 
 def book_feats(book: dict | None, last: float) -> tuple[float, float]:
-    """(imbalance, microprice_vs_last)."""
+    """Back-compat: (top-5 size imbalance, microprice vs last)."""
+    f = book_l2(book, last)
+    return f["imb5"], f["micro"]
+
+
+def _levels(side: list, n: int = 10) -> list[tuple[float, float]]:
+    out: list[tuple[float, float]] = []
+    for row in (side or [])[:n]:
+        try:
+            px, sz = float(row[0]), float(row[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if px > 0 and sz > 0:
+            out.append((px, sz))
+    return out
+
+
+def book_l2(book: dict | None, last: float, band_bps: float = 5.0) -> dict[str, float]:
+    """Real L2 snapshot: L1/L5 imbalance, microprice, depth within `band_bps` of mid."""
+    z = {"imb1": 0.0, "imb5": 0.0, "micro": 0.0, "spread_bps": 0.0,
+         "depth_imb": 0.0, "bid_usd": 0.0, "ask_usd": 0.0}
     if not book:
-        return 0.0, 0.0
-    bids, asks = book.get("bids") or [], book.get("asks") or []
+        return z
+    bids, asks = _levels(book.get("bids") or []), _levels(book.get("asks") or [])
     if not bids or not asks:
-        return 0.0, 0.0
-    try:
-        bsz = sum(float(x[1]) for x in bids[:5])
-        asz = sum(float(x[1]) for x in asks[:5])
-        bid, b0 = float(bids[0][0]), float(bids[0][1])
-        ask, a0 = float(asks[0][0]), float(asks[0][1])
-    except (TypeError, ValueError, IndexError):
-        return 0.0, 0.0
-    imb = (bsz - asz) / (bsz + asz) if (bsz + asz) > 0 else 0.0
-    den = b0 + a0
-    micro = (bid * a0 + ask * b0) / den if den > 0 else last
-    vs = (micro / last - 1.0) if last > 0 else 0.0
-    return float(np.clip(imb, -1, 1)), float(np.clip(vs, -0.002, 0.002))
+        return z
+    bid, b0 = bids[0]
+    ask, a0 = asks[0]
+    if ask <= bid:
+        return z
+    mid = 0.5 * (bid + ask)
+    px = last if last > 0 else mid
+    z["spread_bps"] = (ask - bid) / px * 1e4
+    den1 = b0 + a0
+    z["imb1"] = (b0 - a0) / den1 if den1 else 0.0
+    # microprice: weighted toward the thinner side (queue theory)
+    z["micro"] = ((bid * a0 + ask * b0) / den1 / px - 1.0) if den1 and px else 0.0
+    bn = sum(p * s for p, s in bids[:5])
+    an = sum(p * s for p, s in asks[:5])
+    z["imb5"] = (bn - an) / (bn + an) if (bn + an) else 0.0
+    band = band_bps * 1e-4
+    bd = sum(p * s for p, s in bids if (mid - p) / mid <= band)
+    ad = sum(p * s for p, s in asks if (p - mid) / mid <= band)
+    z["bid_usd"], z["ask_usd"] = bd, ad
+    z["depth_imb"] = (bd - ad) / (bd + ad) if (bd + ad) else 0.0
+    for k in ("imb1", "imb5", "depth_imb"):
+        z[k] = float(np.clip(z[k], -1.0, 1.0))
+    z["micro"] = float(np.clip(z["micro"], -0.002, 0.002))
+    return z

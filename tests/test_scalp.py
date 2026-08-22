@@ -151,3 +151,35 @@ def test_tp_takes_long(tmp_path):
     eng._arm("BTC-USDT-SWAP", 0.01, fill, vol_bps=1.0)
     hit = eng.check_exits()
     assert "BTC-USDT-SWAP" in hit
+
+
+def test_book_l2_bid_heavy():
+    book = {
+        "bids": [["100.0", "20"], ["99.95", "15"], ["99.9", "10"]],
+        "asks": [["100.05", "2"], ["100.10", "3"], ["100.15", "4"]],
+    }
+    f = F.book_l2(book, 100.02)
+    assert f["imb5"] > 0.4
+    assert f["imb1"] > 0.5
+    assert f["spread_bps"] > 0
+    assert f["depth_imb"] > 0
+
+
+def test_ingest_l2_overrides_ticker(tmp_path):
+    class Quiet:
+        def last_trades(self, *a, **k): return []
+        def books(self, *a, **k): return {"bids": [], "asks": []}
+    b = PaperBroker(cash=10_000)
+    risk = RiskEngine(daily_loss_limit_pct=50, max_drawdown_pct=90)
+    eng = ScalpEngine({"scalp": {"instruments": ["BTC-USDT-SWAP"]},
+                       "costs": {"taker_fee_bps": 5}},
+                      b, Quiet(), risk, log=lambda m: None, state_dir=str(tmp_path))
+    eng.ticks = {"BTC-USDT-SWAP": {"last": 100.0, "bid": 99.9, "ask": 100.1,
+                                   "bid_sz": 1, "ask_sz": 1}}
+    eng.ingest_book("BTC-USDT-SWAP", {
+        "bids": [["99.98", "50"], ["99.97", "40"]],
+        "asks": [["100.02", "1"], ["100.03", "1"]],
+    })
+    m = eng._micro("BTC-USDT-SWAP", 100.0)
+    assert m["l2"] == 1.0
+    assert m["book"] > 0.5

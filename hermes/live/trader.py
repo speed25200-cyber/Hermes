@@ -747,6 +747,7 @@ class LiveRunner:
         last_scalp_bar = 0
         last_uni = 0.0
         rr = 0
+        book_rr = 0
         poll = int((self.cfg.raw.get("scalp") or {}).get("poll_seconds", 5)
                    if self.scalp else self.cfg["live"]["poll_seconds"])
         while True:
@@ -773,6 +774,27 @@ class LiveRunner:
                     if ticks and hasattr(self.broker, "mark_ticks"):
                         self.broker.mark_ticks(ticks)
                     names = self.scalp.instruments or ["BTC-USDT-SWAP"]
+                    # L2: 4 books/poll, positions + BTC first, then rotate.
+                    # Never 50 books — that 429s the public API and freezes MTM.
+                    prio: list[str] = []
+                    for inst in list(self.broker.positions()) + ["BTC-USDT-SWAP", "ETH-USDT-SWAP"]:
+                        if inst in names and inst not in prio:
+                            prio.append(inst)
+                    rest = [n for n in names if n not in prio]
+                    take = rest[book_rr:book_rr + 2]
+                    book_rr = (book_rr + 2) % max(len(rest), 1)
+                    book_chunk = (prio + take)[:6]
+                    t0, r0 = self.client.timeout, self.client.max_retries
+                    self.client.timeout, self.client.max_retries = 3.0, 1
+                    try:
+                        for inst in book_chunk:
+                            try:
+                                raw = self.client.books(inst, sz=10)
+                                self.scalp.ingest_book(inst, raw)
+                            except Exception as exc:
+                                self.log(f"L2 {inst}: {type(exc).__name__}")
+                    finally:
+                        self.client.timeout, self.client.max_retries = t0, r0
                     batch = 8
                     chunk = names[rr:rr + batch]
                     rr = (rr + batch) % max(len(names), 1)

@@ -18,9 +18,10 @@ PRIOR = {
     "r1": -0.55,
     "r3": -0.22,
     "r12": 0.08,
-    "imb": 0.12,
-    "book": 0.45,
-    "micro": 0.30,
+    "imb": 0.15,      # L1 size imbalance
+    "book": 0.40,     # L5 notional imbalance
+    "depth": 0.30,    # size within 5 bps of mid
+    "micro": 0.35,    # microprice vs last
     "btc": 0.55,
 }
 
@@ -41,6 +42,7 @@ def score(feat: dict[str, float], btc_r1: float, is_btc: bool) -> float:
         + PRIOR["r12"] * z12
         + PRIOR["imb"] * _clip(feat.get("imb", 0.0), -1, 1)
         + PRIOR["book"] * _clip(feat.get("book", 0.0), -1, 1)
+        + PRIOR["depth"] * _clip(feat.get("depth", 0.0), -1, 1)
         + PRIOR["micro"] * _clip(feat.get("micro", 0.0) / 0.0004, -3, 3)
     )
     if not is_btc:

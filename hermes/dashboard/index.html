@@ -1123,7 +1123,8 @@ function renderScalp(s){
   liveEl.innerHTML = featured.map(p => {
     const dir = p.dir || "flat";
     const cls = dir === "flat" ? "watch" : dir;
-    const tag = dir === "long" ? "FIRING" : dir === "short" ? "FIRING" : "WATCH";
+    const tag = dir === "long" ? (p.l2 ? "FIRING · L2" : "FIRING")
+              : dir === "short" ? (p.l2 ? "FIRING · L2" : "FIRING") : "WATCH";
     const lab = dir === "long" ? "LONG" : dir === "short" ? "SHORT" : "GATED";
     const pct = Math.round((p.p_up || 0.5) * 100);
     const edge = p.edge_bps || 0;
@@ -1135,7 +1136,7 @@ function renderScalp(s){
       <div class="nums">
         <div><b>${pct}%</b><span>p(up)</span></div>
         <div><b>${edge>=0?"+":""}${edge.toFixed(1)}</b><span>edge bps</span></div>
-        <div><b>${spr.toFixed(1)}</b><span>spread</span></div>
+        <div><b>${(p.book||0)>=0?"+":""}${(p.book||0).toFixed(2)}</b><span>${p.l2?"L2 imb":"book"}</span></div>
       </div>
     </div>`;
   }).join("");

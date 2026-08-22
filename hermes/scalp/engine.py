@@ -43,6 +43,7 @@ class ScalpEngine:
         self.stop_bps = float(s.get("stop_bps", 15.0))
         self.take_bps = float(s.get("take_bps", 10.0))
         self.brackets: dict[str, dict] = {}
+        self.l2: dict[str, dict] = {}  # inst -> {ts, feats}
 
     # ------------------------------------------------------------------ #
 
@@ -102,8 +103,18 @@ class ScalpEngine:
             self.brackets.pop(inst, None)
             self.log(f"scalp flatten dust {inst} qty={qty:.6f}")
 
-    def _micro(self, inst: str, last: float) -> tuple[float, float, float]:
-        """Book proxy from the all-swaps ticker (one REST call, not 50)."""
+    def ingest_book(self, inst: str, book: dict) -> None:
+        last = float((self.ticks.get(inst) or {}).get("last") or 0.0)
+        self.l2[inst] = {"ts": time.time(), "feats": F.book_l2(book, last)}
+
+    def _micro(self, inst: str, last: float) -> dict[str, float]:
+        rec = self.l2.get(inst)
+        if rec and (time.time() - rec["ts"]) < 25.0:
+            f = rec["feats"]
+            return {
+                "imb": f["imb1"], "book": f["imb5"], "depth": f["depth_imb"],
+                "micro": f["micro"], "spread_bps": f["spread_bps"], "l2": 1.0,
+            }
         t = self.ticks.get(inst) or {}
         bsz = float(t.get("bid_sz") or 0.0)
         asz = float(t.get("ask_sz") or 0.0)
@@ -113,7 +124,9 @@ class ScalpEngine:
         den = bsz + asz
         micro_px = (bid * asz + ask * bsz) / den if den > 0 and bid > 0 and ask > 0 else last
         vs = (micro_px / last - 1.0) if last > 0 else 0.0
-        return float(imb), float(imb), float(vs)  # book≈size imbalance; no L2 hammering
+        spr = ((ask - bid) / last * 1e4) if last > 0 and bid > 0 and ask > bid else 0.0
+        return {"imb": imb, "book": imb, "depth": 0.0, "micro": vs,
+                "spread_bps": spr, "l2": 0.0}
 
     def predict_all(self, candles_1m: dict[str, Candles]) -> list[dict]:
         btc = candles_1m.get("BTC-USDT-SWAP")
@@ -126,11 +139,13 @@ class ScalpEngine:
             if c is None or len(c) < 12:
                 continue
             feat = F.candle_feats(c)
-            imb, book, micro = self._micro(inst, feat["px"])
-            feat["imb"], feat["book"], feat["micro"] = imb, book, micro
+            micro = self._micro(inst, feat["px"])
+            feat["imb"], feat["book"] = micro["imb"], micro["book"]
+            feat["micro"], feat["depth"] = micro["micro"], micro["depth"]
             pred = M.predict(feat, btc_r1, inst.startswith("BTC-"), self.horizon)
             edge = float(pred["edge_bps"])
-            spread = float((self.ticks.get(inst) or {}).get("spread_bps") or 0.0)
+            spread = float(micro["spread_bps"] or 0.0) or float(
+                (self.ticks.get(inst) or {}).get("spread_bps") or 0.0)
             if spread <= 0:
                 spread = 3.0  # unknown book → don't treat as free
             hurdle = max(self.min_edge, self.round_trip_bps, spread + 2.0 * self.taker_fee_bps)
@@ -150,6 +165,9 @@ class ScalpEngine:
                 "vol_bps": pred["vol_bps"],
                 "spread_bps": spread,
                 "r1": feat["r1"],
+                "book": micro["book"],
+                "depth": micro["depth"],
+                "l2": bool(micro["l2"]),
                 "bar_ts": int(c.ts[-1]),
             })
         self.last_preds = out
