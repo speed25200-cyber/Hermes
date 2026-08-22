@@ -109,7 +109,9 @@ button.ghost:hover{color:var(--encre);border-color:var(--encre-3)}
 /* Barre « edge contre coût » : la contrainte qui mord, visible */
 .barre{margin-top:11px}
 .barre .piste{height:8px;border-radius:99px;background:var(--surface-2);position:relative;overflow:hidden}
-.barre .rempli{height:100%;border-radius:99px;background:var(--accent)}
+.barre .rempli{height:100%;border-radius:99px;background:var(--accent);position:absolute;top:0}
+.barre .rempli.faible{background:var(--encre-3)}
+.barre .zero{position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--bord)}
 .barre .seuil{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--encre-2)}
 .barre .leg{display:flex;justify-content:space-between;margin-top:6px;
   font-size:11px;color:var(--encre-3)}
@@ -214,6 +216,11 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:28px 0 10px
         </div>
       </div>
     </div>
+  </div>
+
+  <div class="carte" style="margin-bottom:16px">
+    <h2>Preuve par pupitre <span class="aide" id="preuve-aide"></span></h2>
+    <div id="preuve"><div class="vide">Aucun apprentissage enregistré.</div></div>
   </div>
 
   <div class="carte" style="margin-bottom:16px">
@@ -361,11 +368,72 @@ function rendreDecisions(d){
       </div>
       <div class="barre">
         <div class="piste">
-          <div class="rempli" style="width:${(part*100).toFixed(1)}%"></div>
+          <div class="rempli" style="left:0;width:${(part*100).toFixed(1)}%"></div>
           <div class="seuil" style="left:${seuil.toFixed(1)}%"></div>
         </div>
         <div class="leg"><span>mouvement prévu</span>
           <span>le repère marque le coût — à gauche, le trade perd</span></div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+/* ── Preuve par pupitre ──────────────────────────────────────────────
+   Ce que chaque pupitre a réellement franchi. Un apprentissage qui dit
+   « live » sans montrer sa marge n'est pas une preuve, c'est une
+   affirmation. La barre de sélection est ce qu'un pur hasard aurait
+   produit compte tenu du nombre d'essais : la dépasser est la seule
+   raison valable de risquer du capital. */
+function rendrePreuve(d){
+  const h = (d.scalp || {}).horizons || {};
+  const best = h._best || {};
+  const noms = Object.keys(best).sort();
+  $("preuve-aide").textContent = noms.length
+    ? "Sharpe par trade sur trades indépendants, contre le hasard"
+    : "";
+  if (!noms.length) {
+    $("preuve").innerHTML = '<div class="vide">Aucun apprentissage enregistré.</div>';
+    return;
+  }
+  $("preuve").innerHTML = noms.map(nom => {
+    const b = best[nom] || {};
+    const sr = Number(b.holdout_sr || 0), bar = Number(b.sel_bar || 0);
+    const vivant = b.status === "live";
+    const marge = sr - bar;
+    // Échelle commune aux deux repères pour que la comparaison soit visuelle.
+    // Le zéro est au centre : une barre partant du bord gauche ferait lire
+    // « à moitié plein » là où la performance est nulle.
+    const ech = Math.max(Math.abs(sr), bar, 0.05) * 1.35;
+    const pos = v => 50 + 50 * Math.max(-1, Math.min(1, v / ech));
+    const g = Math.min(50, pos(sr)), dte = Math.max(50, pos(sr));
+    return `<div class="decision">
+      <div class="dtete">
+        <span class="dsym">${esc(nom)}</span>
+        <span class="jeton ${vivant ? "actif" : "attente"}">${vivant ? "Retenu" : "Écarté"}</span>
+        <span class="dpx">${esc(b.policy || "flat")} · ${esc(b.bar || "?")}</span>
+        <span class="motif">${b.n_trials || 0} essais</span>
+      </div>
+      <div class="mesures">
+        <div class="mesure"><div class="l">Sharpe par trade</div>
+          <div class="v num ${vivant ? "hausse" : "baisse"}">${nf(sr, 3)}</div></div>
+        <div class="mesure"><div class="l">Barre du hasard</div>
+          <div class="v num petit">${nf(bar, 3)}</div></div>
+        <div class="mesure"><div class="l">Marge</div>
+          <div class="v num petit ${marge > 0 ? "hausse" : "baisse"}">${nf(marge, 3)}</div></div>
+        <div class="mesure"><div class="l">Trades indépendants</div>
+          <div class="v num petit">${b.n_holdout || 0}</div></div>
+        <div class="mesure"><div class="l">Poids du modèle</div>
+          <div class="v num petit">${nf(Number(b.alpha || 0), 2)}</div></div>
+      </div>
+      <div class="barre">
+        <div class="piste">
+          <div class="zero"></div>
+          <div class="rempli ${vivant ? "" : "faible"}"
+               style="left:${g.toFixed(1)}%;width:${(dte - g).toFixed(1)}%"></div>
+          <div class="seuil" style="left:${pos(bar).toFixed(1)}%"></div>
+        </div>
+        <div class="leg"><span>performance hors échantillon · zéro au centre</span>
+          <span>le repère marque ce que ${b.n_trials || 0} essais au hasard auraient donné</span></div>
       </div>
     </div>`;
   }).join("");
@@ -440,7 +508,7 @@ function rendreRisque(d){
   const dlim = (lim.dd_pct ?? 25) / 100, jlim = (lim.daily_pct ?? 8) / 100;
   $("risque").innerHTML =
       jauge("Perte du jour", jour, jlim, pct(jour,2) + " / " + pct(jlim,0))
-    + jauge("Drawdown depuis le pic", dd, dlim, pct(dd,2) + " / " + pct(dlim,0))
+    + jauge("Repli depuis le pic", dd, dlim, pct(dd,2) + " / " + pct(dlim,0))
     + `<div class="jauge"><div class="t"><span>Exposition autorisée</span>
         <span class="num">${pct(lim.scale ?? 1,0)}</span></div>
         <div class="piste"><div class="rempli" style="width:${((lim.scale??1)*100).toFixed(0)}%"></div></div></div>`
@@ -555,7 +623,7 @@ function rendre(d){
     el.textContent = sgn(dp) + " USDT (" + pct(dep?dp/dep:0,2) + ")";
     el.className = dp >= 0 ? "hausse" : "baisse";
   }
-  rendreVerdict(d); rendreDecisions(d); rendrePositions(d);
+  rendreVerdict(d); rendreDecisions(d); rendrePreuve(d); rendrePositions(d);
   rendreRisque(d); rendreLevier(d); rendreTrades(d);
   const ts = Number(d.now || Date.now()/1000);
   $("maj").textContent = "mis à jour " + heure(ts);

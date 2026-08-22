@@ -43,11 +43,12 @@ def _visible_text(html: str) -> str:
 
 
 # Words that were actually on screen in the previous build.
-ANGLAIS = ["Activity log", "Alpha research", "Drawdown from peak", "Kill switch",
+ANGLAIS = ["Activity log", "Alpha research", "Drawdown", "Kill switch",
            "Live scan", "Log is empty", "No orders yet", "Deployed",
            "Genomes evaluated", "Take profit", "Stop loss", "Equity",
            "Leverage", "Positions open", "Last pass", "Next pass",
-           "capital weights", "firing", "gated", "last print"]
+           "capital weights", "firing", "gated", "last print",
+           "Sharpe ratio", "Holdout", "Selection bar", "Evidence", "Trials"]
 
 
 def test_no_english_left_on_screen(page):
