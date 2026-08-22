@@ -793,6 +793,12 @@ class LiveRunner:
                                 self.scalp.ingest_book(inst, raw)
                             except Exception as exc:
                                 self.log(f"L2 {inst}: {type(exc).__name__}")
+                        for inst in book_chunk[:3]:
+                            try:
+                                tr = self.client.last_trades(inst, limit=50)
+                                self.scalp.ingest_trades(inst, tr)
+                            except Exception:
+                                pass
                     finally:
                         self.client.timeout, self.client.max_retries = t0, r0
                     batch = 8
@@ -825,8 +831,8 @@ class LiveRunner:
                             self.log("KILL SWITCH TRIPPED - halting.")
                             return
                     else:
-                        # between 1m closes: SL/TP still fire on live bid/ask
                         self.scalp.check_exits()
+                        self.scalp.execute_pending()
                         self.scalp._snapshot({"equity": self.broker.equity()})
                     px = {i: float((t or {}).get("last") or 0)
                           for i, t in (self.scalp.ticks or {}).items()}

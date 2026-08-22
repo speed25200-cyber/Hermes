@@ -1153,7 +1153,7 @@ function renderScalp(s){
     const spr = p.spread_bps || 0;
     const w = Math.min(50, Math.abs(pct-50));
     const biasCls = pct>52 ? "long" : pct<48 ? "short" : "flat";
-    const st = dir==="long"?"LONG":dir==="short"?"SHORT":"FLAT";
+    const st = dir==="long"?"LONG":dir==="short"?"SHORT":(p.reason==="no L2"?"NO L2":p.reason==="book disagrees"?"BOOK":p.reason==="cost"?"COST":"FLAT");
     const sym = (p.inst || "").replace("-USDT-SWAP","");
     return `<div class="srow ${dir}" onclick="openTrade('${p.inst}')">
       <span class="sym">${sym}</span>

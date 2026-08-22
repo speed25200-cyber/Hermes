@@ -23,6 +23,7 @@ PRIOR = {
     "depth": 0.30,    # size within 5 bps of mid
     "micro": 0.35,    # microprice vs last
     "btc": 0.55,
+    "flow": 0.20,     # aggressive taker flow, last 60s
 }
 
 
@@ -44,6 +45,7 @@ def score(feat: dict[str, float], btc_r1: float, is_btc: bool) -> float:
         + PRIOR["book"] * _clip(feat.get("book", 0.0), -1, 1)
         + PRIOR["depth"] * _clip(feat.get("depth", 0.0), -1, 1)
         + PRIOR["micro"] * _clip(feat.get("micro", 0.0) / 0.0004, -3, 3)
+        + PRIOR["flow"] * _clip(feat.get("flow", 0.0), -1, 1)
     )
     if not is_btc:
         s += PRIOR["btc"] * zb

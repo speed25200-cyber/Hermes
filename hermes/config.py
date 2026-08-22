@@ -89,16 +89,18 @@ DEFAULTS: dict[str, Any] = {
         "enabled": True,
         "bar": "1m",
         "instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"],
-        "universe_n": 50,            # top-N by 24h quote volume
-        "max_spread_bps": 8.0,       # 1m scalp dies on wide-spread alts
-        "min_vol_usd": 5_000_000.0,
-        "stop_bps": 15.0,            # SL: 15 bps adverse (or 2× 1m vol)
-        "take_bps": 10.0,            # TP: 10 bps (or 1.2× 1m vol)
+        "universe_n": 40,
+        "trade_top": 8,              # only the 8 strongest L2 edges
+        "require_l2": True,          # no fire without a fresh book
+        "max_spread_bps": 6.0,
+        "min_vol_usd": 10_000_000.0,
+        "stop_bps": 15.0,
+        "take_bps": 10.0,
         "horizon": 3,
-        "min_edge_bps": 5.0,
+        "min_edge_bps": 8.0,         # must beat ~10 bp taker round-trip
         "max_hold_bars": 6,
-        "max_name_lev": 0.12,
-        "gross_cap": 1.50,
+        "max_name_lev": 0.18,
+        "gross_cap": 1.00,
         "poll_seconds": 5,
         "history_days": 7,
         "maker_wait_s": 3,

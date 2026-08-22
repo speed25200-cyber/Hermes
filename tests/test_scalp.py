@@ -72,12 +72,12 @@ def test_universe_top_volume_drops_wide_spread():
         "ETH-USDT-SWAP": {"vol_usd": 4e9, "spread_bps": 1.2},
         "PEPE-USDT-SWAP": {"vol_usd": 8e8, "spread_bps": 25.0},
         "SOL-USDT-SWAP": {"vol_usd": 1e9, "spread_bps": 2.0},
-        "AAA-USDT-SWAP": {"vol_usd": 5e7, "spread_bps": 3.0},
+        "APT-USDT-SWAP": {"vol_usd": 5e7, "spread_bps": 3.0},
         "BBB-USDT-SWAP": {"vol_usd": 1e6, "spread_bps": 2.0},
     }
     u = select_universe(ticks, n=50, max_spread_bps=8.0, min_vol_usd=20e6)
     assert u[0] == "BTC-USDT-SWAP"
-    assert "SOL-USDT-SWAP" in u and "AAA-USDT-SWAP" in u
+    assert "SOL-USDT-SWAP" in u and "APT-USDT-SWAP" in u
     assert "PEPE-USDT-SWAP" not in u
     assert "BBB-USDT-SWAP" not in u
 
@@ -183,3 +183,33 @@ def test_ingest_l2_overrides_ticker(tmp_path):
     m = eng._micro("BTC-USDT-SWAP", 100.0)
     assert m["l2"] == 1.0
     assert m["book"] > 0.5
+
+
+def test_no_l2_means_flat(tmp_path):
+    class Quiet:
+        def last_trades(self, *a, **k): return []
+        def books(self, *a, **k): return {"bids": [], "asks": []}
+    b = PaperBroker(cash=10_000)
+    risk = RiskEngine(daily_loss_limit_pct=50, max_drawdown_pct=90)
+    eng = ScalpEngine({"scalp": {"instruments": ["BTC-USDT-SWAP"], "require_l2": True,
+                                 "min_edge_bps": 1.0},
+                       "costs": {"taker_fee_bps": 5}},
+                      b, Quiet(), risk, log=lambda m: None, state_dir=str(tmp_path))
+    c = generate(inst="BTC-USDT-SWAP", bar="1m", n=400, seed=3)
+    b.mark_prices({c.inst: float(c.c[-1])})
+    rep = eng.tick({c.inst: c})
+    assert all(p["dir"] == "flat" for p in rep["preds"])
+    assert all(p.get("reason") == "no L2" for p in rep["preds"])
+
+
+def test_trade_top_caps_book(tmp_path):
+    b = PaperBroker(cash=10_000)
+    risk = RiskEngine(daily_loss_limit_pct=50, max_drawdown_pct=90)
+    eng = ScalpEngine({"scalp": {"trade_top": 8, "max_name_lev": 0.2, "gross_cap": 1.0},
+                       "costs": {"taker_fee_bps": 5}},
+                      b, None, risk, log=lambda m: None, state_dir=str(tmp_path))
+    preds = [{"inst": f"C{i}-USDT-SWAP", "dir": "long", "edge_bps": 40 - i}
+             for i in range(20)]
+    t = eng._targets(preds)
+    live = [k for k, v in t.items() if abs(v) > 1e-9]
+    assert len(live) == 8
