@@ -1,0 +1,318 @@
+"""Scale-coherence candle predictor.
+
+Four independent clocks (1m, 3m, 5m, 15m) each forecast the *next candle*:
+close return, upside excursion, downside excursion. Split-conformal
+quantiles on a purged holdout size the TP/SL and veto any clock whose
+interval still contains zero after costs.
+
+The trade is not a clock. It is the *agreement* of clocks that survived
+conformal gating. Two clocks, same sign, or sit out. That is the whole
+anti-overfit: small ridge, embargoed labels, distribution-free intervals,
+and a coherence gate instead of a deep net.
+"""
+
+from __future__ import annotations
+
+import math
+import time
+
+import numpy as np
+
+from ..data.store import Candles
+from ..ml.models import RidgeRegressor
+
+BARS = ("1m", "3m", "5m", "15m")
+HOLD = {"1m": 3, "3m": 3, "5m": 3, "15m": 3}
+DAYS = {"1m": 7, "3m": 14, "5m": 21, "15m": 45}
+ASSETS = ("BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP")
+W = {"1m": 0.15, "3m": 0.20, "5m": 0.28, "15m": 0.37}
+FEE = 7.0  # maker in + taker SL, bps
+
+
+def _roll_std(x: np.ndarray, w: int) -> np.ndarray:
+    n = len(x)
+    out = np.zeros(n)
+    c = np.cumsum(np.insert(x, 0, 0.0))
+    c2 = np.cumsum(np.insert(x * x, 0, 0.0))
+    for i in range(w, n):
+        s = c[i + 1] - c[i + 1 - w]
+        s2 = c2[i + 1] - c2[i + 1 - w]
+        var = max(s2 / w - (s / w) ** 2, 0.0)
+        out[i] = math.sqrt(var)
+    if n > w:
+        out[:w] = out[w]
+    return out
+
+
+def feat_matrix(c: Candles) -> np.ndarray:
+    """Causal OHLCV features, one row per bar. Row i uses only bars ≤ i."""
+    n = len(c)
+    px = np.asarray(c.c, dtype=np.float64)
+    safe = np.where(px > 0, px, np.nan)
+    r1 = np.zeros(n)
+    r1[1:] = px[1:] / np.where(px[:-1] > 0, px[:-1], np.nan) - 1.0
+    r1 = np.nan_to_num(r1, nan=0.0)
+    def lagret(k):
+        out = np.zeros(n)
+        if n > k:
+            out[k:] = px[k:] / np.where(px[:-k] > 0, px[:-k], np.nan) - 1.0
+        return np.nan_to_num(out, nan=0.0)
+    loc = (c.c - c.l) / np.maximum(c.h - c.l, 1e-12) - 0.5
+    rng = (c.h - c.l) / np.maximum(safe, 1e-12)
+    rng = np.nan_to_num(rng, nan=0.0)
+    vol = _roll_std(r1, 20)
+    s1, s2, s3 = np.sign(r1), np.roll(np.sign(r1), 1), np.roll(np.sign(r1), 2)
+    s2[0] = 0
+    s3[:2] = 0
+    persist = (s1 + s2 + s3) / 3.0
+    return np.column_stack([
+        r1, lagret(3), lagret(5), lagret(12),
+        np.clip(loc, -0.5, 0.5), np.clip(rng, 0, 0.08),
+        vol, np.clip(persist, -1, 1),
+    ])
+
+
+def _targets(c: Candles) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """y at i uses bar i+1 only — close return, up excursion, down excursion."""
+    n = len(c)
+    y_r = np.full(n, np.nan)
+    y_up = np.full(n, np.nan)
+    y_dn = np.full(n, np.nan)
+    px = c.c
+    if n < 3:
+        return y_r, y_up, y_dn
+    ok = px[:-1] > 0
+    y_r[:-1][ok] = px[1:][ok] / px[:-1][ok] - 1.0
+    y_up[:-1][ok] = c.h[1:][ok] / px[:-1][ok] - 1.0
+    y_dn[:-1][ok] = 1.0 - c.l[1:][ok] / px[:-1][ok]
+    y_up = np.maximum(y_up, 0.0)
+    y_dn = np.maximum(y_dn, 0.0)
+    return y_r, y_up, y_dn
+
+
+def _ic(a: np.ndarray, b: np.ndarray) -> float:
+    m = np.isfinite(a) & np.isfinite(b)
+    a, b = a[m], b[m]
+    if len(a) < 40:
+        return 0.0
+    a, b = a - a.mean(), b - b.mean()
+    da, db = float(np.dot(a, a)), float(np.dot(b, b))
+    if da <= 0 or db <= 0:
+        return 0.0
+    return float(np.dot(a, b) / math.sqrt(da * db))
+
+
+class CandleModel:
+    """Ridge + split-conformal on next-bar return and envelope."""
+
+    def __init__(self, bar: str, fee_bps: float = FEE):
+        self.bar = bar
+        self.fee = float(fee_bps)
+        self.rr = RidgeRegressor(l2=14.0)
+        self.up = RidgeRegressor(l2=14.0)
+        self.dn = RidgeRegressor(l2=14.0)
+        self.q = 0.0          # conformal |resid| 80%
+        self.ic = 0.0
+        self.shrink = 0.0
+        self.status = "unfitted"
+        self.n_train = 0
+        self.holdout_bps = 0.0
+
+    def to_dict(self) -> dict:
+        return {
+            "bar": self.bar, "ic": self.ic, "q_bps": self.q * 1e4,
+            "shrink": self.shrink, "status": self.status,
+            "n_train": self.n_train, "holdout_bps": self.holdout_bps,
+        }
+
+    def fit(self, c: Candles, btc: Candles | None = None) -> dict:
+        n = len(c)
+        if n < 250:
+            self.status = "few-samples"
+            return self.to_dict()
+        X = feat_matrix(c)
+        if btc is not None and len(btc) >= n:
+            br = np.zeros(n)
+            bp = btc.c[-n:] if len(btc) >= n else btc.c
+            if len(bp) == n:
+                br[1:] = np.where(bp[:-1] > 0, bp[1:] / bp[:-1] - 1.0, 0.0)
+            idio = X[:, 0] - br
+            X = np.column_stack([X, br, idio])
+        else:
+            X = np.column_stack([X, np.zeros(n), np.zeros(n)])
+        y_r, y_up, y_dn = _targets(c)
+        # embargo: last train label needs bar cut; holdout is last 20%
+        ok = np.isfinite(y_r) & np.isfinite(X).all(axis=1)
+        idx = np.where(ok)[0]
+        if len(idx) < 200:
+            self.status = "few-samples"
+            return self.to_dict()
+        cut = idx[int(0.8 * len(idx))]
+        train, hold = idx[idx < cut], idx[idx >= cut]
+        self.rr.fit(X[train], y_r[train])
+        self.up.fit(X[train], np.clip(y_up[train], 0, 0.05))
+        self.dn.fit(X[train], np.clip(y_dn[train], 0, 0.05))
+        pred = self.rr.predict(X[hold])
+        self.ic = _ic(pred, y_r[hold])
+        resid = np.abs(y_r[hold] - pred)
+        self.q = float(np.quantile(resid, 0.80)) if len(resid) else 0.0
+        signed = np.sign(pred) * y_r[hold] * 1e4 - self.fee
+        self.holdout_bps = float(np.mean(signed))
+        self.n_train = int(len(train))
+        # live only if we predict the *direction* and beat fees after conformal
+        if self.ic > 0.03 and self.holdout_bps > 0:
+            self.shrink = float(min(0.6, 0.2 + 2.0 * self.ic))
+            self.status = "live"
+        else:
+            self.shrink = 0.0
+            self.status = "veto"
+        return self.to_dict()
+
+    def predict_row(self, x: np.ndarray) -> dict:
+        if self.rr.w is None or self.status != "live":
+            return {"r_bps": 0.0, "up_bps": 0.0, "dn_bps": 0.0,
+                    "q_bps": self.q * 1e4, "veto": True, "bar": self.bar,
+                    "status": self.status, "ic": self.ic}
+        r = float(self.rr.predict(x.reshape(1, -1))[0]) * self.shrink
+        up = max(float(self.up.predict(x.reshape(1, -1))[0]), 0.0)
+        dn = max(float(self.dn.predict(x.reshape(1, -1))[0]), 0.0)
+        r_bps, q_bps = r * 1e4, self.q * 1e4
+        # interval contains 0, or move inside the conformal noise + fees → sit
+        veto = abs(r_bps) < (q_bps * 0.75 + self.fee)
+        return {
+            "r_bps": r_bps, "up_bps": up * 1e4, "dn_bps": dn * 1e4,
+            "q_bps": q_bps, "veto": veto, "bar": self.bar,
+            "status": self.status, "ic": self.ic,
+        }
+
+
+def _row(c: Candles, btc: Candles | None) -> np.ndarray:
+    X = feat_matrix(c)
+    row = X[-1]
+    br = 0.0
+    if btc is not None and len(btc) >= 2 and btc.c[-2] > 0:
+        br = float(btc.c[-1] / btc.c[-2] - 1.0)
+    idio = float(row[0] - br)
+    return np.append(row, [br, idio])
+
+
+class ScaleDesk:
+    """Per-asset conformal clocks + coherence fuse."""
+
+    def __init__(self, fee_bps: float = FEE, log=None):
+        self.fee = float(fee_bps)
+        self.log = log or (lambda m: None)
+        self.models: dict[tuple[str, str], CandleModel] = {}
+        self.votes: dict[tuple[str, str], dict] = {}
+        self.fit_at = 0.0
+
+    def fit_store(self, store, names: list[str] | None = None) -> dict:
+        names = list(names or ASSETS)
+        out = {}
+        self.models = {}
+        for inst in names:
+            for bar in BARS:
+                try:
+                    c = store.load(inst, bar)
+                except Exception:
+                    continue
+                btc = None
+                if inst != "BTC-USDT-SWAP":
+                    try:
+                        btc = store.load("BTC-USDT-SWAP", bar)
+                    except Exception:
+                        btc = None
+                m = CandleModel(bar, self.fee)
+                d = m.fit(c, btc)
+                self.models[(inst, bar)] = m
+                out[f"{inst.split('-')[0]}:{bar}"] = d
+                self.log(f"clock {inst.split('-')[0]} {bar} {d['status']} "
+                         f"ic={d['ic']:.3f} holdout={d['holdout_bps']:+.2f}bps "
+                         f"q={d['q_bps']:.1f}bps n={d['n_train']}")
+        self.fit_at = time.time()
+        self.log(f"desk live={self.live_bars() or ['none']}")
+        return out
+
+    def live_bars(self) -> list[str]:
+        return sorted({bar for (inst, bar), m in self.models.items() if m.status == "live"})
+
+    def vote_clock(self, inst: str, bar: str, c: Candles, btc: Candles | None) -> dict:
+        m = self.models.get((inst, bar))
+        if m is None or len(c) < 20:
+            v = {"r_bps": 0.0, "up_bps": 0.0, "dn_bps": 0.0, "q_bps": 0.0,
+                 "veto": True, "bar": bar, "status": "unfitted", "ic": 0.0}
+        else:
+            v = m.predict_row(_row(c, btc))
+        self.votes[(inst, bar)] = v
+        return v
+
+    def fuse(self, inst: str) -> dict:
+        vs = [self.votes.get((inst, bar)) for bar in BARS]
+        vs = [v for v in vs if v]
+        live = [v for v in vs if not v["veto"] and v.get("status") == "live"]
+        clocks = {v["bar"]: ("+" if v["r_bps"] > 0 else "-" if v["r_bps"] < 0 else "0")
+                  + ("" if v["veto"] else "")
+                  for v in vs}
+        # compact: A=agree live, v=veto
+        clock_s = {v["bar"]: ("veto" if v["veto"] else ("up" if v["r_bps"] > 0 else "dn"))
+                   for v in vs}
+        if len(live) < 2:
+            return {
+                "veto": True, "score": 0.0, "ml_bps": 0.0, "tp_bps": 12.0, "sl_bps": 18.0,
+                "alpha": 0.0, "ic": 0.0, "status": "incoherent", "policy": "flat",
+                "bar": "5m", "clocks": clock_s, "r_bps": 0.0,
+            }
+        signs = {np.sign(v["r_bps"]) for v in live if v["r_bps"] != 0}
+        wsum = sum(W.get(v["bar"], 0.2) * v["r_bps"] for v in live)
+        if len(signs) > 1:
+            # mixed clocks: only go if the weighted move still clears fees
+            if abs(wsum) < self.fee:
+                return {
+                    "veto": True, "score": 0.0, "ml_bps": wsum, "tp_bps": 12.0, "sl_bps": 18.0,
+                    "alpha": 0.0, "ic": 0.0, "status": "disagree", "policy": "flat",
+                    "bar": "5m", "clocks": clock_s, "r_bps": wsum,
+                }
+        dom = max(live, key=lambda v: abs(v["r_bps"]) / max(v["q_bps"], 1.0))
+        tp = max(self.fee + 2.0, 0.7 * float(dom["up_bps"]), abs(dom["r_bps"]))
+        sl = max(self.fee + 4.0, 1.1 * float(dom["dn_bps"]), 1.4 * abs(dom["r_bps"]))
+        sl = max(sl, tp * 1.15)  # never tighter SL than TP
+        score = wsum / 8.0
+        return {
+            "veto": False, "score": score, "ml_bps": wsum, "tp_bps": tp, "sl_bps": sl,
+            "alpha": 1.0, "ic": float(np.mean([v["ic"] for v in live])),
+            "status": "live", "policy": "candle",
+            "bar": dom["bar"], "clocks": clock_s, "r_bps": wsum,
+            "up_bps": float(dom["up_bps"]), "dn_bps": float(dom["dn_bps"]),
+        }
+
+    def infer_asset(self, inst: str, feat, btc_r1, is_btc, prior, vol_bps) -> dict:
+        """Engine-compatible. Fuse already-voted clocks; feat unused beyond fallback."""
+        inf = self.fuse(inst)
+        vol = max(float(vol_bps), 4.0)
+        inf["tp_bps"] = max(inf["tp_bps"], 1.2 * vol)
+        inf["sl_bps"] = max(inf["sl_bps"], 1.8 * vol)
+        return inf
+
+    @property
+    def best(self) -> dict:
+        """Engine snapshot: dominant live clock per asset (or 5m veto)."""
+        out = {}
+        for inst in ASSETS:
+            inf = self.fuse(inst)
+            class _L:
+                pass
+            lr = _L()
+            lr.policy = inf["policy"]
+            lr.status = inf["status"]
+            lr.holdout_mean = inf.get("ml_bps") or 0.0
+            lr.ic = inf.get("ic") or 0.0
+            lr.to_dict = lambda inf=inf: inf
+            out[inst] = (inf.get("bar") or "5m", lr)
+        return out
+
+    def to_dict(self) -> dict:
+        d = {f"{i.split('-')[0]}:{b}": m.to_dict() for (i, b), m in self.models.items()}
+        d["_best"] = {i.split("-")[0]: {"bar": bar, "policy": lr.policy,
+                                        "status": lr.status, "holdout": lr.holdout_mean}
+                      for i, (bar, lr) in self.best.items()}
+        return d

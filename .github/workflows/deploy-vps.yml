@@ -20,12 +20,6 @@ on:
       root_password:
         description: "Root password (optional if VPS_PASSWORD secret is set)"
         required: false
-      mode:
-        description: "full = sync + research pass (engine down ~1h); code = sync only, engine keeps trading"
-        required: false
-        default: full
-        type: choice
-        options: [full, code]
 
 concurrency:
   group: vps-deploy
@@ -114,41 +108,15 @@ jobs:
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             ./ "root@$VPS:/root/hermes/"
 
-      - name: Stamp the deployed revision
-        run: |
-          # the rsync excludes /.git, so the box cannot tell you what it is
-          # running; without this, "is the fix live?" is unanswerable
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
-            "printf '%s (%s)\n' '${{ github.sha }}' '${{ inputs.mode || 'full' }}' > /root/hermes/DEPLOYED_SHA"
-
       - name: Run installer
-        env:
-          KEEP: ${{ inputs.mode == 'code' && '1' || '0' }}
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
-            "HERMES_KEEP_ENGINE=$KEEP bash /root/hermes/deploy/install.sh"
+            "bash /root/hermes/deploy/install.sh"
 
       - name: Start data backfill + research (runs on the VPS, detached)
-        if: inputs.mode != 'code'
         run: |
-          # `systemctl start` on a unit that is already activating is a
-          # no-op, so without this a full deploy would silently leave the
-          # OLD pass running — the new code would be on disk and the search
-          # producing results under the previous rules for another hour.
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
-            # Stop unconditionally. `is-active --quiet` is true only for
-            # "active", and a Type=oneshot unit reports "activating" for its
-            # entire run — so guarding on it skipped the stop for exactly the
-            # unit state this exists to handle, and the start that followed
-            # was a no-op on an already-activating unit. Measured: a deploy
-            # at 13:10 left the 10:09 pass running, four hours of search
-            # under superseded rules while the new code sat on disk.
-            # Stopping an inactive unit is harmless.
-            echo "was: $(systemctl is-active hermes-research), started $(systemctl show hermes-research -p InactiveExitTimestamp --value)"
-            systemctl stop hermes-research || true
-            systemctl start --no-block hermes-research
-            echo "now: $(systemctl is-active hermes-research), started $(systemctl show hermes-research -p InactiveExitTimestamp --value)"
-          '
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+            "systemctl start --no-block hermes-research && echo research started"
 
       - name: Snapshot status
         run: |

@@ -268,7 +268,30 @@
   #logfeed .ts{color:var(--faint)}
   #logfeed div{animation:slidein .4s ease}
 
-  .empty{color:var(--faint);font-size:12.5px;font-weight:460;padding:22px 4px;text-align:center}
+  .pcard{padding:10px 12px;border:1px solid var(--stroke);border-radius:10px;margin:0 0 8px;
+    background:rgba(255,255,255,.03);cursor:pointer}
+  .pcard.long{border-color:rgba(62,207,142,.3)}
+  .pcard.short{border-color:rgba(240,84,79,.3)}
+  .pcard .prow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .pcard .prow b.sym{font-size:14px;font-weight:650}
+  .pcard .levx{margin-left:auto;font-size:13px;font-weight:650;font-variant-numeric:tabular-nums}
+  .pcard .nums{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:8px}
+  .pcard .nums b{display:block;font-size:12.5px;font-weight:600;font-variant-numeric:tabular-nums}
+  .pcard .nums span{font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .pcard .nums .tp b{color:var(--green)}
+  .pcard .nums .sl b{color:var(--red)}
+  .hist{display:flex;align-items:center;gap:8px;padding:8px 2px;border-bottom:1px solid var(--hair);
+    font-size:12.5px;font-variant-numeric:tabular-nums;flex-wrap:wrap}
+  .hist:last-child{border-bottom:none}
+  .hist .why{font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+    min-width:44px;color:var(--faint)}
+  .hist .why.tp{color:var(--green)} .hist .why.sl{color:var(--red)} .hist .why.open{color:var(--gold)}
+  .hist .pnl{margin-left:auto;font-weight:620}
+  @media (max-width:740px){
+    .hide-phone{display:none !important}
+    .pcard .nums{grid-template-columns:repeat(2,minmax(0,1fr))}
+    #orderfeed, #orderempty { }
+  }
 
   /* ================= trade inspector ================= */
   #postable tbody tr{cursor:pointer}
@@ -332,6 +355,114 @@
     .tchartwrap{height:44vh}
     .thead .tsym{font-size:19px}
   }
+  /* ================= live scan board ================= */
+  #scalpbox{padding:0;margin-bottom:14px;overflow:hidden}
+  #scalpbox::before{
+    content:"";position:absolute;left:0;right:0;height:1px;top:0;z-index:2;pointer-events:none;
+    background:linear-gradient(90deg,transparent,rgba(236,210,155,.55),transparent);
+    animation:scanline 4.8s ease-in-out infinite;
+  }
+  @keyframes scanline{0%{transform:translateY(0);opacity:.15}50%{transform:translateY(220px);opacity:.45}100%{transform:translateY(520px);opacity:0}}
+  .scan-head{display:flex;align-items:center;gap:22px;padding:18px 22px 14px;
+    border-bottom:1px solid var(--hair)}
+  .scan-title{display:flex;align-items:center;gap:14px;min-width:210px}
+  .radar{width:38px;height:38px;border-radius:50%;flex:none;position:relative;
+    border:1px solid rgba(211,162,79,.38);
+    background:
+      radial-gradient(circle at 50% 50%, rgba(211,162,79,.16), transparent 68%),
+      repeating-radial-gradient(circle at 50% 50%, transparent 0 6px, rgba(211,162,79,.07) 6.5px 7px)}
+  .radar::after{content:"";position:absolute;left:50%;top:50%;width:46%;height:1.5px;
+    background:linear-gradient(90deg,transparent,var(--gold2));
+    transform-origin:left center;animation:sweep 2.6s linear infinite}
+  @keyframes sweep{to{transform:rotate(360deg)}}
+  .scan-kicker{font-size:9.5px;font-weight:620;letter-spacing:.16em;text-transform:uppercase;color:var(--gold);
+    opacity:.85}
+  .scan-name{font-size:18px;font-weight:520;letter-spacing:-.02em;line-height:1.15;margin-top:2px}
+  .scan-kpis{display:flex;gap:0;margin-left:auto;flex-wrap:wrap}
+  .scan-kpis > div{padding:0 18px;border-left:1px solid var(--hair);text-align:right}
+  .scan-kpis b{display:block;font-size:18px;font-weight:480;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--txt);line-height:1.15}
+  .scan-kpis span{font-size:9.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--faint)}
+  .scan-live{display:none}
+  .scard{display:none}
+  .scan-live:empty{display:none;padding:0}
+  .scan-live::-webkit-scrollbar{display:none}
+  .scard{flex:1 1 180px;min-width:176px;max-width:280px;padding:14px 16px 13px;border-radius:14px;
+    border:1px solid var(--stroke);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.012));
+    cursor:pointer;transition:border-color .25s, transform .35s cubic-bezier(.22,1,.36,1)}
+  .scard:hover{transform:translateY(-1px)}
+  .scard.long{border-color:rgba(62,207,142,.32);box-shadow:inset 0 0 0 1px rgba(62,207,142,.06),0 18px 40px -22px rgba(62,207,142,.55)}
+  .scard.short{border-color:rgba(240,84,79,.32);box-shadow:inset 0 0 0 1px rgba(240,84,79,.06),0 18px 40px -22px rgba(240,84,79,.5)}
+  .desk3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:8px 16px 6px}
+  @media (max-width:720px){.desk3{grid-template-columns:1fr;margin:8px 10px}}
+  .dcard{display:grid;grid-template-columns:auto auto 1fr;grid-template-rows:auto auto auto;
+    gap:2px 10px;padding:10px 12px;border-radius:10px;
+    border:1px solid var(--stroke);background:rgba(255,255,255,.03);cursor:pointer}
+  .dcard:hover{border-color:var(--stroke2)}
+  .dcard .coin{font-size:13px;font-weight:650;letter-spacing:.04em}
+  .dcard .dir{font-size:12px;font-weight:700;letter-spacing:.08em}
+  .dcard .pol{font-size:10px;font-weight:560;letter-spacing:.04em;text-transform:uppercase;
+    color:var(--faint);justify-self:end}
+  .dcard.long{border-color:rgba(62,207,142,.3)}
+  .dcard.long .dir{color:var(--green)}
+  .dcard.short{border-color:rgba(240,84,79,.3)}
+  .dcard.short .dir{color:var(--red)}
+  .dcard .clk{grid-column:1/-1;display:flex;gap:3px;margin:4px 0 2px}
+  .dcard .lvls{grid-column:1/-1;display:flex;gap:12px;flex-wrap:wrap;font-variant-numeric:tabular-nums}
+  .dcard .lvls b{display:block;font-size:13px;font-weight:600;line-height:1.15}
+  .dcard .lvls span{font-size:8.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .dcard .lvls .tp b{color:var(--green)}
+  .dcard .lvls .sl b{color:var(--red)}
+  .dcard .lvls .pred b{color:var(--txt)}
+  .clk i{font-style:normal;font-size:9px;font-weight:700;width:18px;height:18px;border-radius:4px;
+    display:inline-flex;align-items:center;justify-content:center;letter-spacing:0}
+  .clk i.up{background:rgba(62,207,142,.18);color:var(--green)}
+  .clk i.dn{background:rgba(240,84,79,.18);color:var(--red)}
+  .clk i.veto{background:rgba(255,255,255,.05);color:var(--faint)}
+  .scard.watch{border-color:rgba(211,162,79,.22)}
+  .scard .topline{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .scard .sym{font-size:12px;font-weight:650;letter-spacing:.18em;color:var(--txt2)}
+  .scard .tag{font-size:9px;font-weight:700;letter-spacing:.14em;padding:3px 7px;border-radius:5px}
+  .scard.long .tag{color:var(--green);background:rgba(62,207,142,.12)}
+  .scard.short .tag{color:var(--red);background:rgba(240,84,79,.12)}
+  .scard.watch .tag{color:var(--gold);background:var(--gold-dim)}
+  .scard .dir{font-size:15px;font-weight:520;letter-spacing:.08em;margin:6px 0 8px;line-height:1}
+  .scard.long .dir{color:var(--green)} .scard.short .dir{color:var(--red)} .scard.watch .dir{color:var(--gold2)}
+  .scard .nums{display:flex;gap:16px}
+  .scard .nums b{display:block;font-size:15px;font-weight:520;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+  .scard .nums span{font-size:9px;font-weight:620;letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+  .scan-empty{padding:10px 22px 16px;font-size:12px;color:var(--faint);font-weight:460}
+  .scan-board{max-height:min(52vh, 560px);overflow:auto;scrollbar-width:thin;
+    scrollbar-color:rgba(255,255,255,.12) transparent;padding:4px 8px 10px}
+  .shead,.srow{display:grid;grid-template-columns:56px minmax(0,1fr) 48px 48px 56px;
+    gap:8px;align-items:center;padding:0 12px}
+  .shead{position:sticky;top:0;z-index:1;padding:8px 12px 6px;
+    font-size:9px;font-weight:650;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);
+    background:linear-gradient(180deg,#0c0d11 70%,transparent);backdrop-filter:blur(8px)}
+  .srow{padding:7px 12px;border-radius:8px;font-size:12.5px;cursor:pointer;
+    transition:background .2s}
+  .srow:hover{background:rgba(255,255,255,.035)}
+  .srow.long{background:rgba(62,207,142,.045)}
+  .srow.short{background:rgba(240,84,79,.045)}
+  .srow .sym{font-weight:620;letter-spacing:.06em;color:var(--txt2)}
+  .srow .pct,.srow .edge,.srow .spr{font-variant-numeric:tabular-nums;text-align:right;font-weight:500}
+  .srow .st{font-size:9.5px;font-weight:720;letter-spacing:.12em;text-align:right}
+  .srow.long .st{color:var(--green)} .srow.short .st{color:var(--red)} .srow.flat .st{color:var(--faint)}
+  .bias{position:relative;height:5px;border-radius:3px;background:rgba(255,255,255,.055);overflow:hidden}
+  .bias::after{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;width:1px;background:rgba(255,255,255,.28)}
+  .bias i{position:absolute;top:0;bottom:0;border-radius:3px;min-width:2px;
+    transition:width .6s cubic-bezier(.22,1,.36,1),left .6s,right .6s}
+  .bias.long i{left:50%;background:linear-gradient(90deg,rgba(62,207,142,.25),var(--green))}
+  .bias.short i{right:50%;background:linear-gradient(90deg,var(--red),rgba(240,84,79,.25))}
+  .bias.flat i{left:48%;width:4% !important;background:rgba(255,255,255,.18)}
+  @media(max-width:720px){
+    .scan-head{flex-direction:column;align-items:flex-start;gap:14px}
+    .scan-kpis{margin-left:0;width:100%;display:grid;grid-template-columns:repeat(4,1fr)}
+    .scan-kpis > div{padding:0 8px;text-align:left}
+    .scan-kpis b{font-size:16px}
+    .shead,.srow{grid-template-columns:48px 1fr 44px 44px 52px}
+    .scan-kpis b{font-size:13px}
+  }
+
   .haltbanner{display:none;margin-bottom:14px;border:1px solid rgba(240,84,79,.3);border-radius:14px;
     background:linear-gradient(180deg,rgba(240,84,79,.1),rgba(240,84,79,.04));
     padding:13px 18px;color:#f28e8a;font-size:12.5px;font-weight:520;align-items:center;gap:12px}
@@ -401,6 +532,8 @@
     <div class="status">
       <span class="seg"><span class="dot" id="livedot"></span><span id="modelbl"><b>—</b></span></span>
       <span class="seg">Risk <b id="risklbl">—</b></span>
+      <span class="seg">DD <b class="num" id="hdl_dd">—</b></span>
+      <span class="seg">Day <b class="num" id="hdl_day">—</b></span>
       <span class="seg" id="freshpill" style="display:none"><span id="freshlbl" class="num">—</span></span>
       <span class="seg clockseg num" id="clock">— UTC</span>
     </div>
@@ -418,6 +551,35 @@
   <!-- live markets tape -->
   <div class="panel" id="marketsbox" style="display:none;padding:12px 20px;margin-bottom:14px">
     <div class="tape" id="markets"></div>
+  </div>
+
+  <div class="panel scan in" id="scalpbox">
+    <div class="scan-head">
+      <div class="scan-title">
+        <div class="radar" aria-hidden="true"></div>
+        <div>
+          <div class="scan-kicker">Hermes · L2 flow 90s</div>
+          <div class="scan-name" id="sc_ml">Live scan</div>
+        </div>
+      </div>
+      <div class="scan-kpis">
+        <div><b class="num" id="sc_n">—</b><span>leverage</span></div>
+        <div><b class="num" id="sc_live">—</b><span>firing</span></div>
+        <div><b class="num" id="sc_gate">—</b><span>gated</span></div>
+        <div><b class="num" id="sc_age">—</b><span>last print</span></div>
+      </div>
+    </div>
+    <div class="desk3" id="desk3"></div>
+    <div class="scan-live" id="scanlive"></div>
+    <div class="scan-empty" id="scanempty">Waiting for the first 1-minute print…</div>
+    <div class="shead" id="scanhead" style="display:none">
+      <span>Name</span>
+      <span class="h-edge" style="text-align:right">Pred</span>
+      <span style="text-align:right">TP</span>
+      <span style="text-align:right">SL</span>
+      <span style="text-align:right">State</span>
+    </div>
+    <div class="scan-board" id="scanboard"></div>
   </div>
 
   <!-- metrics bar -->
@@ -438,14 +600,14 @@
       <div class="delta" id="k_dd_d"></div>
     </div>
     <div class="metric">
-      <div class="label">Gross exposure</div>
+      <div class="label">Leverage</div>
       <div class="value num" id="k_gross">—</div>
       <div class="delta" id="k_gross_d"></div>
     </div>
     <div class="metric">
-      <div class="label">Strategies live</div>
-      <div class="value num" id="k_strats">—</div>
-      <div class="delta" id="k_strats_d"></div>
+      <div class="label">Daily P&L</div>
+      <div class="value num" id="k_day">—</div>
+      <div class="delta" id="k_day_d"></div>
     </div>
   </div>
 
@@ -469,21 +631,21 @@
           <div class="mrow"><span class="mlabel">Drawdown from peak</span>
             <span class="mval num" id="g_dd">—</span></div>
           <div class="track"><i class="fill" id="m_dd"></i>
-            <span class="tickmark" style="left:60%"></span>
+            <span class="tickmark" style="left:40%"></span>
             <span class="tickmark" style="left:85%"></span></div>
-          <div class="mcap"><span>0</span><span>kill switch 15%</span></div>
+          <div class="mcap"><span>0</span><span id="m_dd_cap">kill 25%</span></div>
         </div>
         <div class="meter">
           <div class="mrow"><span class="mlabel">Today vs daily-loss limit</span>
             <span class="mval num" id="g_day">—</span></div>
           <div class="track"><i class="fill" id="m_day"></i>
-            <span class="tickmark" style="left:60%"></span>
+            <span class="tickmark" style="left:40%"></span>
             <span class="tickmark" style="left:85%"></span></div>
-          <div class="mcap"><span>0</span><span>halt at −3%</span></div>
+          <div class="mcap"><span>0</span><span id="m_day_cap">halt −8%</span></div>
         </div>
       </div>
 
-      <div class="panel">
+      <div class="panel hide-phone">
         <div class="ptitle"><span class="tick"></span>Allocation
           <span class="sub">capital weights</span></div>
         <div id="allocbar"></div>
@@ -491,7 +653,7 @@
         <div class="empty" id="allocempty">Awaiting deployed strategies</div>
       </div>
 
-      <div class="panel">
+      <div class="panel hide-phone">
         <div class="ptitle"><span class="tick"></span>Alpha research</div>
         <div class="rstat">Last pass <b class="num" id="r_when">—</b></div>
         <div class="rstat">Genomes evaluated <b class="num" id="r_trials">—</b></div>
@@ -502,25 +664,22 @@
     </div>
   </div>
 
-  <!-- row 2: positions + strategies -->
+  <!-- row 2: open positions + history -->
   <div class="grid row2">
     <div class="panel">
-      <div class="ptitle"><span class="tick"></span>Positions &amp; targets</div>
-      <div class="tscroll"><table id="postable">
-        <thead><tr><th>Instrument</th><th>Side</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Notional</th><th style="width:160px">Exposure</th></tr></thead>
-        <tbody></tbody>
-      </table></div>
-      <div class="empty" id="posempty">No open positions — book is flat</div>
+      <div class="ptitle"><span class="tick"></span>Positions ouvertes</div>
+      <div id="poscards"></div>
+      <div class="empty" id="posempty">Aucune position</div>
+      <table id="postable" style="display:none"><tbody></tbody></table>
     </div>
-
     <div class="panel">
-      <div class="ptitle"><span class="tick"></span>Deployed strategies
-        <span class="sub" id="researchage"></span></div>
-      <div class="tscroll"><table id="strattable">
-        <thead><tr><th>ID</th><th>Instrument</th><th>Alpha</th><th class="r">OOS Sharpe</th><th class="r">DSR</th><th style="width:104px">Weight</th></tr></thead>
-        <tbody></tbody>
-      </table></div>
-      <div class="empty" id="stratempty">No strategies deployed — research pending</div>
+      <div class="ptitle"><span class="tick"></span>Historique
+        <span class="sub num" id="histcount"></span></div>
+      <div class="feed" id="histfeed"></div>
+      <div class="empty" id="histempty">Pas encore de trade</div>
+      <table id="strattable" style="display:none"><thead></thead><tbody></tbody></table>
+      <div id="stratempty" style="display:none"></div>
+      <span id="researchage" style="display:none"></span>
     </div>
   </div>
 
@@ -557,8 +716,8 @@
       <div class="tstat"><div class="l">Entrée</div><div class="v num" id="t_entry">—</div></div>
       <div class="tstat"><div class="l">Prix actuel</div><div class="v num" id="t_px">—</div></div>
       <div class="tstat"><div class="l">P&amp;L latent</div><div class="v num" id="t_pnl">—</div></div>
-      <div class="tstat"><div class="l">Stop jour</div><div class="v num" id="t_sl">—</div></div>
-      <div class="tstat"><div class="l">Kill switch</div><div class="v num" id="t_kill">—</div></div>
+      <div class="tstat"><div class="l">Take profit</div><div class="v num up" id="t_tp">—</div></div>
+      <div class="tstat"><div class="l">Stop loss</div><div class="v num down" id="t_slpos">—</div></div>
     </div>
     <div class="ttools">
       <span class="ranges" id="t_tfs">
@@ -596,6 +755,27 @@ const clamp = (v,a,b)=>Math.min(b,Math.max(a,v));
 
 /* rAF number tweening -------------------------------------------------- */
 const tweens = new Map();
+function liveEquity(data, last){
+  const pb = (data.trader || {}).paper_broker;
+  const ticks = data.tickers || {};
+  if(pb && typeof pb.cash === "number"){
+    let eq = pb.cash;
+    const pos = pb.pos || {}, pr = pb.prices || {}, en = pb.entry || {};
+    const margin = !!pb.margin_mode;
+    for(const inst of Object.keys(pos)){
+      const q = pos[inst] || 0;
+      if(!q) continue;
+      const t = ticks[inst];
+      const px = (t && t.last) || pr[inst] || en[inst] || 0;
+      if(margin) eq += q * (px - (en[inst] || px));
+      else eq += q * px;
+    }
+    return eq;
+  }
+  if(data.equity_live) return data.equity_live;
+  if(data.scalp && data.scalp.equity) return data.scalp.equity;
+  return (last && last.equity) || 0;
+}
 function tweenNum(el, to, fmt, dur=700){
   const from = el._v===undefined? to : el._v;
   el._v = to;
@@ -826,19 +1006,7 @@ function renderOrders(journal){
       if(rows.length>=60) break;
     }
   }
-  // Cadence, not just the last few tickets: "no movement" is the hardest
-  // thing to read off a feed, because an empty feed and a healthy book that
-  // simply had nothing to do look identical. Heartbeats (hb) mark positions
-  // between bars without deciding, so they are not cycles.
-  const dec = journal.filter(j=>!j.hb && !j.halted);
-  const t1 = dec.length? dec[dec.length-1].ts : 0;
-  const day = dec.filter(j=> t1 - j.ts <= 86400);
-  const traded = day.filter(j=>(j.orders||[]).length).length;
-  const gross = day.reduce((a,j)=>a+(j.orders||[])
-                 .reduce((b,o)=>b+Math.abs(o.notional||0),0),0);
-  $("ordercount").textContent = day.length
-    ? `${traded}/${day.length} cycles traded · ${fmtUsd(gross)} moved`
-    : (rows.length? rows.length+" recent" : "");
+  $("ordercount").textContent = rows.length? rows.length+" recent" : "";
   $("orderempty").style.display = rows.length? "none":"block";
   const key = rows.length? rows[0].ts+"|"+rows.length : "";
   if(key===lastOrderKey) return;
@@ -972,6 +1140,114 @@ function renderLog(lines){
   }).join("");
 }
 
+function renderScalp(s, dataNow){
+  const box = $("scalpbox");
+  if(!box) return;
+  const preds = ((s && s.preds) || []).slice();
+  const empty = $("scanempty"), head = $("scanhead"), liveEl = $("scanlive"), board = $("scanboard");
+  const n = preds.length;
+  const live = preds.filter(p => p.dir === "long" || p.dir === "short")
+    .sort((a,b) => Math.abs(b.edge_bps||0) - Math.abs(a.edge_bps||0));
+  const gated = n - live.length;
+  const lev = (s && s.lev) || {};
+  const used = Number(lev.used || 0);
+  const gcap = Number(lev.gross_cap || 0.55);
+  $("sc_n").textContent = n ? used.toFixed(2)+"× / "+gcap.toFixed(2)+"×" : "—";
+  $("sc_live").textContent = n ? String(live.length) : "—";
+  $("sc_live").style.color = live.length ? "var(--green)" : "";
+  $("sc_gate").textContent = n ? String(gated) : "—";
+  const age = s && s.ts ? ((dataNow||Date.now()/1000) - s.ts) : null;
+  const ageEl = $("sc_age");
+  if(age===null) ageEl.textContent = "—";
+  else if(age < 8) ageEl.textContent = "now";
+  else if(age < 60) ageEl.textContent = Math.round(age)+"s";
+  else ageEl.textContent = Math.round(age/60)+"m";
+  ageEl.style.color = (age!==null && age < 15) ? "var(--green)" : (age!==null && age < 60) ? "var(--amber)" : "";
+  const hz = (s && s.horizons) || {};
+  const mlEl = $("sc_ml");
+  const desk = (s && s.desk) || (hz._best) || {};
+  const coins = ["BTC","ETH","SOL"];
+  if(mlEl){
+    mlEl.textContent = coins.map(c=>{
+      const d = desk[c]||{};
+      return d.status==="live" ? (c+" "+(d.bar||"")+"/"+(d.policy||"")) : (c+" "+(d.status||"…"));
+    }).join("    ");
+    const anyLive = coins.some(c => (desk[c]||{}).status==="live");
+    mlEl.style.color = anyLive ? "var(--green)" : "var(--red)";
+  }
+  const deskEl = $("desk3");
+  if(deskEl){
+    deskEl.innerHTML = coins.map(sym=>{
+      const d = desk[sym]||{};
+      const p = preds.find(x => (x.inst||"").startsWith(sym+"-")) || {};
+      const dir = p.dir || "flat";
+      const lab = dir==="long"?"LONG":dir==="short"?"SHORT":"FLAT";
+      const pol = d.policy || p.policy || "—";
+      const bar = d.bar || p.bar || "15m";
+      const st = d.status || "…";
+      const edge = p.edge_bps||0;
+      const tp = p.tp_bps||0, sl = p.sl_bps||0;
+      const px = p.px || 0;
+      const sign = dir==="short"?-1:1;
+      const tpPx = px && tp ? px*(1+sign*tp/1e4) : 0;
+      const slPx = px && sl ? px*(1-sign*sl/1e4) : 0;
+      const clk = d.clocks || p.clocks || {};
+      const pills = ["1m","3m","5m","15m"].map(b=>{
+        const v = clk[b] || "veto";
+        return `<i class="${v}">${b.replace("m","")}</i>`;
+      }).join("");
+      return `<div class="dcard ${dir}" onclick="openTrade('${sym}-USDT-SWAP')">
+        <div class="coin">${sym}</div>
+        <div class="dir">${lab}</div>
+        <div class="pol">${bar} · ${pol} · ${st}</div>
+        <div class="clk">${pills}</div>
+        <div class="lvls">
+          <div class="pred"><b>${edge>=0?"+":""}${edge.toFixed(1)}</b><span>pred bp</span></div>
+          <div class="tp"><b>${tpPx?fmtUsd(tpPx): (tp?("+"+tp.toFixed(0)+" bp"):"—")}</b><span>take profit</span></div>
+          <div class="sl"><b>${slPx?fmtUsd(slPx): (sl?("−"+sl.toFixed(0)+" bp"):"—")}</b><span>stop loss</span></div>
+          <div><b>${Math.abs(p.lev||d.lev||0).toFixed(2)}×</b><span>lev</span></div>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  if(!n){
+    empty.style.display = "block";
+    empty.textContent = "BTC · ETH · SOL desk — fitting 15m / 1H specialists…";
+    head.style.display = "none";
+    liveEl.innerHTML = "";
+    board.innerHTML = "";
+    return;
+  }
+  empty.style.display = "none";
+  head.style.display = "grid";
+
+  liveEl.innerHTML = "";
+
+  const ranked = preds.slice().sort((a,b)=>{
+    const al = (a.dir==="flat")?0:1, bl = (b.dir==="flat")?0:1;
+    if(al!==bl) return bl-al;
+    return Math.abs(b.edge_bps||0) - Math.abs(a.edge_bps||0);
+  });
+  board.innerHTML = ranked.map(p=>{
+    const dir = p.dir || "flat";
+    const pct = Math.max(0, Math.min(100, Math.round((p.p_up || 0.5) * 100)));
+    const edge = p.edge_bps || 0;
+    const spr = p.spread_bps || 0;
+    const w = Math.min(50, Math.abs(pct-50));
+    const biasCls = pct>52 ? "long" : pct<48 ? "short" : "flat";
+    const st = dir==="long"?"LONG":dir==="short"?"SHORT":(p.reason==="no L2"?"NO L2":p.reason==="book disagrees"?"BOOK":p.reason==="cost"?"COST":"FLAT");
+    const sym = (p.inst || "").replace("-USDT-SWAP","");
+    return `<div class="srow ${dir}" onclick="openTrade('${p.inst}')">
+      <span class="sym">${sym}</span>
+      <span class="edge">${edge>=0?"+":""}${edge.toFixed(1)}</span>
+      <span class="edge up">+${(p.tp_bps||0).toFixed(0)}</span>
+      <span class="edge down">−${(p.sl_bps||0).toFixed(0)}</span>
+      <span class="st">${st}</span>
+    </div>`;
+  }).join("");
+}
+
 function regimeTag(r){
   if(r===undefined||r===null) return "";
   const [name,col] = REGIMES[r]||REGIMES[1];
@@ -979,35 +1255,82 @@ function regimeTag(r){
     font-size:9.5px;font-weight:580;letter-spacing:.04em;background:${col}1a;color:${col}">${name}</span>`;
 }
 function renderPositions(last, equity){
-  const tbody = $("postable").querySelector("tbody");
+  const box = $("poscards");
   const pos = (last && last.positions) || {};
   const targets = (last && last.targets) || {};
   const prices = (last && last.prices) || {};
-  const regimes = (last && last.regimes) || {};
-  const insts = [...new Set([...Object.keys(pos),...Object.keys(targets)])].sort()
-    .filter(inst=>{
-      const notional = Math.abs((pos[inst]||0)*(prices[inst]||0));
-      return notional>=2 || Math.abs(targets[inst]||0)>=0.005;
-    });
+  const insts = Object.keys(pos).sort().filter(inst=>{
+    return Math.abs((pos[inst]||0)*(prices[inst]||0)) >= 2;
+  });
   $("posempty").style.display = insts.length? "none":"block";
-  tbody.innerHTML = insts.map(inst=>{
-    const q = pos[inst]||0, px = prices[inst]||0, notional=q*px;
-    const expo = equity? notional/equity : 0;
+  if(!box) return;
+  box.innerHTML = insts.map(inst=>{
+    const q = pos[inst]||0, px = prices[inst]||0, notional=Math.abs(q*px);
+    const expo = equity? (q*px)/equity : 0;
     const tgt = targets[inst]||0;
-    const side = Math.abs(expo)<0.005? "flat" : expo>0? "long":"short";
-    const sideLbl = side==="flat"? "Flat" : side==="long"? "Long":"Short";
-    const w = clamp(Math.abs(expo),0,1)*50;
-    return `<tr data-inst="${inst}">
-      <td class="symc">${shortInst(inst)}${regimeTag(regimes[inst])}</td>
-      <td><span class="side ${side}">${sideLbl}</span></td>
-      <td class="r">${fmtQty(q)}</td>
-      <td class="r">${px?fmtUsd(px):"—"}</td>
-      <td class="r">${fmtUsd(Math.abs(notional))}</td>
-      <td><div class="expo"><span class="mid"></span>
-        <i style="${expo>=0?`left:50%`:`right:50%`};width:${w}%;background:${expo>=0?'var(--green)':'var(--red)'}"></i>
+    const lev = Math.max(Math.abs(tgt), Math.abs(expo), 1);
+    const margin = notional / lev;
+    const br = ((last && last.brackets) || {})[inst] || {};
+    const side = expo>0? "long":"short";
+    const sideLbl = side==="long"? "LONG":"SHORT";
+    const tpLbl = br.tp ? fmtUsd(br.tp) : "—";
+    const slLbl = br.sl ? fmtUsd(br.sl) : "—";
+    return `<div class="pcard ${side}" data-inst="${inst}" onclick="openTrade('${inst}')">
+      <div class="prow">
+        <b class="sym">${shortInst(inst)}</b>
+        <span class="side ${side}">${sideLbl}</span>
+        <span class="levx">${Math.abs(expo).toFixed(1)}×</span>
       </div>
-      <div class="subnum">now ${fmtPct(expo,1)} · target ${fmtPct(tgt,1)}</div></td>
-    </tr>`;
+      <div class="nums">
+        <div><b>${fmtUsd(px)}</b><span>mark</span></div>
+        <div><b>${fmtUsd(margin)}</b><span>marge</span></div>
+        <div><b>${fmtUsd(notional)}</b><span>notionnel ${lev.toFixed(1)}×</span></div>
+        <div class="tp"><b>${tpLbl}</b><span>take profit</span></div>
+        <div class="sl"><b>${slLbl}</b><span>stop loss</span></div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function renderHistory(data){
+  const feed=$("histfeed"), empty=$("histempty"), cnt=$("histcount");
+  if(!feed) return;
+  const raw = ((data.scalp && data.scalp.trades) || []).slice();
+  const book={};
+  const rows=raw.map(t=>{
+    const q=+t.qty||0, px=+t.px||0, inst=t.inst;
+    let pnl=null;
+    const b=book[inst]||{q:0,e:0};
+    if(b.q && q*b.q<0){
+      const closed=Math.min(Math.abs(b.q), Math.abs(q));
+      pnl=(b.q>0?1:-1)*closed*(px-b.e)-(+t.fee||0);
+    }
+    const nq=b.q+q;
+    if(!b.q || b.q*q>0){
+      const tot=Math.abs(b.q)+Math.abs(q);
+      b.e=tot? (Math.abs(b.q)*b.e+Math.abs(q)*px)/tot : px;
+    } else if(b.q*nq<0) b.e=px;
+    b.q=nq; book[inst]=b;
+    return {...t, pnl};
+  }).slice().reverse();
+  if(empty) empty.style.display = rows.length? "none":"block";
+  if(cnt) cnt.textContent = rows.length? rows.length+" fills" : "";
+  feed.innerHTML = rows.slice(0,80).map(t=>{
+    const buy=(+t.qty)>0;
+    const why=(t.reason||"").toLowerCase();
+    const wcls = why.includes("tp")?"tp": why.includes("sl")?"sl": why.includes("open")?"open":"";
+    const pnl = t.pnl;
+    const pnlS = pnl==null? "" : `<span class="pnl ${pnl>=0?"up":"down"}">${pnl>=0?"+":""}${fmtUsd(pnl)}</span>`;
+    const when = t.ts? new Date(t.ts*1000).toISOString().slice(5,16).replace("T"," ") : "";
+    return `<div class="hist">
+      <span class="why ${wcls}">${(t.reason||"—").split(" ")[0]}</span>
+      <span class="side ${buy?"long":"short"}">${buy?"BUY":"SELL"}</span>
+      <span class="symc">${shortInst(t.inst)}</span>
+      <span>${fmtQty(Math.abs(t.qty||0))}</span>
+      <span style="color:var(--dim)">@ ${fmtUsd(t.px||0)}</span>
+      ${pnlS}
+      <span class="when num">${when}</span>
+    </div>`;
   }).join("");
 }
 
@@ -1095,7 +1418,14 @@ function tradeInfo(inst){
       if(isFinite(p) && p > 0 && b > 0) kill = p;
     }
   }
-  return {qty, px, entry, approx, eq, sl, kill,
+  const br = (last.brackets || {})[inst] || {};
+  let tpPx = br.tp || null, slPx = br.sl || null;
+  const pred = ((lastData && lastData.scalp && lastData.scalp.preds) || []).find(p => p.inst === inst) || {};
+  const sign = qty ? (qty > 0 ? 1 : -1) : (pred.dir === "short" ? -1 : 1);
+  const ref = (qty && entry) ? entry : px;
+  if(!tpPx && ref && pred.tp_bps) tpPx = ref * (1 + sign * pred.tp_bps / 1e4);
+  if(!slPx && ref && pred.sl_bps) slPx = ref * (1 - sign * pred.sl_bps / 1e4);
+  return {qty, px, entry, approx, eq, sl, kill, tpPx, slPx,
           notional: qty*px, target: (last.targets||{})[inst] || 0,
           mult: last.risk_mult};
 }
@@ -1190,7 +1520,7 @@ function updateTradeStats(){
   se.textContent = side==="long" ? "Long" : side==="short" ? "Short" : "Flat";
   $("t_sub").textContent = t.qty
     ? `${fmtQty(Math.abs(t.qty))} contrats · ${fmtUsd(Math.abs(t.notional))} USDT · `
-      + `${fmtPct(Math.abs(t.notional)/(t.eq||1),1)} de l'équité`
+      + `${(Math.abs(t.notional)/(t.eq||1)).toFixed(2)}× leverage`
       + (t.mult!==undefined && Math.abs(t.mult-1)>1e-9 ? ` · gouverneur ×${t.mult.toFixed(2)}` : "")
     : "position fermée — le signal est sous son seuil";
   $("t_entry").textContent = t.entry!==undefined ? (t.approx?"≈ ":"")+fmtPx(t.entry) : "—";
@@ -1202,9 +1532,9 @@ function updateTradeStats(){
     pnlEl.textContent = `${pnl>=0?"+":""}${fmtUsd(pnl)} (${pct>=0?"+":""}${fmtPct(pct)})`;
     pnlEl.className = "v num "+(pnl>=0?"up":"down");
   } else { pnlEl.textContent = "—"; pnlEl.className = "v num"; }
-  $("t_sl").textContent = t.sl ? fmtPx(t.sl) : "—";
-  $("t_sl").className = "v num"+(t.sl?" down":"");
-  $("t_kill").textContent = t.kill ? fmtPx(t.kill) : "—";
+  const tpEl = $("t_tp"), slEl = $("t_slpos");
+  if(tpEl){ tpEl.textContent = t.tpPx ? fmtPx(t.tpPx) : "—"; }
+  if(slEl){ slEl.textContent = t.slPx ? fmtPx(t.slPx) : "—"; }
   drawTradeChart();
 }
 
@@ -1228,14 +1558,14 @@ function drawTradeChart(){
   const rows = all.slice(start, tView.end);
 
   const t = tradeInfo(tOpen);
-  const P = {l:8, r:76, t:16, b:22};
+  const P = {l:8, r:92, t:16, b:22};
   let lo = Infinity, hi = -Infinity;
   for(const r of rows){ lo = Math.min(lo, r[3]); hi = Math.max(hi, r[2]); }
   /* pull a level into frame only if it costs <25% extra range — a far-away
      stop must not crush the candles into a sliver */
   const nat = hi - lo || 1e-9;
-  for(const lvl of [t.entry, t.sl])
-    if(lvl && lvl > lo - nat*0.25 && lvl < hi + nat*0.25){
+  for(const lvl of [t.entry, t.tpPx, t.slPx, t.px])
+    if(lvl && lvl > lo - nat*0.45 && lvl < hi + nat*0.45){
       lo = Math.min(lo,lvl); hi = Math.max(hi,lvl);
     }
   const pad = (hi-lo)*0.06 || 1e-9; lo -= pad; hi += pad;
@@ -1288,9 +1618,9 @@ function drawTradeChart(){
     const tx = mk("text",{x:W-P.r+7,y:y+3.5,fill:col,class:"lvl-tag"});
     tx.textContent = label;
   };
-  if(t.entry) level(t.entry, "#ecd29b", "5 4", "ENTRÉE");
-  if(t.sl)    level(t.sl,    "#f0544f", "3 3", "STOP JOUR");
-  if(t.kill)  level(t.kill,  "#a03c38", "2 4", "KILL");
+  if(t.entry) level(t.entry, "#ecd29b", "5 4", "ENTRY");
+  if(t.tpPx)  level(t.tpPx,  "#3ecf8e", "6 4", "TP "+fmtPx(t.tpPx));
+  if(t.slPx)  level(t.slPx,  "#f0544f", "6 4", "SL "+fmtPx(t.slPx));
   if(t.px)    level(t.px,    "#8b909d", "1 3", fmtPx(t.px));
 
   /* crosshair element for the persistent handlers */
@@ -1448,6 +1778,11 @@ async function refresh(){
 
   /* series + KPIs (range filter applies to the chart only) */
   const fullSeries = journal.filter(j=>j.equity>0).map(j=>({ts:j.ts, eq:j.equity}));
+  const pb = (data.trader||{}).paper_broker || {};
+  const eqLive = liveEquity(data, last);
+  if(eqLive > 0 && (!fullSeries.length || Math.abs(fullSeries[fullSeries.length-1].eq - eqLive) > 0.005)){
+    fullSeries.push({ts: Date.now()/1000, eq: eqLive});
+  }
   if(rangeHours > 0 && fullSeries.length){
     const cut = fullSeries[fullSeries.length-1].ts - rangeHours*3600;
     series = fullSeries.filter(p=>p.ts >= cut);
@@ -1455,43 +1790,63 @@ async function refresh(){
   } else {
     series = fullSeries;
   }
-  if(fullSeries.length){
-    const eq = fullSeries[fullSeries.length-1].eq, eq0 = fullSeries[0].eq;
-    let peak=0, ddNow=0; for(const p of fullSeries){ peak=Math.max(peak,p.eq); }
-    ddNow = risk.peak_equity? 1-eq/risk.peak_equity : 1-eq/peak;
+  if(fullSeries.length || eqLive){
+    const startEq = Number((data.meta||{}).paper_equity) || 10000;
+    const eq = eqLive || fullSeries[fullSeries.length-1].eq;
+    const eq0 = startEq;
+    let peak=startEq, ddNow=0; for(const p of fullSeries){ peak=Math.max(peak,p.eq); }
+    peak = Math.max(peak, eq);
+    ddNow = peak ? Math.max(0, 1-eq/peak) : 0;
     tweenNum($("k_equity"), eq, v=>fmtUsd(v));
-    $("k_equity_d").innerHTML = `<span class="goldc">USDT</span> · peak ${fmtUsd(risk.peak_equity||peak)}`;
-    const pnl = eq-eq0, ret=eq/eq0-1;
+    $("k_equity_d").innerHTML = `<span class="goldc">USDT</span> · MTM live · vs ${fmtUsd(startEq)} start`;
+    const pnl = eq-eq0, ret=eq0? eq/eq0-1 : 0;
     tweenNum($("k_pnl"), pnl, v=>(v>=0?"+":"")+fmtUsd(v));
     $("k_pnl").className = "value num "+(pnl>=0?"up":"down");
-    $("k_pnl_d").innerHTML = `<span class="${ret>=0?'up':'down'}">${ret>=0?"+":""}${fmtPct(ret)}</span> since journal start`;
+    $("k_pnl_d").innerHTML = `<span class="${ret>=0?'up':'down'}">${ret>=0?"+":""}${fmtPct(ret)}</span> vs $10,000 start`;
     tweenNum($("k_dd"), ddNow, v=>fmtPct(Math.max(0,v)));
     $("k_dd").className="value num "+(ddNow>0.05?"down":"");
-    const gross = last? Object.values(last.targets||{}).reduce((a,b)=>a+Math.abs(b),0):0;
-    tweenNum($("k_gross"), gross, v=>fmtPct(v,0));
-    $("k_gross_d").textContent = "of equity, leverage-adjusted";
+    const tgt = (data.scalp && data.scalp.targets) || (last && last.targets) || {};
+    const lev = (data.scalp && data.scalp.lev) || {};
+    const usedLev = (typeof lev.used === "number")
+      ? lev.used
+      : Object.values(tgt).reduce((a,b)=>a+Math.abs(b),0);
+    const capLev = Number(lev.gross_cap || 0.55);
+    const nameLev = Number(lev.name_cap || 0.22);
+    tweenNum($("k_gross"), usedLev, v=>v.toFixed(2)+"×");
+    const mgn = Number(lev.margin);
+    $("k_gross_d").textContent = (isFinite(mgn)? ("margin "+(mgn*100).toFixed(0)+"% of equity · ") : "")
+      + "OKX ≤"+capLev.toFixed(0)+"× · max "+nameLev.toFixed(0)+"×";
     drawChart();
-    $("chartrange").textContent = series.length+" cycles";
-    /* risk meters */
-    const cap = 0.15;
+    $("chartrange").textContent = series.length+" ticks";
+    const lim = (data.scalp && data.scalp.risk_limits) || {};
+    const cap = (Number(lim.dd_pct) || 25) / 100;
+    const dayLim = (Number(lim.daily_pct) || 8) / 100;
     let dayStart = risk.day_start_equity;
-    if(!dayStart){ /* fallback: first journal point of the last UTC day */
+    if(!dayStart && fullSeries.length){
       const lastDay = new Date(fullSeries[fullSeries.length-1].ts*1000).toISOString().slice(0,10);
       const first = fullSeries.find(p=>new Date(p.ts*1000).toISOString().slice(0,10)===lastDay);
       dayStart = first? first.eq : 0;
     }
     const dayRet = dayStart? eq/dayStart-1 : 0;
-    drawMeters(Math.max(0,ddNow), cap, dayRet, 0.03);
-    $("k_dd_d").textContent = "kill switch at 15%";
+    drawMeters(Math.max(0,ddNow), cap, dayRet, dayLim);
+    $("k_dd_d").textContent = "from peak · kill "+Math.round(cap*100)+"%";
+    tweenNum($("k_day"), dayStart? eq-dayStart : 0, v=>(v>=0?"+":"")+fmtUsd(v));
+    $("k_day").className = "value num "+(dayRet>=0?"up":"down");
+    $("k_day_d").textContent = (dayRet>=0?"+":"")+fmtPct(dayRet)+" · halt −"+Math.round(dayLim*100)+"%";
+    const ddCap = $("m_dd_cap"); if(ddCap) ddCap.textContent = "kill "+Math.round(cap*100)+"%";
+    const dayCap = $("m_day_cap"); if(dayCap) dayCap.textContent = "halt −"+Math.round(dayLim*100)+"%";
+    const hdd = $("hdl_dd");
+    if(hdd){ hdd.textContent = fmtPct(ddNow)+" / "+Math.round(cap*100)+"%"; hdd.style.color = ddNow>0.6*cap? "var(--red)":""; }
+    const hdy = $("hdl_day");
+    if(hdy){ hdy.textContent = (dayRet>=0?"+":"")+fmtPct(dayRet)+" / −"+Math.round(dayLim*100)+"%"; hdy.style.color = dayRet< -0.6*dayLim? "var(--amber)":""; }
   }
 
   const nStr = (registry.strategies||[]).length;
-  tweenNum($("k_strats"), nStr, v=>Math.round(v).toString());
   const age = registry.researched_at? (Date.now()/1000-registry.researched_at)/3600 : null;
-  $("k_strats_d").textContent = age!==null? "research age "+(age<1? Math.round(age*60)+"m" : age.toFixed(1)+"h") : "no research yet";
   $("researchage").textContent = age!==null? "refreshed "+(age<1? Math.round(age*60)+"m ago" : age.toFixed(1)+"h ago"):"";
 
   renderMarkets(data, last, journal);
+  renderScalp(data.scalp, data.now);
   renderResearch(registry, data.meta);
   renderFreshness(journal);
   const weights = (last&&last.weights)||{};
@@ -1499,13 +1854,31 @@ async function refresh(){
   const stratsById = {}; /* sid -> strategy (same matching as the table) */
   (registry.strategies||[]).forEach(s=>{ const k=findSid(weights,s); if(k) stratsById[k]=s; });
   renderAlloc(weights, stratsById);
-  renderPositions(last, last? last.equity:0);
+  const liveLast = {
+    ...(last||{}),
+    equity: eqLive || (last && last.equity) || 0,
+    positions: Object.keys(pb.pos||{}).length ? pb.pos : (last && last.positions) || {},
+    prices: (()=>{
+      const o = {...((last&&last.prices)||{}), ...(pb.prices||{})};
+      for(const [k,t] of Object.entries(data.tickers||{})){
+        if(t && t.last) o[k] = t.last;
+      }
+      for(const p of ((data.scalp||{}).preds||[])){
+        if(p.inst && p.px) o[p.inst] = p.px;
+      }
+      return o;
+    })(),
+    targets: (data.scalp && data.scalp.targets) || (last && last.targets) || {},
+    brackets: (data.scalp && data.scalp.brackets) || {},
+  };
+  renderPositions(liveLast, liveLast.equity);
+  renderHistory(data);
   renderOrders(journal);
   renderLog(data.log||[]);
   if(tOpen) updateTradeStats();
 }
 refresh();
-setInterval(refresh, 2500);
+setInterval(refresh, 5000);
 </script>
 </body>
 </html>

@@ -52,7 +52,8 @@ class OKXClient:
         return base64.b64encode(mac.digest()).decode()
 
     def _request(self, method: str, path: str, params: dict | None = None,
-                 body: dict | None = None, auth: bool = False) -> Any:
+                 body: dict | None = None, auth: bool = False,
+                 retry: bool = True) -> Any:
         query = f"?{urlencode(params)}" if params else ""
         full_path = f"{path}{query}"
         url = f"{self.base_url}{full_path}"
@@ -73,7 +74,8 @@ class OKXClient:
                 headers["x-simulated-trading"] = "1"
 
         last_exc: Exception | None = None
-        for attempt in range(self.max_retries + 1):
+        attempts = (self.max_retries + 1) if retry else 1
+        for attempt in range(attempts):
             try:
                 resp = self.session.request(
                     method, url, data=body_str if body else None,
@@ -89,11 +91,13 @@ class OKXClient:
                                    payload.get("data"))
                 return payload["data"]
             except (requests.RequestException, ValueError, OKXError) as exc:
-                retryable = isinstance(exc, (requests.RequestException, ValueError)) or (
-                    isinstance(exc, OKXError) and exc.code in ("429", "50011", "50013")
+                retryable = retry and (
+                    isinstance(exc, (requests.RequestException, ValueError)) or (
+                        isinstance(exc, OKXError) and exc.code in ("429", "50011", "50013")
+                    )
                 )
                 last_exc = exc
-                if not retryable or attempt == self.max_retries:
+                if not retryable or attempt == attempts - 1:
                     raise
                 time.sleep(2 ** attempt)
         raise last_exc  # pragma: no cover
@@ -111,43 +115,6 @@ class OKXClient:
     def ticker(self, inst_id: str) -> dict:
         return self._request("GET", "/api/v5/market/ticker", {"instId": inst_id})[0]
 
-    def liquid_swaps(self, top_n: int = 60, quote: str = "USDT",
-                     min_vol_usdt: float = 5e6) -> list[str]:
-        """Live USDT-margined perpetuals ranked by 24h traded value, richest
-        first.
-
-        Breadth is the one lever that lifts the combined Sharpe without paying
-        more cost per trade: independent edges add as sqrt(N), while fees stay
-        per-trade. A hardcoded list cannot deliver that for long — venues list
-        and delist constantly, and a name that dried up keeps consuming a slot
-        it can no longer fill.
-
-        Ranking by traded value also keeps the universe where maker-first
-        execution can actually rest an order, which is exactly where the cost
-        model's assumed fill rate holds up.
-        """
-        live = {i["instId"] for i in self.instruments("SWAP")
-                if i.get("state") == "live"}
-        rows = self._request("GET", "/api/v5/market/tickers",
-                             {"instType": "SWAP"})
-        ranked = []
-        for r in rows:
-            inst = r.get("instId", "")
-            if not inst.endswith(f"-{quote}-SWAP") or inst not in live:
-                continue
-            try:
-                # For a derivatives contract OKX reports volCcy24h in BASE
-                # currency, so it counts units rather than value: unconverted,
-                # a 1e-5-priced meme coin outranks BTC by seven orders of
-                # magnitude and BTC falls below any sane floor. Price it.
-                vol = float(r.get("volCcy24h") or 0.0) * float(r.get("last") or 0.0)
-            except (TypeError, ValueError):
-                continue
-            if vol >= min_vol_usdt:
-                ranked.append((vol, inst))
-        ranked.sort(reverse=True)
-        return [inst for _, inst in ranked[:top_n]]
-
     def candles(self, inst_id: str, bar: str = "1H", limit: int = 300,
                 after: int | None = None, history: bool = False) -> list[list]:
         """Returns rows [ts, o, h, l, c, vol, ...] NEWEST FIRST (OKX order).
@@ -158,43 +125,54 @@ class OKXClient:
             params["after"] = str(after)
         return self._request("GET", path, params)
 
-    def index_candles(self, index_id: str, bar: str = "1H", limit: int = 100,
-                      after: int | None = None, history: bool = False
-                      ) -> list[list]:
-        """Index (spot basket) candles, e.g. index_id 'BTC-USDT'. Rows
-        [ts, o, h, l, c, confirm] NEWEST FIRST — no volume column."""
-        path = ("/api/v5/market/history-index-candles" if history
-                else "/api/v5/market/index-candles")
-        params: dict = {"instId": index_id, "bar": bar, "limit": str(limit)}
-        if after is not None:
-            params["after"] = str(after)
-        return self._request("GET", path, params)
-
     def tickers(self, inst_ids: list[str]) -> dict[str, float]:
         """Live last prices for the given SWAP instruments (public)."""
         return {inst: t["last"] for inst, t in self.tickers_full(inst_ids).items()}
 
+    def last_trades(self, inst_id: str, limit: int = 100) -> list[dict]:
+        return self._request("GET", "/api/v5/market/trades",
+                             {"instId": inst_id, "limit": str(limit)})
+
+    def books(self, inst_id: str, sz: int = 5) -> dict:
+        data = self._request("GET", "/api/v5/market/books",
+                             {"instId": inst_id, "sz": str(sz)})
+        return data[0] if data else {"bids": [], "asks": []}
+
     def tickers_full(self, inst_ids: list[str]) -> dict[str, dict]:
-        """Live last price + 24h change for the given SWAP instruments."""
+        """Live last + 24h + bid/ask/size/volume for the given SWAP instruments."""
         data = self._request("GET", "/api/v5/market/tickers", {"instType": "SWAP"})
-        want = set(inst_ids)
+        want = set(inst_ids) if inst_ids else None
         out: dict[str, dict] = {}
         for row in data:
-            if row.get("instId") in want and row.get("last"):
-                last = float(row["last"])
-                open24 = float(row.get("open24h") or 0.0)
-                out[row["instId"]] = {
-                    "last": last,
-                    "chg24h": (last / open24 - 1.0) if open24 > 0 else 0.0,
-                }
+            inst = row.get("instId") or ""
+            if want is not None and inst not in want:
+                continue
+            if not row.get("last"):
+                continue
+            last = float(row["last"])
+            open24 = float(row.get("open24h") or 0.0)
+            bid = float(row.get("bidPx") or 0.0)
+            ask = float(row.get("askPx") or 0.0)
+            spread_bps = ((ask - bid) / last * 1e4) if last > 0 and bid > 0 and ask > bid else 999.0
+            vol_usd = float(row.get("volCcyQuote24h") or 0.0)
+            if vol_usd <= 0:
+                vol_ccy = float(row.get("volCcy24h") or 0.0)
+                vol_usd = vol_ccy * last
+            out[inst] = {
+                "last": last,
+                "chg24h": (last / open24 - 1.0) if open24 > 0 else 0.0,
+                "bid": bid, "ask": ask,
+                "bid_sz": float(row.get("bidSz") or 0.0),
+                "ask_sz": float(row.get("askSz") or 0.0),
+                "vol_usd": vol_usd,
+                "spread_bps": spread_bps,
+            }
         return out
 
-    def order_book(self, inst_id: str, sz: int = 100) -> dict:
-        """Live depth snapshot: {'asks': [[px, sz, ...], ...], 'bids': [...],
-        'ts': ms}. No history exists on any exchange — callers record
-        snapshots to build their own."""
-        return self._request("GET", "/api/v5/market/books",
-                             {"instId": inst_id, "sz": str(sz)})[0]
+    def swap_tickers(self) -> dict[str, dict]:
+        """All USDT-margined perps (one public call)."""
+        all_t = self.tickers_full([])
+        return {k: v for k, v in all_t.items() if k.endswith("-USDT-SWAP")}
 
     def funding_rate(self, inst_id: str) -> dict:
         return self._request("GET", "/api/v5/public/funding-rate",
@@ -207,71 +185,58 @@ class OKXClient:
             params["after"] = str(after)
         return self._request("GET", "/api/v5/public/funding-rate-history", params)
 
-    # ------------------ public trading statistics (rubik) -------------- #
-    # Open interest, aggressive taker flow and crowd positioning. All free
-    # public endpoints; rows are normalised to plain tuples (newest first)
-    # whether OKX returns arrays or objects.
-
-    @staticmethod
-    def _stat_rows(data: list, keys: tuple[str, ...],
-                   idx: tuple[int, ...]) -> list[tuple]:
-        out = []
-        for r in data:
-            try:
-                if isinstance(r, dict):
-                    out.append(tuple(float(r[k]) for k in keys))
-                else:
-                    out.append(tuple(float(r[i]) for i in idx))
-            except (KeyError, IndexError, TypeError, ValueError):
-                continue
-        return out
-
-    def _stat(self, path: str, inst_id: str, period: str, limit: int,
-              end: int | None, extra: dict | None = None) -> list:
+    def open_interest_history(self, inst_id: str, period: str = "15m",
+                              limit: int = 100, end: int | None = None) -> list[tuple]:
+        """[(ts, oi), ...] newest first. Public rubik endpoint."""
         params: dict = {"instId": inst_id, "period": period, "limit": str(limit)}
         if end is not None:
             params["end"] = str(end)
-        if extra:
-            params.update(extra)
+        data = self._request("GET", "/api/v5/rubik/stat/contracts/open-interest-history",
+                             params)
+        out = []
+        for row in data or []:
+            try:
+                out.append((int(row[0]), float(row[1])))
+            except (TypeError, ValueError, IndexError):
+                continue
+        return out
+
+    def taker_volume_history(self, inst_id: str, period: str = "15m",
+                             limit: int = 100, end: int | None = None) -> list[tuple]:
+        """[(ts, buy, sell), ...] newest first."""
+        params: dict = {"instId": inst_id, "period": period, "limit": str(limit),
+                        "unit": "2"}  # USD
+        if end is not None:
+            params["end"] = str(end)
+        data = self._request("GET", "/api/v5/rubik/stat/taker-volume-contract", params)
+        out = []
+        for row in data or []:
+            try:
+                # docs: [ts, sellVol, buyVol]
+                ts, sell, buy = int(row[0]), float(row[1]), float(row[2])
+                out.append((ts, buy, sell))
+            except (TypeError, ValueError, IndexError):
+                continue
+        return out
+
+    def mark_candles(self, inst_id: str, bar: str = "15m", limit: int = 100,
+                     after: int | None = None, history: bool = False) -> list[list]:
+        path = ("/api/v5/market/history-mark-price-candles" if history
+                else "/api/v5/market/mark-price-candles")
+        params: dict = {"instId": inst_id, "bar": bar, "limit": str(limit)}
+        if after is not None:
+            params["after"] = str(after)
         return self._request("GET", path, params)
 
-    def open_interest_history(self, inst_id: str, period: str = "1H",
-                              limit: int = 100, end: int | None = None
-                              ) -> list[tuple]:
-        """(ts, oi_coin, oi_usd) newest first."""
-        data = self._stat("/api/v5/rubik/stat/contracts/open-interest-history",
-                          inst_id, period, limit, end)
-        return self._stat_rows(data, ("ts", "oiCcy", "oiUsd"), (0, 2, 3))
-
-    def taker_volume_history(self, inst_id: str, period: str = "1H",
-                             limit: int = 100, end: int | None = None
-                             ) -> list[tuple]:
-        """(ts, buy_vol, sell_vol) newest first (contract units; only the
-        buy/sell ratio is consumed, so the unit never matters)."""
-        data = self._stat("/api/v5/rubik/stat/taker-volume-contract",
-                          inst_id, period, limit, end)
-        # OKX array order is [ts, sellVol, buyVol]
-        return self._stat_rows(data, ("ts", "buyVol", "sellVol"), (0, 2, 1))
-
-    def long_short_ratio_history(self, inst_id: str, period: str = "1H",
-                                 limit: int = 100, end: int | None = None
-                                 ) -> list[tuple]:
-        """(ts, long_short_account_ratio) newest first."""
-        data = self._stat(
-            "/api/v5/rubik/stat/contracts/long-short-account-ratio-contract",
-            inst_id, period, limit, end)
-        return self._stat_rows(data, ("ts", "longShortAcctRatio"), (0, 1))
-
-    def top_trader_ratio_history(self, inst_id: str, period: str = "1H",
-                                 limit: int = 100, end: int | None = None
-                                 ) -> list[tuple]:
-        """(ts, top-trader long/short POSITION ratio) newest first — the
-        positioning of the largest accounts, not the crowd."""
-        data = self._stat(
-            "/api/v5/rubik/stat/contracts/"
-            "long-short-position-ratio-contract-top-trader",
-            inst_id, period, limit, end)
-        return self._stat_rows(data, ("ts", "longShortPosRatio"), (0, 1))
+    def index_candles(self, inst_id: str, bar: str = "15m", limit: int = 100,
+                      after: int | None = None, history: bool = False) -> list[list]:
+        """inst_id is the INDEX id, e.g. BTC-USDT (no -SWAP)."""
+        path = ("/api/v5/market/history-index-candles" if history
+                else "/api/v5/market/index-candles")
+        params: dict = {"instId": inst_id, "bar": bar, "limit": str(limit)}
+        if after is not None:
+            params["after"] = str(after)
+        return self._request("GET", path, params)
 
     # ---------------------- private (signed) --------------------------- #
 
@@ -320,7 +285,8 @@ class OKXClient:
             body["reduceOnly"] = "true"
         if cl_ord_id:
             body["clOrdId"] = cl_ord_id
-        data = self._request("POST", "/api/v5/trade/order", body=body, auth=True)
+        data = self._request("POST", "/api/v5/trade/order", body=body, auth=True,
+                             retry=False)
         result = data[0]
         if str(result.get("sCode", "0")) != "0":
             raise OKXError(str(result["sCode"]), str(result.get("sMsg", "")), result)
@@ -330,6 +296,15 @@ class OKXClient:
         data = self._request("GET", "/api/v5/trade/order",
                              {"instId": inst_id, "ordId": ord_id}, auth=True)
         return data[0]
+
+    def order_by_cl_ord_id(self, inst_id: str, cl_ord_id: str) -> dict | None:
+        """Lookup an order by client id (recovery after a transport timeout)."""
+        try:
+            data = self._request("GET", "/api/v5/trade/order",
+                                 {"instId": inst_id, "clOrdId": cl_ord_id}, auth=True)
+            return data[0] if data else None
+        except OKXError:
+            return None
 
     def cancel_order(self, inst_id: str, ord_id: str) -> dict:
         data = self._request("POST", "/api/v5/trade/cancel-order",

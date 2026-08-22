@@ -59,7 +59,7 @@ jobs:
         run: |
           git config user.name "hermes-bot"
           git config user.email "hermes-bot@users.noreply.github.com"
-          git add -f state/registry.json state/universe.json 2>/dev/null || true
+          git add -f state/registry.json 2>/dev/null || true
           if ! git diff --cached --quiet; then
             git commit -m "state: research refresh $(date -u +%FT%TZ) [skip ci]"
             for i in 1 2 3 4; do

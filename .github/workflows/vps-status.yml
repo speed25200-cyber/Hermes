@@ -47,47 +47,12 @@ jobs:
             echo "===== research / engine journal (last 50 lines) ====="
             journalctl -u hermes-research -u hermes -n 50 --no-pager || true
             echo
-            echo "===== operational report ====="
-            # a raw grep over the registry runs to hundreds of lines and
-            # buries what matters; `hermes report` summarises the book and
-            # then answers whether it is actually trading.
-            # the pipeline exit status is head'"'"'s, so a failing command would
-            # render as an empty section that reads like "nothing deployed
-            # yet" — capture it and surface the error instead
-            if out=$(cd /root/hermes && /root/venv/bin/python -m hermes report 2>&1); then
-              printf "%s\n" "$out"
-            else
-              echo "hermes report FAILED:"; printf "%s\n" "$out" | tail -15
-            fi
+            echo "===== deployed book (registry summary) ====="
+            grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
+            echo
+            echo "===== hermes state ====="
+            cd /root/hermes 2>/dev/null && /root/venv/bin/python -m hermes status 2>/dev/null | head -40 || echo "no state yet"
             echo
             echo "===== disk / memory ====="
             df -h / | tail -1; free -m | head -2
-            echo
-            # Headline last, on purpose. Reading this report costs a log
-            # fetch, and fetching all 220 lines to learn whether research is
-            # still running is the wrong trade — the two facts that decide
-            # what to do next belong where a short tail can see them.
-            echo "===== research decisions (last pass) ====="
-            # what the search actually concluded, not 50 lines of whatever
-            # happened to be last: the panel verdict and the skips are the
-            # only things that explain an idle book.
-            journalctl -u hermes-research --no-pager -n 4000 2>/dev/null \
-              | grep -aE "panel|deployed |skipping|rejecting|xs (IS|OOS|research)|window|registry:" \
-              | tail -25 || echo "(no research lines)"
-            echo
-            echo "===== HEADLINE ====="
-            echo "research: $(systemctl is-active hermes-research)   engine: $(systemctl is-active hermes)   dashboard: $(systemctl is-active hermes-dashboard)"
-            ss -tln | grep -q ":8899 " && echo "port 8899: LISTENING" || echo "port 8899: NOT listening"
-            echo "code: $(cat /root/hermes/DEPLOYED_SHA 2>/dev/null || echo unknown)"
-            # ...and how far along it is, so a six-line tail answers both
-            # "is it running" and "is it moving" without a second fetch.
-            # Timestamped on purpose: journalctl spans invocations, so an
-            # untimed line from the PREVIOUS pass reads exactly like progress
-            # from this one — which is how a stale "population=96" line was
-            # briefly mistaken for the new budget failing to take effect.
-            # InactiveExitTimestamp, not ActiveEnterTimestamp: a oneshot unit
-            # is "activating" for its whole life and only enters active at the
-            # end, so ActiveEnterTimestamp is empty exactly while you need it
-            echo "unit started: $(systemctl show hermes-research -p InactiveExitTimestamp --value)"
-            echo "last research line: $(journalctl -u hermes-research -n 300 --no-pager -o short-iso 2>/dev/null | grep -E "elapsed\]|instruments on|panel|XS:|deployed|stored|universe:" | tail -1 || echo none)"
           '

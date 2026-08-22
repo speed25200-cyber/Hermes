@@ -26,17 +26,8 @@ import numpy as np
 from .. import features as F
 from ..data.store import BARS_PER_YEAR, Candles
 
-# Parameter grids searched by the XS research gate (small on purpose: few
-# trials keep the deflated-Sharpe penalty low and the strategy honest).
-#
-# Only the families whose sign is an open empirical question search `dir`.
-# Carry is pinned by theory (the crowded side pays the funding), lead-lag by
-# construction (laggards catch up), and momentum/reversal already span both
-# directions of the same score by existing as two families. Every extra
-# config raises the deflated-Sharpe bar for the WHOLE sweep — measured on a
-# 900-bar OOS window, going from 42 to 84 configs moves the min_dsr crossing
-# from 3.5 to 5.1 annualised Sharpe — so a family with a sound prior must not
-# be taxed to rescue one without.
+# parameter grids searched by the XS research gate (small on purpose: few
+# trials keep the deflated-Sharpe penalty low and the strategy honest)
 XS_GRID = [  # carry (funding_xs)
     {"lookback": lb, "max_w": mw}
     for lb in (100, 200, 400)
@@ -57,29 +48,22 @@ XS_LEAD_GRID = [  # leader-move window: 2h / 4h / 8h of 15m bars
     for lb in (8, 16, 32)
     for mw in (0.15, 0.25)
 ]
-XS_TAKER_GRID = [  # aggressive-flow window: 4h / 12h / 24h of 15m bars
-    {"lookback": lb, "max_w": mw, "dir": d}
+
+XS_BASIS_GRID = [  # fade rich perp premium / cheap discount
+    {"lookback": lb, "max_w": mw}
+    for lb in (48, 96, 192)
+    for mw in (0.15, 0.25)
+]
+XS_FLOW_GRID = [  # fade aggressive taker flow (4h / 12h / 1d)
+    {"lookback": lb, "max_w": mw}
     for lb in (16, 48, 96)
     for mw in (0.15, 0.25)
-    for d in (0, 1)
 ]
-XS_OI_GRID = [  # OI-confirmation window: 1 day / 4 days / 2 weeks
-    {"lookback": lb, "max_w": mw, "dir": d}
-    for lb in (96, 384, 1344)
+XS_CROWD_GRID = [  # fade OI-up + price-up crowding
+    {"lookback": lb, "max_w": mw}
+    for lb in (16, 48, 96)
     for mw in (0.15, 0.25)
-    for d in (0, 1)
 ]
-XS_BASIS_GRID = [  # premium smoothing: 12h / 2 days / 1 week of 15m bars
-    {"lookback": lb, "max_w": mw, "dir": d}
-    for lb in (48, 192, 672)
-    for mw in (0.15, 0.25)
-    for d in (0, 1)
-]
-
-# genome signal name -> scoring kind
-XS_KINDS = {"funding_xs": "carry", "xs_mom": "mom", "xs_rev": "rev",
-            "xs_lead": "lead", "xs_taker": "taker", "xs_oi": "oi",
-            "xs_basis": "basis"}
 
 # trailing window (bars) for estimating each name's lead-lag beta to the
 # universe leader's previous-bar return (fixed a priori, not searched)
@@ -93,6 +77,11 @@ MOM_SKIP_FRAC = 0.05
 # priori (NOT searched) — it exists to tame turnover costs, identically for
 # every family, and adds zero trials to the deflated-Sharpe penalty.
 REBALANCE_BAND_FRAC = 0.25
+
+# genome signal name -> scoring kind
+XS_KINDS = {"funding_xs": "carry", "xs_mom": "mom", "xs_rev": "rev",
+            "xs_lead": "lead", "xs_basis": "basis", "xs_flow": "flow",
+            "xs_crowd": "crowd"}
 
 
 def align_universe(candles_map: dict[str, Candles]) -> tuple[np.ndarray, dict[str, np.ndarray]]:
@@ -110,48 +99,26 @@ def align_universe(candles_map: dict[str, Candles]) -> tuple[np.ndarray, dict[st
     return common, idx
 
 
-def _scores(kind: str, candles: Candles, rv: np.ndarray,
-            lb: int) -> np.ndarray:
+def _scores(kind: str, candles: Candles, rv: np.ndarray, lb: int) -> np.ndarray:
     """Causal per-instrument score series; higher score -> more attractive
-    LONG for mom/taker/oi, more attractive SHORT for carry/rev (sign applied
-    later)."""
-    c = candles.c
+    LONG for mom, more attractive SHORT for carry/rev/basis/flow/crowd
+    (sign applied later)."""
+    c, funding = candles.c, candles.funding
     n = len(c)
     if kind == "carry":
-        return F.ewma_funding(candles.funding, lb)
-    if kind == "taker":
-        # persistent aggressive net buying continues cross-sectionally
-        b = candles.x.get("tak_buy")
-        s = candles.x.get("tak_sell")
-        if b is None or s is None:
-            return np.zeros(n)
-        tot = b + s
-        with np.errstate(invalid="ignore", divide="ignore"):
-            imb = (b - s) / np.where(tot > 0, tot, np.nan)
-        return F.ema(np.nan_to_num(imb, nan=0.0), lb)
+        return F.ewma_funding(funding, lb)
     if kind == "basis":
-        # smoothed perp premium to the spot index: the richest names carry
-        # the most crowded longs (and pay the most funding) — fade them
-        idx = candles.x.get("idx")
-        if idx is None:
-            return np.zeros(n)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            prem = c / np.where(idx > 0, idx, np.nan) - 1.0
-        return F.ema(np.nan_to_num(prem, nan=0.0), lb)
-    if kind == "oi":
-        # vol-adjusted momentum, counted only when open interest is rising
-        # (a move carried by fresh positions, not by a squeeze/unwind)
-        oi = candles.x.get("oi")
-        if oi is None:
-            return np.zeros(n)
-        doi = np.nan_to_num(F.lookback_return(oi, lb))
-        s = np.zeros(n)
-        if lb >= n:
-            return s
-        s[lb:] = c[lb:] / c[:-lb] - 1.0
-        with np.errstate(invalid="ignore", divide="ignore"):
-            s = s / np.where(rv > 0.05, rv, np.nan)
-        return np.nan_to_num(s, nan=0.0) * (doi > 0)
+        return F.ema(candles.basis, lb)
+    if kind == "flow":
+        return F.ema(candles.taker_imb, lb)
+    if kind == "crowd":
+        oi = candles.oi
+        dlog = np.zeros(n)
+        if n > 1:
+            with np.errstate(invalid="ignore", divide="ignore"):
+                dlog[1:] = np.diff(oi) / np.where(oi[:-1] > 1e-9, oi[:-1], np.nan)
+        ret = F.lookback_return(c, max(int(lb), 1))
+        return np.nan_to_num(dlog * np.sign(ret), nan=0.0)
     if kind == "mom":
         skip = max(1, int(lb * MOM_SKIP_FRAC))
         s = np.zeros(n)
@@ -266,17 +233,9 @@ def xs_positions(
         z = (smat - mu) / np.where(sd > 1e-12, sd, np.nan)
     z = np.nan_to_num(z, nan=0.0)
 
-    # sign per family: carry & reversal fade the score; momentum, lead-lag,
-    # taker-flow and OI-confirmed continuation follow it. `dir` lets the
-    # search invert that prior, exactly as the per-instrument families
-    # already do — pinning it meant a family could only ever express half its
-    # hypothesis, and xs_oi came back at -3.2 to -5.9 Sharpe on every single
-    # config, which is a strong edge held the wrong way round rather than an
-    # absent one. The extra configs are counted in n_trials, so the deflated
-    # Sharpe charges for the wider search.
-    signed = z if kind in ("mom", "lead", "taker", "oi") else -z
-    if int(params.get("dir", 0)) == 1:
-        signed = -signed
+    # sign per family: carry & reversal fade the score, momentum and
+    # lead-lag continuation follow it
+    signed = z if kind in ("mom", "lead") else -z
 
     # inverse-vol tilt; demean so the book stays dollar-neutral after clipping
     with np.errstate(invalid="ignore", divide="ignore"):

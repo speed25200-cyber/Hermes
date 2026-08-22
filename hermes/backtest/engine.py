@@ -53,21 +53,4 @@ def run(
     turnover = float(trade_size.mean()) if n else 0.0
     bpy = BARS_PER_YEAR[candles.bar]
     stats = metrics.summarize(rets, equity, bpy, turnover, n_trials)
-    # What the frictions actually took. A strategy whose gross edge is real but
-    # whose costs eat most of it is a FREQUENCY problem, not a model problem —
-    # no better predictor rescues it, only trading it less often does. At 15m
-    # bars 1% turnover per bar costs ~18% a year at 5bp all-in, which swamps
-    # almost any edge, so this has to be visible rather than folded into net.
-    stats["gross_sharpe"] = metrics.sharpe(gross, bpy)
-    stats["cost_drag_annual"] = float(costs.mean() * bpy)
-    stats["funding_drag_annual"] = float(funding_cost.mean() * bpy)
-    gross_annual = float(gross.mean() * bpy)
-    stats["gross_return_annual"] = gross_annual
-    # -1 rather than inf when there is no gross profit to share (a funding
-    # carry strategy can be net-positive on a negative price return): this
-    # lands in registry.json and the dashboard re-serialises it, and JSON has
-    # no Infinity — a browser JSON.parse would reject it and blank the console
-    stats["cost_share_of_gross"] = (
-        float(stats["cost_drag_annual"] / gross_annual) if gross_annual > 1e-9
-        else -1.0)
     return BacktestResult(rets, equity, pos, turnover, stats)

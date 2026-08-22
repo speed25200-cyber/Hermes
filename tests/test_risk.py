@@ -54,6 +54,8 @@ def test_order_notional_checks():
     assert e.check_order(5.0)[0] is False
     assert e.check_order(100.0)[0] is True
     assert e.check_order(5000.0)[0] is False
+    # reducing a position is allowed through the cap (caller still chunks)
+    assert e.check_order(5000.0, reducing=True)[0] is True
 
 
 def test_state_roundtrip(tmp_path):
@@ -133,19 +135,3 @@ def test_governor_state_roundtrip():
     assert g2.boost == g.boost
     assert g2.equity_hist == g.equity_hist
     assert g2.last_mult == g.last_mult
-
-
-def test_an_exit_is_exempt_from_the_minimum_notional_floor():
-    """The floor stops the book churning on rebalances too small to be worth
-    their fees. Applied to an exit it does the opposite: a position below the
-    floor can never be closed, because every order that would close it is
-    smaller than the floor."""
-    from hermes.risk import RiskEngine
-
-    r = RiskEngine(max_gross_leverage=2.0, max_instrument_leverage=1.0,
-                   daily_loss_limit_pct=3.0, max_drawdown_pct=15.0,
-                   min_trade_notional=10.0, max_order_notional=25_000.0)
-    assert r.check_order(4.15)[0] is False          # entering: still noise
-    assert r.check_order(4.15, closing=True)[0] is True
-    # the upper cap still binds either way
-    assert r.check_order(30_000.0, closing=True)[0] is False

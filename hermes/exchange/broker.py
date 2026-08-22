@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import time
+import uuid
 from dataclasses import dataclass, field
 
 from .okx_client import OKXClient, OKXError
@@ -24,60 +25,6 @@ class Fill:
     ts: float
 
 
-@dataclass
-class ExecStats:
-    """Realised execution quality, accumulated notional-weighted.
-
-    Every backtest prices trades through `effective_costs`, which blends the
-    maker and taker fee by an ASSUMED `maker_miss_rate`. That assumption sits
-    underneath every validated Sharpe, so it has to be checked against what
-    the exchange actually did rather than trusted: at 15m bars a cost model
-    that is wrong by a few bps per trade is the difference between an edge
-    and a slow bleed.
-    """
-
-    orders: int = 0
-    notional: float = 0.0
-    maker_notional: float = 0.0
-    taker_notional: float = 0.0
-    fee_paid: float = 0.0
-    # signed cost of the fill price against the decision price, in USDT;
-    # positive means the fill was worse than the price the signal saw
-    shortfall: float = 0.0
-
-    def record(self, notional: float, maker_notional: float, fee: float,
-               shortfall: float) -> None:
-        if notional <= 0:
-            return
-        self.orders += 1
-        self.notional += notional
-        self.maker_notional += max(maker_notional, 0.0)
-        self.taker_notional += max(notional - maker_notional, 0.0)
-        self.fee_paid += fee
-        self.shortfall += shortfall
-
-    def summary(self) -> dict:
-        n = self.notional
-        if n <= 0:
-            return {"orders": 0, "notional": 0.0}
-        return {
-            "orders": self.orders,
-            "notional": n,
-            "maker_share": self.maker_notional / n,
-            "fee_bps": self.fee_paid / n * 1e4,
-            "shortfall_bps": self.shortfall / n * 1e4,
-            "all_in_bps": (self.fee_paid + self.shortfall) / n * 1e4,
-        }
-
-    def to_dict(self) -> dict:
-        return self.__dict__.copy()
-
-    def restore(self, d: dict) -> None:
-        for k, v in (d or {}).items():
-            if k in self.__dict__:
-                setattr(self, k, type(self.__dict__[k])(v))
-
-
 class Broker:
     """Interface."""
 
@@ -88,7 +35,8 @@ class Broker:
         """inst -> signed coin qty."""
         raise NotImplementedError
 
-    def market_order(self, inst: str, qty: float, price_hint: float) -> Fill | None:
+    def market_order(self, inst: str, qty: float, price_hint: float,
+                     force_taker: bool = False, leverage: float | None = None) -> Fill | None:
         """qty signed (+ buy / - sell), in coin units."""
         raise NotImplementedError
 
@@ -102,57 +50,183 @@ class Broker:
 @dataclass
 class PaperBroker(Broker):
     cash: float = 10000.0
-    fee_bps: float = 5.0
-    slippage_bps: float = 2.0
-    pos: dict[str, float] = field(default_factory=dict)      # inst -> qty
-    prices: dict[str, float] = field(default_factory=dict)   # inst -> last px
-    entry: dict[str, float] = field(default_factory=dict)    # inst -> avg entry px
+    fee_bps: float = 5.0          # taker
+    maker_fee_bps: float = 2.0    # join the book
+    slippage_bps: float = 2.0     # used only when bid/ask missing
+    pos: dict[str, float] = field(default_factory=dict)
+    prices: dict[str, float] = field(default_factory=dict)
+    entry: dict[str, float] = field(default_factory=dict)
     fills: list[Fill] = field(default_factory=list)
-    exec_stats: ExecStats = field(default_factory=ExecStats)
+    book: dict[str, dict] = field(default_factory=dict)
+    specs: dict[str, dict] = field(default_factory=dict)
+    lever: dict[str, float] = field(default_factory=dict)  # OKX lev per inst
+    margin_mode: bool = True
+
+    def set_specs(self, specs: dict[str, dict]) -> None:
+        self.specs = dict(specs)
 
     def mark_prices(self, prices: dict[str, float]) -> None:
         self.prices.update(prices)
+        self._maybe_liquidate()
+
+    def mark_ticks(self, ticks: dict[str, dict]) -> None:
+        """OKX ticker snapshot: last/bid/ask. Fills use bid/ask, MTM uses last."""
+        for inst, t in (ticks or {}).items():
+            last = float(t.get("last") or 0.0)
+            bid = float(t.get("bid") or 0.0)
+            ask = float(t.get("ask") or 0.0)
+            if last > 0:
+                self.prices[inst] = last
+            self.book[inst] = {"last": last, "bid": bid, "ask": ask}
+        self._maybe_liquidate()
+
+    def _maybe_liquidate(self) -> None:
+        """USDT-M: wipe when equity ≤ ~maintenance (0.4% of notional), like ~20x."""
+        notion = 0.0
+        for inst, q in self.pos.items():
+            notion += abs(q) * float(self.prices.get(inst) or 0.0)
+        if notion <= 0:
+            return
+        eq = self.equity()
+        if eq > 0.004 * notion and eq > 0:
+            return
+        for inst, q in list(self.pos.items()):
+            px = float(self.prices.get(inst) or 0.0)
+            if px > 0 and abs(q) > 0:
+                self.market_order(inst, -q, px, force_taker=True)
+        self.cash = max(self.cash, 0.0)
 
     def equity(self) -> float:
+        """Wallet + uPnL. Equity is the only capital — never notional."""
         eq = self.cash
         for inst, q in self.pos.items():
-            eq += q * self.prices.get(inst, 0.0)
+            mark = float(self.prices.get(inst) or self.entry.get(inst) or 0.0)
+            entry = float(self.entry.get(inst) or mark)
+            eq += q * (mark - entry)
         return eq
+
+    def margin_used(self, pos: dict | None = None, lever: dict | None = None) -> float:
+        tot = 0.0
+        pos = self.pos if pos is None else pos
+        lever = self.lever if lever is None else lever
+        for inst, q in pos.items():
+            if abs(q) < 1e-12:
+                continue
+            px = float(self.prices.get(inst) or self.entry.get(inst) or 0.0)
+            L = max(float(lever.get(inst, 1.0) or 1.0), 1.0)
+            tot += abs(q) * px / L
+        return tot
+
+    def available(self) -> float:
+        return self.equity() - self.margin_used()
 
     def positions(self) -> dict[str, float]:
         return {k: v for k, v in self.pos.items() if abs(v) > 1e-12}
 
-    def market_order(self, inst: str, qty: float, price_hint: float) -> Fill | None:
-        if qty == 0 or price_hint <= 0:
-            return None
-        side = "buy" if qty > 0 else "sell"
+    def _round_qty(self, inst: str, qty: float) -> float:
+        spec = self.specs.get(inst)
+        if not spec or qty == 0:
+            return qty
+        ct = float(spec.get("ctVal") or 0.0)
+        lot = float(spec.get("lotSz") or 0.0)
+        mn = float(spec.get("minSz") or 0.0)
+        if ct <= 0 or lot <= 0:
+            return qty
+        contracts = abs(qty) / ct
+        contracts = math.floor(contracts / lot + 1e-12) * lot
+        if contracts < mn:
+            return 0.0
+        return math.copysign(contracts * ct, qty)
+
+    def _taker_px(self, inst: str, qty: float, price_hint: float) -> float:
+        b = self.book.get(inst) or {}
+        bid, ask = float(b.get("bid") or 0.0), float(b.get("ask") or 0.0)
+        if bid > 0 and ask > bid:
+            return ask if qty > 0 else bid
         slip = self.slippage_bps * 1e-4
-        px = price_hint * (1 + slip) if qty > 0 else price_hint * (1 - slip)
-        notional = abs(qty) * px
-        fee = notional * self.fee_bps * 1e-4
-        self.cash -= qty * px
-        self.cash -= fee
+        hint = price_hint or float(self.prices.get(inst) or 0.0)
+        if hint <= 0:
+            return 0.0
+        return hint * (1 + slip) if qty > 0 else hint * (1 - slip)
+
+    def _maker_px(self, inst: str, qty: float, price_hint: float) -> float:
+        """Join the queue: capture 75% of the spread, not the last print."""
+        b = self.book.get(inst) or {}
+        bid, ask = float(b.get("bid") or 0.0), float(b.get("ask") or 0.0)
+        if bid > 0 and ask > bid:
+            spr = ask - bid
+            return (bid + 0.25 * spr) if qty > 0 else (ask - 0.25 * spr)
+        hint = price_hint or float(self.prices.get(inst) or 0.0)
+        return hint
+
+    def market_order(self, inst: str, qty: float, price_hint: float,
+                     force_taker: bool = False, leverage: float | None = None) -> Fill | None:
+        qty = self._round_qty(inst, qty)
+        if qty == 0 or (price_hint <= 0 and not (self.book.get(inst) or {}).get("bid")):
+            return None
+        if force_taker:
+            px = self._taker_px(inst, qty, price_hint)
+            fee_bps = self.fee_bps
+        else:
+            px = self._maker_px(inst, qty, price_hint)
+            fee_bps = self.maker_fee_bps
+        if px <= 0:
+            return None
         old = self.pos.get(inst, 0.0)
         new = old + qty
-        # volume-weighted average entry: adding to a position averages in the
-        # fill; reducing keeps the entry; flipping through zero restarts it
+        lev_now = dict(self.lever)
+        if leverage and abs(new) > 1e-12:
+            if abs(old) < 1e-12:
+                lev_now[inst] = max(float(leverage), 1.0)
+            else:
+                lev_now[inst] = max(float(lev_now.get(inst, 1) or 1), float(leverage), 1.0)
+        trial = dict(self.pos)
+        trial[inst] = new
+        reducing = abs(new) <= abs(old) + 1e-12 and (old * new > 0 or abs(new) < 1e-12)
+        if not reducing:
+            im = 0.0
+            for i, q in trial.items():
+                pxi = px if i == inst else float(self.prices.get(i) or self.entry.get(i) or 0.0)
+                L = max(float(lev_now.get(i, 1) or 1), 1.0)
+                im += abs(q) * pxi / L
+            cap = max(self.equity(), 0.0)
+            if im > cap + 1e-6 and cap > 0:
+                L = max(float(lev_now.get(inst, 1) or 1), 1.0)
+                room = cap - (im - abs(new) * px / L)
+                max_qty = max(room, 0.0) * L / px
+                if old * qty > 0:
+                    max_delta = max(max_qty - abs(old), 0.0)
+                    qty = math.copysign(max_delta, qty)
+                else:
+                    qty = math.copysign(max_qty, qty)
+                qty = self._round_qty(inst, qty)
+                if abs(qty) * px < 1.0:
+                    return None
+                new = old + qty
+        # realize PnL on the closed slice; wallet never pays the notional
+        if old != 0.0 and old * qty < 0:
+            closed = min(abs(old), abs(qty))
+            sign = 1.0 if old > 0 else -1.0
+            self.cash += sign * closed * (px - float(self.entry.get(inst, px)))
+        notional = abs(qty) * px
+        fee = notional * fee_bps * 1e-4
+        self.cash -= fee
         if old == 0.0 or old * qty > 0:
             tot = abs(old) + abs(qty)
             self.entry[inst] = ((abs(old) * self.entry.get(inst, px)
-                                 + abs(qty) * px) / tot)
+                                 + abs(qty) * px) / tot) if tot else px
         elif old * new < 0:
             self.entry[inst] = px
         self.pos[inst] = new
+        if leverage and abs(new) > 1e-12:
+            self.lever[inst] = lev_now.get(inst, float(leverage))
         if abs(self.pos[inst]) < 1e-12:
             self.pos.pop(inst, None)
             self.entry.pop(inst, None)
+            self.lever.pop(inst, None)
+        side = "buy" if qty > 0 else "sell"
         fill = Fill(inst, side, abs(qty), px, fee, time.time())
         self.fills.append(fill)
-        # the paper broker's costs are the model's own, so this records what
-        # the backtest ASSUMES — the live broker records what actually happened
-        # and `hermes execution` contrasts the two
-        self.exec_stats.record(notional=notional, maker_notional=0.0, fee=fee,
-                               shortfall=abs(qty) * abs(px - price_hint))
         return fill
 
     def apply_funding(self, inst: str, rate: float) -> None:
@@ -162,17 +236,24 @@ class PaperBroker(Broker):
         if q and px:
             self.cash -= q * px * rate
 
-    # persistence ------------------------------------------------------- #
-
     def to_dict(self) -> dict:
         return {"cash": self.cash, "pos": self.pos, "prices": self.prices,
-                "entry": self.entry}
+                "entry": self.entry, "lever": self.lever, "margin_mode": True}
 
     def restore(self, d: dict) -> None:
-        self.cash = d.get("cash", self.cash)
         self.pos = dict(d.get("pos", {}))
         self.prices = dict(d.get("prices", {}))
         self.entry = dict(d.get("entry", {}))
+        self.lever = {k: float(v) for k, v in (d.get("lever") or {}).items()}
+        cash = float(d.get("cash", self.cash))
+        if d.get("margin_mode"):
+            self.cash = cash
+        else:
+            locked = 0.0
+            for inst, q in self.pos.items():
+                locked += float(q) * float(self.entry.get(inst) or self.prices.get(inst) or 0.0)
+            self.cash = cash + locked
+
 
 
 # --------------------------------------------------------------------- #
@@ -188,7 +269,6 @@ class OKXBroker(Broker):
         self.prefer_maker = prefer_maker
         self.maker_wait_s = maker_wait_s
         self._sleep = sleep_fn
-        self.exec_stats = ExecStats()
         self._specs: dict[str, dict] = {}
 
     def _spec(self, inst: str) -> dict:
@@ -217,7 +297,8 @@ class OKXBroker(Broker):
             out[inst] = contracts * ct_val
         return out
 
-    def market_order(self, inst: str, qty: float, price_hint: float) -> Fill | None:
+    def market_order(self, inst: str, qty: float, price_hint: float,
+                     force_taker: bool = False, leverage: float | None = None) -> Fill | None:
         spec = self._spec(inst)
         contracts = abs(qty) / spec["ctVal"]
         lot = spec["lotSz"]
@@ -230,89 +311,91 @@ class OKXBroker(Broker):
         cur = self.positions().get(inst, 0.0)
         reduce_only = (cur > 0 and qty < 0 and abs(qty) <= cur + 1e-12) or \
                       (cur < 0 and qty > 0 and qty <= -cur + 1e-12)
+
         def fmt(c: float) -> str:
             return f"{c:.10f}".rstrip("0").rstrip(".")
 
-        filled = maker_filled = 0.0
-        cost = fee_paid = 0.0        # sum(px * contracts) and USDT fees
-        if self.prefer_maker:
-            maker_filled, m_px, m_fee = self._maker_fill(
-                inst, side, fmt(contracts), reduce_only)
-            filled += maker_filled
-            cost += m_px * maker_filled
-            fee_paid += m_fee
+        filled = 0.0
+        use_maker = self.prefer_maker and not force_taker
+        if use_maker:
+            filled = self._maker_fill(inst, side, fmt(contracts), reduce_only)
         remaining = math.floor((contracts - filled) / lot) * lot
         if remaining >= spec["minSz"]:
-            result = self.client.market_order(inst, side, fmt(remaining),
-                                              self.td_mode,
-                                              reduce_only=reduce_only)
-            ord_id = result.get("ordId", "")
-            t_px, t_fee = self._settled(inst, ord_id, price_hint)
-            self.log(f"{inst}: {side} {fmt(remaining)} contracts TAKER "
-                     f"@ {t_px:.6g} (ordId={ord_id})")
-            filled += remaining
-            cost += t_px * remaining
-            fee_paid += t_fee
+            cl_id = uuid.uuid4().hex[:32]
+            try:
+                result = self.client.market_order(
+                    inst, side, fmt(remaining), self.td_mode,
+                    reduce_only=reduce_only, cl_ord_id=cl_id)
+            except OKXError as exc:
+                recovered = self._recover_cl_ord(inst, cl_id)
+                if recovered is None:
+                    self.log(f"{inst}: taker failed ({exc})")
+                    result = None
+                else:
+                    result = recovered
+            except Exception as exc:
+                recovered = self._recover_cl_ord(inst, cl_id)
+                if recovered is None:
+                    self.log(f"{inst}: taker transport error ({type(exc).__name__}: {exc})")
+                    result = None
+                else:
+                    result = recovered
+                    self.log(f"{inst}: recovered taker via clOrdId={cl_id}")
+            taker_filled = self._confirmed_fill(inst, result, remaining)
+            if result is not None:
+                self.log(f"{inst}: {side} {taker_filled:g}/{remaining:g} contracts TAKER "
+                         f"(ordId={result.get('ordId')})")
+            filled += taker_filled
         if filled <= 0:
             return None
+        return Fill(inst, side, filled * spec["ctVal"], price_hint, 0.0,
+                    time.time())
 
-        ct_val = spec["ctVal"]
-        qty = filled * ct_val
-        avg_px = (cost / filled) if filled > 0 else price_hint
-        # implementation shortfall: what the fill cost against the price the
-        # signal actually decided on, signed so adverse fills are positive
-        adverse = (avg_px - price_hint) if side == "buy" else (price_hint - avg_px)
-        self.exec_stats.record(notional=qty * avg_px,
-                               maker_notional=maker_filled * ct_val * avg_px,
-                               fee=fee_paid, shortfall=qty * adverse)
-        return Fill(inst, side, qty, avg_px, fee_paid, time.time())
+    def _recover_cl_ord(self, inst: str, cl_id: str) -> dict | None:
+        lookup = getattr(self.client, "order_by_cl_ord_id", None)
+        if lookup is None:
+            return None
+        try:
+            return lookup(inst, cl_id)
+        except OKXError:
+            return None
 
-    def _settled(self, inst: str, ord_id: str,
-                 price_hint: float) -> tuple[float, float]:
-        """Average fill price and fee actually charged for an order.
+    def _confirmed_fill(self, inst: str, result: dict | None,
+                        requested: float) -> float:
+        """Prefer exchange accFillSz on a *terminal* fill state.
 
-        Falls back to the decision price with a zero fee only if the exchange
-        cannot be queried — that path understates cost, so it is logged rather
-        than folded silently into the statistics.
+        A 'live' status after a market order is usually a race; do not treat
+        a leftover maker accFillSz as the taker fill (that under-counts).
         """
-        if not ord_id:
-            return price_hint, 0.0
-        # A market order is usually not settled the instant it is accepted, so
-        # avgPx/fee come back empty on the first read. Poll briefly rather than
-        # taking the empty payload as "filled at the decision price for free" —
-        # that fallback silently reports zero cost and would have the execution
-        # report announce that the model matches reality.
-        st: dict = {}
-        for attempt in range(3):
+        if not result:
+            return 0.0
+        ord_id = result.get("ordId")
+        if ord_id and hasattr(self.client, "order_status"):
             try:
                 st = self.client.order_status(inst, ord_id)
-            except OKXError as exc:
-                self.log(f"{inst}: could not read fill detail for {ord_id} "
-                         f"({exc}); execution stats will understate cost")
-                return price_hint, 0.0
-            if st.get("avgPx"):
-                break
-            if attempt < 2:
-                self._sleep(0.5)
-        if not st.get("avgPx"):
-            self.log(f"{inst}: order {ord_id} not settled in time; execution "
-                     f"stats will understate its cost")
-            return price_hint, 0.0
-        return self._fill_detail(st, price_hint)
+                state = st.get("state", "")
+                acc = float(st.get("accFillSz") or 0.0)
+                if state in ("filled", "partially_filled") and acc > 0:
+                    return acc
+            except (OKXError, TypeError, ValueError):
+                pass
+        if result.get("ordId") or result.get("clOrdId"):
+            return requested
+        return 0.0
 
     def _maker_fill(self, inst: str, side: str, sz: str,
-                    reduce_only: bool) -> tuple[float, float, float]:
-        """Post-only limit at the touch. Returns (contracts filled, average
-        fill price, fee charged); the caller sends the remainder as a taker
-        order. A partial fill is normal and is reported as such."""
+                    reduce_only: bool) -> float:
+        """Post-only limit at the touch. Returns contracts filled (possibly
+        partial); the caller sends the remainder as a taker order."""
         try:
             tick = self.client.ticker(inst)
             px = tick.get("bidPx") if side == "buy" else tick.get("askPx")
             if not px:
-                return 0.0, 0.0, 0.0
+                return 0.0
             result = self.client.place_order(inst, side, sz, "post_only",
                                              px=str(px), td_mode=self.td_mode,
-                                             reduce_only=reduce_only)
+                                             reduce_only=reduce_only,
+                                             cl_ord_id=uuid.uuid4().hex[:32])
             ord_id = result.get("ordId", "")
             deadline = time.time() + self.maker_wait_s
             st: dict = {}
@@ -321,39 +404,20 @@ class OKXBroker(Broker):
                 st = self.client.order_status(inst, ord_id)
                 state = st.get("state", "")
                 if state == "filled":
-                    acc = float(st.get("accFillSz") or sz)
-                    avg, fee = self._fill_detail(st, float(px))
-                    self.log(f"{inst}: {side} {sz} contracts MAKER @ {avg:.6g}")
-                    return acc, avg, fee
+                    self.log(f"{inst}: {side} {sz} contracts MAKER @ {px}")
+                    return float(st.get("accFillSz") or sz)
                 if state in ("canceled", "mmp_canceled"):
                     # post-only rejected (would have crossed) or external cancel
-                    acc = float(st.get("accFillSz") or 0.0)
-                    avg, fee = self._fill_detail(st, float(px))
-                    return acc, avg, fee
+                    return float(st.get("accFillSz") or 0.0)
             try:
                 self.client.cancel_order(inst, ord_id)
             except OKXError:
                 pass  # cancel can race a fill; final status below decides
             st = self.client.order_status(inst, ord_id)
             acc = float(st.get("accFillSz") or 0.0)
-            avg, fee = self._fill_detail(st, float(px))
             if acc > 0:
-                self.log(f"{inst}: {side} {acc} contracts MAKER @ {avg:.6g} "
-                         f"(partial)")
-            return acc, avg, fee
+                self.log(f"{inst}: {side} {acc} contracts MAKER @ {px} (partial)")
+            return acc
         except OKXError as exc:
             self.log(f"{inst}: maker attempt failed ({exc}), falling back")
-            return 0.0, 0.0, 0.0
-
-    @staticmethod
-    def _fill_detail(status: dict, fallback_px: float) -> tuple[float, float]:
-        """(average fill price, fee charged) from an order-status payload."""
-        try:
-            px = float(status.get("avgPx") or 0.0) or fallback_px
-        except (TypeError, ValueError):
-            px = fallback_px
-        try:
-            fee = -float(status.get("fee") or 0.0)   # negative when charged
-        except (TypeError, ValueError):
-            fee = 0.0
-        return px, fee
+            return 0.0

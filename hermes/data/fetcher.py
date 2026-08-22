@@ -6,7 +6,7 @@ from __future__ import annotations
 import time
 
 from ..exchange.okx_client import OKXClient
-from .store import BAR_MS, OB_SAMPLE_MS, DataStore
+from .store import BAR_MS, DataStore
 
 
 def fetch_candles(
@@ -18,7 +18,13 @@ def fetch_candles(
     sleep_s: float = 0.12,
     log=None,
 ) -> int:
-    """Backfill `days` of candles, resuming from what is already stored."""
+    """Backfill `days` of candles, resuming from what is already stored.
+
+    Also repairs a *middle* gap (old history + latest 300 bars, hole in
+    between) which used to be skipped because pagination stopped at the
+    stored oldest timestamp instead of walking back until it overlapped
+    the stored newest.
+    """
     now_ms = int(time.time() * 1000)
     target_start = now_ms - days * 86_400_000
     lo, hi, n = store.candle_range(inst, bar)
@@ -33,24 +39,40 @@ def fetch_candles(
     # 1) newest chunk (regular endpoint covers the most recent bars)
     rows = client.candles(inst, bar, limit=300)
     total += save(rows)
+    if not rows:
+        if log:
+            log(f"{inst} {bar}: no candles returned")
+        return total
 
-    # 2) walk back through history until target_start (or stored data)
-    after = min(int(rows[-1][0]), lo or now_ms) if rows else (lo or now_ms)
-    stop_at = target_start if not lo else min(target_start, lo)
-    while after > target_start:
-        rows = client.candles(inst, bar, limit=100, after=after, history=True)
-        if not rows:
-            break
-        total += save(rows)
-        oldest = int(rows[-1][0])
-        if oldest >= after:  # no progress; defensive
-            break
-        after = oldest
-        if log and total % 2000 < 100:
-            log(f"{inst} {bar}: fetched back to {time.strftime('%Y-%m-%d', time.gmtime(after/1000))}")
-        time.sleep(sleep_s)
-        if oldest <= stop_at:
-            break
+    # Walk back from the oldest row of this newest chunk.
+    after = int(rows[-1][0])
+
+    def walk_until(stop_ts: int) -> None:
+        nonlocal after, total
+        while after > stop_ts:
+            hist = client.candles(inst, bar, limit=100, after=after, history=True)
+            if not hist:
+                break
+            total += save(hist)
+            oldest = int(hist[-1][0])
+            if oldest >= after:
+                break
+            after = oldest
+            if log and total % 2000 < 100:
+                log(f"{inst} {bar}: fetched back to "
+                    f"{time.strftime('%Y-%m-%d', time.gmtime(after / 1000))}")
+            time.sleep(sleep_s)
+
+    # Phase A: repair a hole between "latest 300" and stored newest (`hi`)
+    if hi:
+        walk_until(max(int(hi), target_start))
+    # Phase B: deepen older than stored oldest (`lo`) down to target_start
+    if lo and int(lo) > target_start:
+        after = int(lo)
+        walk_until(target_start)
+    elif not lo:
+        walk_until(target_start)
+
     if log:
         _, _, n2 = store.candle_range(inst, bar)
         log(f"{inst} {bar}: {n2} candles stored (+{total} upserted)")
@@ -79,131 +101,127 @@ def fetch_funding(client: OKXClient, store: DataStore, inst: str,
     return total
 
 
-# aux kind -> OKXClient method name
-AUX_ENDPOINTS = {
-    "oi": "open_interest_history",
-    "taker": "taker_volume_history",
-    "lsr": "long_short_ratio_history",
-    "ttp": "top_trader_ratio_history",
-}
-
-
-def index_of(inst: str) -> str:
-    """Underlying index id for a perpetual: BTC-USDT-SWAP -> BTC-USDT."""
+def _index_id(inst: str) -> str:
+    """BTC-USDT-SWAP -> BTC-USDT for index candles."""
     return inst[:-5] if inst.endswith("-SWAP") else inst
 
 
-IDX_SUFFIX = "#IDX"  # store namespace for index candles of a perpetual
-
-
-def fetch_index(client: OKXClient, store: DataStore, inst: str,
-                bar: str = "15m", days: int = 730, sleep_s: float = 0.12,
-                log=None) -> int:
-    """Backfill the perp's underlying INDEX candles (same pagination as
-    market candles; no volume column). Stored under '<inst>#IDX' so the
-    basis (perp premium to spot index) is computable bar by bar."""
-    idx_id = index_of(inst)
-    key = inst + IDX_SUFFIX
+def fetch_oi(client: OKXClient, store: DataStore, inst: str,
+             period: str = "15m", days: int = 180, sleep_s: float = 0.12,
+             log=None) -> int:
     now_ms = int(time.time() * 1000)
-    target_start = now_ms - days * 86_400_000
-    lo, hi, n = store.candle_range(key, bar)
-    total = 0
-
-    def save(rows: list[list]) -> int:
-        keep = [(int(r[0]), r[1], r[2], r[3], r[4], 0.0)
-                for r in rows if len(r) < 6 or r[5] == "1"]
-        return store.upsert_candles(key, bar, keep) if keep else 0
-
-    rows = client.index_candles(idx_id, bar, limit=100)
-    total += save(rows)
-    after = min(int(rows[-1][0]), lo or now_ms) if rows else (lo or now_ms)
-    stop_at = target_start if not lo else min(target_start, lo)
-    while after > target_start:
-        rows = client.index_candles(idx_id, bar, limit=100, after=after,
-                                    history=True)
+    target = now_ms - days * 86_400_000
+    total, end = 0, None
+    while True:
+        rows = client.open_interest_history(inst, period=period, limit=100, end=end)
         if not rows:
             break
-        total += save(rows)
-        oldest = int(rows[-1][0])
+        total += store.upsert_oi(inst, rows)
+        oldest = min(ts for ts, _ in rows)
+        if oldest <= target or (end is not None and oldest >= end):
+            break
+        end = oldest
+        time.sleep(sleep_s)
+    if log:
+        log(f"{inst}: {total} OI rows stored")
+    return total
+
+
+def fetch_flow(client: OKXClient, store: DataStore, inst: str,
+               period: str = "15m", days: int = 180, sleep_s: float = 0.12,
+               log=None) -> int:
+    now_ms = int(time.time() * 1000)
+    target = now_ms - days * 86_400_000
+    total, end = 0, None
+    while True:
+        rows = client.taker_volume_history(inst, period=period, limit=100, end=end)
+        if not rows:
+            break
+        total += store.upsert_flow(inst, rows)
+        oldest = min(ts for ts, _, _ in rows)
+        if oldest <= target or (end is not None and oldest >= end):
+            break
+        end = oldest
+        time.sleep(sleep_s)
+    if log:
+        log(f"{inst}: {total} taker-flow rows stored")
+    return total
+
+
+def _fetch_px_candles(client, store, inst: str, bar: str, table: str,
+                      days: int, sleep_s: float, log, kind: str) -> int:
+    now_ms = int(time.time() * 1000)
+    target = now_ms - days * 86_400_000
+    idx = _index_id(inst) if kind == "index" else inst
+    fn = client.index_candles if kind == "index" else client.mark_candles
+    total = 0
+    try:
+        rows = fn(idx, bar, limit=100, history=False)
+    except Exception as exc:
+        if log:
+            log(f"{inst} {kind}: {type(exc).__name__}: {exc}")
+        return 0
+    def keep(rows):
+        out = []
+        for r in rows or []:
+            try:
+                ts, px = int(r[0]), float(r[4])  # close
+                confirm = r[5] if len(r) > 5 else "1"
+                if str(confirm) in ("0", "false"):
+                    continue
+                out.append((ts, px))
+            except (TypeError, ValueError, IndexError):
+                continue
+        return out
+    pairs = keep(rows)
+    total += store.upsert_px(table, inst, bar, pairs)
+    after = min(ts for ts, _ in pairs) if pairs else None
+    while after is not None and after > target:
+        try:
+            rows = fn(idx, bar, limit=100, after=after, history=True)
+        except Exception:
+            break
+        pairs = keep(rows)
+        if not pairs:
+            break
+        total += store.upsert_px(table, inst, bar, pairs)
+        oldest = min(ts for ts, _ in pairs)
         if oldest >= after:
             break
         after = oldest
         time.sleep(sleep_s)
-        if oldest <= stop_at:
-            break
     if log:
-        _, _, n2 = store.candle_range(key, bar)
-        log(f"{inst} index: {n2} candles stored (+{total} upserted)")
+        log(f"{inst} {kind}: {total} px rows stored")
     return total
 
 
-def fetch_aux(client: OKXClient, store: DataStore, inst: str,
-              days: int = 730, sleep_s: float = 0.3, log=None) -> int:
-    """Backfill open interest, taker flow and long/short ratio as far back
-    as OKX serves them (exchanges keep only a few months of these), resuming
-    from what is already stored."""
-    now_ms = int(time.time() * 1000)
-    target_start = now_ms - days * 86_400_000
-    total = 0
-    for kind, method in AUX_ENDPOINTS.items():
-        fn = getattr(client, method, None)
-        if fn is None:
-            continue
-        end: int | None = None
+def fetch_basis(client: OKXClient, store: DataStore, inst: str, bar: str = "15m",
+                days: int = 180, sleep_s: float = 0.12, log=None) -> int:
+    n1 = _fetch_px_candles(client, store, inst, bar, "mark_px", days, sleep_s, log, "mark")
+    n2 = _fetch_px_candles(client, store, inst, bar, "index_px", days, sleep_s, log, "index")
+    return n1 + n2
+
+
+def fetch_microstructure(client: OKXClient, store: DataStore, inst: str,
+                         bar: str = "15m", days: int = 180, log=None) -> None:
+    """OI + taker flow + mark/index. Best-effort: a missing series must not
+    kill the candle/funding backfill."""
+    period = bar if bar in ("5m", "15m", "30m", "1H", "4H", "1D") else "15m"
+    for fn, label in (
+        (lambda: fetch_oi(client, store, inst, period, days, log=log), "oi"),
+        (lambda: fetch_flow(client, store, inst, period, days, log=log), "flow"),
+        (lambda: fetch_basis(client, store, inst, bar, days, log=log), "basis"),
+    ):
         try:
-            # walk newest -> oldest until the endpoint runs dry (OKX keeps
-            # only a few months of these) or target_start is reached
-            while True:
-                rows = fn(inst, period="1H", limit=100, end=end)
-                if not rows:
-                    break
-                total += store.upsert_aux(inst, kind, rows)
-                oldest = int(min(r[0] for r in rows))
-                if oldest <= target_start or (end is not None and oldest >= end):
-                    break
-                end = oldest
-                time.sleep(sleep_s)
+            fn()
         except Exception as exc:
             if log:
-                log(f"{inst} aux[{kind}]: fetch stopped ({exc})")
-        if log:
-            lo2, hi2, n2 = store.aux_range(inst, kind)
-            if n2:
-                days_cov = (hi2 - lo2) / 86_400_000
-                log(f"{inst} aux[{kind}]: {n2} rows (~{days_cov:.0f} days)")
-    return total
-
-
-
-
-def snapshot_orderbook(client: OKXClient, store: DataStore, inst: str) -> None:
-    """Record the current depth imbalance. No exchange serves order-book
-    HISTORY, so Hermes builds its own: once enough days accumulate, the
-    ob_imb family becomes researchable on this self-recorded series."""
-    _, hi, _ = store.aux_range(inst, "ob")
-    now_ms = int(time.time() * 1000)
-    if now_ms - hi < OB_SAMPLE_MS:
-        return
-    book = client.order_book(inst, sz=100)
-    bids = [(float(p), float(q)) for p, q, *_ in book.get("bids", [])]
-    asks = [(float(p), float(q)) for p, q, *_ in book.get("asks", [])]
-    if not bids or not asks:
-        return
-    mid = (bids[0][0] + asks[0][0]) / 2.0
-
-    def imb(width: float) -> float:
-        b = sum(p * q for p, q in bids if p >= mid * (1 - width))
-        a = sum(p * q for p, q in asks if p <= mid * (1 + width))
-        return (b - a) / (b + a) if (b + a) > 0 else 0.0
-
-    ts = int(book.get("ts", now_ms))
-    store.upsert_aux(inst, "ob", [(ts, imb(0.005), imb(0.02))])
+                log(f"{inst} {label}: {type(exc).__name__}: {exc} — skipping")
 
 
 def update_latest(client: OKXClient, store: DataStore, inst: str, bar: str,
-                  limit: int = 300) -> int:
-    """Light refresh for the live loop: latest confirmed candles + funding
-    + aux stats (open interest / taker flow / positioning)."""
+                  limit: int = 300, micro: bool = False) -> int:
+    """Light refresh for the live loop: latest confirmed candles + funding."""
     rows = client.candles(inst, bar, limit=limit)
     keep = [(int(r[0]), r[1], r[2], r[3], r[4], r[5])
             for r in rows if len(r) < 9 or r[8] == "1"]
@@ -214,23 +232,9 @@ def update_latest(client: OKXClient, store: DataStore, inst: str, bar: str,
                                     for r in fr])
     except Exception:
         pass  # funding refresh is best-effort
-    for kind, method in AUX_ENDPOINTS.items():
+    if micro:
         try:
-            fn = getattr(client, method, None)
-            if fn is not None:
-                store.upsert_aux(inst, kind, fn(inst, period="1H", limit=30))
+            fetch_microstructure(client, store, inst, bar, days=7, log=None)
         except Exception:
-            pass  # aux refresh is best-effort
-    try:
-        rows = client.index_candles(index_of(inst), bar, limit=limit)
-        keep = [(int(r[0]), r[1], r[2], r[3], r[4], 0.0)
-                for r in rows if len(r) < 6 or r[5] == "1"]
-        if keep:
-            store.upsert_candles(inst + IDX_SUFFIX, bar, keep)
-    except Exception:
-        pass  # index refresh is best-effort
-    try:
-        snapshot_orderbook(client, store, inst)
-    except Exception:
-        pass  # order-book sampling is best-effort
+            pass
     return n

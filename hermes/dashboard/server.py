@@ -16,7 +16,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STATIC_DIR = os.path.dirname(os.path.abspath(__file__))
-TICKER_TTL = 5.0  # seconds between live-price fetches
+TICKER_TTL = 4.0  # seconds between live-price fetches
 
 
 def _tail_lines(path: str, max_lines: int, max_bytes: int = 2_000_000) -> list[str]:
@@ -39,6 +39,33 @@ def _read_json(path: str) -> dict:
             return json.load(f)
     except (OSError, ValueError):
         return {}
+
+
+def _paper_equity(pb: dict, ticks: dict | None = None) -> float:
+    """Wallet + uPnL when margin_mode, else legacy cash + qty*mark."""
+    if not pb or not isinstance(pb.get("cash"), (int, float)):
+        return 0.0
+    cash = float(pb["cash"])
+    pos = pb.get("pos") or {}
+    pr = pb.get("prices") or {}
+    entry = pb.get("entry") or {}
+    ticks = ticks or {}
+    eq = cash
+    for inst, q in pos.items():
+        try:
+            q = float(q)
+        except (TypeError, ValueError):
+            continue
+        if not q:
+            continue
+        mark = float(((ticks.get(inst) or {}).get("last")
+                      or pr.get(inst) or entry.get(inst) or 0.0) or 0.0)
+        if pb.get("margin_mode"):
+            ent = float(entry.get(inst) or mark or 0.0)
+            eq += q * (mark - ent)
+        else:
+            eq += q * mark
+    return eq
 
 
 class StateReader:
@@ -100,17 +127,26 @@ class StateReader:
                 s["sid"] = f"{s['inst']}:{Genome.from_dict(s['genome']).gid}"
         except Exception:
             pass
+        ticks = self._live_tickers()
+        trader = _read_json(os.path.join(sd, "trader.json"))
+        scalp = _read_json(os.path.join(sd, "scalp.json"))
+        eq_live = _paper_equity(trader.get("paper_broker") or {}, ticks)
+        if not eq_live and scalp.get("equity"):
+            eq_live = scalp.get("equity")
         return {
             "mode": self.mode_hint,
             "state_dir": sd,
+            "now": time.time(),
+            "equity_live": eq_live,
             "meta": self.meta,
             "instruments": self.instruments,
-            "tickers": self._live_tickers(),
+            "tickers": ticks,
             "registry": registry,
             "risk": _read_json(os.path.join(sd, "risk.json")),
-            "trader": _read_json(os.path.join(sd, "trader.json")),
+            "trader": trader,
             "journal": journal,
             "log": _tail_lines(os.path.join(sd, "hermes.log"), 120),
+            "scalp": scalp,
         }
 
     # timeframe -> number of base 15m bars per bucket
@@ -129,8 +165,7 @@ class StateReader:
         hit = self._ccache.get(inst)
         if hit and hit[0] > now:
             return hit[1]
-        c = self._store.load(inst, self._bar, with_funding=False,
-                             with_aux=False)
+        c = self._store.load(inst, self._bar)
         rows = [[int(c.ts[i]), float(c.o[i]), float(c.h[i]),
                  float(c.l[i]), float(c.c[i]), float(c.v[i])]
                 for i in range(len(c))]

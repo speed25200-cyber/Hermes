@@ -79,6 +79,15 @@ def generate(
             + rng.normal(0, 0.00003)
         funding[i] = np.clip(f, -0.0075, 0.0075)
     candles.funding = funding
+
+    # microstructure (used by basis / flow / crowding books)
+    trend = np.clip(np.cumsum(ret), -2.0, 2.0)
+    candles.index = c.copy()
+    candles.mark = c * (1.0 + 0.0008 * trend)          # rich premium in uptrends
+    candles.oi = 1.0e6 * np.exp(0.15 * trend)
+    up = ret > 0
+    candles.taker_buy = np.where(up, v, v * 0.35)
+    candles.taker_sell = np.where(up, v * 0.35, v)
     return candles
 
 

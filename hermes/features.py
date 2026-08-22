@@ -108,17 +108,14 @@ def vol_percentile(close: np.ndarray, w: int, rank_w: int) -> np.ndarray:
 
 def ewma_funding(funding: np.ndarray, w: int) -> np.ndarray:
     """EWMA of the funding series (per-bar amounts, mostly zeros between
-    payments), rescaled to a per-payment estimate."""
+    payments), rescaled to a per-payment estimate.
+
+    Density is a *causal* trailing EWMA of payment-bar indicators. Using the
+    full-sample nonzero fraction would leak future payment frequency into
+    every historical feature value (and make live features drift as new
+    bars arrive).
+    """
     paid = ema(funding, w)
-    # Scale back up: payments are sparse, so divide by how often they land.
-    # The denominator is an EMA of the payment indicator over the SAME window
-    # as the numerator, which matters twice over. Counting across the whole
-    # series would leak the future into every past bar; counting from the
-    # start of history would pair a short-memory numerator with an
-    # infinite-memory denominator, and a series whose funding history begins
-    # long after its candles do (the normal case) would divide by a near-zero
-    # density and blow the ratio up by three orders of magnitude.
-    # With matched memories the ratio is exactly the average payment size:
-    # for a payment f every k bars both EMAs converge to f/k and 1/k.
-    density = ema((funding != 0.0).astype(np.float64), w)
-    return np.where(density > 1e-12, paid / np.maximum(density, 1e-12), 0.0)
+    nz = (np.asarray(funding, dtype=np.float64) != 0.0).astype(np.float64)
+    density = np.maximum(ema(nz, w), 1.0 / max(int(w), 1))
+    return paid / density

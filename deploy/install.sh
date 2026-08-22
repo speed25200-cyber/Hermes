@@ -39,11 +39,6 @@ Wants=network-online.target
 [Service]
 WorkingDirectory=$HERMES_DIR
 EnvironmentFile=-$HERMES_DIR/.env
-# stdout to the journal is a pipe, so python block-buffers it: without this
-# a long-running command's progress appears only when 8KB has accumulated
-# or the process exits. Every backfill this system has ever run was silent
-# for its whole duration for exactly this reason.
-Environment=PYTHONUNBUFFERED=1
 ExecStart=$VENV/bin/python -m hermes run --mode paper
 Restart=always
 RestartSec=30
@@ -65,7 +60,6 @@ OnFailure=hermes.service
 Type=oneshot
 WorkingDirectory=$HERMES_DIR
 EnvironmentFile=-$HERMES_DIR/.env
-Environment=PYTHONUNBUFFERED=1
 ExecStart=$VENV/bin/python -m hermes fetch
 ExecStart=$VENV/bin/python -m hermes research
 ExecStartPost=/bin/systemctl restart hermes
@@ -87,9 +81,20 @@ Persistent=true
 WantedBy=timers.target
 EOF
 
-# dashboard: token-protected console reachable from the owner's phone (PWA).
-# The token gates every request; rotate it by editing this unit + restart.
-DASH_TOKEN="de15975f4de2eb8bdafe2ff3"
+# dashboard: token-protected console. Token lives in /root/hermes/.env
+# (never in git). Generate one if missing; rotate by editing .env + restart.
+set +x
+ENV_FILE="$HERMES_DIR/.env"
+touch "$ENV_FILE"
+chmod 600 "$ENV_FILE"
+if ! grep -q '^HERMES_DASH_TOKEN=' "$ENV_FILE" 2>/dev/null; then
+    DASH_TOKEN="$(openssl rand -hex 16)"
+    echo "HERMES_DASH_TOKEN=$DASH_TOKEN" >> "$ENV_FILE"
+    echo "install: generated HERMES_DASH_TOKEN (stored in $ENV_FILE, not logged)"
+else
+    DASH_TOKEN="$(grep '^HERMES_DASH_TOKEN=' "$ENV_FILE" | tail -1 | cut -d= -f2-)"
+fi
+set -x
 cat > /etc/systemd/system/hermes-dashboard.service <<EOF
 [Unit]
 Description=Hermes dashboard (token-protected web console)
@@ -97,8 +102,7 @@ After=network-online.target
 
 [Service]
 WorkingDirectory=$HERMES_DIR
-Environment=HERMES_DASH_TOKEN=$DASH_TOKEN
-Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-$HERMES_DIR/.env
 ExecStart=$VENV/bin/python -m hermes dashboard --host 0.0.0.0 --port 8899 --no-browser
 Restart=always
 RestartSec=10
@@ -112,23 +116,7 @@ systemctl enable hermes >/dev/null 2>&1 || true
 systemctl enable --now hermes-research.timer >/dev/null 2>&1 || true
 systemctl enable --now hermes-dashboard >/dev/null 2>&1 || true
 systemctl restart hermes-dashboard || true
-# A code-only sync must not cost a research pass. Research takes over an
-# hour and the engine is down for all of it, so stopping the engine here is
-# right when this install precedes `systemctl start hermes-research` and
-# wrong when it is just shipping new code: it would blind the book for the
-# rest of the pass with nothing to show for it.
-if [ "${HERMES_KEEP_ENGINE:-0}" = "1" ]; then
-    # Only restart an engine that was already meant to be up — a restart
-    # during a research pass would race its backfill on the same sqlite file.
-    if systemctl is-active --quiet hermes; then
-        systemctl restart hermes || true
-        echo "install: engine restarted on new code"
-    else
-        echo "install: engine left down (research in progress or stopped)"
-    fi
-else
-    # stop the engine during research (avoids duplicate backfills and sqlite
-    # write races); hermes-research restarts it when it finishes
-    systemctl stop hermes || true
-fi
+# stop the engine during research (avoids duplicate backfills and sqlite
+# write races); hermes-research restarts it when it finishes
+systemctl stop hermes || true
 echo "install: OK"

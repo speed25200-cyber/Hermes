@@ -47,11 +47,6 @@ _FEAT_CACHE: dict[tuple, np.ndarray] = {}
 _FEAT_MAX = 16
 _INCR_CACHE: dict[tuple, dict] = {}
 _INCR_MAX = 64
-# Aux rows may land up to `stale_periods` (3) hourly buckets after the bar they
-# describe, so the newest bars' features stay revisable for a few hours. The
-# incremental path replays this many trailing bars rather than trusting the
-# predictions it stored for them.
-AUX_REVISION_BARS = 16
 
 
 def clear_cache() -> None:
@@ -60,39 +55,11 @@ def clear_cache() -> None:
     _INCR_CACHE.clear()
 
 
-def _aux_fingerprint(candles: Candles) -> tuple:
-    """Cheap O(#series) stamp of the aux *values*: the live loop refreshes open
-    interest, taker flow and positioning between bar closes, so keying a
-    memoised result on candle identity alone would serve a stale matrix."""
-    out = []
-    for name in sorted(candles.x):
-        v = candles.x[name]
-        last = v[-1] if len(v) else None
-        out.append((name, float(last) if last is not None and np.isfinite(last)
-                    else None))
-    return tuple(out)
-
-
-def _aux_schema(candles: Candles) -> tuple:
-    """Which aux series this instrument carries, ignoring their values.
-
-    Used for the walk-forward state cache, which must survive from bar to bar:
-    a value-level stamp would miss on every new bar, while candle identity
-    alone would let an instrument with flow data reuse state fitted without
-    it. Presence is stable, so this separates feature layouts without costing
-    the cache. Late-arriving aux rows can still revise the newest bars'
-    features, which is why the incremental path replays its last
-    AUX_REVISION_BARS rather than trusting what it stored for them.
-    """
-    return tuple(sorted(candles.x))
-
-
 def _features_cached(candles: Candles, leader: Candles | None) -> np.ndarray:
     key = (candles.inst, candles.bar, len(candles),
            int(candles.ts[-1]) if len(candles) else 0,
            leader.inst if leader is not None else None,
-           len(leader) if leader is not None else 0,
-           _aux_fingerprint(candles))
+           len(leader) if leader is not None else 0)
     X = _FEAT_CACHE.get(key)
     if X is None:
         X = build_features(candles, leader=leader)
@@ -217,12 +184,8 @@ def predict_series(
     ck = _cfg_key(cfg, leader_inst, min_train, refit_every)
     ts0 = int(candles.ts[0]) if n else 0
     last_ts = int(candles.ts[-1]) if n else 0
-    # aux series feed the feature matrix and are refreshed between bar closes,
-    # so they belong in every cache key: without them a mid-bar open-interest
-    # or taker-flow update would be served the previous prediction
-    aux = _aux_fingerprint(candles)
 
-    batch_key = (candles.inst, candles.bar, n, last_ts, ck, aux)
+    batch_key = (candles.inst, candles.bar, n, last_ts, ck)
     hit = _BATCH_CACHE.get(batch_key)
     if hit is not None:
         return hit
@@ -230,7 +193,7 @@ def predict_series(
     if n < min_train + horizon + 50:
         return (np.zeros(n), np.full(n, 0.5), np.full(n, np.inf))
 
-    incr_key = (candles.inst, candles.bar, ts0, ck, _aux_schema(candles))
+    incr_key = (candles.inst, candles.bar, ts0, ck)
     st = _INCR_CACHE.get(incr_key)
     X = _features_cached(candles, use_leader)
     y = build_target(candles, horizon)
@@ -240,17 +203,10 @@ def predict_series(
         # extend the existing walk-forward state over the new bars only
         pred = np.zeros(n)
         pred[: st["n"]] = st["pred"]
-        # Rewind before replaying: aux rows arrive after the bar they describe
-        # (the store allows up to `stale_periods` of lag), so the most recent
-        # bars' features can still be revised. Recomputing that tail keeps a
-        # long-running engine bit-identical to a batch run — the stored
-        # predictions for those bars were built from features that have since
-        # changed.
-        t0 = max(min_train, st["n"] - AUX_REVISION_BARS)
-        _walk_forward_range(pred, X, y, cfg, st["wf"], t0, n,
+        _walk_forward_range(pred, X, y, cfg, st["wf"], st["n"], n,
                             min_train, refit_every)
         width = _conformal_width(pred, y, horizon, n - horizon,
-                                 t0=t0, prev=st.get("width"))
+                                 t0=st["n"], prev=st.get("width"))
     else:
         pred = np.zeros(n)
         st = {"wf": {}}

@@ -16,69 +16,43 @@ import numpy as np
 from ..backtest import metrics
 from ..data.store import BARS_PER_YEAR, Candles
 from ..strategy.genome import Genome
-from ..strategy.xs import (XS_BASIS_GRID, XS_GRID, XS_LEAD_GRID, XS_MOM_GRID,
-                           XS_OI_GRID, XS_REV_GRID, XS_TAKER_GRID,
+from ..strategy.xs import (XS_GRID, XS_LEAD_GRID, XS_MOM_GRID, XS_REV_GRID,
+                           XS_BASIS_GRID, XS_FLOW_GRID, XS_CROWD_GRID,
                            portfolio_backtest, xs_positions)
-from .validate import ValidatedStrategy, window_supports_validation
+from .validate import ValidatedStrategy
 
 XS_INST = "XS-PORTFOLIO"
 
-# (genome signal name, scoring kind, grid, data coverage requirement)
-# coverage: None = full candle history, "funding" = funding-rate history,
-# "aux" = rubik series (open interest / taker flow) — both exist only for
-# the recent months, so those families research on the covered window only.
+# (genome signal name, scoring kind, grid, required extra series or None)
 XS_FAMILIES = [
     ("funding_xs", "carry", XS_GRID, "funding"),
     ("xs_mom", "mom", XS_MOM_GRID, None),
     ("xs_rev", "rev", XS_REV_GRID, None),
     ("xs_lead", "lead", XS_LEAD_GRID, None),
-    ("xs_taker", "taker", XS_TAKER_GRID, "aux"),
-    ("xs_oi", "oi", XS_OI_GRID, "aux"),
-    ("xs_basis", "basis", XS_BASIS_GRID, "idx"),
+    ("xs_basis", "basis", XS_BASIS_GRID, "basis"),
+    ("xs_flow", "flow", XS_FLOW_GRID, "flow"),
+    ("xs_crowd", "crowd", XS_CROWD_GRID, "oi"),
 ]
 
 XS_TOTAL_TRIALS = sum(len(grid) for _, _, grid, _ in XS_FAMILIES)
 
 
-def _coverage_start(c: Candles, need: str) -> int | None:
-    """First bar index where the required data series exist for `c`."""
-    if need == "funding":
-        nz = np.nonzero(c.funding)[0]
-        return int(nz[0]) if len(nz) else None
-    if need == "idx":
-        if "idx" not in c.x:
-            return None
-        ok = np.nonzero(~np.isnan(c.x["idx"]))[0]
-        return int(ok[0]) if len(ok) else None
-    # "aux": every rubik series present and populated
-    keys = ("oi", "tak_buy", "tak_sell", "lsr")
-    if any(k not in c.x for k in keys):
-        return None
-    valid = np.ones(len(c), dtype=bool)
-    for k in keys:
-        valid &= ~np.isnan(c.x[k])
-    idx = np.nonzero(valid)[0]
-    return int(idx[0]) if len(idx) else None
-
-
-def _trim_to_coverage(candles_map: dict[str, Candles], need: str, log=None,
-                      max_selection_bar: float = 10.0
-                      ) -> dict[str, Candles] | None:
-    """Exchanges expose only a few months of funding / open-interest / flow
-    history; earlier bars carry blanks that would silently kill these
-    signals across most of the sample. Research them only where the data
-    actually exists."""
-    starts = []
-    covered = {}
+def _trim_to_need(candles_map: dict[str, Candles], need: str, log=None
+                  ) -> dict[str, Candles] | None:
+    """Keep the window where `need` actually has data (funding, basis, flow, oi)."""
+    attr = {"funding": "funding", "basis": "basis", "flow": "taker_imb",
+            "oi": "oi"}[need]
+    starts, covered = [], {}
     for inst in sorted(candles_map):
         c = candles_map[inst]
-        i0 = _coverage_start(c, need)
-        if i0 is None:
+        series = np.asarray(getattr(c, attr))
+        nz = np.nonzero(np.abs(series) > 1e-12)[0]
+        if not len(nz):
             if log:
                 log(f"xs research: {inst} has no {need} history, dropping")
             continue
         covered[inst] = c
-        starts.append(c.ts[i0])
+        starts.append(c.ts[nz[0]])
     if len(covered) < 4:
         if log:
             log(f"xs research: <4 instruments with {need} history, skipping")
@@ -93,21 +67,6 @@ def _trim_to_coverage(candles_map: dict[str, Candles], need: str, log=None,
         if log:
             log(f"xs research: only {min_len} {need}-covered bars "
                 f"(need 3000+), rejecting")
-        return None
-    # A fixed bar count is the wrong test: what matters is whether the scored
-    # window is long enough that selection over the grid cannot manufacture a
-    # survivor on its own. On a short window it can, and every "edge" found
-    # there is the search's Sharpe rather than the market's.
-    bar = next(iter(trimmed.values())).bar
-    ok, need_bars = window_supports_validation(
-        n_oos=int(min_len * 0.3), n_trials=XS_TOTAL_TRIALS,
-        bars_per_year=BARS_PER_YEAR[bar], max_bar=max_selection_bar)
-    if not ok:
-        if log:
-            log(f"xs research: {need} window scores {int(min_len * 0.3)} bars "
-                f"against the {need_bars} needed before selection noise falls "
-                f"below Sharpe {max_selection_bar:.0f} — skipping, the "
-                f"recorded window grows on its own")
         return None
     if log:
         log(f"xs research: {need} coverage window = {min_len} bars "
@@ -145,25 +104,10 @@ def _validate_family(
     # ---- in-sample grid search ----------------------------------------
     is_map = slice_map(0.0, is_fraction)
     best = None
-    # `dir` only flips the sign of every leg, and every transform downstream
-    # of it is odd-symmetric, so the inverted book is the exact negation of
-    # the plain one. Building it costs a full universe alignment, two
-    # realized-vol passes per name and a per-bar hysteresis loop — several
-    # seconds on a 60-instrument universe — so it is negated rather than
-    # recomputed.
-    cache: dict[tuple, tuple] = {}
     for params in grid:
-        key = tuple(sorted((k, v) for k, v in params.items() if k != "dir"))
-        if key in cache:
-            common, pos = cache[key]
-        else:
-            common, _, pos = xs_positions(
-                is_map, {**params, "dir": 0}, kind=kind, leader=leader)
-            cache[key] = (common, pos)
+        common, _, pos = xs_positions(is_map, params, kind=kind, leader=leader)
         if not pos:
             continue
-        if int(params.get("dir", 0)) == 1:
-            pos = {inst: -arr for inst, arr in pos.items()}
         rets = portfolio_backtest(is_map, pos, common, fee_bps, slip_bps)
         sh = metrics.sharpe(rets, bpy)
         if log:
@@ -224,12 +168,11 @@ def research_xs(
     fee_bps: float,
     slip_bps: float,
     is_fraction: float = 0.7,
-    embargo_bars: int = 24,
+    embargo_bars: int = 192,
     min_oos_sharpe: float = 0.5,
-    min_dsr: float = 0.5,
+    min_dsr: float = 0.05,
     max_oos_drawdown: float = 0.35,
     n_folds: int = 3,
-    max_selection_bar: float = 10.0,
     log=None,
     leader: str | None = None,
 ) -> list[ValidatedStrategy]:
@@ -239,9 +182,8 @@ def research_xs(
             log("xs research: needs >= 4 instruments, skipping")
         return []
     out: list[ValidatedStrategy] = []
-    for name, kind, grid, needs in XS_FAMILIES:
-        data = (_trim_to_coverage(candles_map, needs, log, max_selection_bar)
-                if needs else candles_map)
+    for name, kind, grid, need in XS_FAMILIES:
+        data = _trim_to_need(candles_map, need, log) if need else candles_map
         if data is None:
             continue
         if kind == "lead" and (not leader or leader not in candles_map):

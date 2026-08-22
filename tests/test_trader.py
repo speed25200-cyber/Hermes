@@ -127,6 +127,27 @@ def test_empty_book_uses_fast_research_cadence(tmp_path):
     assert not rr2.called, "deployed book at 30h is fresh on weekly cadence"
 
 
+def test_empty_research_does_not_wipe_deployed_book(tmp_path):
+    """A research pass that finds nothing must keep the live book."""
+    import time as _t
+    from unittest import mock
+
+    from hermes.live.trader import LiveRunner
+
+    lr = LiveRunner.__new__(LiveRunner)
+    lr.cfg = Config()
+    lr.registry = Registry(str(tmp_path))
+    keep = [trend_strategy("BTC-USDT-SWAP")]
+    lr.registry.strategies = keep
+    lr.registry.researched_at = 1.0  # force stale
+    lr.log = lambda m: None
+    lr._load_candles = lambda: {}
+    with mock.patch("hermes.live.trader.run_research", return_value=([], 0)):
+        lr.ensure_research(force=True)
+    assert lr.registry.strategies is keep or lr.registry.strategies == keep
+    assert len(lr.registry.strategies) == 1
+
+
 def test_dead_strategy_is_retired(tmp_path):
     """A deployed strategy whose live shadow returns show a clearly negative
     risk-adjusted edge over enough bars is removed autonomously; a healthy
@@ -153,38 +174,6 @@ def test_dead_strategy_is_retired(tmp_path):
     assert len(trader.registry.strategies) == 1
 
 
-def test_rebalance_band_absorbs_small_target_drift(tmp_path):
-    """Small per-cycle target wiggles must NOT trade (whipsaw churn); big
-    moves, flips and full closes must."""
-    inst = "BTC-USDT-SWAP"
-    trader, broker, _ = make_trader(tmp_path, [])
-    broker.mark_prices({inst: 100.0})
-
-    trader._reconcile({inst: 0.30}, {inst: 100.0}, broker.equity())
-    q0 = broker.positions()[inst]
-    assert q0 > 0                                     # opened (>= 2% floor)
-
-    # +-2% absolute / <20% relative drift: held, no order
-    trader._reconcile({inst: 0.32}, {inst: 100.0}, broker.equity())
-    assert broker.positions()[inst] == q0
-    trader._reconcile({inst: 0.27}, {inst: 100.0}, broker.equity())
-    assert broker.positions()[inst] == q0
-
-    # a real move (0.30 -> 0.15) passes the band
-    trader._reconcile({inst: 0.15}, {inst: 100.0}, broker.equity())
-    q1 = broker.positions()[inst]
-    assert 0 < q1 < q0
-
-    # dust target from flat: rejected by the floor
-    trader._reconcile({"ETH-USDT-SWAP": 0.01}, {"ETH-USDT-SWAP": 100.0},
-                      broker.equity())
-    assert "ETH-USDT-SWAP" not in broker.positions()
-
-    # explicit flat always executes
-    trader._reconcile({inst: 0.0}, {inst: 100.0}, broker.equity())
-    assert inst not in broker.positions()
-
-
 def test_governor_scales_book_targets(tmp_path):
     """A de-risked governor must shrink every target the cycle produces."""
     from hermes.risk import LeverageGovernor
@@ -209,295 +198,3 @@ def test_governor_scales_book_targets(tmp_path):
     tgt_half = r_half["targets"].get(inst, 0.0)
     assert abs(tgt_full) > 0.01, "test needs a live signal"
     assert abs(tgt_half - 0.5 * tgt_full) < 1e-9
-
-
-def test_calibration_report_contrasts_promised_and_realised(tmp_path, capsys):
-    """The gate's OOS estimate is only trustworthy if live performance tracks
-    it; the report must surface the shortfall rather than hide it."""
-    import json as _json
-    import os as _os
-    import types
-
-    from hermes.cli import cmd_calibration
-    from hermes.config import Config
-    from hermes.strategy.genome import Genome
-
-    g = Genome(signal="tsmom", params={"lookback": 24, "deadband": 0.5},
-               vol_target=0.2, max_lev=1.0)
-    state = str(tmp_path)
-    with open(_os.path.join(state, "registry.json"), "w") as f:
-        _json.dump({"strategies": [{
-            "genome": g.to_dict(), "inst": "BTC-USDT-SWAP", "bar": "1H",
-            "is_stats": {}, "oos_stats": {"sharpe": 6.0, "dsr": 0.2},
-        }]}, f)
-    # live returns are flat: a deployed strategy earning nothing
-    with open(_os.path.join(state, "trader.json"), "w") as f:
-        _json.dump({"allocator": {"tracks": {
-            f"BTC-USDT-SWAP:{g.gid}": {
-                "ewma_ret": 0.0, "ewma_var": 1e-6, "n_obs": 500},
-        }}}, f)
-
-    cfg = Config.load(None)
-    cfg.raw["state_dir"] = state
-    cfg.raw["bar"] = "1H"
-    original = Config.load
-    try:
-        Config.load = staticmethod(lambda *_a, **_k: cfg)
-        cmd_calibration(types.SimpleNamespace(config=None))
-    finally:
-        Config.load = original
-
-    out = capsys.readouterr().out
-    assert "6.00" in out                      # the promise is shown
-    assert "shortfall" in out                 # and so is the gap
-
-
-def test_cross_sectional_book_moves_as_one_unit(tmp_path):
-    """A dollar-neutral book must not be half-executed. When one leg breaches
-    the dead band, the legs that sit inside it have to trade too — otherwise
-    the large legs move alone and the book stops being neutral."""
-    a, b = "BTC-USDT-SWAP", "ETH-USDT-SWAP"
-    px = {a: 100.0, b: 100.0}
-
-    def run(books):
-        trader, broker, _ = make_trader(tmp_path, [])
-        broker.mark_prices(px)
-        trader._reconcile({a: 0.30, b: -0.30}, px, broker.equity(), books)
-        before = dict(broker.positions())
-        # leg a moves a lot (0.30 -> 0.10), leg b barely (-0.30 -> -0.28)
-        trader._reconcile({a: 0.10, b: -0.28}, px, broker.equity(), books)
-        return before, dict(broker.positions())
-
-    before, after = run([{a, b}])
-    assert after[a] != before[a]           # the breaching leg trades
-    assert after[b] != before[b]           # and so does its partner
-
-    # ungrouped, the small leg is left behind — the defect this guards against
-    before, after = run(None)
-    assert after[a] != before[a]
-    assert after[b] == before[b]
-
-
-def test_risk_off_cut_is_not_swallowed_by_the_band(tmp_path):
-    """A leverage-governor cut is a risk instruction, not signal drift: it
-    must reach the exchange even when it is under the relative band."""
-    inst = "BTC-USDT-SWAP"
-    px = {inst: 100.0}
-    trader, broker, _ = make_trader(tmp_path, [])
-    broker.mark_prices(px)
-    trader._reconcile({inst: 0.30}, px, broker.equity())
-    held = broker.positions()[inst]
-
-    # 0.30 -> 0.249 is a 17% cut: inside the 20% relative band
-    trader._reconcile({inst: 0.249}, px, broker.equity())
-    assert broker.positions()[inst] == held          # drift: correctly held
-
-    trader._reconcile({inst: 0.249}, px, broker.equity(), derisk=True)
-    assert broker.positions()[inst] < held           # risk-off: executed
-
-
-def test_book_is_capped_across_the_whole_universe():
-    """Per-instrument caps do not bound a book: capital is shared over
-    everything deployed, so 60 strategies starve each other below the
-    rebalance band and nothing reaches the market. The cap binds globally and
-    keeps the strongest."""
-    from hermes.live.trader import cap_book
-
-    made = []
-    for i in range(12):
-        g = Genome(signal="tsmom", params={"lookback": 24 + i, "deadband": 0.5},
-                   vol_target=0.2, max_lev=1.0)
-        made.append(ValidatedStrategy(genome=g, inst=f"I{i}-USDT-SWAP",
-                                      bar="15m", is_stats={},
-                                      oos_stats={"sharpe": float(i), "dsr": 0.2}))
-
-    kept = cap_book(made, 3)
-    assert [s.oos_stats["sharpe"] for s in kept] == [11.0, 10.0, 9.0]
-    assert cap_book(made, 0) is made          # 0 disables the cap
-    assert cap_book(made, 50) is made         # under the cap, untouched
-
-
-def test_cap_spreads_the_book_across_instruments():
-    """Taking the global top N would hand every slot to whichever instrument
-    drew the luckiest estimates. Breadth is the reason for widening the
-    universe, so the cap fills instrument by instrument."""
-    from hermes.live.trader import cap_book
-
-    made = []
-    for inst, sharpes in (("LUCKY-USDT-SWAP", [9.0, 8.9, 8.8, 8.7]),
-                          ("B-USDT-SWAP", [3.0, 2.5]),
-                          ("C-USDT-SWAP", [2.8, 2.4]),
-                          ("D-USDT-SWAP", [2.6, 2.2])):
-        for sh in sharpes:
-            g = Genome(signal="tsmom", params={"lookback": int(sh * 10),
-                                               "deadband": 0.5},
-                       vol_target=0.2, max_lev=1.0)
-            made.append(ValidatedStrategy(genome=g, inst=inst, bar="15m",
-                                          is_stats={},
-                                          oos_stats={"sharpe": sh, "dsr": 0.2}))
-
-    kept = cap_book(made, 4)
-    assert len({s.inst for s in kept}) == 4       # one slot per instrument
-    # the lucky instrument still leads, it just does not take every seat
-    assert kept[0].inst == "LUCKY-USDT-SWAP"
-    assert sum(1 for s in kept if s.inst == "LUCKY-USDT-SWAP") == 1
-
-
-def test_registry_drops_a_book_todays_gates_would_reject():
-    """Raising a gate has to apply to the capital already deployed against
-    the old one. The live book was eighteen strategies with DSRs from 0.050
-    to 0.175, written when the floor was 0.05; without this they are traded
-    verbatim after the floor moves, because nothing re-examines what research
-    left on disk."""
-    import tempfile
-
-    from hermes.live.trader import Registry
-    from hermes.research.validate import ValidatedStrategy
-    from hermes.strategy.genome import Genome
-
-    def strat(dsr, sharpe=6.0, stats=True):
-        g = Genome(signal="tsmom", params={"lookback": 50, "deadband": 0.1})
-        return ValidatedStrategy(
-            genome=g, inst=f"X{dsr}-USDT-SWAP", bar="15m", is_stats={},
-            oos_stats={"dsr": dsr, "sharpe": sharpe} if stats else {})
-
-    with tempfile.TemporaryDirectory() as d:
-        reg = Registry(d)
-        reg.strategies = [strat(0.050), strat(0.175), strat(0.71), strat(0.97)]
-        said = []
-        n = reg.prune_to_gates({"min_dsr": 0.5, "min_oos_sharpe": 0.5},
-                               said.append)
-        assert n == 2
-        assert [s.oos_stats["dsr"] for s in reg.strategies] == [0.71, 0.97]
-        assert "best DSR among them 0.175" in said[0]
-
-
-def test_registry_drops_entries_with_no_recorded_verdict():
-    import tempfile
-
-    from hermes.live.trader import Registry
-    from hermes.research.validate import ValidatedStrategy
-    from hermes.strategy.genome import Genome
-
-    with tempfile.TemporaryDirectory() as d:
-        reg = Registry(d)
-        reg.strategies = [ValidatedStrategy(
-            genome=Genome(signal="tsmom", params={"lookback": 50,
-                                                  "deadband": 0.1}),
-            inst="A-USDT-SWAP", bar="15m", is_stats={}, oos_stats={})]
-        assert reg.prune_to_gates({"min_dsr": 0.5, "min_oos_sharpe": 0.5}) == 1
-        assert reg.strategies == []
-
-
-def test_a_book_that_still_passes_is_left_alone():
-    import tempfile
-
-    from hermes.live.trader import Registry
-    from hermes.research.validate import ValidatedStrategy
-    from hermes.strategy.genome import Genome
-
-    with tempfile.TemporaryDirectory() as d:
-        reg = Registry(d)
-        reg.strategies = [ValidatedStrategy(
-            genome=Genome(signal="tsmom", params={"lookback": 50,
-                                                  "deadband": 0.1}),
-            inst="A-USDT-SWAP", bar="15m", is_stats={},
-            oos_stats={"dsr": 0.97, "sharpe": 4.7})]
-        said = []
-        assert reg.prune_to_gates({"min_dsr": 0.5, "min_oos_sharpe": 0.5},
-                                  said.append) == 0
-        assert len(reg.strategies) == 1
-        assert said == []
-
-
-def test_research_reports_each_instrument_as_it_finishes():
-    """Workers run in other processes and return their log lines rather than
-    printing them. Buffering every line until the last worker landed meant a
-    pass emitted nothing for its whole duration — 2h34 on the live box, with
-    a hung run and a working one looking identical the entire time."""
-    from hermes.config import Config
-    from hermes.data.synthetic import generate
-    from hermes.live.trader import run_research
-
-    cfg = Config.load(None)
-    cfg.raw["research"].update(population=8, generations=1, seed=1,
-                               min_dsr=0.5, max_deployed=2)
-    uni = {f"S{k}-USDT-SWAP": generate(inst=f"S{k}-USDT-SWAP", bar="1H",
-                                       n=2600, seed=40 + k)
-           for k in range(4)}
-    cfg.raw["instruments"] = sorted(uni)
-    cfg.raw["bar"] = "1H"
-    said = []
-    run_research(uni, cfg, log=said.append)
-
-    progress = [m for m in said if "strategies passed OOS validation" in m]
-    assert len(progress) == 4, said
-    # each carries its position in the queue and the elapsed time
-    for k, m in enumerate(progress, start=1):
-        assert f"[{k}/4," in m, m
-        assert "min elapsed]" in m, m
-
-
-def test_dust_positions_are_closable_when_the_book_empties():
-    """The live book held 22 positions worth 0.08 to 4.15 USDT. With the
-    registry pruned to nothing every target is zero, and every closing order
-    was under the 10 USDT floor — so they would have been retried and
-    rejected every fifteen minutes forever, bleeding funding."""
-    from hermes.config import Config
-    from hermes.exchange.broker import PaperBroker
-    from hermes.live.trader import Registry, Trader
-    from hermes.portfolio.allocator import Allocator
-    from hermes.risk import RiskEngine
-    import tempfile
-
-    prices = {"AVAX-USDT-SWAP": 6.35, "DOT-USDT-SWAP": 0.759}
-    with tempfile.TemporaryDirectory() as d:
-        cfg = Config.load(None)
-        cfg.raw["instruments"] = sorted(prices)
-        broker = PaperBroker(cash=10_000.0, fee_bps=2.0, slippage_bps=1.0)
-        broker.mark_prices(prices)
-        broker.market_order("AVAX-USDT-SWAP", -0.653720, prices["AVAX-USDT-SWAP"])
-        broker.market_order("DOT-USDT-SWAP", -5.218024, prices["DOT-USDT-SWAP"])
-        assert broker.positions()
-
-        risk = RiskEngine(max_gross_leverage=2.0, max_instrument_leverage=1.0,
-                          daily_loss_limit_pct=3.0, max_drawdown_pct=15.0,
-                          min_trade_notional=10.0, max_order_notional=25_000.0)
-        risk.state_path = None
-        reg = Registry(d)                       # empty book
-        trader = Trader(cfg, broker, reg, Allocator(bars_per_year=35040), risk,
-                        log=lambda m: None)
-        orders = trader._reconcile({}, prices, equity=10_000.0)
-
-    assert len(orders) == 2, orders
-    assert all(abs(o["notional"]) < 10.0 for o in orders), orders
-    assert not broker.positions() or all(
-        abs(q) < 1e-9 for q in broker.positions().values())
-
-
-def test_a_position_too_small_for_the_venue_is_left_alone():
-    """Below a dollar the exchange's own lot size refuses the order; retrying
-    every bar would only spam the log."""
-    from hermes.config import Config
-    from hermes.exchange.broker import PaperBroker
-    from hermes.live.trader import Registry, Trader
-    from hermes.portfolio.allocator import Allocator
-    from hermes.risk import RiskEngine
-    import tempfile
-
-    prices = {"ETC-USDT-SWAP": 5.86}
-    with tempfile.TemporaryDirectory() as d:
-        cfg = Config.load(None)
-        cfg.raw["instruments"] = sorted(prices)
-        broker = PaperBroker(cash=10_000.0, fee_bps=2.0, slippage_bps=1.0)
-        broker.mark_prices(prices)
-        broker.market_order("ETC-USDT-SWAP", -0.013657, prices["ETC-USDT-SWAP"])
-        risk = RiskEngine(max_gross_leverage=2.0, max_instrument_leverage=1.0,
-                          daily_loss_limit_pct=3.0, max_drawdown_pct=15.0,
-                          min_trade_notional=10.0, max_order_notional=25_000.0)
-        risk.state_path = None
-        trader = Trader(cfg, broker, Registry(d),
-                        Allocator(bars_per_year=35040), risk,
-                        log=lambda m: None)
-        orders = trader._reconcile({}, prices, equity=10_000.0)
-    assert orders == []

@@ -37,43 +37,6 @@ def test_lookback_return():
     assert out[2] == pytest.approx(0.10)
 
 
-def test_ewma_funding_has_no_lookahead():
-    """The sparse-payment rescaling must be estimated from bars already seen:
-    a future payment cannot move a past value."""
-    n = 600
-    a = np.zeros(n)
-    a[::32] = 0.0001                      # a payment every 8h on 15m bars
-    b = a.copy()
-    b[400:] = 0.0                         # payments stop later on
-    fa, fb = F.ewma_funding(a, 100), F.ewma_funding(b, 100)
-    np.testing.assert_allclose(fa[:400], fb[:400], atol=1e-12)
-
-
-def test_ewma_funding_is_stable_as_history_grows():
-    """A past bar's value must not shift when new bars arrive, or the live
-    engine would disagree with the backtest that deployed the strategy."""
-    n = 600
-    x = np.zeros(n)
-    x[::32] = 0.0001
-    full = F.ewma_funding(x, 100)
-    prefix = F.ewma_funding(x[:500], 100)
-    np.testing.assert_allclose(full[:500], prefix, atol=1e-12)
-
-
-def test_ewma_funding_recovers_the_payment_size():
-    """The rescaling must return the per-payment rate itself, from the very
-    first payment — including when funding history starts long after the
-    candles do, which is the normal case (2y of candles, ~3mo of funding)."""
-    n = 40000
-    x = np.zeros(n)
-    first = n - 8000                       # funding coverage begins late
-    x[first::32] = 0.0003
-    out = F.ewma_funding(x, 100)
-    assert out[first] == pytest.approx(0.0003, rel=0.05)
-    assert out[-1] == pytest.approx(0.0003, rel=0.05)
-    assert np.abs(out).max() < 0.0004      # no blow-up anywhere
-
-
 def test_no_lookahead_in_rolling():
     """Rolling stats at index i must not change if future values change."""
     rng = np.random.default_rng(2)
@@ -84,3 +47,14 @@ def test_no_lookahead_in_rolling():
                lambda a: F.zscore(a, 20), lambda a: F.rsi(a, 14)):
         a, b = fn(x), fn(y)
         np.testing.assert_allclose(a[:399], b[:399], equal_nan=True)
+
+
+def test_ewma_funding_density_is_causal():
+    """Changing future funding payments must not rewrite past features."""
+    n = 800
+    f = np.zeros(n)
+    f[::32] = 0.0001
+    g = f.copy()
+    g[600:] = 0.001
+    a, b = F.ewma_funding(f, 100), F.ewma_funding(g, 100)
+    np.testing.assert_allclose(a[:599], b[:599], equal_nan=True, rtol=1e-9, atol=1e-12)

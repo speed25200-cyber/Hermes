@@ -31,9 +31,11 @@ BARS_PER_YEAR = {bar: int(round(365 * 86_400_000 / ms)) for bar, ms in BAR_MS.it
 class Candles:
     """Column-oriented candle series (numpy arrays, oldest first)."""
 
-    __slots__ = ("inst", "bar", "ts", "o", "h", "l", "c", "v", "funding", "x")
+    __slots__ = ("inst", "bar", "ts", "o", "h", "l", "c", "v", "funding",
+                 "oi", "taker_buy", "taker_sell", "mark", "index")
 
-    def __init__(self, inst, bar, ts, o, h, l, c, v, funding=None, x=None):
+    def __init__(self, inst, bar, ts, o, h, l, c, v, funding=None,
+                 oi=None, taker_buy=None, taker_sell=None, mark=None, index=None):
         self.inst = inst
         self.bar = bar
         self.ts = np.asarray(ts, dtype=np.int64)
@@ -42,14 +44,23 @@ class Candles:
         self.l = np.asarray(l, dtype=np.float64)
         self.c = np.asarray(c, dtype=np.float64)
         self.v = np.asarray(v, dtype=np.float64)
-        # per-bar funding rate actually charged at that bar (0 for most bars)
-        self.funding = (
-            np.zeros_like(self.c) if funding is None else np.asarray(funding, dtype=np.float64)
-        )
-        # auxiliary market series aligned to bars (NaN where not covered):
-        # "oi" open interest (coin), "tak_buy"/"tak_sell" hourly taker volume,
-        # "lsr" long/short account ratio
-        self.x: dict[str, np.ndarray] = x if x is not None else {}
+        n = len(self.c)
+        def _col(x, fallback=None):
+            if x is None:
+                return np.zeros(n) if fallback is None else np.asarray(fallback, dtype=np.float64)
+            a = np.asarray(x, dtype=np.float64)
+            if len(a) == n:
+                return a
+            out = np.zeros(n) if fallback is None else np.asarray(fallback, dtype=np.float64).copy()
+            m = min(n, len(a), len(out))
+            out[:m] = a[:m]
+            return out
+        self.funding = _col(funding)
+        self.oi = _col(oi)
+        self.taker_buy = _col(taker_buy)
+        self.taker_sell = _col(taker_sell)
+        self.mark = _col(mark, fallback=self.c)
+        self.index = _col(index, fallback=self.c)
 
     def __len__(self) -> int:
         return len(self.ts)
@@ -60,7 +71,9 @@ class Candles:
             self.ts[start:stop], self.o[start:stop], self.h[start:stop],
             self.l[start:stop], self.c[start:stop], self.v[start:stop],
             self.funding[start:stop],
-            {k: v[start:stop] for k, v in self.x.items()},
+            oi=self.oi[start:stop], taker_buy=self.taker_buy[start:stop],
+            taker_sell=self.taker_sell[start:stop], mark=self.mark[start:stop],
+            index=self.index[start:stop],
         )
 
     @property
@@ -70,32 +83,28 @@ class Candles:
             r[1:] = self.c[1:] / self.c[:-1] - 1.0
         return r
 
+    @property
+    def taker_imb(self) -> np.ndarray:
+        """Taker buy minus sell, in [-1, 1]. 0 when no volume."""
+        tot = self.taker_buy + self.taker_sell
+        with np.errstate(invalid="ignore", divide="ignore"):
+            imb = (self.taker_buy - self.taker_sell) / np.where(tot > 0, tot, np.nan)
+        return np.nan_to_num(imb, nan=0.0)
+
+    @property
+    def basis(self) -> np.ndarray:
+        """(mark / index) - 1. Positive = perp rich = crowded long."""
+        with np.errstate(invalid="ignore", divide="ignore"):
+            b = self.mark / np.where(self.index > 1e-12, self.index, np.nan) - 1.0
+        return np.clip(np.nan_to_num(b, nan=0.0), -0.05, 0.05)
+
 
 class DataStore:
     def __init__(self, data_dir: str):
         os.makedirs(data_dir, exist_ok=True)
         self.path = os.path.join(data_dir, "market.db")
-        self.conn = sqlite3.connect(self.path)
-        # Several processes hold this store open at once: the fetcher writes
-        # while the dashboard reads candles to draw them, and the weekly
-        # research timer reads the whole history while the engine appends the
-        # latest bars — that pass does not stop the engine, so this
-        # contention is the normal case, not an edge one.
-        #
-        # Measured, one bulk backfill against one reader for 12 seconds:
-        #
-        #   rollback journal : 17,137 reads, worst read stalled 0.54s
-        #   WAL              : 104,828 reads, worst read stalled 0.01s
-        #
-        # No read failed either way — python's connect() carries a 5s busy
-        # wait, so the cost was latency rather than errors. It becomes errors
-        # once a write transaction outlasts that wait, which a 60-instrument
-        # backfill can. The busy timeout covers the case WAL does not, two
-        # writers, and NORMAL sync is the standard WAL pairing: a crash can
-        # lose the most recent commits, and every row here is re-fetchable
-        # from the exchange.
+        self.conn = sqlite3.connect(self.path, check_same_thread=False, timeout=30)
         self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA busy_timeout=30000")
         self.conn.execute("PRAGMA synchronous=NORMAL")
         self.conn.executescript(
             """
@@ -108,10 +117,21 @@ class DataStore:
                 inst TEXT NOT NULL, ts INTEGER NOT NULL, rate REAL,
                 PRIMARY KEY (inst, ts)
             );
-            CREATE TABLE IF NOT EXISTS aux (
-                inst TEXT NOT NULL, kind TEXT NOT NULL, ts INTEGER NOT NULL,
-                v1 REAL, v2 REAL,
-                PRIMARY KEY (inst, kind, ts)
+            CREATE TABLE IF NOT EXISTS oi (
+                inst TEXT NOT NULL, ts INTEGER NOT NULL, oi REAL,
+                PRIMARY KEY (inst, ts)
+            );
+            CREATE TABLE IF NOT EXISTS flow (
+                inst TEXT NOT NULL, ts INTEGER NOT NULL, buy REAL, sell REAL,
+                PRIMARY KEY (inst, ts)
+            );
+            CREATE TABLE IF NOT EXISTS mark_px (
+                inst TEXT NOT NULL, bar TEXT NOT NULL, ts INTEGER NOT NULL, px REAL,
+                PRIMARY KEY (inst, bar, ts)
+            );
+            CREATE TABLE IF NOT EXISTS index_px (
+                inst TEXT NOT NULL, bar TEXT NOT NULL, ts INTEGER NOT NULL, px REAL,
+                PRIMARY KEY (inst, bar, ts)
             );
             """
         )
@@ -129,6 +149,8 @@ class DataStore:
 
     def upsert_funding(self, inst: str, rows: list[tuple]) -> int:
         """rows: iterable of (ts, rate)."""
+        if not rows:
+            return 0
         self.conn.executemany(
             "INSERT OR REPLACE INTO funding (inst, ts, rate) VALUES (?, ?, ?)",
             [(inst, int(ts), float(rate)) for ts, rate in rows],
@@ -136,33 +158,35 @@ class DataStore:
         self.conn.commit()
         return len(rows)
 
-    def upsert_aux(self, inst: str, kind: str, rows: list[tuple]) -> int:
-        """rows: iterable of (ts, v1, v2). kind: 'oi' | 'taker' | 'lsr'."""
+    def upsert_oi(self, inst: str, rows: list[tuple]) -> int:
+        if not rows:
+            return 0
         self.conn.executemany(
-            "INSERT OR REPLACE INTO aux (inst, kind, ts, v1, v2) "
-            "VALUES (?, ?, ?, ?, ?)",
-            [(inst, kind, int(r[0]), float(r[1]),
-              float(r[2]) if len(r) > 2 and r[2] is not None else 0.0)
-             for r in rows],
+            "INSERT OR REPLACE INTO oi (inst, ts, oi) VALUES (?, ?, ?)",
+            [(inst, int(ts), float(oi)) for ts, oi in rows],
         )
         self.conn.commit()
         return len(rows)
 
-    def read_aux(self, inst: str, kind: str) -> list[tuple]:
-        """Raw (ts, v1, v2) rows, oldest first."""
-        cur = self.conn.execute(
-            "SELECT ts, v1, v2 FROM aux WHERE inst=? AND kind=? ORDER BY ts",
-            (inst, kind),
+    def upsert_flow(self, inst: str, rows: list[tuple]) -> int:
+        if not rows:
+            return 0
+        self.conn.executemany(
+            "INSERT OR REPLACE INTO flow (inst, ts, buy, sell) VALUES (?, ?, ?, ?)",
+            [(inst, int(ts), float(b), float(s)) for ts, b, s in rows],
         )
-        return [(int(ts), float(v1), float(v2)) for ts, v1, v2 in cur.fetchall()]
+        self.conn.commit()
+        return len(rows)
 
-    def aux_range(self, inst: str, kind: str) -> tuple[int, int, int]:
-        cur = self.conn.execute(
-            "SELECT MIN(ts), MAX(ts), COUNT(*) FROM aux WHERE inst=? AND kind=?",
-            (inst, kind),
+    def upsert_px(self, table: str, inst: str, bar: str, rows: list[tuple]) -> int:
+        if not rows or table not in ("mark_px", "index_px"):
+            return 0
+        self.conn.executemany(
+            f"INSERT OR REPLACE INTO {table} (inst, bar, ts, px) VALUES (?, ?, ?, ?)",
+            [(inst, bar, int(ts), float(px)) for ts, px in rows],
         )
-        lo, hi, n = cur.fetchone()
-        return (lo or 0, hi or 0, n or 0)
+        self.conn.commit()
+        return len(rows)
 
     def candle_range(self, inst: str, bar: str) -> tuple[int, int, int]:
         cur = self.conn.execute(
@@ -172,8 +196,7 @@ class DataStore:
         lo, hi, n = cur.fetchone()
         return (lo or 0, hi or 0, n or 0)
 
-    def load(self, inst: str, bar: str, with_funding: bool = True,
-             with_aux: bool = True) -> Candles:
+    def load(self, inst: str, bar: str, with_funding: bool = True) -> Candles:
         cur = self.conn.execute(
             "SELECT ts, o, h, l, c, v FROM candles WHERE inst=? AND bar=? ORDER BY ts",
             (inst, bar),
@@ -189,84 +212,33 @@ class DataStore:
             ).fetchall()
             if fr:
                 candles.funding = map_funding_to_bars(candles.ts, fr)
-        if with_aux:
-            bar_ms = BAR_MS[bar]
-            for kind, names in AUX_SERIES.items():
-                ar = self.conn.execute(
-                    "SELECT ts, v1, v2 FROM aux WHERE inst=? AND kind=? ORDER BY ts",
-                    (inst, kind),
-                ).fetchall()
-                if not ar:
-                    continue
-                cols = map_aux_to_bars(candles.ts, bar_ms, ar,
-                                       AUX_PERIODS.get(kind, AUX_PERIOD_MS))
-                for name, col in zip(names, cols):
-                    candles.x[name] = col
-            # underlying index close (same-bar, exact ts join): known at the
-            # bar's own close, exactly like the perp close itself
-            ir = self.conn.execute(
-                "SELECT ts, c FROM candles WHERE inst=? AND bar=? ORDER BY ts",
-                (inst + "#IDX", bar),
+            oi = self.conn.execute(
+                "SELECT ts, oi FROM oi WHERE inst=? ORDER BY ts", (inst,)
             ).fetchall()
-            if ir:
-                its = np.array([r[0] for r in ir], dtype=np.int64)
-                ic = np.array([r[1] for r in ir], dtype=np.float64)
-                out = np.full(len(candles), np.nan)
-                pos = np.searchsorted(its, candles.ts)
-                ok = (pos < len(its))
-                safe = np.minimum(pos, len(its) - 1)
-                ok &= its[safe] == candles.ts
-                out[ok] = ic[safe[ok]]
-                candles.x["idx"] = out
+            if oi:
+                candles.oi = map_last_to_bars(candles.ts, oi)
+            fl = self.conn.execute(
+                "SELECT ts, buy, sell FROM flow WHERE inst=? ORDER BY ts", (inst,)
+            ).fetchall()
+            if fl:
+                candles.taker_buy = map_last_to_bars(candles.ts, [(t, b) for t, b, _ in fl])
+                candles.taker_sell = map_last_to_bars(candles.ts, [(t, s) for t, _, s in fl])
+            mk = self.conn.execute(
+                "SELECT ts, px FROM mark_px WHERE inst=? AND bar=? ORDER BY ts",
+                (inst, bar),
+            ).fetchall()
+            if mk:
+                candles.mark = map_last_to_bars(candles.ts, mk, fallback=candles.c)
+            ix = self.conn.execute(
+                "SELECT ts, px FROM index_px WHERE inst=? AND bar=? ORDER BY ts",
+                (inst, bar),
+            ).fetchall()
+            if ix:
+                candles.index = map_last_to_bars(candles.ts, ix, fallback=candles.c)
         return candles
 
     def close(self) -> None:
         self.conn.close()
-
-
-# aux kind -> Candles.x series names for (v1, v2)
-AUX_SERIES = {
-    "oi": ("oi",),
-    "taker": ("tak_buy", "tak_sell"),
-    "lsr": ("lsr",),
-    "ttp": ("ttp",),
-    "ob": ("ob_near", "ob_deep"),   # self-recorded order-book imbalance
-}
-AUX_PERIOD_MS = 3_600_000  # rubik endpoints are fetched at 1H granularity
-OB_SAMPLE_MS = 600_000     # one self-recorded order-book snapshot per ~10 min
-# Per-kind bucket length. The order-book entry must track the sampler above:
-# a snapshot is an instantaneous observation stamped with the exchange's own
-# book timestamp, so quoting a longer bucket here only delays data that was
-# already known, and lets a value go stale later than the next sample.
-AUX_PERIODS = {"ob": OB_SAMPLE_MS}
-
-
-def map_aux_to_bars(bar_ts: np.ndarray, bar_ms: int, rows: list[tuple],
-                    period_ms: int, stale_periods: int = 3) -> list[np.ndarray]:
-    """Align raw aux rows (ts, v1, v2) to bars without look-ahead.
-
-    A row stamped T describes the period [T, T+period): it is only fully
-    known at T+period, so a bar may use it only if the bar CLOSES at or
-    after T+period. Values forward-fill until they go stale
-    (> stale_periods behind), then turn NaN."""
-    n = len(bar_ts)
-    out1 = np.full(n, np.nan)
-    out2 = np.full(n, np.nan)
-    if n == 0 or not rows:
-        return [out1, out2]
-    ats = np.array([int(r[0]) for r in rows], dtype=np.int64) + period_ms
-    v1 = np.array([float(r[1]) for r in rows])
-    v2 = np.array([float(r[2]) if len(r) > 2 and r[2] is not None else 0.0
-                   for r in rows])
-    close = bar_ts.astype(np.int64) + bar_ms
-    idx = np.searchsorted(ats, close, side="right") - 1
-    valid = idx >= 0
-    safe = np.maximum(idx, 0)
-    age_ok = (close - ats[safe]) <= stale_periods * period_ms
-    use = valid & age_ok
-    out1[use] = v1[safe[use]]
-    out2[use] = v2[safe[use]]
-    return [out1, out2]
 
 
 def map_funding_to_bars(bar_ts: np.ndarray, funding_rows: list[tuple]) -> np.ndarray:
@@ -279,4 +251,19 @@ def map_funding_to_bars(bar_ts: np.ndarray, funding_rows: list[tuple]) -> np.nda
         if idx >= len(bar_ts):
             continue
         out[idx] += rate
+    return out
+
+
+def map_last_to_bars(bar_ts: np.ndarray, rows: list[tuple],
+                     fallback: np.ndarray | None = None) -> np.ndarray:
+    """Last observation at or before each bar close (strictly causal)."""
+    n = len(bar_ts)
+    out = np.zeros(n) if fallback is None else np.asarray(fallback, dtype=np.float64).copy()
+    if n == 0 or not rows:
+        return out
+    rts = np.asarray([r[0] for r in rows], dtype=np.int64)
+    vals = np.asarray([r[1] for r in rows], dtype=np.float64)
+    idx = np.searchsorted(rts, bar_ts, side="right") - 1
+    valid = idx >= 0
+    out[valid] = vals[idx[valid]]
     return out

@@ -60,17 +60,9 @@ def evolve(
     seed: int | None = None,
     elite_frac: float = 0.1,
     ctx: dict | None = None,
-    families: tuple[str, ...] | None = None,
-    seeds: list[Genome] | None = None,
     log=None,
 ) -> tuple[list[Candidate], int]:
-    """Returns (final population sorted by fitness desc, total genomes evaluated).
-    `families` restricts the search to a subset of signal families (default:
-    the core families; aux-data families run in their own pass).
-    `seeds` are genomes injected into the initial population — deployed
-    incumbents compete from the start line of every pass, so a proven
-    strategy is never lost to random-search luck; it can only be
-    out-evolved or fail validation on fresh data."""
+    """Returns (final population sorted by fitness desc, total genomes evaluated)."""
     rng = random.Random(seed)
     seen: dict[str, float] = {}
     evaluated = 0
@@ -85,9 +77,7 @@ def evolve(
         evaluated += 1
         return Candidate(g, fit, stats)
 
-    pop = [eval_candidate(g) for g in (seeds or [])[:population]]
-    pop += [eval_candidate(random_genome(rng, families))
-            for _ in range(population - len(pop))]
+    pop = [eval_candidate(random_genome(rng)) for _ in range(population)]
 
     for gen in range(generations):
         pop.sort(key=lambda c: c.fitness, reverse=True)
@@ -101,9 +91,9 @@ def evolve(
         while len(next_pop) < population:
             if rng.random() < 0.6:
                 child = crossover(tournament().genome, tournament().genome, rng)
-                child = mutate(child, rng, rate=0.25, families=families)
+                child = mutate(child, rng, rate=0.25)
             else:
-                child = mutate(tournament().genome, rng, rate=0.5, families=families)
+                child = mutate(tournament().genome, rng, rate=0.5)
             next_pop.append(eval_candidate(child))
         pop = next_pop
         if log:

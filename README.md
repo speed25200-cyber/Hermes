@@ -16,33 +16,13 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
 
 ## How it "finds the edge alone"
 
-0. **Universe** (`hermes/data/universe.py`) — the 60 most-traded USDT
-   perpetuals on OKX, re-ranked on every fetch. Breadth is the one lever that
-   lifts the combined Sharpe without lifting cost per trade (independent
-   edges add as sqrt(N); fees stay per-trade), and a hardcoded list decays as
-   venues list and delist. The cross-asset leader stays at index 0 and an
-   instrument still carrying a position is never dropped, so no refresh can
-   strand a trade. The book itself is capped globally
-   (`research.max_deployed_total`): capital is shared across everything
-   deployed, so an unbounded book starves each strategy below the rebalance
-   band and nothing reaches the market. Slots are filled instrument by
-   instrument rather than by global Sharpe rank, so the breadth the wider
-   universe bought is not handed straight back to whichever few names drew
-   the luckiest estimates.
-
 1. **Prediction engine** (`hermes/ml/`) — a genuine forecasting layer, all
    implemented from scratch in numpy:
    - a causal **feature matrix** per instrument: multi-horizon vol-scaled
      momentum, volatility structure, oscillators, channel position, candle
-     shape, volume pressure, funding carry, intraday/weekly seasonality,
+     shape, volume pressure, funding carry, intraday/weekly seasonality, and
      **cross-asset lead-lag features** from the universe leader (BTC leads
-     alts), and the full **derivatives microstructure** block — open
-     interest, taker-flow imbalance, cumulative volume delta, crowd and
-     top-trader positioning, spot basis and the self-recorded book
-     imbalance. Both learners are additive (ridge is linear, the trees are
-     depth-1 stumps), so the flow-vs-price cross terms are supplied
-     explicitly. Instruments with no aux history contribute neutral columns
-     rather than a narrower matrix, so coverage can grow over time;
+     alts);
    - two learners fit under a strict **walk-forward protocol** (train only on
      the past, horizon-length embargo before every refit, periodic
      re-training): closed-form **ridge regression** and **gradient-boosted
@@ -54,11 +34,6 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
      of its own typical error and its size scales with that ratio:
      distribution-free uncertainty quantification (empirical coverage is
      tested), not a Gaussian assumption;
-   - the training label is the forward return **net of funding**, not the
-     price move: on perpetuals a position held across a stamp pays it, and
-     crypto funding routinely runs tens of percent annualised, so a model
-     trained on price alone would buy a 5bp move while paying 15bp to hold
-     it;
    - an incremental cache extends the walk-forward state bar by bar in live
      trading with bit-identical results to the batch computation (tested).
 
@@ -73,28 +48,16 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
      winners, short the losers, with a one-day skip against reversal;
    - **reversal** (`xs_rev`): long the short-horizon losers, short the
      winners — classic stat-arb mean reversion.
-   Each family searches lookback and per-name cap; the three whose sign is
-   an open empirical question (taker flow, open interest, basis) also search
-   **direction**, so they can express their whole hypothesis rather than a
-   sign pinned in the source — xs_oi came back between −3.2 and −5.9 Sharpe
-   on every config in production, which is a strong edge held the wrong way
-   round, not an absent one. Carry is pinned by theory and momentum/reversal
-   already span both directions by existing as two families, so they do not
-   search it: the Deflated Sharpe is charged with the total configs across
-   ALL families, so widening one taxes every other (42 → 84 configs moves the
-   crossing from 3.5 to 5.1 annualised Sharpe). Survivors are executed as
+   Each family searches its own small grid, but the Deflated Sharpe is
+   charged with the total number of configs searched across all families —
+   selection bias is paid for the whole sweep. Survivors are executed as
    multi-asset books beside the per-instrument strategies.
 
 3. **Maker-first execution** (`hermes/exchange/broker.py`) — live orders try
    a post-only limit at the touch first (OKX maker ~0.02%) with a timed
    fallback to market, handling partial fills exactly. Backtests use the
    matching expected-cost model (`effective_costs`): a ~40% cost reduction
-   per trade that compounds into a real, mechanical edge. That model blends
-   the maker and taker fee by an *assumed* miss rate, so live fills record
-   the average price and the fee the exchange actually charged and
-   `hermes execution` contrasts realised cost with the modelled one — if the
-   real maker share is worse than assumed, every Sharpe in the registry is
-   optimistic by the difference.
+   per trade that compounds into a real, mechanical edge.
 
 4. **Regime detection** (`hermes/ml/regime.py`) — a Gaussian-mixture EM
    (hand-written) classifies every bar as quiet / normal / turbulent from
@@ -110,10 +73,6 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
    gated by a volatility- or regime-filter and scaled by per-strategy
    volatility targeting. Fitness is measured **only on in-sample data**,
    averaged across sub-windows so a strategy must work in every sub-period.
-   The families that need derivatives data (open-interest momentum, taker
-   flow, crowd fade, top-trader follow, CVD divergence, book imbalance) are
-   searched in their own pass, restricted to the window where that history
-   actually exists — exchanges serve only a few months of it.
 
 6. **Validation gate** (`hermes/research/validate.py`) — survivors are scored
    once on out-of-sample data separated by an embargo gap. A strategy deploys
@@ -122,30 +81,12 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
    evaluated, killing selection-bias artifacts), the OOS drawdown cap, AND
    **purged multi-fold consistency**: the OOS window is cut into embargoed
    sub-folds and the majority must be individually profitable (CPCV spirit).
-   Every Sharpe-based statistic is charged for **serial correlation** first:
-   a position held across many bars — or an hourly aux series carried onto
-   15m bars — means consecutive returns are not independent, so a
-   Newey-West variance inflation factor haircuts the reported Sharpe (Lo
-   2002) and shrinks the effective sample the PSR and DSR rest on. Fewer
-   independent observations also raise the selection bar, so a correlated
-   strategy must clear more, not the same. The factor is floored at 1: the
-   correction may only ever make a strategy look worse.
 
 7. **Online adaptation** (`hermes/portfolio/allocator.py`) — deployed
    strategies are tracked bar by bar. Capital flows multiplicatively toward
    what is working *now*, an EWMA **correlation matrix downweights crowded
    strategies** so the book spreads across genuinely independent edges, and
    a portfolio-level volatility target scales the whole book.
-
-   Two things keep that from collapsing onto one name. The performance tilt
-   is applied to the gap **in standard errors**, not in raw Sharpe units:
-   over an EWMA window that error is several units wide, so tilting on the
-   raw gap concentrates capital on whichever strategy was luckiest — on five
-   strategies with identical true edges, measuring in standard errors lifts
-   the combined Sharpe from 6.8 to 8.5 across seeds. And capital is shared
-   only among the strategies **actually asking for exposure**: one sitting
-   flat contributes nothing to the book, so letting it hold weight would only
-   shrink the others.
 
 8. **The adaptive hunt** — the live loop re-runs the whole research pass on
    fresh data when the deployed set goes stale (weekly by default). While
@@ -189,19 +130,6 @@ python -m hermes research
 
 # 4. Paper-trade the deployed strategies against live OKX prices
 python -m hermes run --mode paper
-
-# History held per data source (incl. the self-recorded order book)
-python -m hermes coverage
-
-# Did the gate's OOS estimate survive contact with live trading?
-python -m hermes calibration
-
-# Is trading actually costing what every backtest assumed?
-python -m hermes execution
-
-# Export the market history that cannot be re-fetched (the order book from
-# day one, and every aux row aged past the exchange's retention window)
-python -m hermes backup --out hermes-aux.jsonl
 
 # Dashboard — local web console (equity curve, book, allocation, risk, logs)
 python -m hermes dashboard            # opens http://127.0.0.1:8899
@@ -263,11 +191,6 @@ and cautious small live sizes — prefer a VPS beyond that.
   Sharpe is unrealistically high. On real crypto perps, an OOS Sharpe of
   0.5–1.5 after costs is a good outcome; many research passes will correctly
   deploy **nothing** — that is the validation gate protecting you from noise.
-- A high out-of-sample Sharpe is not evidence on its own. Searching enough
-  genomes produces one from noise, and the deflated Sharpe is what tells the
-  two apart. [docs/VALIDATION.md](docs/VALIDATION.md) records the measured
-  evidence behind every threshold, including the eighteen-strategy book whose
-  Sharpes ran 6.5 to 9.5 while not one of them beat its own selection bar.
 - Perpetual futures are leveraged instruments. You can lose your entire
   margin. Never trade money you cannot afford to lose. This software is
   provided as-is, without warranty; nothing here is financial advice.
@@ -305,7 +228,6 @@ hermes/
   features.py            vectorized, strictly causal indicator library
   risk.py                risk engine (limits, halts, kill switch)
   data/    store.py      SQLite candle/funding store
-           universe.py   venue-ranked instrument selection (leader pinned)
            fetcher.py    OKX history backfill (public endpoints)
            synthetic.py  regime-switching market generator (offline tests)
   ml/      models.py     ridge + gradient-boosted stumps (pure numpy)
@@ -315,9 +237,7 @@ hermes/
   strategy/genome.py     strategy search space (mutate/crossover)
            signals.py    genome -> target exposure series
   backtest/engine.py     vectorized backtester (fees, slippage, funding)
-           metrics.py    Sharpe (serial-correlation adjusted), Sortino,
-                         PSR, Deflated Sharpe, Newey-West inflation, drawdown,
-                         gross-vs-net and the cost drag frictions took
+           metrics.py    Sharpe, Sortino, PSR, Deflated Sharpe, drawdown
   research/evolve.py     evolutionary alpha search (in-sample only)
            validate.py   OOS validation gate (DSR threshold)
   portfolio/allocator.py multiplicative-weights capital allocation
@@ -326,11 +246,8 @@ hermes/
   live/trader.py         decision cycle + autonomous runner (auto re-research)
   dashboard/server.py    zero-dependency local web console (stdlib http)
            index.html    single-file UI: SVG charts, animated console
-  cli.py                 demo / fetch / research / run / status /
-                         coverage / calibration / execution / backup /
-                         dashboard
-tests/                   148 tests: no-lookahead, ML causality, microstructure
-                         features, metric autocorrelation, regimes, e2e
+  cli.py                 demo / fetch / research / run / status / dashboard
+tests/                   54 tests: no-lookahead, ML causality, regimes, e2e
 ```
 
 ## Tests

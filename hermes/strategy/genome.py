@@ -21,8 +21,8 @@ from typing import Any
 
 # param spec: name -> (low, high, is_int, log_scale)
 SIGNAL_SPECS: dict[str, dict[str, tuple]] = {
-    "tsmom": {  # time-series momentum with deadband
-        "lookback": (8, 400, True, True),
+    "tsmom": {  # time-series momentum with deadband — SLOW (days-weeks), not noise
+        "lookback": (96, 4000, True, True),
         "deadband": (0.0, 1.0, False, False),   # in units of ret std
     },
     "ma_cross": {
@@ -57,52 +57,27 @@ SIGNAL_SPECS: dict[str, dict[str, tuple]] = {
         "n_trees": (1, 4, True, False),         # trees = 10 * n_trees
         "cross": (0, 1, True, False),
     },
-    "basis_rev": {  # perp premium/discount vs the spot index (full history)
-        "lookback": (8, 400, True, True),
-        "entry_z": (0.5, 3.0, False, False),
-        "dir": (0, 1, True, False),             # 0 fade the premium, 1 follow
+    "basis_fade": {  # short rich perp premium, long cheap
+        "lookback": (24, 400, True, True),
+        "threshold": (0.00005, 0.003, False, True),
     },
-    # ---- aux-data families (open interest / taker flow / positioning).
-    # These need the rubik series in Candles.x, which cover only the recent
-    # months, so they are searched in a dedicated pass on the covered window
-    # (never in the main multi-year evolution).
-    "oi_mom": {  # OI-confirmed momentum (mode 0) / squeeze fade (mode 1)
-        "lookback": (4, 192, True, True),
-        "conf_z": (0.2, 2.0, False, False),     # OI-change z threshold
-        "mode": (0, 1, True, False),
-    },
-    "taker_flow": {  # aggressive taker buy/sell imbalance z-score
-        "lookback": (4, 192, True, True),
-        "entry_z": (0.5, 2.5, False, False),
-        "dir": (0, 1, True, False),             # 0 follow the flow, 1 fade it
-    },
-    "lsr_fade": {  # crowd long/short account-ratio extremes
-        "lookback": (8, 400, True, True),
-        "entry_z": (0.5, 2.5, False, False),
-        "dir": (0, 1, True, False),             # 0 fade the crowd, 1 follow
-    },
-    "ttp_follow": {  # top-trader (largest accounts) position-ratio shifts
-        "lookback": (8, 400, True, True),
-        "entry_z": (0.5, 2.5, False, False),
-        "dir": (0, 1, True, False),             # 0 follow smart money, 1 fade
-    },
-    "cvd_div": {  # cumulative volume delta vs price: divergence / confirm
+    "flow_fade": {  # fade one-sided taker flow
         "lookback": (8, 192, True, True),
-        "thresh": (0.3, 2.0, False, False),     # CVD-move z threshold
-        "mode": (0, 1, True, False),            # 0 fade divergence, 1 confirm
+        "threshold": (0.05, 0.4, False, False),
     },
-    "ob_imb": {  # self-recorded order-book depth imbalance
-        "lookback": (4, 192, True, True),
-        "entry_z": (0.5, 2.5, False, False),
-        "dir": (0, 1, True, False),             # 0 follow the book, 1 fade
+    "crowd_fade": {  # fade OI-up + price-up crowding
+        "lookback": (8, 96, True, True),
     },
 }
 
-# families that require Candles.x aux series; excluded from the default
-# evolution pool and explored in their own pass on the aux-covered window
-AUX_SIGNALS = ("oi_mom", "taker_flow", "lsr_fade", "ttp_follow", "cvd_div",
-               "ob_imb")
-CORE_SIGNALS = tuple(s for s in SIGNAL_SPECS if s not in AUX_SIGNALS)
+# Families the evolutionary search is allowed to propose. RSI / MA / Donchian
+# stay in SIGNAL_SPECS so already-deployed genomes still execute, but they
+# are not new candidates — they have no economic edge on OKX perps.
+SEARCH_SIGNALS: tuple[str, ...] = (
+    "tsmom", "meanrev", "funding_carry",
+    "ml_ridge", "ml_boost",
+    "basis_fade", "flow_fade", "crowd_fade",
+)
 
 FILTER_SPECS: dict[str, dict[str, tuple]] = {
     "none": {},
@@ -176,9 +151,8 @@ class Genome:
         return s + f" | vt={self.vol_target:.2f} lev<={self.max_lev:.2f}"
 
 
-def random_genome(rng: random.Random,
-                  families: tuple[str, ...] | None = None) -> Genome:
-    signal = rng.choice(list(families if families is not None else CORE_SIGNALS))
+def random_genome(rng: random.Random, signal: str | None = None) -> Genome:
+    signal = signal if signal in SIGNAL_SPECS else rng.choice(list(SEARCH_SIGNALS))
     params = {k: _sample_param(spec, rng) for k, spec in SIGNAL_SPECS[signal].items()}
     filt = rng.choice(list(FILTER_SPECS))
     fparams = {k: _sample_param(spec, rng) for k, spec in FILTER_SPECS[filt].items()}
@@ -189,12 +163,11 @@ def random_genome(rng: random.Random,
     )
 
 
-def mutate(g: Genome, rng: random.Random, rate: float = 0.4,
-           families: tuple[str, ...] | None = None) -> Genome:
+def mutate(g: Genome, rng: random.Random, rate: float = 0.4) -> Genome:
     d = g.to_dict()
     # occasionally jump to a fresh random genome to keep exploring
     if rng.random() < 0.06:
-        return random_genome(rng, families)
+        return random_genome(rng)
     for k, spec in SIGNAL_SPECS[d["signal"]].items():
         if rng.random() < rate:
             lo, hi, is_int, _ = spec
