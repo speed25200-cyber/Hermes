@@ -385,6 +385,12 @@
   .dcard .meta{display:flex;gap:10px;margin-left:auto;font-variant-numeric:tabular-nums}
   .dcard .meta b{display:block;font-size:12px;font-weight:540;line-height:1.15}
   .dcard .meta span{font-size:8.5px;color:var(--faint);letter-spacing:.05em;text-transform:uppercase}
+  .clk{display:flex;gap:3px;margin-left:6px}
+  .clk i{font-style:normal;font-size:9px;font-weight:700;width:18px;height:18px;border-radius:4px;
+    display:inline-flex;align-items:center;justify-content:center;letter-spacing:0}
+  .clk i.up{background:rgba(62,207,142,.18);color:var(--green)}
+  .clk i.dn{background:rgba(240,84,79,.18);color:var(--red)}
+  .clk i.veto{background:rgba(255,255,255,.05);color:var(--faint)}
   .scard.watch{border-color:rgba(211,162,79,.22)}
   .scard .topline{display:flex;align-items:center;justify-content:space-between;gap:8px}
   .scard .sym{font-size:12px;font-weight:650;letter-spacing:.18em;color:var(--txt2)}
@@ -523,7 +529,7 @@
       <div class="scan-title">
         <div class="radar" aria-hidden="true"></div>
         <div>
-          <div class="scan-kicker">Hermes · BTC ETH SOL desk</div>
+          <div class="scan-kicker">Hermes · conformal 1/3/5/15m</div>
           <div class="scan-name" id="sc_ml">Live scan</div>
         </div>
       </div>
@@ -1148,14 +1154,19 @@ function renderScalp(s){
       const st = d.status || "…";
       const edge = p.edge_bps||0;
       const tp = p.tp_bps||0, sl = p.sl_bps||0;
+      const clk = d.clocks || p.clocks || {};
+      const pills = ["1m","3m","5m","15m"].map(b=>{
+        const v = clk[b] || "veto";
+        return `<i class="${v}">${b.replace("m","")}</i>`;
+      }).join("");
       return `<div class="dcard ${dir}" onclick="openTrade('${sym}-USDT-SWAP')">
         <div class="coin">${sym}</div>
         <div class="dir">${lab}</div>
+        <div class="clk">${pills}</div>
         <div class="pol">${bar} · ${pol} · ${st}</div>
         <div class="meta">
-          <div><b>${edge>=0?"+":""}${edge.toFixed(1)}</b><span>edge</span></div>
+          <div><b>${edge>=0?"+":""}${edge.toFixed(1)}</b><span>pred</span></div>
           <div><b>${tp.toFixed(0)}/${sl.toFixed(0)}</b><span>tp/sl</span></div>
-          <div><b>${d.holdout!==undefined? (Number(d.holdout)>=0?"+":"")+Number(d.holdout).toFixed(1):"—"}</b><span>oos</span></div>
         </div>
       </div>`;
     }).join("");

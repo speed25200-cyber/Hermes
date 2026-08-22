@@ -660,7 +660,7 @@ class LiveRunner:
         if self.scalp is None:
             return
         from ..data.fetcher import fetch_candles
-        from ..scalp.learn import ASSETS, BARS, DAYS
+        from ..scalp.clock import ASSETS, BARS, DAYS
         leaders = list(ASSETS)
         for bar in BARS:
             d = DAYS[bar]
@@ -758,7 +758,7 @@ class LiveRunner:
             self.ensure_data()
             threading.Thread(target=self._research_bg, daemon=True).start()
         last_cycle_bar = 0
-        last_scalp_bar = {b: 0 for b in ("15m", "1H")}
+        last_scalp_bar = {b: 0 for b in ("1m", "3m", "5m", "15m")}
         last_uni = 0.0
         last_learn = time.time()
         rr = 0
@@ -809,14 +809,19 @@ class LiveRunner:
                                 self.scalp.ingest_trades(inst, self.client.last_trades(inst, limit=50))
                             except Exception:
                                 pass
-                            for bar in ("15m", "1H"):
-                                try:
-                                    update_latest(self.client, self.store, inst, bar, limit=120)
-                                except Exception:
-                                    pass
+                            try:
+                                update_latest(self.client, self.store, inst, "1m", limit=120)
+                            except Exception:
+                                pass
+                            slow = ("3m", "5m", "15m")[rr % 3]
+                            try:
+                                update_latest(self.client, self.store, inst, slow, limit=120)
+                            except Exception:
+                                pass
+                    rr += 1
                     finally:
                         self.client.timeout, self.client.max_retries = t0, r0
-                    from ..scalp.learn import BARS as _BARS
+                    from ..scalp.clock import BARS as _BARS
                     any_new = False
                     last_rep = None
                     for bar in _BARS:

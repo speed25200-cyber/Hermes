@@ -10,7 +10,7 @@ from ..data.store import Candles, BAR_MS
 from ..exchange.broker import Broker, PaperBroker
 from . import features as F
 from . import model as M
-from .learn import BARS, HOLD, ScalpLearner, HorizonBook
+from .clock import BARS, HOLD, ScaleDesk
 
 
 class ScalpEngine:
@@ -49,7 +49,7 @@ class ScalpEngine:
         self.flow: dict[str, float] = {}
         self.tape: dict[str, dict] = {}
         self.pending: dict[str, float] = {}
-        self.horizons = HorizonBook(fee_rt_bps=7.0, log=self.log)
+        self.horizons = ScaleDesk(fee_bps=7.0, log=self.log)
         self.preds_h: dict[str, list] = {b: [] for b in BARS}
         self.hold_ms: dict[str, int] = {}
         self.opened_h: dict[str, str] = {}
@@ -66,10 +66,12 @@ class ScalpEngine:
             "min_edge_bps": self.min_edge,
             "horizons": self.horizons.to_dict(),
             "live_bars": self.horizons.live_bars(),
-            "desk": {i.split("-")[0]: {"bar": bar, "policy": lr.policy,
-                                       "status": lr.status,
-                                       "holdout": lr.holdout_mean}
-                     for i, (bar, lr) in self.horizons.best.items()},
+            "desk": {i.split("-")[0]: {"bar": inf.get("bar"),
+                                       "policy": inf.get("policy"),
+                                       "status": inf.get("status"),
+                                       "holdout": inf.get("ml_bps"),
+                                       "clocks": inf.get("clocks")}
+                     for i, inf in ((k, self.horizons.fuse(k)) for k in self.instruments)},
         }
         if extra:
             d.update(extra)
@@ -158,18 +160,12 @@ class ScalpEngine:
             feat["ofi"] = float(micro.get("ofi") or 0.0)
             feat["vwap_vs"] = float((self.tape.get(inst) or {}).get("vwap_vs") or 0.0)
             pred = M.predict(feat, btc_r1, inst.startswith("BTC-"), self.horizon)
-            inf = self.horizons.infer_asset(
-                inst, feat, btc_r1, inst.startswith("BTC-"),
-                float(pred["score"]), float(pred["vol_bps"]),
-            )
-            # only fire this asset on its chosen bar
-            pair = self.horizons.best.get(inst)
-            if pair and pair[0] != bar:
-                inf = dict(inf, veto=True, status="other-bar")
+            self.horizons.vote_clock(inst, bar, c, btc)
+            inf = self.horizons.fuse(inst)
             score = float(inf["score"])
-            vol = max(float(pred["vol_bps"]) * 1e-4, 1e-6)
-            edge = score * vol * (max(self.horizon, 1) ** 0.5) * 1e4
+            edge = float(inf.get("r_bps") or inf.get("ml_bps") or 0.0)
             pred["score"], pred["edge_bps"] = score, edge
+            pred["p_up"] = 0.5 + 0.5 * max(-1.0, min(1.0, edge / 12.0))
             spread = float(micro["spread_bps"] or 0.0) or float(
                 (self.ticks.get(inst) or {}).get("spread_bps") or 0.0)
             if spread <= 0:
@@ -177,20 +173,13 @@ class ScalpEngine:
             hurdle = max(self.min_edge, self.round_trip_bps, spread + 2.0 * self.taker_fee_bps)
             reason = ""
             if inf["veto"]:
-                direction, reason = "flat", "ml-veto"
-            elif bar == "1m" and (not micro["l2"]) and self.require_l2:
-                direction, reason = "flat", "no L2"
+                direction, reason = "flat", inf.get("status") or "veto"
             elif abs(edge) < hurdle:
                 direction, reason = "flat", "cost"
             elif edge > 0:
                 direction = "long"
             else:
                 direction = "short"
-            # book must not scream continuation against a fade
-            if direction == "short" and feat["r1"] > 0 and micro["book"] > 0.25:
-                direction, reason = "flat", "book disagrees"
-            if direction == "long" and feat["r1"] < 0 and micro["book"] < -0.25:
-                direction, reason = "flat", "book disagrees"
             out.append({
                 "inst": inst,
                 "px": feat["px"],
@@ -213,10 +202,11 @@ class ScalpEngine:
                 "tp_bps": inf["tp_bps"],
                 "sl_bps": inf["sl_bps"],
                 "bar": inf.get("bar") or bar,
+                "clocks": inf.get("clocks") or {},
                 "bar_ts": int(c.ts[-1]),
             })
         self.preds_h[bar] = out
-        self._refresh_dashboard_preds()
+        self.last_preds = out
         return out
 
     def _refresh_dashboard_preds(self) -> None:
@@ -323,26 +313,7 @@ class ScalpEngine:
         return hit
 
     def _blend_targets(self) -> dict[str, float]:
-        acc: dict[str, float] = {}
-        vol: dict[str, float] = {}
-        for inst in self.instruments:
-            pair = self.horizons.best.get(inst)
-            if not pair or pair[1].status != "live":
-                acc[inst] = 0.0
-                continue
-            bar, _lr = pair
-            preds = self.preds_h.get(bar) or []
-            t = self._targets(preds)
-            acc[inst] = t.get(inst, 0.0)
-            for p in preds:
-                if p.get("inst") == inst:
-                    vol[inst] = float(p.get("vol_bps") or 0.0)
-        self._vol = vol
-        gross = sum(abs(v) for v in acc.values())
-        if gross > self.gross_cap and gross > 0:
-            s = self.gross_cap / gross
-            acc = {k: v * s for k, v in acc.items()}
-        return acc
+        return self._targets(self.last_preds or [])
 
     def tick(self, candles_1m: dict[str, Candles], now: float | None = None,
              bar: str = "1m") -> dict:
