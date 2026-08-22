@@ -509,6 +509,8 @@
     <div class="status">
       <span class="seg"><span class="dot" id="livedot"></span><span id="modelbl"><b>—</b></span></span>
       <span class="seg">Risk <b id="risklbl">—</b></span>
+      <span class="seg">DD <b class="num" id="hdl_dd">—</b></span>
+      <span class="seg">Day <b class="num" id="hdl_day">—</b></span>
       <span class="seg" id="freshpill" style="display:none"><span id="freshlbl" class="num">—</span></span>
       <span class="seg clockseg num" id="clock">— UTC</span>
     </div>
@@ -580,9 +582,9 @@
       <div class="delta" id="k_gross_d"></div>
     </div>
     <div class="metric">
-      <div class="label">Strategies live</div>
-      <div class="value num" id="k_strats">—</div>
-      <div class="delta" id="k_strats_d"></div>
+      <div class="label">Daily P&L</div>
+      <div class="value num" id="k_day">—</div>
+      <div class="delta" id="k_day_d"></div>
     </div>
   </div>
 
@@ -606,17 +608,17 @@
           <div class="mrow"><span class="mlabel">Drawdown from peak</span>
             <span class="mval num" id="g_dd">—</span></div>
           <div class="track"><i class="fill" id="m_dd"></i>
-            <span class="tickmark" style="left:60%"></span>
+            <span class="tickmark" style="left:40%"></span>
             <span class="tickmark" style="left:85%"></span></div>
-          <div class="mcap"><span>0</span><span>kill switch 15%</span></div>
+          <div class="mcap"><span>0</span><span id="m_dd_cap">kill 25%</span></div>
         </div>
         <div class="meter">
           <div class="mrow"><span class="mlabel">Today vs daily-loss limit</span>
             <span class="mval num" id="g_day">—</span></div>
           <div class="track"><i class="fill" id="m_day"></i>
-            <span class="tickmark" style="left:60%"></span>
+            <span class="tickmark" style="left:40%"></span>
             <span class="tickmark" style="left:85%"></span></div>
-          <div class="mcap"><span>0</span><span>halt at −3%</span></div>
+          <div class="mcap"><span>0</span><span id="m_day_cap">halt −8%</span></div>
         </div>
       </div>
 
@@ -1754,6 +1756,7 @@ async function refresh(){
     $("chartrange").textContent = series.length+" ticks";
     const lim = (data.scalp && data.scalp.risk_limits) || {};
     const cap = (Number(lim.dd_pct) || 25) / 100;
+    const dayLim = (Number(lim.daily_pct) || 8) / 100;
     let dayStart = risk.day_start_equity;
     if(!dayStart && fullSeries.length){
       const lastDay = new Date(fullSeries[fullSeries.length-1].ts*1000).toISOString().slice(0,10);
@@ -1761,14 +1764,21 @@ async function refresh(){
       dayStart = first? first.eq : 0;
     }
     const dayRet = dayStart? eq/dayStart-1 : 0;
-    drawMeters(Math.max(0,ddNow), cap, dayRet, 0.03);
-    $("k_dd_d").textContent = "from peak · kill at "+Math.round(cap*100)+"% · day halt "+(lim.daily_pct||8)+"%";
+    drawMeters(Math.max(0,ddNow), cap, dayRet, dayLim);
+    $("k_dd_d").textContent = "from peak · kill "+Math.round(cap*100)+"%";
+    tweenNum($("k_day"), dayStart? eq-dayStart : 0, v=>(v>=0?"+":"")+fmtUsd(v));
+    $("k_day").className = "value num "+(dayRet>=0?"up":"down");
+    $("k_day_d").textContent = (dayRet>=0?"+":"")+fmtPct(dayRet)+" · halt −"+Math.round(dayLim*100)+"%";
+    const ddCap = $("m_dd_cap"); if(ddCap) ddCap.textContent = "kill "+Math.round(cap*100)+"%";
+    const dayCap = $("m_day_cap"); if(dayCap) dayCap.textContent = "halt −"+Math.round(dayLim*100)+"%";
+    const hdd = $("hdl_dd");
+    if(hdd){ hdd.textContent = fmtPct(ddNow)+" / "+Math.round(cap*100)+"%"; hdd.style.color = ddNow>0.6*cap? "var(--red)":""; }
+    const hdy = $("hdl_day");
+    if(hdy){ hdy.textContent = (dayRet>=0?"+":"")+fmtPct(dayRet)+" / −"+Math.round(dayLim*100)+"%"; hdy.style.color = dayRet< -0.6*dayLim? "var(--amber)":""; }
   }
 
   const nStr = (registry.strategies||[]).length;
-  tweenNum($("k_strats"), nStr, v=>Math.round(v).toString());
   const age = registry.researched_at? (Date.now()/1000-registry.researched_at)/3600 : null;
-  $("k_strats_d").textContent = age!==null? "research age "+(age<1? Math.round(age*60)+"m" : age.toFixed(1)+"h") : "no research yet";
   $("researchage").textContent = age!==null? "refreshed "+(age<1? Math.round(age*60)+"m ago" : age.toFixed(1)+"h ago"):"";
 
   renderMarkets(data, last, journal);
