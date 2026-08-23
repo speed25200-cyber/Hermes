@@ -47,6 +47,13 @@ jobs:
             echo "===== research / engine journal (last 50 lines) ====="
             journalctl -u hermes-research -u hermes -n 50 --no-pager || true
             echo
+            # Les verdicts rares (flow 5m/15m ~1x/h, horloges ~1x/4h) sortent
+            # de la fenêtre de 50 lignes : on les repêche sur 6 h.
+            echo "===== verdicts des 6 dernières heures (gates + trades) ====="
+            journalctl -u hermes --since "-6 hours" --no-pager 2>/dev/null \
+              | grep -E "flow (5m|15m|90s) (live|veto)|clock .* (live|veto) \[|TP .*maker|scalp SL|explore " \
+              | tail -40 || true
+            echo
             echo "===== deployed book (registry summary) ====="
             grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
             echo
