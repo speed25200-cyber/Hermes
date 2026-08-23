@@ -152,6 +152,12 @@ class _Head:
         c_win = (1.0 - QUEUE_MISS) * self.cost_win + QUEUE_MISS * self.fee
         sd_p = float(np.std(pred))
         best = None
+        # La barre dépend du nombre de trades de la cellule : elle doit
+        # donc être connue DANS la boucle, pas après. Chaque refit est un
+        # tirage de plus, les trois horizons sont trois recherches
+        # parallèles, et la grille de seuils est cherchée dans chacune.
+        trials = (min(max(self.fits + 1, 2), 64) * len(HORIZONS_S)
+                  * len(THRESHOLDS))
         # Le seuil était plancherré au coût de la jambe gagnante : « sous
         # 4,8 bps prévus, sans espoir ». C'est vrai d'un modèle calibré ;
         # ce n'en est pas un. Un ridge régularisé rend une moyenne
@@ -171,10 +177,21 @@ class _Head:
             gains = np.sign(pred[m]) * y[hold][m]
             net = gains - np.where(gains > 0, c_win, self.fee)
             sd = float(np.std(net, ddof=1))
-            sr = float(np.mean(net)) / sd if sd > 1e-12 else 0.0
-            if best is None or sr > best["sr"]:
-                best = {"thr": thr, "n_tr": n_tr,
-                        "mu": float(np.mean(net)), "sr": sr}
+            mu = float(np.mean(net))
+            sr = mu / sd if sd > 1e-12 else 0.0
+            # Classement par la MARGE sur la barre de la cellule, et non
+            # par le Sharpe nu. Un seuil haut gagne toujours au Sharpe nu
+            # — sur soixante trades, où la barre qu'il s'impose vaut 0,41
+            # et qu'il ne franchira jamais. Chercher avec le critère qui
+            # décide, plutôt que chercher un maximum qu'on refusera.
+            # Et à égalité de marge, une cellule qui perd de l'argent ne
+            # peut de toute façon pas passer : elle ne prend pas la place
+            # d'une qui en gagne.
+            barre = expected_max_sharpe(trials, n_tr)
+            cle = (1 if mu > 0 else 0, sr - barre)
+            if best is None or cle > best["cle"]:
+                best = {"thr": thr, "n_tr": n_tr, "mu": mu, "sr": sr,
+                        "barre": barre, "cle": cle}
         if best is None:
             # Assez d'étiquettes, mais aucun seuil ne déclenche assez
             # souvent pour qu'une moyenne soit une mesure : la tête prédit
@@ -195,9 +212,7 @@ class _Head:
         # each — every one of them is charged. Capped so a long-running desk
         # is not punished forever for its own uptime.
         self.fits += 1
-        trials = (min(max(self.fits, 2), 64) * len(HORIZONS_S)
-                  * len(THRESHOLDS))
-        self.sel_bar = expected_max_sharpe(trials, best["n_tr"])
+        self.sel_bar = best["barre"]
         if mu > 0 and self.hold_sr > self.sel_bar:
             floor = 2.0 / math.sqrt(best["n_tr"])
             self.shrink = float(min(0.7, 0.25 + 2.0 * self.ic)) \

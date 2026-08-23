@@ -177,3 +177,45 @@ def test_the_measured_economics_still_refuse_a_losing_rule(tmp_path):
     tete = fb.heads[90.0]
     tete.fit(lambda m: None)
     assert tete.status == "veto"
+
+
+def test_the_head_searches_with_the_criterion_that_decides(tmp_path):
+    """La barre dépend du nombre de trades de la cellule. Classer par
+    Sharpe nu choisissait donc systématiquement un seuil haut — le plus
+    beau Sharpe sur soixante trades, où la barre qu'il s'impose vaut 0,41
+    et qu'il ne franchira jamais. Mesuré en production : flow 90s, ic
+    0,182, net +1,25 bps/trade, sr 0,063 contre barre 0,409 sur 62
+    trades.
+
+    Classer par (sr - barre) revient à chercher avec le critère qui
+    décide. La porte est inchangée : le retenu doit toujours gagner de
+    l'argent ET battre SA barre.
+    """
+    fb = _cerveau(tmp_path)
+    rng = np.random.default_rng(4)
+    _nourrir(fb, rng, 2400, gain=3.0, bruit=6.0)
+    tete = fb.heads[90.0]
+    tete.fit(lambda m: None)
+    if tete.status == "live":
+        assert tete.hold_sr > tete.sel_bar
+    # la barre publiée est celle du nombre de trades effectivement retenu
+    from hermes.backtest.metrics import expected_max_sharpe
+    from hermes.scalp.flow import HORIZONS_S, THRESHOLDS
+    attendu = expected_max_sharpe(
+        min(max(tete.fits, 2), 64) * len(HORIZONS_S) * len(THRESHOLDS),
+        tete.n_trades)
+    assert abs(tete.sel_bar - attendu) < 1e-9
+
+
+def test_a_losing_cell_never_takes_the_place_of_a_paying_one(tmp_path):
+    """Un seuil bas produit beaucoup de trades, donc une barre basse,
+    donc parfois la meilleure marge — même en perdant de l'argent. Une
+    telle cellule ne peut de toute façon pas passer ; elle ne doit pas
+    masquer celle qui paie."""
+    fb = _cerveau(tmp_path)
+    rng = np.random.default_rng(5)
+    _nourrir(fb, rng, 2400, gain=4.0, bruit=2.0)
+    tete = fb.heads[90.0]
+    tete.fit(lambda m: None)
+    # sur ce marché une cellule payante existe : c'est elle qui est retenue
+    assert tete.status == "live"

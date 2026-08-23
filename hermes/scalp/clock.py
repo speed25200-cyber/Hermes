@@ -451,7 +451,7 @@ class CandleModel:
         for h in HORIZONS:
             r = self._essai(blocs, h, c_win)
             if r is not None and (meilleur is None
-                                  or r["marge"] > meilleur["marge"]):
+                                  or r["cle"] > meilleur["cle"]):
                 meilleur = r
         if meilleur is None:
             self.status, self.shrink = "veto", 0.0
@@ -592,14 +592,22 @@ class CandleModel:
                     # bouge pas d'un pouce.
                     barre = expected_max_sharpe(self.n_cells, n_per)
                     marge = sr - barre
-                    if best is None or marge > best["marge"]:
+                    # Une cellule qui perd de l'argent après frais ne peut
+                    # de toute façon pas passer la porte : elle ne doit
+                    # pas prendre la place d'une qui en gagne dans ce
+                    # qu'on retient et publie. C'est un ordre de
+                    # présentation, pas une porte — les deux conditions de
+                    # _retenir sont inchangées.
+                    mu = float(np.mean(net))
+                    cle = (1 if mu > 0 else 0, marge)
+                    if best is None or cle > best["cle"]:
                         best = {
                             "fam": fam, "rr": rr, "nn": nn, "up": up, "dn": dn,
                             "h": h, "pred": pv[m], "y": yho[m], "ic": ic,
                             "thr": thr, "n_tr": n_tr, "n_per": n_per,
                             "var": var,
                             "n_hold": len(yho), "n_train": len(ytr),
-                            "bps": float(np.mean(net)), "sr": sr,
+                            "bps": mu, "sr": sr, "cle": cle,
                             "barre": barre, "marge": marge, "pente": pente,
                         }
             # Aucun seuil ne déclenche assez souvent pour cette famille :
