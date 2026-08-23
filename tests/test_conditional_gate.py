@@ -153,3 +153,18 @@ def test_the_flow_head_gate_is_conditional_too(tmp_path):
         t2.T.append(i * t2.h)
     t2.fit(lambda m: None)
     assert t2.status == "veto", "le bruit ne passe pas la porte conditionnelle"
+
+
+def test_more_evidence_lowers_the_bar_without_softening_it():
+    """La barre du hasard décroît en 1/racine(trades) : c'est pour cela
+    que la profondeur d'historique compte. Ce test pinne la relation — et
+    qu'aucune profondeur ne rend la porte franchissable par du bruit."""
+    from hermes.backtest.metrics import expected_max_sharpe
+    from hermes.scalp.clock import DAYS
+    n_cells = 3 * 4 * len(FAMILIES) * len(THRESHOLDS)
+    peu = expected_max_sharpe(n_cells, 50)
+    beaucoup = expected_max_sharpe(n_cells, 500)
+    assert peu > 2 * beaucoup, "plus de trades doit abaisser la barre"
+    assert beaucoup > 0, "elle ne tombe jamais à zéro"
+    # les horloges rapides doivent voir assez de jours pour y arriver
+    assert DAYS["5m"] >= 90 and DAYS["1m"] >= 21 and DAYS["15m"] >= 180

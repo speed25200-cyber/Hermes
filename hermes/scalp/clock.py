@@ -42,7 +42,14 @@ MIN_TRADES = 40   # sous ce nombre, une moyenne n'est pas une mesure
 
 BARS = ("1m", "3m", "5m", "15m")
 HOLD = {"1m": 3, "3m": 3, "5m": 3, "15m": 3}
-DAYS = {"1m": 7, "3m": 14, "5m": 21, "15m": 45}
+# Profondeur d'historique par horloge. La barre du hasard décroît en
+# 1/racine(trades) : à 21 jours de 5 min, une règle qui déclenche 4 % du
+# temps ne produit que ~50 trades hors échantillon et doit battre 0,37 —
+# un avantage réel n'y arrive pas. Aux profondeurs ci-dessous elle en
+# produit des centaines et la barre tombe vers 0,10. Ce n'est pas une
+# porte plus douce : c'est la même porte avec assez de preuves pour
+# distinguer un avantage d'une chance.
+DAYS = {"1m": 30, "3m": 60, "5m": 120, "15m": 365}
 ASSETS = ("BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP")
 W = {"1m": 0.15, "3m": 0.20, "5m": 0.28, "15m": 0.37}
 FEE = 7.0  # maker in + taker SL, bps
@@ -238,6 +245,14 @@ class CandleModel:
                 n_tr = int(m.sum())
                 if n_tr < MIN_TRADES:
                     continue
+                # PnL directionnel, net des coûts réels. La porte prouve
+                # UN avantage de direction qui paie sa friction ; le choix
+                # du take et du stop appartient à economics.choose_bracket,
+                # qui l'optimise par espérance simulée. Imposer ici une
+                # géométrie fixe dégradait la mesure sans la rendre plus
+                # fidèle : à barrières symétriques, la jambe perdante coûte
+                # plus que la gagnante ne rapporte, et c'est précisément ce
+                # déséquilibre que le choix par espérance corrige en aval.
                 gains = np.sign(p[m]) * y_r[hold][m] * 1e4
                 net = gains - np.where(gains > 0, c_win, self.fee)
                 sd = float(np.std(net, ddof=1))
