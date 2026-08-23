@@ -5,8 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Hermes — poste de pilotage</title>
 <link rel="manifest" href="manifest.webmanifest">
-<meta name="theme-color" content="#0a0810" media="(prefers-color-scheme:dark)">
-<meta name="theme-color" content="#f6f5fa" media="(prefers-color-scheme:light)">
+<meta name="theme-color" content="#050506" media="(prefers-color-scheme:dark)">
+<meta name="theme-color" content="#f5f5f7" media="(prefers-color-scheme:light)">
 <link rel="icon" href="icons/icon-192.png" type="image/png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <style>
@@ -23,19 +23,20 @@
 :root{
   color-scheme:dark;
 
-  /* Fonds : un noir froid très légèrement bleuté. Le noir pur écrase
-     les ombres et fait paraître les cartes collées au verre. */
-  --fond:#0a0810; --fond-2:#060509;
-  --surface:#14121d; --surface-2:#1a1726; --surface-3:#211d31;
+  /* Fonds : le noir OKX, presque pur. La profondeur ne vient plus des
+     ombres mais des liserés de lumière et du léger voile de l'aurore —
+     c'est ce qui fait le « verre noir ». */
+  --fond:#050506; --fond-2:#000000;
+  --surface:#111116; --surface-2:#17171d; --surface-3:#1e1e26;
 
   /* Traits : des filets par transparence plutôt que des gris opaques.
      Ils restent justes quel que soit le fond qu'ils traversent. */
-  --filet:rgba(255,255,255,.075);
-  --filet-fort:rgba(255,255,255,.13);
+  --filet:rgba(255,255,255,.09);
+  --filet-fort:rgba(255,255,255,.15);
   --bord:var(--filet);
 
   /* Encres : trois niveaux et pas un de plus. */
-  --encre:#f2f1f7; --encre-2:#a5a1bd; --encre-3:#8b87a3;
+  --encre:#f5f5f7; --encre-2:#a6a6b3; --encre-3:#84848f;
 
   /* Direction = polarité : paire divergente bleu↔rouge, ΔE 19,2 en
      protanopie. Le vert/rouge habituel échoue ce test ; ici la couleur
@@ -48,17 +49,17 @@
 
   /* Rythme : une échelle, pas des valeurs au jugé. */
   --e1:4px; --e2:8px; --e3:12px; --e4:16px; --e5:24px; --e6:32px; --e7:48px;
-  --r:20px; --r-s:12px; --r-xs:7px; --r-plein:999px;
+  --r:26px; --r-s:16px; --r-xs:9px; --r-plein:999px;
 
   /* Élévation : trois niveaux, chacun avec un liseré de lumière interne
      qui donne l'épaisseur qu'une ombre seule ne rend pas. */
-  --lueur:inset 0 1px 0 rgba(255,255,255,.05);
+  --lueur:inset 0 1px 0 rgba(255,255,255,.07);
   --ombre-1:0 1px 2px rgba(0,0,0,.3);
   --ombre-2:0 1px 2px rgba(0,0,0,.24),0 10px 28px -10px rgba(0,0,0,.55);
   --ombre-3:0 2px 6px rgba(0,0,0,.3),0 24px 56px -20px rgba(0,0,0,.7);
   --ombre:var(--ombre-2);
 
-  --vitre:rgba(10,8,16,.88);
+  --vitre:rgba(5,5,7,.86);
   --duree:.22s; --courbe:cubic-bezier(.22,.61,.36,1);
 }
 /* CLAIR — palette choisie, pas un négatif du sombre. Elle s'applique quand
@@ -67,12 +68,12 @@
 @media (prefers-color-scheme:light){
   :root:not([data-theme="dark"]){
     color-scheme:light;
-    --fond:#f6f5fa; --fond-2:#edecf4;
-    --surface:#ffffff; --surface-2:#f4f3f9; --surface-3:#eae8f2;
-    --filet:rgba(15,10,30,.09);
-    --filet-fort:rgba(15,10,30,.17);
+    --fond:#f5f5f7; --fond-2:#e8e8ed;
+    --surface:#ffffff; --surface-2:#f5f5f7; --surface-3:#e8e8ed;
+    --filet:rgba(20,20,25,.09);
+    --filet-fort:rgba(20,20,25,.17);
     --bord:var(--filet);
-    --encre:#0c0a14; --encre-2:#524e66; --encre-3:#6b677f;
+    --encre:#141419; --encre-2:#51515a; --encre-3:#65656d;
     --long:#2875d2; --short:#d83a3a;
     --bon:#177d33; --attention:#9a6200; --serieux:#b8532a; --critique:#c9282d;
     --accent:#5b48e8; --accent-2:#7a68ff;
@@ -80,25 +81,25 @@
     --ombre-1:0 1px 2px rgba(9,12,17,.06);
     --ombre-2:0 1px 2px rgba(9,12,17,.05),0 10px 28px -14px rgba(9,12,17,.22);
     --ombre-3:0 2px 6px rgba(9,12,17,.07),0 24px 56px -24px rgba(9,12,17,.3);
-    --vitre:rgba(246,245,250,.9);
+    --vitre:rgba(245,245,247,.88);
   }
 }
 :root[data-theme="light"]{
   color-scheme:light;
-  --fond:#f5f6f8; --fond-2:#eceef1;
-  --surface:#ffffff; --surface-2:#f4f5f7; --surface-3:#e9ebef;
-  --filet:rgba(15,10,30,.09);
-  --filet-fort:rgba(15,10,30,.17);
+  --fond:#f5f5f7; --fond-2:#e8e8ed;
+  --surface:#ffffff; --surface-2:#f5f5f7; --surface-3:#e8e8ed;
+  --filet:rgba(20,20,25,.09);
+  --filet-fort:rgba(20,20,25,.17);
   --bord:var(--filet);
-  --encre:#0a0d12; --encre-2:#4d5563; --encre-3:#6e7683;
+  --encre:#141419; --encre-2:#51515a; --encre-3:#65656d;
   --long:#2875d2; --short:#d83a3a;
   --bon:#177d33; --attention:#9a6200; --serieux:#b8532a; --critique:#c9282d;
-  --accent:#2875d2; --accent-2:#1a5fb4;
+  --accent:#5b48e8; --accent-2:#7a68ff;
   --lueur:inset 0 1px 0 rgba(255,255,255,.9);
   --ombre-1:0 1px 2px rgba(9,12,17,.06);
   --ombre-2:0 1px 2px rgba(9,12,17,.05),0 10px 28px -14px rgba(9,12,17,.22);
   --ombre-3:0 2px 6px rgba(9,12,17,.07),0 24px 56px -24px rgba(9,12,17,.3);
-  --vitre:rgba(245,246,248,.9);
+  --vitre:rgba(245,245,247,.88);
 }
 
 *{box-sizing:border-box;margin:0;padding:0}
@@ -118,10 +119,10 @@ body{
    C'est elle qui donne au verre quelque chose à dépolir. */
 body::before{content:"";position:fixed;inset:-25%;z-index:-1;pointer-events:none;
   background:
-    radial-gradient(42% 36% at 18% 12%,color-mix(in oklab,var(--accent) 34%,transparent),transparent 70%),
-    radial-gradient(36% 30% at 86% 6%,color-mix(in oklab,var(--short) 16%,transparent),transparent 70%),
-    radial-gradient(46% 42% at 62% 96%,color-mix(in oklab,var(--long) 15%,transparent),transparent 70%);
-  filter:blur(70px);
+    radial-gradient(42% 36% at 18% 12%,color-mix(in oklab,var(--accent) 18%,transparent),transparent 70%),
+    radial-gradient(36% 30% at 86% 6%,color-mix(in oklab,#ffffff 6%,transparent),transparent 70%),
+    radial-gradient(46% 42% at 62% 96%,color-mix(in oklab,#ffffff 5%,transparent),transparent 70%);
+  filter:blur(80px);
   animation:aurore 26s ease-in-out infinite alternate}
 @keyframes aurore{to{transform:translate(-3%,2.5%) rotate(2deg) scale(1.06)}}
 /* Grain : casse le banding des dégradés, invisible consciemment. */
@@ -192,7 +193,7 @@ button.ghost.icone{padding:8px;border-radius:50%;display:grid;place-items:center
 .verdict h1{font-size:23px;font-weight:640;letter-spacing:-.028em;line-height:1.22}
 .verdict p{color:var(--encre-2);font-size:14.5px;max-width:64ch;line-height:1.6}
 .jeton{font-size:10.5px;font-weight:640;text-transform:uppercase;letter-spacing:.1em;
-  padding:4px 10px;border-radius:var(--r-xs);white-space:nowrap;
+  padding:4px 11px;border-radius:var(--r-plein);white-space:nowrap;
   border:1px solid transparent}
 .jeton.actif{background:color-mix(in oklab,var(--bon) 15%,transparent);color:var(--bon);
   border-color:color-mix(in oklab,var(--bon) 28%,transparent)}
@@ -217,7 +218,7 @@ button.ghost.icone{padding:8px;border-radius:50%;display:grid;place-items:center
   scrollbar-width:none;-webkit-overflow-scrolling:touch;max-width:100%}
 .onglets::-webkit-scrollbar{display:none}
 .ong{font:inherit;border:0;background:transparent;
-  color:var(--encre-3);border-radius:var(--r-s);padding:6px 11px;cursor:pointer;
+  color:var(--encre-3);border-radius:var(--r-plein);padding:6px 13px;cursor:pointer;
   display:flex;flex-direction:column;align-items:flex-start;gap:0;
   flex:none;-webkit-tap-highlight-color:transparent;
   transition:background var(--duree) var(--courbe),color var(--duree) var(--courbe),
@@ -245,7 +246,7 @@ button.ghost.icone{padding:8px;border-radius:50%;display:grid;place-items:center
 .gleg{position:absolute;top:10px;left:12px;font-size:11.5px;color:var(--encre-2);
   pointer-events:none;background:color-mix(in oklab,var(--surface) 78%,transparent);
   backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);
-  padding:4px 9px;border-radius:var(--r-xs);border:1px solid var(--filet)}
+  padding:4px 11px;border-radius:var(--r-plein);border:1px solid var(--filet)}
 .gleg:empty{display:none}
 .gvide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
   color:var(--encre-3);font-size:13px;pointer-events:none}
@@ -278,7 +279,7 @@ button.ghost.icone{padding:8px;border-radius:50%;display:grid;place-items:center
 .dsym{font-weight:650;font-size:15px;letter-spacing:-.015em}
 .dpx{color:var(--encre-2);font-size:13px}
 .sens{font-size:10.5px;font-weight:660;letter-spacing:.08em;padding:4px 10px;
-  border-radius:var(--r-xs);display:inline-flex;align-items:center;gap:5px;
+  border-radius:var(--r-plein);display:inline-flex;align-items:center;gap:5px;
   border:1px solid transparent}
 .sens.long{background:color-mix(in oklab,var(--long) 16%,transparent);color:var(--long);
   border-color:color-mix(in oklab,var(--long) 30%,transparent)}
@@ -416,13 +417,13 @@ footer{padding-bottom:96px}
 /* Le dock : navigation flottante en verre, façon iOS. */
 .dock{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));
   transform:translateX(-50%);z-index:60;
-  display:flex;gap:2px;padding:7px;border-radius:26px;
+  display:flex;gap:2px;padding:7px;border-radius:32px;
   background:var(--vitre);border:1px solid var(--filet-fort);
   backdrop-filter:blur(28px) saturate(1.8);
   -webkit-backdrop-filter:blur(28px) saturate(1.8);
   box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 10px 44px -8px rgba(0,0,0,.6)}
 .dock button{font:inherit;border:0;background:transparent;color:var(--encre-3);
-  border-radius:19px;padding:8px 15px 7px;cursor:pointer;
+  border-radius:25px;padding:8px 15px 7px;cursor:pointer;
   display:flex;flex-direction:column;align-items:center;gap:3px;
   -webkit-tap-highlight-color:transparent;
   transition:color .25s var(--courbe),background .25s var(--courbe),transform .18s var(--courbe)}
