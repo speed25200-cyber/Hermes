@@ -502,7 +502,14 @@ class ScalpEngine:
         t = self.ticks.get(inst) or {}
         if not t:
             t = getattr(self.broker, "book", {}).get(inst) or {}
-        last = float(t.get("last") or fallback or 0.0)
+        # Dernier recours : le prix que le courtier a marqué au tour
+        # courant. Sans lui, un flux de ticks momentanément muet faisait
+        # abandonner SILENCIEUSEMENT tous les ordres en attente — le desk
+        # décide, calcule ses cibles, et rien n'arrive au carnet sans
+        # qu'aucune ligne de journal ne le dise.
+        marque = float((getattr(self.broker, "prices", {}) or {}).get(inst)
+                       or 0.0)
+        last = float(t.get("last") or fallback or marque or 0.0)
         bid = float(t.get("bid") or 0.0) or last
         ask = float(t.get("ask") or 0.0) or last
         return last, bid, ask

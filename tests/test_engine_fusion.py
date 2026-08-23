@@ -322,6 +322,15 @@ class _Horloge:
                 "horizon_bars": self.horizon_bars, "variant": self.variant,
                 "status": "live", "ic": self.ic}
 
+    def to_dict(self):
+        return {"bar": self.bar, "status": self.status, "ic": self.ic,
+                "family": "ens", "variant": self.variant,
+                "thr_bps": self.thr_bps, "n_trades": 0, "n_periods": 0,
+                "holdout_bps": 0.0, "holdout_sr": 0.0, "sel_bar": 0.0,
+                "n_holdout": 0, "n_train": 0, "q_bps": self.q * 1e4,
+                "shrink": self.shrink, "horizon_bars": self.horizon_bars,
+                "n_assets": 6, "n_trials": 432, "pente": 1.0}
+
     def _suivant(self):
         if not self._par_actif:
             return self._defaut
@@ -387,3 +396,41 @@ def test_every_asset_votes_before_anything_fuses(tmp_path):
     assert votes and fusions
     assert max(votes) < min(fusions), (
         "un vote arrive après une fusion : la moyenne du panel serait rance")
+
+
+def test_a_live_clock_actually_puts_positions_on_the_book(tmp_path):
+    """Le bout du chemin. Les tests précédents s'arrêtent à la direction
+    publiée ; celui-ci va jusqu'au carnet. Une horloge validée doit
+    produire des positions RÉELLES sur plusieurs actifs — c'est la seule
+    chose que l'utilisateur peut constater, et c'est ce qui manquait
+    quand fuse() rétrécissait une horloge seule par son poids d'échelle.
+    """
+    from hermes.exchange.broker import PaperBroker
+
+    class _E:
+        peak_equity = 10_000.0
+        day_start_equity = 10_000.0
+
+    class _R:
+        trading_allowed = True
+        must_flatten = False
+        daily_loss_limit_pct = 8.0
+        max_drawdown_pct = 25.0
+        state = _E()
+
+        def update_equity(self, *a, **k):
+            pass
+
+    eng = ScalpEngine({"scalp": {"explore": {"enabled": False}}, "costs": {}},
+                      PaperBroker(cash=10_000.0), None, _R(),
+                      lambda m: None, str(tmp_path))
+    _desk_partage(eng, _Horloge("abs"))
+    candles = {i: _marche(np.random.default_rng(9 + k))
+               for k, i in enumerate(eng.instruments)}
+    eng.tick(candles, bar="1m")
+    eng.execute_pending()
+    pos = {i: q for i, q in eng.broker.positions().items() if abs(q) > 1e-12}
+    assert len(pos) >= 2, (
+        f"une horloge validée n'a rien mis au carnet : {pos} ; "
+        f"{[(p['inst'], p['dir'], p['reason']) for p in eng.last_preds]}")
+    assert all(q > 0 for q in pos.values()), pos
