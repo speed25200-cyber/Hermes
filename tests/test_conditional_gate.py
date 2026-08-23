@@ -214,3 +214,67 @@ def test_the_holding_horizon_is_searched_and_charged():
         3 * 4 * len(FAMILIES) * len(THRESHOLDS), d["n_trades"])
     assert m.sel_bar > sans_horizons, "chercher l'horizon doit se payer"
     assert len(HORIZONS) >= 2
+
+
+def _horloge_vive(bar, r_bps, ic=0.2, q=12.0, h=3):
+    return {"r_bps": r_bps, "up_bps": abs(r_bps) * 1.2,
+            "dn_bps": abs(r_bps) * 1.1, "q_bps": q, "veto": False,
+            "bar": bar, "status": "live", "ic": ic, "horizon_bars": h}
+
+
+def test_one_validated_clock_may_trade_at_half_size():
+    """« Deux horloges d'accord, ou rien » datait d'une porte fixe à
+    ic>0,03. Chaque horloge franchit maintenant une porte facturée pour
+    toutes les cellules cherchées : en exiger deux compte la prudence deux
+    fois et interdit de trader ce qui est prouvé. La cohérence devient un
+    prix — demi-taille en solo, taille pleine à deux."""
+    from hermes.scalp.clock import ScaleDesk
+    d = ScaleDesk()
+    d.votes[("BTC-USDT-SWAP", "5m")] = _horloge_vive("5m", 14.0)
+    seule = d.fuse("BTC-USDT-SWAP")
+    assert seule["veto"] is False
+    assert seule["alpha"] == 0.5
+    assert seule["policy"] == "candle-solo"
+
+    d.votes[("BTC-USDT-SWAP", "15m")] = _horloge_vive("15m", 11.0)
+    ensemble = d.fuse("BTC-USDT-SWAP")
+    assert ensemble["veto"] is False and ensemble["alpha"] == 1.0
+    assert ensemble["policy"] == "candle"
+
+
+def test_no_validated_clock_still_means_no_trade():
+    from hermes.scalp.clock import ScaleDesk
+    d = ScaleDesk()
+    muette = _horloge_vive("5m", 14.0)
+    muette.update({"veto": True, "status": "veto"})
+    d.votes[("BTC-USDT-SWAP", "5m")] = muette
+    assert d.fuse("BTC-USDT-SWAP")["veto"] is True
+
+
+def test_the_size_multiplier_reaches_kelly(tmp_path):
+    """Le prix de la solitude doit atteindre la TAILLE, pas seulement le
+    rapport : sans cela le rabais serait décoratif."""
+    from hermes.exchange.broker import PaperBroker
+    from hermes.scalp.engine import ScalpEngine
+
+    class _E:
+        peak_equity = 10_000.0
+        day_start_equity = 10_000.0
+
+    class _R:
+        trading_allowed = True
+        must_flatten = False
+        daily_loss_limit_pct = 8.0
+        max_drawdown_pct = 25.0
+        state = _E()
+
+    eng = ScalpEngine({"scalp": {}, "costs": {}}, PaperBroker(cash=10_000.0),
+                      None, _R(), lambda m: None, str(tmp_path))
+    # avantage choisi pour que Kelly morde AVANT le plafond de ruine :
+    # sinon les deux tailles buteraient sur le même plafond et le test
+    # ne prouverait rien.
+    plein = {"tp_bps": 14.0, "sl_bps": 40.0, "edge_bps": 12.0, "vol_bps": 14.0,
+             "h_bars": 3, "cost_bps": 8.0, "size_mult": 1.0}
+    demi = dict(plein, size_mult=0.5)
+    lev_plein, lev_demi = eng._pick_lev(plein), eng._pick_lev(demi)
+    assert 0 < lev_demi < lev_plein, f"{lev_demi} devrait être sous {lev_plein}"

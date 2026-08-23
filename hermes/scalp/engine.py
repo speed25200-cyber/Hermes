@@ -310,6 +310,10 @@ class ScalpEngine:
                 inf = dict(inf)
                 inf["veto"] = False
                 inf["policy"] = "+".join(nom for *_, nom in sources)
+                # la cohérence des horloges se paie en taille : une seule
+                # horloge validée trade à demi-Kelly, deux d'accord à plein
+                inf["size_mult"] = float(cinf.get("alpha") or 1.0) \
+                    if any(n == "candle" for *_, n in sources) else 1.0
                 inf["bar"] = cinf.get("bar") if any(n == "candle" for *_, n in sources) else inf.get("bar")
             else:
                 edge = float(inf.get("r_bps") or 0.0)
@@ -373,6 +377,7 @@ class ScalpEngine:
                 "ev_bps": bracket[2] if bracket else 0.0,
                 "cost_bps": cost_bps,
                 "cost_tp_bps": self.cost_tp_bps,
+                "size_mult": float(inf.get("size_mult") or 1.0),
                 # what this horizon demands of the forecast before trading it
                 # can pay — the number a flat book is really reporting
                 "required_ic": ECON.required_ic(cost_bps, h_use,
@@ -442,6 +447,7 @@ class ScalpEngine:
         c_tp = float(p.get("cost_tp_bps") or self.cost_tp_bps)
         kelly = ECON.kelly_fraction(tp, sl, edge, vol, h, cost,
                                     cost_tp_bps=c_tp)
+        kelly *= float(p.get("size_mult") or 1.0)
         lev = kelly * self._risk_scale()
         lev = min(lev, 0.025 / (sl * 1e-4), self.lev_max, self.max_name)
         if lev < self.lev_min:

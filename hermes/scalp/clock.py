@@ -5,10 +5,16 @@ close return, upside excursion, downside excursion. Split-conformal
 quantiles on a purged holdout size the TP/SL and veto any clock whose
 interval still contains zero after costs.
 
-The trade is not a clock. It is the *agreement* of clocks that survived
-conformal gating. Two clocks, same sign, or sit out. That is the whole
-anti-overfit: small ridge, embargoed labels, distribution-free intervals,
-and a coherence gate instead of a deep net.
+Le trade n'est pas une horloge. C'est une horloge qui a franchi une porte
+facturée pour TOUTES les cellules cherchées — actifs, horloges, familles
+de modèles, seuils de déclenchement, horizons de détention — jugée sur
+les trades qu'elle produirait vraiment, aux coûts réellement payés, sur
+des étiquettes non chevauchantes.
+
+La cohérence entre horloges n'est plus une porte : c'est un prix. Seule,
+une horloge validée trade à demi-taille ; d'accord avec une autre, à
+taille pleine. Exiger deux rescapées d'une porte aussi sévère comptait
+la prudence deux fois et interdisait de trader ce qui est prouvé.
 """
 
 from __future__ import annotations
@@ -424,12 +430,21 @@ class ScaleDesk:
         # compact: A=agree live, v=veto
         clock_s = {v["bar"]: ("veto" if v["veto"] else ("up" if v["r_bps"] > 0 else "dn"))
                    for v in vs}
-        if len(live) < 2:
+        if not live:
             return {
                 "veto": True, "score": 0.0, "ml_bps": 0.0, "tp_bps": 12.0, "sl_bps": 18.0,
                 "alpha": 0.0, "ic": 0.0, "status": "incoherent", "policy": "flat",
                 "bar": "5m", "clocks": clock_s, "r_bps": 0.0,
             }
+        # « Deux horloges d'accord, ou rien » datait d'une époque où chaque
+        # horloge ne franchissait qu'un ic>0,03 fixe : la cohérence servait
+        # alors de porte. Elle en franchit maintenant une facturée pour
+        # toutes les cellules cherchées — actifs, horloges, familles,
+        # seuils, horizons. Exiger DEUX rescapées de cette porte-là compte
+        # la prudence deux fois et interdit de trader ce qui est prouvé.
+        # La cohérence n'est donc plus une porte : c'est un prix. Seule,
+        # une horloge validée trade à demi-taille ; d'accord avec une
+        # autre, à taille pleine.
         signs = {np.sign(v["r_bps"]) for v in live if v["r_bps"] != 0}
         wsum = sum(W.get(v["bar"], 0.2) * v["r_bps"] for v in live)
         if len(signs) > 1:
@@ -445,10 +460,13 @@ class ScaleDesk:
         sl = max(self.fee + 4.0, 1.1 * float(dom["dn_bps"]), 1.4 * abs(dom["r_bps"]))
         sl = max(sl, tp * 1.15)  # never tighter SL than TP
         score = wsum / 8.0
+        solo = len(live) == 1
         return {
             "veto": False, "score": score, "ml_bps": wsum, "tp_bps": tp, "sl_bps": sl,
-            "alpha": 1.0, "ic": float(np.mean([v["ic"] for v in live])),
-            "status": "live", "policy": "candle",
+            # la cohérence se paie en taille, pas en refus
+            "alpha": 0.5 if solo else 1.0,
+            "ic": float(np.mean([v["ic"] for v in live])),
+            "status": "live", "policy": "candle-solo" if solo else "candle",
             "bar": dom["bar"], "clocks": clock_s, "r_bps": wsum,
             "up_bps": float(dom["up_bps"]), "dn_bps": float(dom["dn_bps"]),
             # la position doit vivre exactement l'horizon sur lequel
