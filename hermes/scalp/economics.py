@@ -52,6 +52,15 @@ BETA = 0.5826   # -zeta(1/2)/sqrt(2*pi)
 TP_GRID = (0.4, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2)
 SL_GRID = (0.4, 0.6, 0.8, 1.0, 1.4, 2.0, 2.6)
 
+# A take-profit that rests on the book as a post-only limit pays the maker
+# fee and no spread — but a resting order is not a guaranteed fill. The
+# engine only claims the maker exit when price trades *through* the level;
+# a touch that never crosses exits taker as before. QUEUE_MISS is the share
+# of TP-first paths assumed to fall in that second case: they reach the
+# level but pay the taker cost. Fixed, not fitted — it prices queue risk
+# without pretending to know the queue.
+QUEUE_MISS = 0.25
+
 
 def _unit_paths(horizon: int, n_paths: int = N_PATHS) -> np.ndarray:
     """Cumulative standard normals in sub-step units: (n_paths, horizon*SUBSTEPS)."""
@@ -65,9 +74,9 @@ def _unit_paths(horizon: int, n_paths: int = N_PATHS) -> np.ndarray:
     return cached
 
 
-def _simulate(tp: float, sl: float, edge_bps: float, vol_bps: float,
-              horizon: int, n_paths: int) -> np.ndarray:
-    """Realised PnL per path, in bps, before costs."""
+def _simulate2(tp: float, sl: float, edge_bps: float, vol_bps: float,
+               horizon: int, n_paths: int) -> tuple[np.ndarray, np.ndarray]:
+    """(pnl per path in bps before costs, tp-first mask)."""
     h = max(int(horizon), 1)
     m = h * SUBSTEPS
     step_sigma = max(float(vol_bps), 1e-9) / math.sqrt(SUBSTEPS)
@@ -78,11 +87,35 @@ def _simulate(tp: float, sl: float, edge_bps: float, vol_bps: float,
     up, dn = paths >= tp_e, paths <= -sl_e
     t_up = np.where(up.any(axis=1), up.argmax(axis=1), m + 1)
     t_dn = np.where(dn.any(axis=1), dn.argmax(axis=1), m + 1)
-    return np.where(t_up < t_dn, tp, np.where(t_dn < t_up, -sl, paths[:, -1]))
+    tp_first = t_up < t_dn
+    pnl = np.where(tp_first, tp, np.where(t_dn < t_up, -sl, paths[:, -1]))
+    return pnl, tp_first
+
+
+def _simulate(tp: float, sl: float, edge_bps: float, vol_bps: float,
+              horizon: int, n_paths: int) -> np.ndarray:
+    """Realised PnL per path, in bps, before costs."""
+    return _simulate2(tp, sl, edge_bps, vol_bps, horizon, n_paths)[0]
+
+
+def _net(pnl: np.ndarray, tp_first: np.ndarray, cost_bps: float,
+         cost_tp_bps: float | None) -> np.ndarray:
+    """PnL net of costs, charged per exit path.
+
+    TP-first paths pay the maker exit (degraded by QUEUE_MISS to the taker
+    cost); every other exit — stop or time — crosses the spread and pays
+    the full taker round trip. With cost_tp_bps None the old symmetric
+    charge applies unchanged.
+    """
+    if cost_tp_bps is None:
+        return pnl - float(cost_bps)
+    c_tp = (1.0 - QUEUE_MISS) * float(cost_tp_bps) + QUEUE_MISS * float(cost_bps)
+    return pnl - np.where(tp_first, c_tp, float(cost_bps))
 
 
 def bracket_ev(tp_bps: float, sl_bps: float, edge_bps: float, vol_bps: float,
-               horizon: int, cost_bps: float, n_paths: int = N_PATHS) -> float:
+               horizon: int, cost_bps: float, n_paths: int = N_PATHS,
+               cost_tp_bps: float | None = None) -> float:
     """Expected value in bps of notional, net of the round trip.
 
     The trade ends at whichever comes first: the take, the stop, or the
@@ -93,8 +126,8 @@ def bracket_ev(tp_bps: float, sl_bps: float, edge_bps: float, vol_bps: float,
     tp, sl = float(tp_bps), float(sl_bps)
     if tp <= 0 or sl <= 0:
         return -float("inf")
-    pnl = _simulate(tp, sl, float(edge_bps), vol_bps, horizon, n_paths)
-    return float(pnl.mean() - float(cost_bps))
+    pnl, tp_first = _simulate2(tp, sl, float(edge_bps), vol_bps, horizon, n_paths)
+    return float(_net(pnl, tp_first, cost_bps, cost_tp_bps).mean())
 
 
 def win_rate(tp_bps: float, sl_bps: float, edge_bps: float, vol_bps: float,
@@ -108,7 +141,8 @@ def win_rate(tp_bps: float, sl_bps: float, edge_bps: float, vol_bps: float,
 
 def kelly_fraction(tp_bps: float, sl_bps: float, edge_bps: float,
                    vol_bps: float, horizon: int, cost_bps: float,
-                   n_paths: int = N_PATHS) -> float:
+                   n_paths: int = N_PATHS,
+                   cost_tp_bps: float | None = None) -> float:
     """Growth-optimal notional/equity for this bracket — quarter-Kelly.
 
     The same simulation that priced the bracket carries its whole net PnL
@@ -119,9 +153,9 @@ def kelly_fraction(tp_bps: float, sl_bps: float, edge_bps: float,
     E[R] is an estimate, and estimated edges are biased upward by the very
     selection that surfaced them. Zero when the bracket loses money.
     """
-    pnl = _simulate(float(tp_bps), float(sl_bps), float(edge_bps),
-                    float(vol_bps), horizon, n_paths)
-    r = (pnl - float(cost_bps)) * 1e-4
+    pnl, tp_first = _simulate2(float(tp_bps), float(sl_bps), float(edge_bps),
+                               float(vol_bps), horizon, n_paths)
+    r = _net(pnl, tp_first, cost_bps, cost_tp_bps) * 1e-4
     mu = float(r.mean())
     m2 = float((r * r).mean())
     if mu <= 0.0 or m2 <= 0.0:
@@ -130,7 +164,8 @@ def kelly_fraction(tp_bps: float, sl_bps: float, edge_bps: float,
 
 
 def choose_bracket(edge_bps: float, vol_bps: float, horizon: int,
-                   cost_bps: float, min_ev_bps: float | None = None
+                   cost_bps: float, min_ev_bps: float | None = None,
+                   cost_tp_bps: float | None = None
                    ) -> tuple[float, float, float] | None:
     """Best (take, stop, expected value) for this forecast, or None.
 
@@ -147,16 +182,21 @@ def choose_bracket(edge_bps: float, vol_bps: float, horizon: int,
     if mag <= 0.0:
         return None
 
+    # The take pays the maker cost when it fills (queue risk included);
+    # that is the cost a take has to clear, not the taker round trip.
+    c_take = cost if cost_tp_bps is None else \
+        (1.0 - QUEUE_MISS) * float(cost_tp_bps) + QUEUE_MISS * cost
     best: tuple[float, float, float] | None = None
     for tm in TP_GRID:
         tp = mag * tm
-        # A take that does not clear the round trip cannot pay, however
+        # A take that does not clear its own exit cost cannot pay, however
         # often it is reached.
-        if tp <= cost:
+        if tp <= c_take:
             continue
         for sm in SL_GRID:
             sl = mag * sm
-            ev = bracket_ev(tp, sl, mag, vol_bps, horizon, cost)
+            ev = bracket_ev(tp, sl, mag, vol_bps, horizon, cost,
+                            cost_tp_bps=cost_tp_bps)
             if best is None or ev > best[2]:
                 best = (tp, sl, ev)
     if best is None or best[2] <= floor:

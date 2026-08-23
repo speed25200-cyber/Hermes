@@ -306,15 +306,23 @@ def test_a_forecast_below_cost_is_not_a_trade(tmp_path):
                for p in rep["preds"])
 
 
-def test_armed_take_profit_always_clears_the_round_trip(tmp_path):
-    """The volatility floors could arm a 6bps take against a 7bps cost."""
+def test_armed_take_profit_always_clears_the_cost_it_pays(tmp_path):
+    """The floors could arm a take below its own exit cost. That cost is no
+    longer the taker round trip: a filled take rests on the book and pays
+    maker twice, degraded by queue risk — the floor follows the truth."""
     from hermes.exchange.broker import Fill
+    from hermes.scalp.economics import QUEUE_MISS
     eng, _ = _engine(tmp_path)
     fill = Fill(inst="BTC-USDT-SWAP", side="buy", qty=1.0, price=100.0,
                 fee=0.0, ts=0.0)
+    cout_take = (1 - QUEUE_MISS) * eng.cost_tp_bps \
+        + QUEUE_MISS * eng.round_trip_bps
+    # un take de 6bps couvre 4.75bps de coût maker : légitime désormais
     eng._arm("BTC-USDT-SWAP", 1.0, fill, vol_bps=1.0, tp_bps=6.0, sl_bps=30.0)
-    br = eng.brackets["BTC-USDT-SWAP"]
-    assert br["tp_bps"] > eng.round_trip_bps, br
+    assert eng.brackets["BTC-USDT-SWAP"]["tp_bps"] > cout_take
+    # un take absurde reste relevé au-dessus de son coût
+    eng._arm("BTC-USDT-SWAP", 1.0, fill, vol_bps=1.0, tp_bps=1.0, sl_bps=30.0)
+    assert eng.brackets["BTC-USDT-SWAP"]["tp_bps"] > cout_take
 
 
 def test_the_bracket_carries_its_expected_value(tmp_path):

@@ -208,3 +208,85 @@ def test_the_evidence_card_receives_what_it_displays():
     for k in ("holdout_sr", "sel_bar", "n_holdout"):
         assert k in d, k
     assert d["n_holdout"] > 0 and d["sel_bar"] > 0
+
+
+# --- sortie TP maker ---------------------------------------------------- #
+
+def _moteur_papier(tmp_path):
+    from hermes.exchange.broker import PaperBroker
+    class _E:
+        peak_equity = 10_000.0
+        day_start_equity = 10_000.0
+    class _R:
+        trading_allowed = True
+        must_flatten = False
+        daily_loss_limit_pct = 8.0
+        max_drawdown_pct = 25.0
+        state = _E()
+    b = PaperBroker(cash=10_000.0)
+    eng = ScalpEngine({"scalp": {}, "costs": {}}, b, None, _R(),
+                      lambda m: None, str(tmp_path))
+    return eng, b
+
+
+def _ouvre_long(eng, b, entry=100.0, tp_bps=20.0, sl_bps=30.0):
+    b.book["X"] = {"last": entry, "bid": entry, "ask": entry}
+    b.pos["X"] = 1.0
+    b.entry["X"] = entry
+    b.prices["X"] = entry
+    eng.brackets["X"] = {"side": "long", "entry": entry,
+                         "tp": entry * (1 + tp_bps * 1e-4),
+                         "sl": entry * (1 - sl_bps * 1e-4),
+                         "tp_bps": tp_bps, "sl_bps": sl_bps}
+
+
+def test_a_crossed_take_fills_maker_at_its_own_price(tmp_path):
+    """Le prix traverse franchement le TP : le limite posé a rempli à SON
+    prix, au tarif maker — pas au bid du moment, pas au tarif taker."""
+    eng, b = _moteur_papier(tmp_path)
+    _ouvre_long(eng, b)
+    tp = eng.brackets["X"]["tp"]
+    au_dela = tp * 1.0005
+    eng.ticks["X"] = {"last": au_dela, "bid": au_dela, "ask": au_dela * 1.0001}
+    b.book["X"] = {"last": au_dela, "bid": au_dela, "ask": au_dela * 1.0001}
+    assert eng.check_exits() == ["X"]
+    fill = b.fills[-1]
+    assert fill.price == tp
+    assert fill.fee == fill.qty * fill.price * b.maker_fee_bps * 1e-4
+    assert "maker" in eng.trades[-1]["reason"]
+
+
+def test_a_touched_take_still_exits_taker(tmp_path):
+    """Simple contact (bid == tp) : la position dans la file est inconnue,
+    la sortie reste taker au marché — jamais mieux que la réalité."""
+    eng, b = _moteur_papier(tmp_path)
+    _ouvre_long(eng, b)
+    tp = eng.brackets["X"]["tp"]
+    eng.ticks["X"] = {"last": tp, "bid": tp, "ask": tp * 1.0001}
+    b.book["X"] = {"last": tp, "bid": tp, "ask": tp * 1.0001}
+    assert eng.check_exits() == ["X"]
+    fill = b.fills[-1]
+    assert fill.fee == fill.qty * fill.price * b.fee_bps * 1e-4
+    assert "maker" not in eng.trades[-1]["reason"]
+
+
+def test_the_stop_never_pretends_to_be_maker(tmp_path):
+    """Un stop se coupe en traversant le spread : toujours taker."""
+    eng, b = _moteur_papier(tmp_path)
+    _ouvre_long(eng, b)
+    sl = eng.brackets["X"]["sl"]
+    sous = sl * 0.999
+    eng.ticks["X"] = {"last": sous, "bid": sous, "ask": sous * 1.0001}
+    b.book["X"] = {"last": sous, "bid": sous, "ask": sous * 1.0001}
+    assert eng.check_exits() == ["X"]
+    fill = b.fills[-1]
+    assert fill.fee == fill.qty * fill.price * b.fee_bps * 1e-4
+    assert eng.trades[-1]["reason"].startswith("SL")
+
+
+def test_predictions_carry_both_costs(tmp_path):
+    """L'EV et Kelly jugent aux coûts asymétriques : la prédiction doit
+    transporter le coût de la jambe TP, pas seulement le taker."""
+    eng = _moteur(tmp_path)
+    assert eng.cost_tp_bps == 4.0
+    assert eng.cost_tp_bps < eng.round_trip_bps

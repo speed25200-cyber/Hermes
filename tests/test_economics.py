@@ -179,3 +179,67 @@ def test_quarter_kelly_has_positive_log_growth():
     # et sur-dimensionner 8x cette taille doit faire pire
     pire = float(np.mean(np.log1p(min(8 * f, 100.0) * r)))
     assert croissance > pire or pire < 0
+
+
+# --- sortie TP maker : coûts asymétriques ------------------------------- #
+
+def test_a_resting_take_cannot_conjure_value_from_nothing():
+    """À avantage nul, l'EV maker reste strictement négative : la jambe
+    moins chère réduit la perte, elle ne crée pas d'argent."""
+    ev_maker = bracket_ev(10, 15, edge_bps=0.0, vol_bps=9.0, horizon=16,
+                          cost_bps=7.0, cost_tp_bps=4.0)
+    ev_taker = bracket_ev(10, 15, edge_bps=0.0, vol_bps=9.0, horizon=16,
+                          cost_bps=7.0)
+    assert ev_taker < ev_maker < 0.0
+
+
+def test_the_maker_take_raises_ev_by_the_fee_gap_times_the_hit_rate():
+    """L'écart d'EV vaut exactement (coût taker − coût TP effectif) × la
+    part des chemins qui finissent au take — pas un bps de plus."""
+    from hermes.scalp.economics import QUEUE_MISS, _simulate2
+    tp, sl, edge, vol, h = 12.0, 14.0, 10.0, 9.0, 8
+    _, tp_first = _simulate2(tp, sl, edge, vol, h, 16_384)
+    part = float(tp_first.mean())
+    ev_t = bracket_ev(tp, sl, edge, vol, h, cost_bps=7.0)
+    ev_m = bracket_ev(tp, sl, edge, vol, h, cost_bps=7.0, cost_tp_bps=4.0)
+    attendu = part * (1.0 - QUEUE_MISS) * (7.0 - 4.0)
+    assert ev_m - ev_t == pytest.approx(attendu, abs=1e-9)
+
+
+def test_cheaper_takes_admit_forecasts_the_taker_cost_refused():
+    """Le levier de la sortie maker : un même prévu passe de « aucun
+    bracket ne paie » à un bracket rentable."""
+    edge, vol, h = 12.0, 9.0, 8
+    assert choose_bracket(edge, vol, h, cost_bps=8.0) is None
+    br = choose_bracket(edge, vol, h, cost_bps=8.0, cost_tp_bps=4.0)
+    assert br is not None and br[2] > 0.0
+
+
+def test_kelly_sees_the_asymmetric_costs_and_keeps_its_guarantees():
+    """Kelly n'est PAS monotone avec le coût du take : l'EV monte mais la
+    dispersion des gains aussi, et la fraction optimale peut baisser. Ce
+    qui doit tenir : positive quand l'EV paie, nulle sans avantage, et un
+    coût de perte plus lourd la réduit toujours."""
+    k_m = kelly_fraction(14, 18, 26.0, 9.0, 3, cost_bps=8.0, cost_tp_bps=4.0)
+    assert k_m > 0.0
+    assert kelly_fraction(14, 18, 0.0, 9.0, 3, cost_bps=8.0,
+                          cost_tp_bps=4.0) == 0.0
+    k_cher = kelly_fraction(14, 18, 26.0, 9.0, 3, cost_bps=12.0,
+                            cost_tp_bps=4.0)
+    assert k_cher < k_m
+
+
+def test_queue_risk_is_priced_not_ignored():
+    """Un remplissage maker garanti serait un mensonge : l'EV avec risque
+    de file doit rester en dessous de l'EV au coût maker pur."""
+    from hermes.scalp import economics as ECON
+    tp, sl, edge, vol, h = 12.0, 14.0, 10.0, 9.0, 8
+    ev = bracket_ev(tp, sl, edge, vol, h, cost_bps=7.0, cost_tp_bps=4.0)
+    vieux = ECON.QUEUE_MISS
+    try:
+        ECON.QUEUE_MISS = 0.0
+        ev_parfait = bracket_ev(tp, sl, edge, vol, h, cost_bps=7.0,
+                                cost_tp_bps=4.0)
+    finally:
+        ECON.QUEUE_MISS = vieux
+    assert ev < ev_parfait

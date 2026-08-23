@@ -51,6 +51,11 @@ class ScalpEngine:
         # configuring costs changed the backtest and not the live gate.
         maker = float(costs.get("maker_fee_bps", 2.0))
         self.round_trip_bps = float(s.get("round_trip_bps", maker + taker))
+        # The winning leg is cheaper than the losing one: entry is posted
+        # and the take-profit rests on the book, so a trade that ends at
+        # its take pays maker twice and crosses no spread. Stops and
+        # time-stops still pay the full taker round trip.
+        self.cost_tp_bps = 2.0 * maker
         self.stop_bps = float(s.get("stop_bps", 15.0))
         self.take_bps = float(s.get("take_bps", 10.0))
         self.brackets: dict[str, dict] = {}
@@ -58,8 +63,8 @@ class ScalpEngine:
         self.flow: dict[str, float] = {}
         self.tape: dict[str, dict] = {}
         self.pending: dict[str, float] = {}
-        self.horizons = ScaleDesk(fee_bps=7.0, log=self.log)
-        self.brain = FlowBrain(state_dir, fee_bps=7.0, log=self.log)
+        self.horizons = ScaleDesk(fee_bps=self.round_trip_bps, log=self.log)
+        self.brain = FlowBrain(state_dir, fee_bps=self.round_trip_bps, log=self.log)
         self._px_t: dict[str, tuple[float, float]] = {}
         self.preds_h: dict[str, list] = {b: [] for b in BARS}
         self.hold_ms: dict[str, int] = {}
@@ -275,9 +280,13 @@ class ScalpEngine:
                 (self.ticks.get(inst) or {}).get("spread_bps") or 0.0)
             if spread <= 0:
                 spread = 3.0
-            hurdle = max(self.min_edge, self.round_trip_bps, spread + 1.5)
+            # The pre-filter is a lower bound of the true cost; the
+            # simulated EV makes the precise call. Gating at the full taker
+            # round trip killed forecasts the maker take could have paid for.
+            hurdle = max(self.min_edge, self.cost_tp_bps, spread + 1.5)
             reason = ""
-            # The exit is taken, so it pays half the spread on top of the fees.
+            # The losing exit is taken: fees plus half the spread. The
+            # winning exit rests at the take and pays maker, no spread.
             cost_bps = self.round_trip_bps + 0.5 * spread
             bracket = None
             if inf["veto"]:
@@ -287,7 +296,8 @@ class ScalpEngine:
             else:
                 bracket = ECON.choose_bracket(
                     edge_bps=edge, vol_bps=max(pred["vol_bps"], 1.0),
-                    horizon=h_use, cost_bps=cost_bps)
+                    horizon=h_use, cost_bps=cost_bps,
+                    cost_tp_bps=self.cost_tp_bps)
                 if bracket is None:
                     # No take/stop pair on this forecast is worth its own
                     # friction. Predicting a direction is not the same as
@@ -320,6 +330,7 @@ class ScalpEngine:
                 "sl_bps": bracket[1] if bracket else inf["sl_bps"],
                 "ev_bps": bracket[2] if bracket else 0.0,
                 "cost_bps": cost_bps,
+                "cost_tp_bps": self.cost_tp_bps,
                 # what this horizon demands of the forecast before trading it
                 # can pay — the number a flat book is really reporting
                 "required_ic": ECON.required_ic(cost_bps, h_use,
@@ -386,7 +397,9 @@ class ScalpEngine:
         vol = max(float(p.get("vol_bps") or 4.0), 1.0)
         h = int(p.get("h_bars") or self.horizon)
         cost = float(p.get("cost_bps") or self.round_trip_bps)
-        kelly = ECON.kelly_fraction(tp, sl, edge, vol, h, cost)
+        c_tp = float(p.get("cost_tp_bps") or self.cost_tp_bps)
+        kelly = ECON.kelly_fraction(tp, sl, edge, vol, h, cost,
+                                    cost_tp_bps=c_tp)
         lev = kelly * self._risk_scale()
         lev = min(lev, 0.025 / (sl * 1e-4), self.lev_max, self.max_name)
         if lev < self.lev_min:
@@ -467,7 +480,7 @@ class ScalpEngine:
         # to widen them here could arm a 6bps take against a 7bps round trip,
         # a "winning" trade that books a loss. The only floor left is the one
         # that cannot be argued with: a take must clear its own cost.
-        tp_bps = max(tp_bps, 1.25 * self.round_trip_bps)
+        tp_bps = max(tp_bps, 1.25 * self.cost_tp_bps)
         sl_bps = max(sl_bps, 1.0)
         if qty > 0:
             sl = entry * (1.0 - sl_bps * 1e-4)
@@ -483,7 +496,15 @@ class ScalpEngine:
         }
 
     def check_exits(self, candles_1m: dict[str, Candles] | None = None) -> list[str]:
-        """SL / TP / time-stop. Exits always taker at bid (sell) / ask (buy)."""
+        """SL / TP / time-stop.
+
+        Stops and time-stops always exit taker at bid (sell) / ask (buy).
+        The take-profit rests on the book as a post-only limit: when price
+        trades strictly THROUGH the level the resting order has filled at
+        its own price at the maker fee. A mere touch leaves the queue
+        position unknown, so it exits taker at the market, as before —
+        never better than reality, sometimes worse.
+        """
         hit: list[str] = []
         pos = self.broker.positions()
         for inst, qty in list(pos.items()):
@@ -491,16 +512,23 @@ class ScalpEngine:
             if last <= 0 or abs(qty) < 1e-12:
                 continue
             reason = None
+            maker_at = None
             br = self.brackets.get(inst)
             if br:
                 if qty > 0:
                     if bid <= br["sl"]:
                         reason = f"SL {br['sl_bps']:.0f}bps"
+                    elif bid > br["tp"]:
+                        reason = f"TP {br['tp_bps']:.0f}bps maker"
+                        maker_at = br["tp"]
                     elif bid >= br["tp"]:
                         reason = f"TP {br['tp_bps']:.0f}bps"
                 else:
                     if ask >= br["sl"]:
                         reason = f"SL {br['sl_bps']:.0f}bps"
+                    elif ask < br["tp"]:
+                        reason = f"TP {br['tp_bps']:.0f}bps maker"
+                        maker_at = br["tp"]
                     elif ask <= br["tp"]:
                         reason = f"TP {br['tp_bps']:.0f}bps"
             if reason is None:
@@ -512,7 +540,9 @@ class ScalpEngine:
                         reason = f"time-stop {held_ms // 60_000}m"
             if not reason:
                 continue
-            fill = self.broker.market_order(inst, -qty, last, force_taker=True)
+            fill = self.broker.market_order(inst, -qty, last,
+                                            force_taker=maker_at is None,
+                                            maker_at=maker_at)
             self.brackets.pop(inst, None)
             self.opened_bar.pop(inst, None)
             self.hold_ms.pop(inst, None)

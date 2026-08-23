@@ -36,7 +36,8 @@ class Broker:
         raise NotImplementedError
 
     def market_order(self, inst: str, qty: float, price_hint: float,
-                     force_taker: bool = False, leverage: float | None = None) -> Fill | None:
+                     force_taker: bool = False, leverage: float | None = None,
+                     maker_at: float | None = None) -> Fill | None:
         """qty signed (+ buy / - sell), in coin units."""
         raise NotImplementedError
 
@@ -160,11 +161,19 @@ class PaperBroker(Broker):
         return hint
 
     def market_order(self, inst: str, qty: float, price_hint: float,
-                     force_taker: bool = False, leverage: float | None = None) -> Fill | None:
+                     force_taker: bool = False, leverage: float | None = None,
+                     maker_at: float | None = None) -> Fill | None:
         qty = self._round_qty(inst, qty)
         if qty == 0 or (price_hint <= 0 and not (self.book.get(inst) or {}).get("bid")):
             return None
-        if force_taker:
+        if maker_at is not None and maker_at > 0:
+            # A resting limit that price traded through: it filled at its
+            # own price, at the maker fee, whatever the book shows now.
+            # The caller only claims this on a strict cross — a touch
+            # leaves the queue position unknown.
+            px = float(maker_at)
+            fee_bps = self.maker_fee_bps
+        elif force_taker:
             px = self._taker_px(inst, qty, price_hint)
             fee_bps = self.fee_bps
         else:
@@ -298,7 +307,10 @@ class OKXBroker(Broker):
         return out
 
     def market_order(self, inst: str, qty: float, price_hint: float,
-                     force_taker: bool = False, leverage: float | None = None) -> Fill | None:
+                     force_taker: bool = False, leverage: float | None = None,
+                     maker_at: float | None = None) -> Fill | None:
+        if maker_at is not None:
+            force_taker = False   # the maker-first fill path handles it
         spec = self._spec(inst)
         contracts = abs(qty) / spec["ctVal"]
         lot = spec["lotSz"]
