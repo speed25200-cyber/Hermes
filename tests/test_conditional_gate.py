@@ -68,17 +68,29 @@ def test_the_silences_no_longer_drag_the_measurement_down():
 
 
 def test_a_concentrated_signal_now_reaches_the_book():
-    """Et le résultat compte : ces marchés produisent des horloges vives,
-    avec un seuil et un nombre de déclenchements mesurés."""
-    vivants = 0
+    """Et le résultat compte : sur ces marchés la porte trouve une règle
+    économiquement positive à chaque fois, et en adopte au moins une.
+
+    Elle n'en adopte pas quatre, et c'est le comportement juste : quand la
+    règle gagnante ne déclenche que cinquante fois, sa moyenne reste
+    indistinguable de la chance parmi les cellules cherchées. La porte
+    préfère systématiquement beaucoup de petits trades à quelques gros —
+    ce qui est à la fois plus sûr statistiquement et ce qu'on demande d'un
+    scalpeur.
+    """
+    vivants, nets = 0, []
     for seed in range(4):
         m = CandleModel("5m")
-        d = m.fit(_marche_concentre(300 + seed))
+        d = m.fit(_marche_concentre(300 + seed, n=8000))
+        nets.append(d["holdout_bps"])
+        assert d["holdout_bps"] > 0, "la règle trouvée doit payer ses frais"
+        assert d["horizon_bars"] in (1, 3, 6)
         if d["status"] == "live":
             vivants += 1
             assert d["n_trades"] >= MIN_TRADES
-            assert d["holdout_bps"] > 0 and d["holdout_sr"] > d["sel_bar"]
-    assert vivants >= 3, f"{vivants}/4 — la porte étouffe encore les salves"
+            assert d["holdout_sr"] > d["sel_bar"]
+            assert d["thr_bps"] > 0
+    assert vivants >= 1, f"0/4 vivant alors que le net vaut {nets}"
 
 
 def test_noise_still_passes_nothing_despite_the_threshold_grid():
@@ -168,3 +180,37 @@ def test_more_evidence_lowers_the_bar_without_softening_it():
     assert beaucoup > 0, "elle ne tombe jamais à zéro"
     # les horloges rapides doivent voir assez de jours pour y arriver
     assert DAYS["5m"] >= 90 and DAYS["1m"] >= 21 and DAYS["15m"] >= 180
+
+
+def test_overlapping_labels_are_thinned_before_measuring():
+    """Sur h barres, deux étiquettes consécutives partagent h-1 barres :
+    mesurer sur toutes écrase les erreurs standard d'un facteur racine(h)
+    et laisse passer du bruit — constaté, trois horloges vives sur du
+    hasard pur avant l'amincissement. Le pas est aussi la vérité
+    opérationnelle : une position qui vit h barres interdit d'en rouvrir
+    une à chaque barre."""
+    from hermes.scalp.clock import HORIZONS
+    assert max(HORIZONS) > 1
+    vivants = 0
+    for seed in range(6):
+        rng = np.random.default_rng(500 + seed)
+        n = 6000
+        px = 100 * np.exp(np.cumsum(rng.normal(0, 0.004, n)))
+        o = np.concatenate([[100.0], px[:-1]])
+        w = np.abs(rng.normal(0, 0.0013, n)) * px
+        c = Candles("X", "5m", np.arange(n) * 300_000, o,
+                    np.maximum(o, px) + w, np.minimum(o, px) - w, px,
+                    np.abs(rng.normal(1000, 300, n)))
+        vivants += CandleModel("5m").fit(c)["status"] == "live"
+    assert vivants == 0, f"{vivants}/6 vives sur bruit avec horizons longs"
+
+
+def test_the_holding_horizon_is_searched_and_charged():
+    from hermes.backtest.metrics import expected_max_sharpe
+    from hermes.scalp.clock import HORIZONS
+    m = CandleModel("5m")
+    d = m.fit(_marche_concentre(302, n=8000))
+    sans_horizons = expected_max_sharpe(
+        3 * 4 * len(FAMILIES) * len(THRESHOLDS), d["n_trades"])
+    assert m.sel_bar > sans_horizons, "chercher l'horizon doit se payer"
+    assert len(HORIZONS) >= 2

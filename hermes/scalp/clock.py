@@ -40,6 +40,12 @@ FAMILIES = ("ridge", "mlp")
 THRESHOLDS = (0.0, 0.5, 1.0, 1.5, 2.0, 2.5)
 MIN_TRADES = 40   # sous ce nombre, une moyenne n'est pas une mesure
 
+# Horizons de détention, en barres. Le modèle était validé sur la barre
+# suivante pendant que le moteur tenait trois barres : la preuve ne
+# portait pas sur le trade joué. Et le mouvement disponible croît comme
+# racine(h) quand le coût reste plat — l'horizon se cherche, et se paie.
+HORIZONS = (1, 3, 6)
+
 BARS = ("1m", "3m", "5m", "15m")
 HOLD = {"1m": 3, "3m": 3, "5m": 3, "15m": 3}
 # Profondeur d'historique par horloge. La barre du hasard décroît en
@@ -120,19 +126,35 @@ def feat_matrix(c: Candles) -> np.ndarray:
     ])
 
 
-def _targets(c: Candles) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """y at i uses bar i+1 only — close return, up excursion, down excursion."""
+def _targets(c: Candles, h: int = 1) -> tuple[np.ndarray, np.ndarray,
+                                              np.ndarray]:
+    """Rendement et excursions sur les h prochaines barres.
+
+    Le modèle était validé sur la barre SUIVANTE pendant que le moteur
+    tenait la position trois barres : la preuve ne portait pas sur le
+    trade joué. Et l'horizon n'est pas neutre — le mouvement disponible
+    croît comme racine(h) quand le coût, lui, reste plat. Un horizon est
+    donc un paramètre, cherché et facturé comme les autres.
+    """
     n = len(c)
+    h = max(int(h), 1)
     y_r = np.full(n, np.nan)
     y_up = np.full(n, np.nan)
     y_dn = np.full(n, np.nan)
     px = c.c
-    if n < 3:
+    if n < h + 2:
         return y_r, y_up, y_dn
-    ok = px[:-1] > 0
-    y_r[:-1][ok] = px[1:][ok] / px[:-1][ok] - 1.0
-    y_up[:-1][ok] = c.h[1:][ok] / px[:-1][ok] - 1.0
-    y_dn[:-1][ok] = 1.0 - c.l[1:][ok] / px[:-1][ok]
+    base = px[:-h]
+    ok = base > 0
+    y_r[:-h][ok] = px[h:][ok] / base[ok] - 1.0
+    # excursions extrêmes sur la fenêtre i+1 .. i+h
+    hi = np.copy(c.h[1:])
+    lo = np.copy(c.l[1:])
+    for k in range(1, h):
+        hi[:len(hi) - k] = np.maximum(hi[:len(hi) - k], c.h[1 + k:])
+        lo[:len(lo) - k] = np.minimum(lo[:len(lo) - k], c.l[1 + k:])
+    y_up[:-h][ok] = hi[:len(base)][ok] / base[ok] - 1.0
+    y_dn[:-h][ok] = 1.0 - lo[:len(base)][ok] / base[ok]
     y_up = np.maximum(y_up, 0.0)
     y_dn = np.maximum(y_dn, 0.0)
     return y_r, y_up, y_dn
@@ -165,6 +187,7 @@ class CandleModel:
         self.cost_win = 4.0
         self.thr_bps = 0.0      # sous ce mouvement prévu, l'horloge se tait
         self.n_trades = 0       # combien de déclenchements sur le holdout
+        self.horizon_bars = 1   # combien de barres la position doit vivre
         self.up = RidgeRegressor(l2=14.0)
         self.dn = RidgeRegressor(l2=14.0)
         self.q = 0.0          # conformal |resid| 80%
@@ -185,6 +208,7 @@ class CandleModel:
             "holdout_sr": self.hold_sr, "sel_bar": self.sel_bar,
             "n_holdout": self.n_hold, "family": self.family,
             "thr_bps": self.thr_bps, "n_trades": self.n_trades,
+            "horizon_bars": self.horizon_bars,
         }
 
     def _model(self):
@@ -205,95 +229,88 @@ class CandleModel:
             X = np.column_stack([X, br, idio])
         else:
             X = np.column_stack([X, np.zeros(n), np.zeros(n)])
-        y_r, y_up, y_dn = _targets(c)
-        # embargo: last train label needs bar cut; holdout is last 20%
+        c_win = (1.0 - QUEUE_MISS) * self.cost_win + QUEUE_MISS * self.fee
+        meilleur = None
+        for h in HORIZONS:
+            r = self._essai(X, c, h, c_win)
+            if r is not None and (meilleur is None or r["sr"] > meilleur["sr"]):
+                meilleur = r
+        if meilleur is None:
+            self.status, self.shrink = "veto", 0.0
+            self.thr_bps, self.n_trades = c_win, 0
+            return self.to_dict()
+        return self._retenir(meilleur, c_win)
+
+    def _essai(self, X: np.ndarray, c: Candles, h: int,
+               c_win: float) -> dict | None:
+        """Un horizon : entraîne, cherche le seuil, rend le meilleur score."""
+        y_r, y_up, y_dn = _targets(c, h)
         ok = np.isfinite(y_r) & np.isfinite(X).all(axis=1)
         idx = np.where(ok)[0]
         if len(idx) < 200:
-            self.status = "few-samples"
-            return self.to_dict()
+            return None
         cut = idx[int(0.8 * len(idx))]
-        train, hold = idx[idx < cut], idx[idx >= cut]
-        self.up.fit(X[train], np.clip(y_up[train], 0, 0.05))
-        self.dn.fit(X[train], np.clip(y_dn[train], 0, 0.05))
-        # Les familles concourent sur le même train et le même holdout ;
-        # chacune est un essai de plus au guichet du hasard.
-        self.rr.fit(X[train], y_r[train])
-        self.nn.fit(X[train], y_r[train])
-        # La porte doit juger la RÈGLE, pas le modèle. L'ancienne version
-        # facturait 7 bps sur CHAQUE barre du holdout, y compris les barres
-        # où le moteur ne trade jamais : un modèle qui ne parle fort qu'une
-        # fois sur cent était condamné par les quatre-vingt-dix-neuf
-        # silences. On évalue donc au déclenchement réel — |prédiction| au
-        # dessus d'un seuil — et l'on facture les coûts que le moteur paie
-        # vraiment : la sortie gagnante repose au carnet (maker, dégradé du
-        # risque de file), la perdante traverse le spread.
-        c_win = (1.0 - QUEUE_MISS) * self.cost_win + QUEUE_MISS * self.fee
-        scores = {}
-        for fam, mdl in (("ridge", self.rr), ("mlp", self.nn)):
+        # embargo : une étiquette d'entraînement dont la fenêtre de h barres
+        # traverse la coupure a vu le holdout. Elle sort.
+        train = idx[idx < cut - h]
+        # Étiquettes NON CHEVAUCHANTES pour la mesure : sur h barres, deux
+        # étiquettes consécutives partagent h-1 barres, ce qui écrase les
+        # erreurs standard d'un facteur racine(h) et laisse passer du bruit
+        # (constaté : 3 horloges vives sur du hasard pur avant ce pas).
+        # Un pas de h est aussi la vérité opérationnelle : une position qui
+        # vit h barres interdit d'en rouvrir une à chaque barre.
+        hold = idx[idx >= cut][::h]
+        if len(train) < 150 or len(hold) < 60:
+            return None
+        up = RidgeRegressor(l2=14.0).fit(X[train], np.clip(y_up[train], 0, .05))
+        dn = RidgeRegressor(l2=14.0).fit(X[train], np.clip(y_dn[train], 0, .05))
+        rr = RidgeRegressor(l2=14.0).fit(X[train], y_r[train])
+        nn = MLPRegressor(hidden=(24, 12), epochs=120,
+                          patience=10).fit(X[train], y_r[train])
+        best = None
+        for fam, mdl in (("ridge", rr), ("mlp", nn)):
             p = mdl.predict(X[hold])
             sd_p = float(np.std(p))
             ic = _ic(p, y_r[hold])
             for k in THRESHOLDS:
-                # Plancher économique intégré À LA MESURE : un mouvement
-                # prévu sous le coût de la jambe gagnante est arithmétique-
-                # ment sans espoir. En le mettant ici, la règle mesurée est
-                # exactement la règle jouée — un filtre live supplémentaire
-                # ferait trader moins de barres que celles validées.
                 thr = max(k * sd_p, c_win * 1e-4)
                 m = np.abs(p) >= thr
                 n_tr = int(m.sum())
                 if n_tr < MIN_TRADES:
                     continue
-                # PnL directionnel, net des coûts réels. La porte prouve
-                # UN avantage de direction qui paie sa friction ; le choix
-                # du take et du stop appartient à economics.choose_bracket,
-                # qui l'optimise par espérance simulée. Imposer ici une
-                # géométrie fixe dégradait la mesure sans la rendre plus
-                # fidèle : à barrières symétriques, la jambe perdante coûte
-                # plus que la gagnante ne rapporte, et c'est précisément ce
-                # déséquilibre que le choix par espérance corrige en aval.
                 gains = np.sign(p[m]) * y_r[hold][m] * 1e4
                 net = gains - np.where(gains > 0, c_win, self.fee)
                 sd = float(np.std(net, ddof=1))
                 sr = float(np.mean(net)) / sd if sd > 1e-12 else 0.0
-                cur = scores.get("best")
-                if cur is None or sr > cur["sr"]:
-                    scores["best"] = {
-                        "fam": fam, "pred": p, "ic": ic, "thr": thr,
-                        "k": k, "n_tr": n_tr,
+                if best is None or sr > best["sr"]:
+                    best = {
+                        "fam": fam, "rr": rr, "nn": nn, "up": up, "dn": dn,
+                        "h": h, "pred": p, "y": y_r[hold], "ic": ic,
+                        "thr": thr, "n_tr": n_tr, "n_hold": len(hold),
+                        "n_train": len(train),
                         "bps": float(np.mean(net)), "sr": sr,
                     }
-        if "best" not in scores:
-            # Assez de barres, mais aucun seuil ne déclenche assez souvent :
-            # l'horloge prédit des mouvements plus petits que le coût. C'est
-            # un refus mesuré, pas un manque de données.
-            self.status, self.shrink = "veto", 0.0
-            self.thr_bps, self.n_trades = c_win, 0
-            self.n_hold = int(len(hold))
-            self.n_train = int(len(train))
-            return self.to_dict()
-        best = scores["best"]
-        self.family = best["fam"]
-        pred = best["pred"]
-        self.ic = best["ic"]
-        self.thr_bps = float(best["thr"]) * 1e4
-        self.n_trades = best["n_tr"]
-        resid = np.abs(y_r[hold] - pred)
+        return best
+
+    def _retenir(self, b: dict, c_win: float) -> dict:
+        """Adopte l'horizon, la famille et le seuil gagnants."""
+        self.family, self.horizon_bars = b["fam"], b["h"]
+        self.rr, self.nn, self.up, self.dn = b["rr"], b["nn"], b["up"], b["dn"]
+        self.ic = b["ic"]
+        self.thr_bps = float(b["thr"]) * 1e4
+        self.n_trades, self.n_hold = b["n_tr"], int(b["n_hold"])
+        self.n_train = int(b["n_train"])
+        resid = np.abs(b["y"] - b["pred"])
         self.q = float(np.quantile(resid, 0.80)) if len(resid) else 0.0
-        self.holdout_bps = best["bps"]
-        self.n_train = int(len(train))
-        sr = best["sr"]
-        # Cellules cherchées à chaque refit : 3 actifs x 4 horloges x
-        # N familles x N seuils. Le seuil est un paramètre choisi sur le
-        # holdout : il se paie au guichet du hasard comme tout le reste, et
-        # la barre est comparée au nombre de TRADES, pas de barres — c'est
-        # sur eux que la moyenne est estimée.
-        n_cells = len(ASSETS) * len(BARS) * len(FAMILIES) * len(THRESHOLDS)
-        sel_bar = expected_max_sharpe(n_cells, best["n_tr"])
-        ic_floor = 2.0 / math.sqrt(max(len(hold), 4))
-        self.hold_sr, self.sel_bar, self.n_hold = sr, sel_bar, int(len(hold))
-        if self.holdout_bps > 0 and sr > sel_bar and self.ic > ic_floor:
+        self.holdout_bps, self.hold_sr = b["bps"], b["sr"]
+        # Cellules cherchées : actifs x horloges x familles x seuils x
+        # HORIZONS. Chercher l'horizon de détention le paie au guichet.
+        n_cells = (len(ASSETS) * len(BARS) * len(FAMILIES)
+                   * len(THRESHOLDS) * len(HORIZONS))
+        self.sel_bar = expected_max_sharpe(n_cells, b["n_tr"])
+        ic_floor = 2.0 / math.sqrt(max(b["n_hold"], 4))
+        if self.holdout_bps > 0 and self.hold_sr > self.sel_bar \
+                and self.ic > ic_floor:
             self.shrink = float(min(0.6, 0.2 + 2.0 * self.ic))
             self.status = "live"
         else:
@@ -319,6 +336,7 @@ class CandleModel:
         return {
             "r_bps": r_bps, "up_bps": up * 1e4, "dn_bps": dn * 1e4,
             "q_bps": q_bps, "veto": veto, "bar": self.bar,
+            "horizon_bars": self.horizon_bars,
             "status": self.status, "ic": self.ic,
         }
 
@@ -364,7 +382,7 @@ class ScaleDesk:
                 self.models[(inst, bar)] = m
                 out[f"{inst.split('-')[0]}:{bar}"] = d
                 self.log(f"clock {inst.split('-')[0]} {bar} {d['status']} "
-                         f"[{d['family']}] ic={d['ic']:.3f} "
+                         f"[{d['family']}/h{d['horizon_bars']}] ic={d['ic']:.3f} "
                          f"net={d['holdout_bps']:+.2f}bps/trade "
                          f"sr={d['holdout_sr']:+.3f} vs bar={d['sel_bar']:.3f} "
                          f"seuil={d['thr_bps']:.1f}bps "
@@ -424,6 +442,9 @@ class ScaleDesk:
             "status": "live", "policy": "candle",
             "bar": dom["bar"], "clocks": clock_s, "r_bps": wsum,
             "up_bps": float(dom["up_bps"]), "dn_bps": float(dom["dn_bps"]),
+            # la position doit vivre exactement l'horizon sur lequel
+            # l'horloge dominante a été validée, pas une constante
+            "horizon_bars": int(dom.get("horizon_bars") or 1),
         }
 
     def infer_asset(self, inst: str, feat, btc_r1, is_btc, prior, vol_bps) -> dict:

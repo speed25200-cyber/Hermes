@@ -280,7 +280,12 @@ class ScalpEngine:
             # validated head — 90 s, 5 min or 15 min
             h_flow = int(inf.get("h_bars") or max(1, round(HORIZON_S / 60.0)))
             mins = {"1m": 1, "3m": 3, "5m": 5, "15m": 15}
-            h_clock = mins.get(cinf.get("bar") or "5m", 5) * HOLD.get(cinf.get("bar") or "5m", 3)
+            # L'horizon vient de la validation de l'horloge, plus d'une
+            # constante : le modèle a été prouvé sur h barres, la position
+            # doit vivre h barres.
+            h_clock = (mins.get(cinf.get("bar") or "5m", 5)
+                       * int(cinf.get("horizon_bars")
+                             or HOLD.get(cinf.get("bar") or "5m", 3)))
             sources = []
             if not inf.get("veto"):
                 sources.append((float(inf.get("r_bps") or 0.0),
@@ -776,7 +781,10 @@ class ScalpEngine:
                 if hb in ("90s", "flow") or plan.get("policy") in ("prior", "flow"):
                     self.hold_ms[inst] = 180_000
                 else:
-                    self.hold_ms[inst] = int(HOLD.get(hb, 3)) * int(BAR_MS.get(hb, 60_000))
+                    h_val = int(plan.get("h_bars") or 0)
+                    self.hold_ms[inst] = (h_val * 60_000 if h_val > 0 else
+                                          int(HOLD.get(hb, 3))
+                                          * int(BAR_MS.get(hb, 60_000)))
                 self._arm(inst, tgt_qty, fill, vol.get(inst, 0.0),
                           plan.get("tp_bps"), plan.get("sl_bps"))
             self.log(f"scalp fill {inst} {delta:+.6f} @ {fill.price:.6f}")
