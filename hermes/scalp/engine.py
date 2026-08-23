@@ -736,6 +736,14 @@ class ScalpEngine:
             if hasattr(self.broker, "_round_qty"):
                 tgt_qty = self.broker._round_qty(inst, tgt_qty)
             cur = current.get(inst, 0.0)
+            # L'exemption éclaireur doit vivre ICI, à la consommation : le
+            # pending construit dans le même tick AVANT l'ouverture porte
+            # une cible zéro explicite pour l'instrument, et la version qui
+            # n'exemptait qu'à la construction refermait l'éclaireur ~12 s
+            # après l'entrée (mesuré : explore 15:43:05, fill 15:43:17).
+            if (self.brackets.get(inst) or {}).get("explore") \
+                    and abs(tgt_qty) < 1e-12:
+                continue
             delta = tgt_qty - cur
             if abs(delta) * last < max(10.0, 0.002 * equity):
                 continue

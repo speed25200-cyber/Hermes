@@ -51,7 +51,7 @@ jobs:
             # de la fenêtre de 50 lignes : on les repêche sur 6 h.
             echo "===== verdicts des 6 dernières heures (gates + trades) ====="
             journalctl -u hermes --since "-6 hours" --no-pager 2>/dev/null \
-              | grep -E "flow (5m|15m|90s) (live|veto)|clock .* (live|veto) \[|TP .*maker|scalp SL|explore " \
+              | grep -E "flow (90s|300s|900s|5m|15m) (live|veto)|clock .* (live|veto) \[|TP .*maker|scalp SL|explore " \
               | tail -40 || true
             echo
             echo "===== deployed book (registry summary) ====="

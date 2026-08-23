@@ -26,6 +26,9 @@ def _moteur(tmp_path, **explore):
         max_drawdown_pct = 25.0
         state = _E()
 
+        def update_equity(self, *a, **k):
+            pass
+
     b = PaperBroker(cash=10_000.0)
     cfg = {"scalp": {"explore": {"cooldown_s": 0.0, **explore}}, "costs": {}}
     eng = ScalpEngine(cfg, b, None, _R(), lambda m: None, str(tmp_path))
@@ -123,6 +126,27 @@ def test_the_rebalance_does_not_flatten_an_explorer(tmp_path):
     assert b.positions().get("SOL-USDT-SWAP") == qty, "l'éclaireur survit"
     # une vraie cible non nulle, elle, reprend la main
     assert eng.brackets["SOL-USDT-SWAP"].get("t0"), "la tenue est datée"
+
+
+def test_a_stale_zero_target_cannot_kill_a_fresh_explorer(tmp_path):
+    """Le vrai bug mesuré (explore 15:43:05, fill 15:43:17) : le pending
+    construit dans le MÊME tick, AVANT l'ouverture, porte une cible zéro
+    explicite pour l'instrument, et execute_pending la consomme après
+    coup. L'exemption doit donc vivre à la consommation, pas seulement à
+    la construction."""
+    eng, b, _ = _moteur(tmp_path)
+    _tick(b, "SOL-USDT-SWAP", 180.0)
+    # le tick a posé sa cible zéro AVANT que l'éclaireur ouvre
+    eng.pending = {"SOL-USDT-SWAP": 0.0}
+    eng._explore([_pred()], 10_000.0, {})
+    qty = b.positions()["SOL-USDT-SWAP"]
+    eng.execute_pending()
+    assert b.positions().get("SOL-USDT-SWAP") == qty, \
+        "la cible zéro périmée refermait l'éclaireur 12 s après l'entrée"
+    # et une vraie cible non nulle garde le droit de le redimensionner
+    eng.pending = {"SOL-USDT-SWAP": 2.0}
+    eng.execute_pending()
+    assert abs(b.positions().get("SOL-USDT-SWAP", 0.0) - 2.0) < 0.5
 
 
 def test_a_crossed_take_feeds_the_queue_measurement(tmp_path):
