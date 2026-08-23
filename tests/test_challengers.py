@@ -38,11 +38,14 @@ def _marche_interaction(seed, n=2400, k=0.9, bruit=8e-4):
 
 
 def test_the_mlp_catches_the_interaction_the_ridge_cannot():
+    """La famille retenue doit CONTENIR le réseau — seul ou moyenné avec
+    le ridge. Ce qui est interdit, c'est que le ridge nu gagne : par
+    construction, il ne voit pas le produit qui porte le signal."""
     gagnes = 0
     for seed in range(3):
         m = CandleModel("5m")
         d = m.fit(_marche_interaction(30 + seed))
-        if d["status"] == "live" and d["family"] == "mlp":
+        if d["status"] == "live" and d["family"] in ("mlp", "ens"):
             gagnes += 1
     assert gagnes >= 2, f"{gagnes}/3 — le challenger n'attrape pas l'interaction"
 
@@ -79,12 +82,15 @@ def test_noise_passes_neither_family(tmp_path):
 
 
 def test_the_bar_charges_every_family_searched():
+    """Trois familles concourent — ridge, réseau, et leur moyenne. La
+    troisième n'est pas gratuite : elle est cherchée, donc facturée."""
     from hermes.backtest.metrics import expected_max_sharpe
     m = CandleModel("5m")
     m.fit(_marche_interaction(32))
-    seul = expected_max_sharpe(12, m.n_hold)
-    assert m.sel_bar > seul, "la barre doit payer 12 cellules × 2 familles"
-    assert len(FAMILIES) == 2
+    seul = expected_max_sharpe(12, max(m.n_periods, 1))
+    assert m.sel_bar > seul, "la barre doit payer 12 cellules x 3 familles"
+    assert len(FAMILIES) == 3
+    assert m.n_cells % len(FAMILIES) == 0
 
 
 def test_the_choice_is_deterministic_and_visible():

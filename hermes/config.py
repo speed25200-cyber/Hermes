@@ -88,9 +88,13 @@ DEFAULTS: dict[str, Any] = {
     "scalp": {
         "enabled": True,
         "bar": "15m",
-        "instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"],
-        "universe_n": 3,
-        "trade_top": 3,
+        # Le même panel que les horloges : une horloge validée parle pour
+        # les six au même instant, et c'est exactement le portefeuille sur
+        # lequel elle a été jugée.
+        "instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP",
+                        "XRP-USDT-SWAP", "DOGE-USDT-SWAP", "BNB-USDT-SWAP"],
+        "universe_n": 6,
+        "trade_top": 6,
         "require_l2": False,
         "max_spread_bps": 6.0,
         "min_vol_usd": 10_000_000.0,

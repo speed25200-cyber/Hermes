@@ -38,7 +38,25 @@ from .economics import QUEUE_MISS
 # l'architecture que la littérature mesure comme gagnante (Gu-Kelly-Xiu) ;
 # un Transformer sur séquences exigerait des millions d'exemples
 # indépendants que quatre ans de bougies ne contiennent pas.
-FAMILIES = ("ridge", "mlp")
+FAMILIES = ("ridge", "mlp", "ens")
+
+
+class _Ensemble:
+    """La moyenne des deux, comme troisième candidate.
+
+    Ce n'est pas un compromis mou : deux modèles qui se trompent
+    différemment se corrigent en moyenne, et c'est le résultat le plus
+    reproduit de la littérature d'apprentissage sur rendements
+    (Gu-Kelly-Xiu : les ensembles dominent chacun de leurs membres). Elle
+    passe au guichet comme les autres — la barre est facturée pour trois
+    familles, pas deux.
+    """
+
+    def __init__(self, rr, nn):
+        self.rr, self.nn = rr, nn
+
+    def predict(self, X):
+        return 0.5 * (self.rr.predict(X) + self.nn.predict(X))
 
 # Seuils de déclenchement, en écarts-types de la prédiction elle-même.
 # Une horloge ne trade pas toutes les barres : elle trade celles où elle
@@ -62,7 +80,17 @@ HOLD = {"1m": 3, "3m": 3, "5m": 3, "15m": 3}
 # porte plus douce : c'est la même porte avec assez de preuves pour
 # distinguer un avantage d'une chance.
 DAYS = {"1m": 30, "3m": 60, "5m": 120, "15m": 365}
-ASSETS = ("BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP")
+# Le panel : six perpétuels parmi les plus liquides d'OKX. Élargir la
+# coupe transversale ne fait pas baisser la barre par magie — elle se lit
+# sur le nombre d'INSTANTS mesurés, et deux actifs qui déclenchent en même
+# temps n'en font qu'un. Ce qu'elle apporte est réel et double : chaque
+# actif ajouté amène ses propres instants de déclenchement (l'union
+# grandit, la barre baisse pour de vrai), et il amène ses lignes
+# d'entraînement. Le diagnostic mesuré en production était sans ambiguïté
+# — les cellules gagnantes plafonnaient à 55-75 trades, où la barre du
+# hasard vaut 0,39 ; à quelques centaines elle tombe vers 0,15.
+ASSETS = ("BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP",
+          "XRP-USDT-SWAP", "DOGE-USDT-SWAP", "BNB-USDT-SWAP")
 W = {"1m": 0.15, "3m": 0.20, "5m": 0.28, "15m": 0.37}
 FEE = 7.0  # maker in + taker SL, bps
 BAR_MS = {"1m": 60_000, "3m": 180_000, "5m": 300_000, "15m": 900_000}
@@ -309,7 +337,11 @@ class CandleModel:
         }
 
     def _model(self):
-        return self.nn if self.family == "mlp" else self.rr
+        if self.family == "mlp":
+            return self.nn
+        if self.family == "ens":
+            return _Ensemble(self.rr, self.nn)
+        return self.rr
 
     def fit(self, c: Candles, btc: Candles | None = None) -> dict:
         """Un seul actif : le panel dégénéré à un bloc."""
@@ -454,7 +486,7 @@ class CandleModel:
                           patience=10).fit(Xtr, ytr)
         best, muet = None, self._muet
         sd_y = float(np.std(yho))
-        for fam, mdl in (("ridge", rr), ("mlp", nn)):
+        for fam, mdl in (("ridge", rr), ("mlp", nn), ("ens", _Ensemble(rr, nn))):
             p_bps = mdl.predict(Xho) * sgo * 1e4
             sd_p = float(np.std(p_bps))
             # Garde-fou d'échelle : un modèle qui prédit des mouvements dix
