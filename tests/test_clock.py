@@ -18,7 +18,8 @@ def test_feat_row_is_finite():
     c = generate(inst="BTC-USDT-SWAP", bar="5m", n=300, seed=1)
     X = feat_matrix(c)
     # 8 colonnes OHLCV + funding, taker, basis, delta-OI
-    assert X.shape[1] == 12
+    # + z-scores 20/60 barres, heure du jour (sin/cos), poussée du taker
+    assert X.shape[1] == 17
     assert np.isfinite(X[-1]).all()
 
 

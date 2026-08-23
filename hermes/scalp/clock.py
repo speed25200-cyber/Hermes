@@ -124,11 +124,36 @@ def feat_matrix(c: Candles) -> np.ndarray:
         d_oi[1:] = np.nan_to_num(oi[1:] / prev - 1.0, nan=0.0)
     d_oi = np.clip(d_oi, -0.2, 0.2)
 
+    # Retour à la moyenne : l'écart du prix à sa propre moyenne, en
+    # écarts-types. Les retours décalés disent le MOUVEMENT récent, jamais
+    # la POSITION dans la fourchette récente — c'est pourtant la moitié du
+    # métier, et la seule forme sous laquelle un scalp de réversion peut
+    # s'exprimer. Deux fenêtres : la courte pour l'excès local, la longue
+    # pour l'excès de régime.
+    def zscore(w):
+        m = np.convolve(px, np.ones(w) / w, mode="full")[:n]
+        m[:w] = px[:w]
+        sd = _roll_std(r1, w) * px * math.sqrt(w)
+        return np.clip(np.nan_to_num((px - m) / np.maximum(sd, 1e-12)), -4, 4)
+
+    # Heure de la journée : les sessions asiatique, européenne et
+    # américaine n'ont ni la même volatilité ni le même sens moyen. Deux
+    # colonnes plutôt qu'une pour que minuit et 23 h soient voisines.
+    hod = (np.asarray(c.ts, dtype=np.float64) / 3_600_000.0) % 24.0
+    ang = 2.0 * math.pi * hod / 24.0
+
+    # Poussée du flux taker : le NIVEAU du déséquilibre est déjà là, sa
+    # VARIATION ne l'est pas — et c'est elle qui marque une arrivée.
+    d_taker = np.zeros(n)
+    if n > 1:
+        d_taker[1:] = np.clip(taker[1:] - taker[:-1], -1, 1)
+
     return np.column_stack([
         r1, lagret(3), lagret(5), lagret(12),
         np.clip(loc, -0.5, 0.5), np.clip(rng, 0, 0.08),
         vol, np.clip(persist, -1, 1),
         funding, taker, basis, d_oi,
+        zscore(20), zscore(60), np.sin(ang), np.cos(ang), d_taker,
     ])
 
 

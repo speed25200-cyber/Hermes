@@ -134,8 +134,11 @@ def test_missing_aux_series_change_nothing():
     rng = np.random.default_rng(7)
     c = _marche(rng, 800)
     X = feat_matrix(c)
-    assert X.shape == (800, 12)
-    assert np.allclose(X[:, 8:], 0.0), "aux absentes doivent être muettes"
+    assert X.shape == (800, 17)
+    # colonnes 8..11 = funding, taker, basis, delta-OI ; colonne 16 = la
+    # poussée du taker. Toutes muettes quand la série manque.
+    assert np.allclose(X[:, 8:12], 0.0), "aux absentes doivent être muettes"
+    assert np.allclose(X[:, 16], 0.0), "la poussée du taker aussi"
     assert np.isfinite(X).all()
 
 

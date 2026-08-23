@@ -278,3 +278,49 @@ def test_the_size_multiplier_reaches_kelly(tmp_path):
     demi = dict(plein, size_mult=0.5)
     lev_plein, lev_demi = eng._pick_lev(plein), eng._pick_lev(demi)
     assert 0 < lev_demi < lev_plein, f"{lev_demi} devrait être sous {lev_plein}"
+
+
+def test_mean_reversion_is_now_expressible():
+    """Les retours décalés disent le MOUVEMENT récent, jamais la POSITION
+    dans la fourchette récente. Un marché de pure réversion — le prix
+    revient vers sa moyenne — était donc invisible aux anciennes colonnes.
+    Ce test plante exactement ce marché et vérifie que la porte peut le
+    voir ; le bruit, lui, reste refusé (test voisin)."""
+    from hermes.scalp.clock import feat_matrix
+    rng = np.random.default_rng(77)
+    n = 6000
+    r = np.zeros(n)
+    niveau = np.zeros(n)
+    for t in range(1, n):
+        # Ornstein-Uhlenbeck : le prix est rappelé vers zéro
+        niveau[t] = 0.97 * niveau[t - 1] + rng.normal(0, 0.004)
+        r[t] = niveau[t] - niveau[t - 1]
+    px = 100 * np.exp(niveau)
+    o = np.concatenate([[100.0], px[:-1]])
+    w = np.abs(rng.normal(0, 3e-4, n)) * px
+    c = Candles("X", "5m", np.arange(n) * 300_000, o,
+                np.maximum(o, px) + w, np.minimum(o, px) - w, px,
+                np.abs(rng.normal(1000, 300, n)))
+    X = feat_matrix(c)
+    y, _, _ = _targets(c, 1)
+    ok = np.isfinite(y)
+    z = X[ok, 12]                      # z-score 20 barres
+    # le rappel vers la moyenne DOIT être lisible dans cette colonne
+    corr = float(np.corrcoef(z, y[ok])[0, 1])
+    assert corr < -0.05, f"la colonne de réversion ne voit rien ({corr:+.3f})"
+    # et elle est bornée, comme toutes les autres
+    assert np.abs(X[:, 12]).max() <= 4.0 + 1e-9
+    assert np.isfinite(X).all()
+
+
+def test_the_hour_of_day_wraps_around_midnight():
+    """Une seule colonne d'heure ferait de 23 h et 0 h les deux extrêmes
+    opposés d'une échelle. Deux colonnes les rendent voisines."""
+    from hermes.scalp.clock import feat_matrix
+    n = 300
+    ts = (np.arange(n) * 300_000).astype(np.int64)
+    px = np.full(n, 100.0)
+    c = Candles("X", "5m", ts, px, px, px, px, np.ones(n))
+    X = feat_matrix(c)
+    s, k = X[:, 14], X[:, 15]
+    assert np.allclose(s ** 2 + k ** 2, 1.0, atol=1e-9)
