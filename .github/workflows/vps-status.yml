@@ -55,22 +55,11 @@ jobs:
               | tail -40 || true
             echo
             echo "===== exécution mesurée (éclaireurs) ====="
-            /root/venv/bin/python - <<'PY' 2>/dev/null || echo "pas encore de scalp.json"
-import json
-d = json.load(open("/root/hermes/state/scalp.json"))
-e = d.get("explore") or {}
-n_ex = e.get("tp_maker",0)+e.get("tp_taker",0)+e.get("sl",0)+e.get("time",0)
-print(f"trades={e.get('trades',0)} sorties={n_ex} "
-      f"tp_maker={e.get('tp_maker',0)} tp_taker={e.get('tp_taker',0)} "
-      f"sl={e.get('sl',0)} time={e.get('time',0)}")
-tot_tp = e.get('tp_maker',0)+e.get('tp_taker',0)
-if tot_tp:
-    print(f"remplissage maker au TP mesure = {e['tp_maker']/tot_tp:.2f} "
-          f"(hypothese du modele : 0.75)")
-print(f"edge entree = {e.get('entry_edge_bps',0):+.2f} bps vs mid | "
-      f"edge sortie = {e.get('exit_edge_bps',0):+.2f} bps vs marche")
-print(f"pnl jour = {e.get('pnl_day_usd',0):+.2f} / budget {e.get('budget_usd',0):.2f} USD")
-PY
+            # NB: toute cette commande ssh est déjà entre apostrophes —
+            # aucun script inséré ici ne doit en contenir une seule.
+            tr "," "\n" < /root/hermes/state/scalp.json 2>/dev/null \
+              | grep -E "tp_maker|tp_taker|entry_edge_bps|exit_edge_bps|pnl_day_usd|budget_usd|\"sl\"|\"time\"|\"trades\"" \
+              | head -12 || echo "pas encore de scalp.json"
             echo
             echo "===== deployed book (registry summary) ====="
             grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
