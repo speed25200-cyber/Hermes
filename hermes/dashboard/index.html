@@ -45,7 +45,9 @@
 
   /* États réservés : jamais recyclés comme couleurs de série. */
   --bon:#31b34a; --attention:#dd9722; --serieux:#e07a4f; --critique:#e5484d;
-  --accent:#8b7bff; --accent-2:#a99bff;
+  /* Accent monochrome façon OKX : le blanc est la marque, la couleur
+     reste réservée à la direction (long/short) et aux états. */
+  --accent:#f5f5f7; --accent-2:#c9c9d1;
 
   /* Rythme : une échelle, pas des valeurs au jugé. */
   --e1:4px; --e2:8px; --e3:12px; --e4:16px; --e5:24px; --e6:32px; --e7:48px;
@@ -76,7 +78,7 @@
     --encre:#141419; --encre-2:#51515a; --encre-3:#65656d;
     --long:#2875d2; --short:#d83a3a;
     --bon:#177d33; --attention:#9a6200; --serieux:#b8532a; --critique:#c9282d;
-    --accent:#5b48e8; --accent-2:#7a68ff;
+    --accent:#1d1d1f; --accent-2:#3a3a40;
     --lueur:inset 0 1px 0 rgba(255,255,255,.9);
     --ombre-1:0 1px 2px rgba(9,12,17,.06);
     --ombre-2:0 1px 2px rgba(9,12,17,.05),0 10px 28px -14px rgba(9,12,17,.22);
@@ -94,7 +96,7 @@
   --encre:#141419; --encre-2:#51515a; --encre-3:#65656d;
   --long:#2875d2; --short:#d83a3a;
   --bon:#177d33; --attention:#9a6200; --serieux:#b8532a; --critique:#c9282d;
-  --accent:#5b48e8; --accent-2:#7a68ff;
+  --accent:#1d1d1f; --accent-2:#3a3a40;
   --lueur:inset 0 1px 0 rgba(255,255,255,.9);
   --ombre-1:0 1px 2px rgba(9,12,17,.06);
   --ombre-2:0 1px 2px rgba(9,12,17,.05),0 10px 28px -14px rgba(9,12,17,.22);
@@ -119,7 +121,7 @@ body{
    C'est elle qui donne au verre quelque chose à dépolir. */
 body::before{content:"";position:fixed;inset:-25%;z-index:-1;pointer-events:none;
   background:
-    radial-gradient(42% 36% at 18% 12%,color-mix(in oklab,var(--accent) 18%,transparent),transparent 70%),
+    radial-gradient(42% 36% at 18% 12%,color-mix(in oklab,var(--accent) 9%,transparent),transparent 70%),
     radial-gradient(36% 30% at 86% 6%,color-mix(in oklab,#ffffff 6%,transparent),transparent 70%),
     radial-gradient(46% 42% at 62% 96%,color-mix(in oklab,#ffffff 5%,transparent),transparent 70%);
   filter:blur(80px);
@@ -146,7 +148,9 @@ header{position:sticky;top:0;z-index:50;
   background:var(--vitre);backdrop-filter:blur(24px) saturate(1.7);
   -webkit-backdrop-filter:blur(24px) saturate(1.7);
   box-shadow:0 1px 0 var(--filet)}
-.marque{display:flex;align-items:baseline;gap:var(--e2)}
+.marque{display:flex;align-items:center;gap:10px}
+.marque .logo{width:24px;height:24px;flex:none}
+.marque span{align-self:center}
 .marque b{font-size:19px;font-weight:660;letter-spacing:-.025em}
 .marque span{font-size:10.5px;color:var(--encre-3);text-transform:uppercase;
   letter-spacing:.13em;font-weight:550}
@@ -309,7 +313,7 @@ button.ghost.icone{padding:8px;border-radius:50%;display:grid;place-items:center
   position:relative;overflow:hidden;box-shadow:inset 0 1px 2px rgba(0,0,0,.22)}
 .barre .rempli{height:100%;border-radius:var(--r-plein);position:absolute;top:0;
   background:linear-gradient(90deg,var(--accent),var(--accent-2));
-  box-shadow:0 0 12px -2px color-mix(in oklab,var(--accent) 55%,transparent);
+  box-shadow:0 0 10px -3px color-mix(in oklab,var(--accent) 40%,transparent);
   transition:width var(--duree) var(--courbe),left var(--duree) var(--courbe)}
 .barre .rempli.faible{background:var(--encre-3);box-shadow:none}
 .barre .zero{position:absolute;left:50%;top:0;bottom:0;width:1px;
@@ -390,6 +394,9 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0
 
 /* ── Application à vues : une seule visible, transition à l'entrée ── */
 main{min-height:60vh}
+/* Les deux piles de colonnes ne sont réelles que sur bureau ; sur mobile
+   elles s'effacent (display:contents) et le dock pilote les vues. */
+.colg,.cold{display:contents}
 .vue{display:none}
 .vue.active{display:block;animation:vueIn .38s cubic-bezier(.22,.9,.3,1)}
 @keyframes vueIn{from{opacity:0;transform:translateY(14px) scale(.99)}to{opacity:1;transform:none}}
@@ -490,6 +497,32 @@ footer{padding-bottom:96px}
   .carte>h2{flex-wrap:wrap}
   .carte>h2 .aide{margin-left:0;flex-basis:100%;text-align:left}
 }
+/* ── Bureau : un vrai dashboard — tout est visible, tout est accessible.
+   Le dock et les vues empilées sont la version mobile ; au-delà de
+   1100 px les cinq sections se posent sur une grille de deux colonnes
+   et la navigation disparaît. ─────────────────────────────────────── */
+@media(min-width:1100px){
+  .wrap{max-width:1720px;padding-bottom:var(--e5)}
+  .dock{display:none}
+  .gtitre{display:none}
+  footer{padding-bottom:var(--e4)}
+  main{display:grid;grid-template-columns:minmax(0,1.55fr) minmax(0,1fr);
+    gap:0 var(--e4);align-items:start}
+  .colg,.cold{display:block;min-width:0}
+  .vue{display:block;animation:none}
+  /* le verdict s'empile dans la colonne étroite : le montant sous la
+     phrase, pas écrasé à côté d'elle */
+  .verdict{grid-template-columns:1fr;gap:var(--e3)}
+  .verdict .chiffre{text-align:left}
+  .verdict .chiffre .v{font-size:34px}
+  /* le héros se fait bandeau compact au-dessus du graphe */
+  .hpx{font-size:40px}
+  .hero{padding:var(--e2) 0 var(--e3)}
+  /* cinq mesures dans la colonne étroite : deux rangées lisibles */
+  #vue-signaux .mesures{grid-template-columns:repeat(3,1fr)}
+  /* cinq cases sur 3×2 : la dernière s'étire, aucune cellule morte */
+  #vue-signaux .mesures>.mesure:last-child:nth-child(5){grid-column:span 2}
+}
 @media(prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;
     transition-duration:.001ms!important}
@@ -500,7 +533,14 @@ footer{padding-bottom:96px}
 <div class="wrap app">
 
   <header>
-    <div class="marque"><b>Hermes</b><span id="mode"></span></div>
+    <div class="marque">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true" fill="none"
+           stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
+        <path d="M4.5 22.5 C13 22.5 20.5 17.5 24.5 8.5"/>
+        <path d="M7 26 C13.5 26 19 22.3 22 16.2"/>
+        <path d="M10.5 29 C15 29 18.6 26.7 20.8 23.2"/>
+      </svg>
+      <b>Hermes</b><span id="mode"></span></div>
     <div class="pastille" id="lien"><i></i><span>connexion…</span></div>
     <div class="pastille" id="horloge"><i></i><span>—</span></div>
     <div class="pousse">
@@ -514,6 +554,7 @@ footer{padding-bottom:96px}
   </header>
 
   <main>
+   <div class="colg">
 
     <!-- ═══ MARCHÉ : le prix en héros, le graphe plein cadre ═══ -->
     <section class="vue active" id="vue-marche">
@@ -548,6 +589,26 @@ footer{padding-bottom:96px}
       </div>
     </section>
 
+    <!-- ═══ PREUVE : l'évidence derrière chaque pupitre, la courbe ═══ -->
+    <section class="vue" id="vue-preuve">
+      <h1 class="gtitre">Preuve</h1>
+      <div class="carte">
+        <h2>Preuve par marché <span class="aide" id="preuve-aide"></span></h2>
+        <div id="preuve"><div class="vide">Aucun apprentissage enregistré.</div></div>
+      </div>
+      <div class="carte">
+        <h2>Equity <span class="aide">mark-to-market</span></h2>
+        <div class="corps graphe" id="graphe">
+          <svg id="svg" viewBox="0 0 600 190" preserveAspectRatio="none" role="img"
+               aria-label="Courbe d'equity du compte"></svg>
+          <div class="infobulle" id="bulle"></div>
+        </div>
+      </div>
+    </section>
+
+   </div>
+   <div class="cold">
+
     <!-- ═══ SIGNAUX : le verdict et les décisions ═══ -->
     <section class="vue" id="vue-signaux">
       <h1 class="gtitre">Signaux</h1>
@@ -580,23 +641,6 @@ footer{padding-bottom:96px}
       </div>
     </section>
 
-    <!-- ═══ PREUVE : l'évidence derrière chaque pupitre, la courbe ═══ -->
-    <section class="vue" id="vue-preuve">
-      <h1 class="gtitre">Preuve</h1>
-      <div class="carte">
-        <h2>Preuve par marché <span class="aide" id="preuve-aide"></span></h2>
-        <div id="preuve"><div class="vide">Aucun apprentissage enregistré.</div></div>
-      </div>
-      <div class="carte">
-        <h2>Equity <span class="aide">mark-to-market</span></h2>
-        <div class="corps graphe" id="graphe">
-          <svg id="svg" viewBox="0 0 600 190" preserveAspectRatio="none" role="img"
-               aria-label="Courbe d'equity du compte"></svg>
-          <div class="infobulle" id="bulle"></div>
-        </div>
-      </div>
-    </section>
-
     <!-- ═══ JOURNAL : les trades ═══ -->
     <section class="vue" id="vue-journal">
       <h1 class="gtitre">Journal</h1>
@@ -606,6 +650,7 @@ footer{padding-bottom:96px}
       </div>
     </section>
 
+   </div>
   </main>
 
   <!-- ═══ Dock flottant : la navigation de l'application ═══ -->
