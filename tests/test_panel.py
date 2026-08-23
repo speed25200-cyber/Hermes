@@ -300,3 +300,32 @@ def test_a_late_joining_asset_cannot_shrink_everyone_else_holdout():
     # le long garde le même train : le nouveau venu n'a pas déplacé la
     # coupure (il n'apporte aucun instant que le long n'ait déjà)
     assert melange.n_train >= seul.n_train
+
+
+def test_a_lone_clock_is_not_shrunk_twice():
+    """Les poids d'échelle forment une MOYENNE, pas une somme. Avec les
+    quatre horloges vivantes ils somment à 1 ; avec une seule, la somme
+    rendait 0,15 fois sa prédiction pour la 1m — un rétrécissement
+    arbitraire qui s'ajoutait au demi-Kelly déjà appliqué aux horloges
+    solitaires, et qui suffisait à faire refuser tous les brackets.
+
+    Depuis que la cohérence est un prix et non une porte, l'horloge
+    solitaire est le cas NORMAL. Sa prédiction doit ressortir intacte ;
+    c'est la TAILLE qui paie sa solitude, pas le signal.
+    """
+    from hermes.scalp.clock import ScaleDesk
+    desk = ScaleDesk()
+    v = {"r_bps": 30.0, "up_bps": 45.0, "dn_bps": 30.0, "q_bps": 12.0,
+         "veto": False, "status": "live", "bar": "1m", "ic": 0.12,
+         "horizon_bars": 3}
+    desk.votes[("BTC-USDT-SWAP", "1m")] = v
+    inf = desk.fuse("BTC-USDT-SWAP")
+    assert abs(inf["ml_bps"] - 30.0) < 1e-9, inf["ml_bps"]
+    assert inf["alpha"] == 0.5, "la solitude se paie en taille"
+
+    # deux horloges d'accord : moyenne pondérée, et taille pleine
+    desk.votes[("BTC-USDT-SWAP", "5m")] = dict(v, bar="5m", r_bps=10.0)
+    inf2 = desk.fuse("BTC-USDT-SWAP")
+    attendu = (0.15 * 30.0 + 0.28 * 10.0) / (0.15 + 0.28)
+    assert abs(inf2["ml_bps"] - attendu) < 1e-9, inf2["ml_bps"]
+    assert inf2["alpha"] == 1.0

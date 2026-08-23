@@ -828,7 +828,17 @@ class ScaleDesk:
         # une horloge validée trade à demi-taille ; d'accord avec une
         # autre, à taille pleine.
         signs = {np.sign(v["r_bps"]) for v in live if v["r_bps"] != 0}
-        wsum = sum(W.get(v["bar"], 0.2) * v["r_bps"] for v in live)
+        # MOYENNE pondérée, pas somme pondérée. Les poids somment à 1 quand
+        # les quatre horloges parlent ; avec une seule, la somme rendait
+        # 0,15 fois sa prédiction pour la 1m — un rétrécissement arbitraire
+        # qui n'a rien à voir avec l'économie validée, et qui s'ajoutait au
+        # demi-Kelly déjà appliqué aux horloges solitaires. Une prédiction
+        # de 30 bps ressortait à 4,5 et l'espérance du bracket la refusait.
+        # Depuis que la cohérence est un prix et non une porte, le cas
+        # solitaire est le cas NORMAL : ce défaut suffisait à garder le
+        # livre vide quoi qu'il arrive.
+        poids = sum(W.get(v["bar"], 0.2) for v in live) or 1.0
+        wsum = sum(W.get(v["bar"], 0.2) * v["r_bps"] for v in live) / poids
         if len(signs) > 1:
             # mixed clocks: only go if the weighted move still clears fees
             if abs(wsum) < self.fee:

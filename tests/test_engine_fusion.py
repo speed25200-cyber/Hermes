@@ -290,3 +290,100 @@ def test_predictions_carry_both_costs(tmp_path):
     eng = _moteur(tmp_path)
     assert eng.cost_tp_bps == 4.0
     assert eng.cost_tp_bps < eng.round_trip_bps
+
+
+# --- du verdict à l'ordre : le chemin complet d'une horloge de panel ---- #
+
+class _Horloge:
+    """Une horloge de panel déjà validée, sans passer par un ajustement.
+
+    Ce qui est testé ici n'est pas la porte — elle a ses propres tests —
+    mais le CÂBLAGE : un seul objet modèle partagé par tous les actifs,
+    le vote de tout le panel avant la moindre fusion, la neutralisation
+    transversale, et enfin l'ordre. Une horloge qui passe la porte sans
+    que rien ne s'ouvre derrière ne sert à rien.
+    """
+
+    def __init__(self, variant="abs", par_actif=None):
+        self.status, self.variant = "live", variant
+        self.shrink, self.thr_bps = 0.5, 5.0
+        self.horizon_bars, self.ic, self.q = 3, 0.12, 0.0012
+        self.bar = "1m"
+        self._par_actif = par_actif or {}
+        self._defaut = 60.0
+
+    def predict_row(self, x, sig=None):
+        # la valeur dépend de l'actif via un compteur d'appels ; le moteur
+        # vote dans l'ordre de self.instruments
+        raw = self._suivant()
+        return {"r_bps": raw * self.shrink, "raw_bps": raw,
+                "up_bps": 45.0, "dn_bps": 30.0, "q_bps": self.q * 1e4,
+                "veto": abs(raw) < self.thr_bps, "bar": self.bar,
+                "horizon_bars": self.horizon_bars, "variant": self.variant,
+                "status": "live", "ic": self.ic}
+
+    def _suivant(self):
+        if not self._par_actif:
+            return self._defaut
+        return self._par_actif.pop(0) if self._par_actif else self._defaut
+
+
+def _desk_partage(eng, horloge):
+    for inst in eng.instruments:
+        eng.horizons.models[(inst, "1m")] = horloge
+    eng.horizons.fee = 7.0
+    return eng
+
+
+def test_one_shared_clock_speaks_for_the_whole_panel(tmp_path):
+    """Une horloge validée parle pour tous les actifs au même instant :
+    c'est exactement le portefeuille sur lequel elle a été jugée, et la
+    raison pour laquelle le panel fait trader plus souvent."""
+    eng = _moteur(tmp_path)
+    _desk_partage(eng, _Horloge("abs"))
+    preds = _preds(eng)
+    directions = [p["dir"] for p in preds]
+    assert len(preds) == len(eng.instruments)
+    assert sum(d == "long" for d in directions) >= 2, (
+        f"une horloge partagée n'a fait parler personne : {directions}")
+
+
+def test_a_neutral_clock_produces_a_long_and_a_short_at_once(tmp_path):
+    """En variante neutre le livre est long-short par construction : le
+    premier actif dépasse la moyenne du panel, le dernier est dessous."""
+    eng = _moteur(tmp_path)
+    n = len(eng.instruments)
+    # écarts francs de part et d'autre de la moyenne
+    valeurs = [80.0] + [0.0] * (n - 2) + [-80.0]
+    _desk_partage(eng, _Horloge("neu", par_actif=list(valeurs)))
+    preds = _preds(eng)
+    sens = {p["inst"]: p["dir"] for p in preds}
+    assert "long" in sens.values() and "short" in sens.values(), sens
+
+
+def test_every_asset_votes_before_anything_fuses(tmp_path):
+    """La neutralisation a besoin de la moyenne du tour COURANT. Si le
+    moteur fusionnait au fil de la boucle, le premier actif serait jugé
+    sur la moyenne du tour précédent — une règle que personne n'a
+    validée."""
+    eng = _moteur(tmp_path)
+    ordre = []
+    vrai_vote = eng.horizons.vote_clock
+    vraie_fusion = eng.horizons.fuse
+
+    def vote(inst, bar, c, btc):
+        ordre.append(("vote", inst))
+        return vrai_vote(inst, bar, c, btc)
+
+    def fuse(inst):
+        ordre.append(("fuse", inst))
+        return vraie_fusion(inst)
+
+    eng.horizons.vote_clock, eng.horizons.fuse = vote, fuse
+    _desk_partage(eng, _Horloge("abs"))
+    _preds(eng)
+    votes = [i for i, (k, _) in enumerate(ordre) if k == "vote"]
+    fusions = [i for i, (k, _) in enumerate(ordre) if k == "fuse"]
+    assert votes and fusions
+    assert max(votes) < min(fusions), (
+        "un vote arrive après une fusion : la moyenne du panel serait rance")
