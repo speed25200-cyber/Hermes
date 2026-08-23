@@ -376,6 +376,52 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0
 .carte:nth-of-type(2){animation-delay:.08s}
 .carte:nth-of-type(3){animation-delay:.12s}
 
+/* ── Application à vues : une seule visible, transition à l'entrée ── */
+main{min-height:60vh}
+.vue{display:none}
+.vue.active{display:block;animation:vueIn .38s cubic-bezier(.22,.9,.3,1)}
+@keyframes vueIn{from{opacity:0;transform:translateY(14px) scale(.99)}to{opacity:1;transform:none}}
+.wrap{padding-bottom:120px}   /* place pour le dock */
+footer{padding-bottom:96px}
+
+/* Grand titre façon iOS : chaque vue s'annonce. */
+.gtitre{font-size:32px;font-weight:700;letter-spacing:-.035em;
+  margin:var(--e3) 0 var(--e4);line-height:1.1}
+
+/* Héros du marché : le prix avant tout. */
+.hero{padding:var(--e3) 0 var(--e4)}
+.hnom{font-size:12px;font-weight:620;text-transform:uppercase;
+  letter-spacing:.12em;color:var(--encre-3);margin-bottom:2px}
+.hligne{display:flex;align-items:baseline;gap:var(--e3);flex-wrap:wrap}
+.hpx{font-size:52px;font-weight:680;letter-spacing:-.05em;line-height:1.02;
+  font-variant-numeric:tabular-nums}
+.hchg{font-size:14px;font-weight:600;padding:4px 11px;border-radius:var(--r-plein)}
+.hchg.hausse{background:color-mix(in oklab,var(--bon) 16%,transparent)}
+.hchg.baisse{background:color-mix(in oklab,var(--critique) 16%,transparent)}
+
+/* Le dock : navigation flottante en verre, façon iOS. */
+.dock{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));
+  transform:translateX(-50%);z-index:60;
+  display:flex;gap:2px;padding:7px;border-radius:26px;
+  background:var(--vitre);border:1px solid var(--filet-fort);
+  backdrop-filter:blur(28px) saturate(1.8);
+  -webkit-backdrop-filter:blur(28px) saturate(1.8);
+  box-shadow:var(--lueur),0 8px 40px -8px rgba(0,0,0,.55)}
+.dock button{font:inherit;border:0;background:transparent;color:var(--encre-3);
+  border-radius:19px;padding:8px 15px 7px;cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  -webkit-tap-highlight-color:transparent;
+  transition:color .25s var(--courbe),background .25s var(--courbe),transform .18s var(--courbe)}
+.dock button:active{transform:scale(.92)}
+.dock button svg{width:22px;height:22px;fill:none;stroke:currentColor;
+  stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.dock button span{font-size:10px;font-weight:600;letter-spacing:.01em}
+.dock button[aria-selected="true"]{color:var(--accent);
+  background:color-mix(in oklab,var(--accent) 13%,transparent)}
+
+/* Les cartes deviennent des groupes calmes : l'espace sépare, pas l'ombre. */
+.carte{margin-bottom:var(--e4)}
+
 /* ── Adaptations ─────────────────────────────────────────────────── */
 @media(max-width:1100px){
   .mesures{grid-template-columns:repeat(2,1fr)}
@@ -390,6 +436,10 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0
   .seg{order:2;margin-left:0;width:100%;justify-content:space-between}
   .seg button{flex:1}
   .gzone{height:340px}
+  .hpx{font-size:42px}
+  .gtitre{font-size:28px}
+  .dock{left:12px;right:12px;transform:none;justify-content:space-between}
+  .dock button{padding:8px 10px 7px;flex:1}
   /* Grille déterministe : rangée 1 = marque + bouton thème, rangée 2 =
      les pastilles d'état. Le flux flexible laissait « Clair » seul sur une
      ligne ou le glissait entre la marque et une pastille selon la longueur
@@ -427,7 +477,7 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="wrap app">
 
   <header>
     <div class="marque"><b>Hermes</b><span id="mode"></span></div>
@@ -438,47 +488,72 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0
     </div>
   </header>
 
-  <section class="verdict">
-    <div>
-      <div class="titre"><span class="jeton attente" id="etat">…</span><h1 id="verdict-t">Chargement</h1></div>
-      <p id="verdict-p">Lecture de l'état du moteur.</p>
-    </div>
-    <div class="chiffre">
-      <div class="v num" id="equity">—</div>
-      <div class="l">Equity · <span id="pnl">—</span></div>
-    </div>
-  </section>
+  <main>
 
-  <div class="carte marche">
-    <div class="mtete">
-      <div class="onglets" id="onglets" role="tablist"></div>
-      <div class="seg" id="tfs" role="tablist"><span class="pilule" id="tfpil"></span></div>
-    </div>
-    <div class="gzone" id="gzone">
-      <canvas id="gc"></canvas>
-      <div class="gleg num" id="gleg"></div>
-      <div class="gvide" id="gvide">Chargement des chandelles…</div>
-    </div>
-  </div>
+    <!-- ═══ MARCHÉ : le prix en héros, le graphe plein cadre ═══ -->
+    <section class="vue active" id="vue-marche">
+      <div class="hero">
+        <div class="hnom" id="hero-nom">—</div>
+        <div class="hligne">
+          <div class="hpx num" id="hero-px">—</div>
+          <div class="hchg num" id="hero-chg"></div>
+        </div>
+      </div>
+      <div class="carte marche">
+        <div class="mtete">
+          <div class="onglets" id="onglets" role="tablist"></div>
+          <div class="seg" id="tfs" role="tablist"><span class="pilule" id="tfpil"></span></div>
+        </div>
+        <div class="gzone" id="gzone">
+          <canvas id="gc"></canvas>
+          <div class="gleg num" id="gleg"></div>
+          <div class="gvide" id="gvide">Chargement des chandelles…</div>
+        </div>
+      </div>
+      <div class="carte">
+        <h2>Positions ouvertes <span class="aide" id="pos-aide"></span></h2>
+        <div id="positions"><div class="vide">Aucune position ouverte.</div></div>
+      </div>
+    </section>
 
-  <div class="carte" style="margin-bottom:16px">
-    <h2>Positions ouvertes <span class="aide" id="pos-aide"></span></h2>
-    <div id="positions"><div class="vide">Aucune position ouverte.</div></div>
-  </div>
+    <!-- ═══ SIGNAUX : le verdict et les décisions ═══ -->
+    <section class="vue" id="vue-signaux">
+      <h1 class="gtitre">Signaux</h1>
+      <section class="verdict">
+        <div>
+          <div class="titre"><span class="jeton attente" id="etat">…</span><h1 id="verdict-t">Chargement</h1></div>
+          <p id="verdict-p">Lecture de l'état du moteur.</p>
+        </div>
+        <div class="chiffre">
+          <div class="v num" id="equity">—</div>
+          <div class="l">Equity · <span id="pnl">—</span></div>
+        </div>
+      </section>
+      <div class="carte">
+        <h2>Décisions en cours <span class="aide" id="dec-aide"></span></h2>
+        <div id="decisions"><div class="vide">En attente des premières décisions du moteur.</div></div>
+      </div>
+    </section>
 
-  <div class="grille g2">
-    <div class="carte">
-      <h2>Décisions en cours <span class="aide" id="dec-aide"></span></h2>
-      <div id="decisions"><div class="vide">En attente des premières décisions du moteur.</div></div>
-    </div>
-    <div>
-      <div class="carte" style="margin-bottom:16px">
+    <!-- ═══ RISQUE : budget, levier ═══ -->
+    <section class="vue" id="vue-risque">
+      <h1 class="gtitre">Risque</h1>
+      <div class="carte">
         <h2>Budget de risque</h2>
         <div class="corps" id="risque"><div class="vide">—</div></div>
       </div>
-      <div class="carte" style="margin-bottom:16px">
+      <div class="carte">
         <h2>Levier</h2>
         <div class="corps" id="levier"><div class="vide">—</div></div>
+      </div>
+    </section>
+
+    <!-- ═══ PREUVE : l'évidence derrière chaque pupitre, la courbe ═══ -->
+    <section class="vue" id="vue-preuve">
+      <h1 class="gtitre">Preuve</h1>
+      <div class="carte">
+        <h2>Preuve par marché <span class="aide" id="preuve-aide"></span></h2>
+        <div id="preuve"><div class="vide">Aucun apprentissage enregistré.</div></div>
       </div>
       <div class="carte">
         <h2>Equity <span class="aide">mark-to-market</span></h2>
@@ -488,18 +563,37 @@ footer{color:var(--encre-3);font-size:12px;text-align:center;padding:var(--e6) 0
           <div class="infobulle" id="bulle"></div>
         </div>
       </div>
-    </div>
-  </div>
+    </section>
 
-  <div class="carte" style="margin-bottom:16px">
-    <h2>Preuve par marché <span class="aide" id="preuve-aide"></span></h2>
-    <div id="preuve"><div class="vide">Aucun apprentissage enregistré.</div></div>
-  </div>
+    <!-- ═══ JOURNAL : les trades ═══ -->
+    <section class="vue" id="vue-journal">
+      <h1 class="gtitre">Journal</h1>
+      <div class="carte">
+        <h2>Derniers trades</h2>
+        <div class="defile" id="trades"><div class="vide">Aucun trade enregistré.</div></div>
+      </div>
+    </section>
 
-  <div class="carte" style="margin-bottom:16px">
-    <h2>Derniers trades</h2>
-    <div class="defile" id="trades"><div class="vide">Aucun trade enregistré.</div></div>
-  </div>
+  </main>
+
+  <!-- ═══ Dock flottant : la navigation de l'application ═══ -->
+  <nav class="dock" id="nav" aria-label="Navigation">
+    <button data-vue="marche" aria-selected="true">
+      <svg viewBox="0 0 24 24"><polyline points="3 17 9 11 13 14 21 6"/><polyline points="15 6 21 6 21 12"/></svg>
+      <span>Marché</span></button>
+    <button data-vue="signaux" aria-selected="false">
+      <svg viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6z"/></svg>
+      <span>Signaux</span></button>
+    <button data-vue="risque" aria-selected="false">
+      <svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 7.8 8 9 4.5-1.2 8-4 8-9V6z"/><polyline points="9 12 11 14 15 10"/></svg>
+      <span>Risque</span></button>
+    <button data-vue="preuve" aria-selected="false">
+      <svg viewBox="0 0 24 24"><rect x="4" y="13" width="3.5" height="7" rx="1"/><rect x="10.2" y="8" width="3.5" height="12" rx="1"/><rect x="16.4" y="4" width="3.5" height="16" rx="1"/></svg>
+      <span>Preuve</span></button>
+    <button data-vue="journal" aria-selected="false">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>
+      <span>Journal</span></button>
+  </nav>
 
   <footer>Hermes · <span id="maj">—</span></footer>
 </div>
@@ -535,6 +629,24 @@ const motif = r => MOTIFS[r] || [r, ""];
 
 /* ── État ────────────────────────────────────────────────────────── */
 let dernier = null, serie = [], echecs = 0;
+
+/* ── Navigation : cinq vues, une visible. Le graphe se redimensionne
+   au retour sur Marché (un canvas caché mesure zéro). ──────────────── */
+(function(){
+  const nav = $("nav");
+  const aller = (nom, memoriser) => {
+    document.querySelectorAll(".vue").forEach(v =>
+      v.classList.toggle("active", v.id === "vue-" + nom));
+    nav.querySelectorAll("button").forEach(b =>
+      b.setAttribute("aria-selected", b.dataset.vue === nom ? "true" : "false"));
+    if (memoriser) try { localStorage.setItem("hermes-vue", nom); } catch(e){}
+    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+  };
+  nav.querySelectorAll("button").forEach(b => b.onclick = () => aller(b.dataset.vue, true));
+  let v = null;
+  try { v = localStorage.getItem("hermes-vue"); } catch(e){}
+  if (v && document.getElementById("vue-" + v)) aller(v, false);
+})();
 
 /* ── Thème ───────────────────────────────────────────────────────── */
 (function(){
@@ -1349,6 +1461,18 @@ const Marche = (() => {
     });
   }
   let pxRepli = {};   // prix de repli par instrument quand le ticker se tait
+  function majHero(){
+    const t = ticks[inst] || {};
+    const px = Number(t.last) || Number(pxRepli[inst]) || NaN;
+    const chg = Number(t.chg24h);
+    $("hero-nom").textContent = inst ? court(inst) + " · perpétuel" : "—";
+    majChiffre($("hero-px"), isFinite(px) && px > 0 ? nf(px, px > 1000 ? 1 : 4) : "—");
+    const c = $("hero-chg");
+    if (isFinite(chg) && chg !== 0){
+      c.textContent = sgn(chg * 100) + " % · 24 h";
+      c.className = "hchg num " + (chg >= 0 ? "hausse" : "baisse");
+    } else { c.textContent = ""; c.className = "hchg num"; }
+  }
   function majOnglets(){
     $("onglets").querySelectorAll(".ong").forEach(b => {
       const t = ticks[b.dataset.inst] || {};
@@ -1378,6 +1502,7 @@ const Marche = (() => {
     (s.preds || []).forEach(q => { if (q.px > 0) pxRepli[q.inst] = q.px; });
     if (inst && rows.length) pxRepli[inst] = rows[rows.length - 1][4];
     majOnglets();
+    majHero();
     const pb = ((d.trader || {}).paper_broker || {});
     const pos = pb.pos || {};
     sur = {};
