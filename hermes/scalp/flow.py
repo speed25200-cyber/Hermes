@@ -226,7 +226,11 @@ class _Head:
             # se voyait rétrécie à 0,6 — le bracket ne pouvait qu'être
             # refusé. La confiance est jugée par la porte, payée en taille
             # par le quart de Kelly.
-            self.shrink = float(min(3.0, max(0.0, self.pente))) \
+            # pondérée par sa crédibilité, comme pour les horloges : une
+            # pente estimée sur 62 trades ne doit pas devenir un levier
+            credit = min(1.0, best["n_tr"] / 200.0)
+            self.shrink = float(min(3.0, max(
+                0.0, 1.0 + (self.pente - 1.0) * credit))) \
                 if self.ic > floor else 0.25
             self.status = "live"
         else:

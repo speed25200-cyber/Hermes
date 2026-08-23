@@ -357,7 +357,9 @@ def test_the_scale_applied_to_a_prediction_is_the_measured_slope():
     m = CandleModel("5m")
     d = m.fit(_reversion(60))
     assert d["status"] == "live", d
-    assert abs(m.shrink - min(3.0, max(0.0, m.pente))) < 1e-12
+    credit = min(1.0, m.n_periods / 200.0)
+    attendu = min(3.0, max(0.0, 1.0 + (m.pente - 1.0) * credit))
+    assert abs(m.shrink - attendu) < 1e-12
     assert m.pente > 0.0
 
 
@@ -415,3 +417,61 @@ def test_the_screen_shows_one_clock_per_scale_not_one_per_asset():
         assert e["n_assets"] == 3
         assert {"holdout_sr", "sel_bar", "n_periods", "pente",
                 "variant", "family"} <= set(e)
+
+
+def test_the_traded_universe_is_the_panel_that_was_judged():
+    """La porte mesure un PORTEFEUILLE sur les actifs du panel. En trader
+    d'autres, ou moins, jouerait une règle que personne n'a validée.
+
+    Trois listes codées en dur — deux dans le moteur, deux dans le
+    trader — ont tenu le panel à trois actifs pendant que sa définition
+    en annonçait six : les verdicts sortaient en panel[3] alors que les
+    six historiques étaient complets."""
+    import tempfile
+
+    from hermes.scalp.engine import ScalpEngine
+
+    class _B:
+        def positions(self):
+            return {}
+
+        def equity(self):
+            return 10_000.0
+
+    class _E:
+        peak_equity = 10_000.0
+        day_start_equity = 10_000.0
+
+    class _R:
+        trading_allowed = True
+        must_flatten = False
+        daily_loss_limit_pct = 8.0
+        max_drawdown_pct = 25.0
+        state = _E()
+
+    eng = ScalpEngine({"scalp": {}, "costs": {}}, _B(), None, _R(),
+                      lambda m: None, tempfile.mkdtemp())
+    assert eng.instruments == list(ASSETS)
+    assert eng.refresh_universe({}) == list(ASSETS)
+    assert eng.trade_top == len(ASSETS)
+
+
+def test_a_slope_measured_on_few_trades_does_not_become_leverage():
+    """Observée en production : la pente saute de 0,97 à 3,14 d'un
+    ajustement à l'autre quand la cellule retenue ne compte que 62
+    trades. Le facteur appliqué s'écarte de 1 à proportion des preuves."""
+    m = CandleModel("5m")
+    m.pente, m.n_periods = 3.14, 62
+    b = {"fam": "ens", "h": 3, "rr": m.rr, "nn": m.nn, "up": m.up,
+         "dn": m.dn, "ic": 0.20, "thr": 5.0, "n_tr": 62, "n_per": 62,
+         "n_hold": 800, "n_train": 5000, "bps": 4.0, "sr": 0.9,
+         "barre": 0.2, "marge": 0.7, "pente": 3.14, "var": "abs",
+         "y": np.zeros(1), "pred": np.zeros(1), "cle": (1, 0.7)}
+    m._retenir(b, 4.75)
+    assert m.status == "live"
+    assert 1.0 < m.shrink < 2.0, m.shrink
+    # les mêmes preuves, en nombre : la pente est alors prise telle quelle
+    b2 = dict(b, n_per=600, n_tr=600)
+    m2 = CandleModel("5m")
+    m2._retenir(b2, 4.75)
+    assert abs(m2.shrink - 3.0) < 1e-9 or abs(m2.shrink - 3.14) < 0.2

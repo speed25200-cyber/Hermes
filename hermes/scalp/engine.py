@@ -13,6 +13,7 @@ from ..exchange.broker import Broker, PaperBroker
 from . import features as F
 from . import economics as ECON
 from . import model as M
+from .clock import ASSETS as CLOCK_ASSETS
 from .clock import BARS, HOLD, ScaleDesk
 from .flow import HORIZON_S, FlowBrain
 
@@ -26,9 +27,15 @@ class ScalpEngine:
         self.risk = risk
         self.log = log
         self.state_path = os.path.join(state_dir, "scalp.json")
-        self.instruments = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
-        self.universe_n = 3
-        self.trade_top = 3
+        # Le panel jugé et le panel tradé sont le MÊME ensemble, par
+        # construction. La porte mesure un portefeuille sur ces actifs-là ;
+        # en trader d'autres, ou moins, jouerait une règle que personne n'a
+        # validée. Trois listes codées en dur traînaient ici et dans le
+        # trader, et elles ont tenu le panel à trois actifs pendant que la
+        # définition en annonçait six.
+        self.instruments = list(CLOCK_ASSETS)
+        self.universe_n = len(self.instruments)
+        self.trade_top = len(self.instruments)
         self.require_l2 = False
         self.max_spread = float(s.get("max_spread_bps", 6.0))
         self.min_vol = float(s.get("min_vol_usd", 10_000_000))
@@ -41,7 +48,7 @@ class ScalpEngine:
         self.max_hold = int(s.get("max_hold_bars", 16))
         self.max_name = float(s.get("max_name_lev", 20.0))
         self.gross_cap = float(s.get("gross_cap", 20.0))
-        self.trade_top = int(s.get("trade_top", 2))
+        self.trade_top = int(s.get("trade_top", len(self.instruments)))
         self.lev_min = 2
         self.lev_max = 20
         self.opened_bar: dict[str, int] = {}
@@ -177,7 +184,7 @@ class ScalpEngine:
 
     def refresh_universe(self, tickers: dict[str, dict]) -> list[str]:
         self.ticks = tickers
-        self.instruments = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+        self.instruments = list(CLOCK_ASSETS)
         self.universe_at = time.time()
         self.flatten_foreign()
         return self.instruments

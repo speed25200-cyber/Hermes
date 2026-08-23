@@ -749,8 +749,10 @@ class LiveRunner:
         if self.scalp:
             self._ensure_scalp_data()
             try:
-                names = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
-                self.scalp.horizons.fit_store(self.store, names)
+                # Le panel appris est celui que le moteur trade : une
+                # seule définition, dans clock.ASSETS.
+                self.scalp.horizons.fit_store(
+                    self.store, list(self.scalp.instruments))
             except Exception as exc:
                 self.log(f"learner fit: {type(exc).__name__}: {exc}")
             threading.Thread(target=self._bg_sync, daemon=True).start()
@@ -788,7 +790,7 @@ class LiveRunner:
                         self.scalp.ticks = ticks
                     if ticks and hasattr(self.broker, "mark_ticks"):
                         self.broker.mark_ticks(ticks)
-                    names = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+                    names = list(self.scalp.instruments)
                     if time.time() - last_learn > 3600:
                         last_learn = time.time()
                         def _refit():

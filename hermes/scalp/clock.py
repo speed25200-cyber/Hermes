@@ -662,9 +662,15 @@ class CandleModel:
             # c'est la pente mesurée. La confiance, elle, est déjà jugée
             # deux lignes plus haut (ic au-dessus de son plancher, Sharpe
             # au-dessus de la barre) et payée en taille par le quart de
-            # Kelly. Bornée à 3 pour qu'une pente estimée sur peu de
-            # trades ne devienne pas un levier.
-            self.shrink = float(min(3.0, max(0.0, self.pente)))
+            # Kelly. Pondérée par sa propre crédibilité, et bornée : une
+            # pente mesurée sur 553 trades vaut ce qu'elle dit ; la même
+            # sur 62 ne vaut pas qu'on triple une position — observée en
+            # production, elle saute de 0,97 à 3,14 d'un ajustement à
+            # l'autre. Le point neutre est 1 (faire confiance à l'échelle
+            # du modèle) et on s'en écarte à proportion des preuves.
+            credit = min(1.0, self.n_periods / 200.0)
+            self.shrink = float(min(3.0, max(
+                0.0, 1.0 + (self.pente - 1.0) * credit)))
             self.status = "live"
         else:
             self.shrink = 0.0
