@@ -899,8 +899,15 @@ function rendreDecisions(d){
    raison valable de risquer du capital. */
 function rendrePreuve(d){
   const h = (d.scalp || {}).horizons || {};
-  const best = h._best || {};
-  const noms = Object.keys(best).sort();
+  // Une horloge par ÉCHELLE, apprise sur tout le panel. Six cartes
+  // identiques — une par actif — mentiraient sur la nature de la preuve :
+  // ce n'est pas « l'horloge de SOL » qui a franchi la barre, c'est
+  // l'horloge 3m, sur six actifs à la fois.
+  const ech = h._echelles || {};
+  const ordre = ["1m", "3m", "5m", "15m"];
+  const best = Object.keys(ech).length ? ech : (h._best || {});
+  const noms = Object.keys(ech).length
+    ? ordre.filter(b => ech[b]) : Object.keys(best).sort();
   $("preuve-aide").textContent = noms.length
     ? "Sharpe du portefeuille par instant mesuré, contre le hasard"
     : "";
@@ -921,10 +928,10 @@ function rendrePreuve(d){
     const g = Math.min(50, pos(sr)), dte = Math.max(50, pos(sr));
     return `<div class="decision">
       <div class="dtete">
-        <span class="dsym">${esc(nom)}</span>
+        <span class="dsym">${esc(b.bar || nom)}</span>
         <span class="jeton ${vivant ? "actif" : "attente"}">${vivant ? "Retenu" : "Écarté"}</span>
-        <span class="dpx">${esc(b.policy || "flat")} · ${esc(b.bar || "?")}
-          · ${esc(b.family || "ridge")}${b.variant === "neu" ? " · neutre" : ""}</span>
+        <span class="dpx">${esc(b.family || "ridge")} · h${b.horizon_bars || 1}${
+          b.variant === "neu" ? " · marché-neutre" : ""}</span>
         <span class="motif">${b.n_trials || 0} essais · panel de ${b.n_assets || 1}</span>
       </div>
       <div class="mesures">
@@ -937,8 +944,11 @@ function rendrePreuve(d){
         <div class="mesure"><div class="l">Instants mesurés</div>
           <div class="v num petit">${b.n_periods || 0}<span
             class="petit"> · ${b.n_trades || 0} trades</span></div></div>
-        <div class="mesure"><div class="l">Poids du modèle</div>
-          <div class="v num petit">${nf(Number(b.alpha || 0), 2)}</div></div>
+        <div class="mesure"><div class="l">Calibration</div>
+          <div class="v num petit">x${nf(Number(b.pente ?? b.alpha ?? 0), 2)}</div></div>
+        <div class="mesure"><div class="l">Actifs qui parlent</div>
+          <div class="v num petit">${b.actifs_qui_parlent ?? 0}<span
+            class="petit"> / ${b.n_assets || 1}</span></div></div>
       </div>
       <div class="barre">
         <div class="piste">

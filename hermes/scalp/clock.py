@@ -935,4 +935,35 @@ class ScaleDesk:
                 "alpha": getattr(m, "shrink", 0.0) if m else 0.0,
             }
         d["_best"] = best
+        # Une horloge par échelle, partagée par tout le panel : la vérité
+        # de l'écran n'est plus « l'horloge de SOL » mais « l'horloge 3m,
+        # apprise sur six actifs ». Six cartes identiques auraient menti
+        # sur la nature de la preuve.
+        echelles = {}
+        for bar in BARS:
+            m = next((mm for (i, b), mm in self.models.items() if b == bar),
+                     None)
+            if m is None:
+                continue
+            vivants = sum(1 for (i, b), v in self.votes.items()
+                          if b == bar and v and not v.get("veto")
+                          and v.get("status") == "live")
+            # getattr partout : un instantané d'écran ne doit jamais
+            # pouvoir faire tomber le moteur parce qu'un modèle est en
+            # cours de construction ou qu'un champ a changé de nom.
+            def g(nom, defaut=0.0, _m=m):
+                return getattr(_m, nom, defaut)
+            echelles[bar] = {
+                "bar": bar, "status": g("status", "unfitted"),
+                "family": g("family", "ridge"), "variant": g("variant", "abs"),
+                "horizon_bars": g("horizon_bars", 1),
+                "ic": g("ic"), "pente": g("pente"),
+                "holdout": g("holdout_bps"), "holdout_sr": g("hold_sr"),
+                "sel_bar": g("sel_bar"), "n_periods": g("n_periods", 0),
+                "n_trades": g("n_trades", 0), "n_holdout": g("n_hold", 0),
+                "n_train": g("n_train", 0), "n_assets": g("n_assets", 1),
+                "n_trials": g("n_cells", 0), "thr_bps": g("thr_bps"),
+                "alpha": g("shrink"), "actifs_qui_parlent": vivants,
+            }
+        d["_echelles"] = echelles
         return d

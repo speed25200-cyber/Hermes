@@ -395,3 +395,23 @@ def test_a_live_clock_hands_the_engine_a_calibrated_move():
         return
     v = m.predict_row(_row(c, None), float(_sigma(c)[-1]))
     assert abs(v["r_bps"] - v["raw_bps"] * m.shrink) < 1e-9
+
+
+def test_the_screen_shows_one_clock_per_scale_not_one_per_asset():
+    """Six cartes identiques mentiraient sur la nature de la preuve : ce
+    n'est pas « l'horloge de SOL » qui franchit la barre, c'est l'horloge
+    3m, sur tout le panel à la fois."""
+    d = {}
+    for i, inst in enumerate(ASSETS[:3]):
+        for bar in BARS:
+            d[(inst, bar)] = _bruit(400 + i, n=900)
+    desk = ScaleDesk()
+    desk.fit_store(_Store(d), names=list(ASSETS[:3]))
+    ech = desk.to_dict()["_echelles"]
+    assert set(ech) <= set(BARS)
+    assert len(ech) == len({b for (_, b) in desk.models})
+    for bar, e in ech.items():
+        assert e["bar"] == bar
+        assert e["n_assets"] == 3
+        assert {"holdout_sr", "sel_bar", "n_periods", "pente",
+                "variant", "family"} <= set(e)
