@@ -543,10 +543,6 @@ class CandleModel:
             if not np.isfinite(sd_p) or sd_p > 10.0 * max(sd_y, 1e-12):
                 continue
             ic = _ic(p_bps, yho)
-            # Diagnostic : de combien la réalité multiplie ce que le
-            # modèle annonce. Loin sous 1, ses points de base n'en sont pas.
-            vp = float(np.var(p_bps))
-            pente = (float(np.cov(p_bps, yho)[0, 1]) / vp) if vp > 1e-18 else 0.0
             # « neu » : à chaque instant, on retranche la moyenne du panel.
             # Le signal ne dit plus « ça monte » mais « ça monte plus que
             # les autres » — et comme le portefeuille moyenne ensuite des
@@ -604,6 +600,17 @@ class CandleModel:
                     # présentation, pas une porte — les deux conditions de
                     # _retenir sont inchangées.
                     mu = float(np.mean(net))
+                    # Calibration, mesurée là où la règle DÉCLENCHE : de
+                    # combien la réalité multiplie ce que le modèle
+                    # annonce sur ces barres-là. Un ridge régularisé rend
+                    # une moyenne conditionnelle rétrécie vers zéro ; en
+                    # production cette pente vaut 1,6 à 2,4. Ce n'est pas
+                    # une cellule cherchée mais une échelle estimée, et le
+                    # Sharpe est invariant d'échelle : la porte n'en est
+                    # pas affectée d'un iota.
+                    vp = float(np.var(pv[m]))
+                    pente = (float(np.cov(pv[m], yho[m])[0, 1]) / vp) \
+                        if vp > 1e-18 else 0.0
                     cle = (1 if mu > 0 else 0, marge)
                     if best is None or cle > best["cle"]:
                         best = {
@@ -644,7 +651,20 @@ class CandleModel:
         ic_floor = 2.0 / math.sqrt(max(b["n_hold"], 4))
         if self.holdout_bps > 0 and self.hold_sr > self.sel_bar \
                 and self.ic > ic_floor:
-            self.shrink = float(min(0.6, 0.2 + 2.0 * self.ic))
+            # Le facteur appliqué à la prédiction avant qu'elle serve à
+            # choisir un bracket et une taille était min(0,6 ; 0,2+2·ic) —
+            # une formule, pas une mesure. Elle rétrécissait de moitié ou
+            # plus un modèle DÉJÀ rétréci d'un facteur deux : le moteur
+            # voyait un mouvement trois à douze fois plus petit que celui
+            # qui allait vraiment se produire, refusait ses propres
+            # brackets faute d'espérance, et sous-dimensionnait le reste.
+            # La bonne échelle n'est pas une opinion sur la confiance :
+            # c'est la pente mesurée. La confiance, elle, est déjà jugée
+            # deux lignes plus haut (ic au-dessus de son plancher, Sharpe
+            # au-dessus de la barre) et payée en taille par le quart de
+            # Kelly. Bornée à 3 pour qu'une pente estimée sur peu de
+            # trades ne devienne pas un levier.
+            self.shrink = float(min(3.0, max(0.0, self.pente)))
             self.status = "live"
         else:
             self.shrink = 0.0

@@ -141,9 +141,7 @@ class _Head:
         # Diagnostic, jamais une décision : de combien la réalité multiplie
         # ce que la tête annonce. Très en dessous de 1, le modèle est
         # rétréci et ses points de base ne sont pas des points de base.
-        vp = float(np.var(pred))
-        self.pente = (float(np.cov(pred, y[hold])[0, 1]) / vp) if vp > 1e-18 \
-            else 0.0
+
         self.n = len(y)
         # La porte juge la RÈGLE, pas le modèle : le moteur ne trade pas
         # chaque étiquette, il trade celles où la tête parle fort. Facturer
@@ -190,8 +188,13 @@ class _Head:
             barre = expected_max_sharpe(trials, n_tr)
             cle = (1 if mu > 0 else 0, sr - barre)
             if best is None or cle > best["cle"]:
+                # Calibration mesurée là où la règle déclenche : de combien
+                # la réalité multiplie ce que la tête annonce.
+                vp = float(np.var(pred[m]))
+                pente = (float(np.cov(pred[m], y[hold][m])[0, 1]) / vp) \
+                    if vp > 1e-18 else 0.0
                 best = {"thr": thr, "n_tr": n_tr, "mu": mu, "sr": sr,
-                        "barre": barre, "cle": cle}
+                        "barre": barre, "cle": cle, "pente": pente}
         if best is None:
             # Assez d'étiquettes, mais aucun seuil ne déclenche assez
             # souvent pour qu'une moyenne soit une mesure : la tête prédit
@@ -207,6 +210,7 @@ class _Head:
         self.thr_bps = float(best["thr"])
         self.n_trades = best["n_tr"]
         mu, self.hold_sr = best["mu"], best["sr"]
+        self.pente = float(best["pente"])
         # Every refit is one more draw at this gate; the three horizons are
         # three parallel searches and the threshold grid is searched inside
         # each — every one of them is charged. Capped so a long-running desk
@@ -215,7 +219,13 @@ class _Head:
         self.sel_bar = best["barre"]
         if mu > 0 and self.hold_sr > self.sel_bar:
             floor = 2.0 / math.sqrt(best["n_tr"])
-            self.shrink = float(min(0.7, 0.25 + 2.0 * self.ic)) \
+            # Même correction que pour les horloges : l'échelle appliquée
+            # à la prédiction est la pente mesurée, pas une formule sur
+            # l'ic. Une tête dont la pente vaut 2,3 annonçait 1,9 bps et
+            # se voyait rétrécie à 0,6 — le bracket ne pouvait qu'être
+            # refusé. La confiance est jugée par la porte, payée en taille
+            # par le quart de Kelly.
+            self.shrink = float(min(3.0, max(0.0, self.pente))) \
                 if self.ic > floor else 0.25
             self.status = "live"
         else:

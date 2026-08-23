@@ -64,7 +64,7 @@ jobs:
             echo "===== profondeur par instrument (panel des horloges) ====="
             # NB: commande ssh dejà entre apostrophes — aucune apostrophe ici,
             # et une seule ligne, sinon le bloc YAML se casse sur l|indentation.
-            /root/venv/bin/python -c "import sqlite3; [print(f\"  {i:18s} {b:4s} {n:8d}\") for i,b,n in sqlite3.connect(\"/root/hermes/data/market.db\").execute(\"SELECT inst,bar,COUNT(*) FROM candles GROUP BY inst,bar ORDER BY inst,bar\")]" 2>/dev/null || echo "  base illisible"
+            /root/venv/bin/python -c "import sqlite3; P=set(\"BTC ETH SOL XRP DOGE BNB\".split()); B=set(\"1m 3m 5m 15m\".split()); [print(f\"  {i:18s} {b:4s} {n:8d}\") for i,b,n in sqlite3.connect(\"/root/hermes/data/market.db\").execute(\"SELECT inst,bar,COUNT(*) FROM candles GROUP BY inst,bar ORDER BY inst,bar\") if i.split(\"-\")[0] in P and b in B]" 2>/dev/null || echo "  base illisible"
             echo
             echo "===== deployed book (registry summary) ====="
             grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
