@@ -70,6 +70,26 @@ class ScalpEngine:
         self.hold_ms: dict[str, int] = {}
         self.opened_h: dict[str, str] = {}
         self.trades: list[dict] = []
+        # Mode éclaireur : des trades réels à la taille MINIMALE de
+        # l'échange, sous un budget de perte journalier plafonné en dur.
+        # Il ne prédit rien et ne remplace aucune gate : il paie un tout
+        # petit prix connu pour (a) exercer la chaîne d'exécution en vrai
+        # et (b) mesurer ce que la simulation suppose — d'abord le taux de
+        # remplissage maker au take-profit (QUEUE_MISS). La taille ne
+        # dépend jamais du signal : un éclaireur qui grossirait avec la
+        # conviction redeviendrait un trade non validé.
+        ex = (s.get("explore") or {})
+        self.explore_on = bool(ex.get("enabled", True))
+        self.explore_daily_bps = float(ex.get("daily_loss_bps", 15.0))
+        self.explore_cooldown_s = float(ex.get("cooldown_s", 600.0))
+        self.explore_max_open = int(ex.get("max_open", 2))
+        self.explore_notional = float(ex.get("notional_usd", 150.0))
+        self.explore_cap_pct = float(ex.get("notional_cap_pct", 3.0))
+        self.explore_pnl_day = 0.0
+        self._explore_day = ""
+        self._explore_last: dict[str, float] = {}
+        self.explore_stats = {"trades": 0, "tp_maker": 0, "tp_taker": 0,
+                              "sl": 0, "time": 0}
         try:
             with open(self.state_path) as f:
                 prev = json.load(f)
@@ -125,6 +145,12 @@ class ScalpEngine:
                 "scale": self._risk_scale(),
             },
             "trades": self.trades[-80:],
+            "explore": {
+                "enabled": self.explore_on,
+                "pnl_day_usd": self.explore_pnl_day,
+                "budget_usd": self.explore_daily_bps * 1e-4 * eq,
+                **self.explore_stats,
+            },
             "desk": { (p.get("inst") or "").split("-")[0]: {
                 "bar": p.get("bar"), "policy": p.get("policy"),
                 "status": p.get("ml") or p.get("reason"),
@@ -545,6 +571,18 @@ class ScalpEngine:
             fill = self.broker.market_order(inst, -qty, last,
                                             force_taker=maker_at is None,
                                             maker_at=maker_at)
+            if fill and br and br.get("explore"):
+                entree = float(br.get("entry") or fill.price)
+                self.explore_pnl_day += qty * (fill.price - entree) \
+                    - float(br.get("entry_fee") or 0.0) - float(fill.fee)
+                if maker_at is not None:
+                    self.explore_stats["tp_maker"] += 1
+                elif reason.startswith("TP"):
+                    self.explore_stats["tp_taker"] += 1
+                elif reason.startswith("SL"):
+                    self.explore_stats["sl"] += 1
+                else:
+                    self.explore_stats["time"] += 1
             self.brackets.pop(inst, None)
             self.opened_bar.pop(inst, None)
             self.hold_ms.pop(inst, None)
@@ -558,6 +596,68 @@ class ScalpEngine:
 
     def _blend_targets(self) -> dict[str, float]:
         return self._targets(self.last_preds or [])
+
+    def _explore(self, preds: list[dict], equity: float,
+                 targets: dict[str, float]) -> None:
+        """Ouvre au plus une position éclaireur par appel.
+
+        Taille minimale d'échange, plafond notionnel, budget de perte
+        journalier ; direction = signe du prévu courant (même non validé :
+        au pire une pièce, et la taille est fixe). Les sorties passent par
+        check_exits — c'est là que le remplissage maker au TP se mesure.
+        """
+        if not self.explore_on or not self.risk.trading_allowed:
+            return
+        jour = time.strftime("%Y-%m-%d", time.gmtime())
+        if jour != self._explore_day:
+            self._explore_day, self.explore_pnl_day = jour, 0.0
+        if self.explore_pnl_day <= -self.explore_daily_bps * 1e-4 * equity:
+            return          # budget du jour consommé : on observe, c'est tout
+        ouverts = sum(1 for b in self.brackets.values() if b.get("explore"))
+        if ouverts >= self.explore_max_open:
+            return
+        now = time.time()
+        pos = self.broker.positions()
+        for p in preds:
+            inst = p.get("inst") or ""
+            if inst in pos or targets.get(inst):
+                continue
+            if not p.get("l2"):
+                continue
+            spread = float(p.get("spread_bps") or 99.0)
+            if spread > self.max_spread:
+                continue
+            if now - self._explore_last.get(inst, 0.0) < self.explore_cooldown_s:
+                continue
+            edge = float(p.get("edge_bps") or 0.0)
+            last = float(p.get("px") or 0.0)
+            if edge == 0.0 or last <= 0:
+                continue
+            sens = 1.0 if edge > 0 else -1.0
+            qty = sens * self.explore_notional / last
+            if hasattr(self.broker, "_round_qty"):
+                arrondi = self.broker._round_qty(inst, qty)
+                if arrondi == 0:      # le minimum d'échange dépasse le vœu :
+                    arrondi = self.broker._round_qty(   # tenter sous plafond
+                        inst, sens * self.explore_cap_pct * 1e-2 * equity / last)
+                qty = arrondi
+            if qty == 0 or abs(qty) * last > self.explore_cap_pct * 1e-2 * equity:
+                continue              # minimum d'échange inabordable : passer
+            fill = self.broker.market_order(inst, qty, last)   # entrée maker
+            if not fill:
+                continue
+            self._explore_last[inst] = now
+            self.explore_stats["trades"] += 1
+            self.opened_bar[inst] = int(now * 1000)
+            self.opened_h[inst] = p.get("bar") or "90s"
+            self._arm(inst, qty, fill, float(p.get("vol_bps") or 0.0),
+                      p.get("tp_bps"), p.get("sl_bps"))
+            self.brackets[inst]["explore"] = True
+            self.brackets[inst]["entry_fee"] = float(fill.fee)
+            self._record(fill, qty, "explore", 0.0)
+            self.log(f"explore {inst} {qty:+.6f} @ {fill.price:.6f} "
+                     f"(pnl jour {self.explore_pnl_day:+.2f} USD)")
+            return                    # un seul par cycle : pas un moulin
 
     def tick(self, candles_1m: dict[str, Candles], now: float | None = None,
              bar: str = "1m") -> dict:
@@ -596,8 +696,14 @@ class ScalpEngine:
                 continue
             pending[inst] = tgt_w * equity / last
         for inst in self.broker.positions():
+            # une position éclaireur vit par son bracket (TP/SL/time-stop),
+            # pas par la cible du desk — sauf si une vraie cible arrive
+            if (self.brackets.get(inst) or {}).get("explore") \
+                    and inst not in pending:
+                continue
             pending.setdefault(inst, 0.0)
         self.pending = pending
+        self._explore(preds, equity, targets)
         self._vol = vol
         self.risk.update_equity(self.broker.equity(), now)
         self._snapshot({"equity": self.broker.equity(), "targets": targets})
