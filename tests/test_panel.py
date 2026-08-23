@@ -284,3 +284,19 @@ def test_the_sequence_columns_stay_causal():
     from hermes.scalp.clock import feat_matrix
     plein, court = feat_matrix(c), feat_matrix(c.slice(0, 500))
     assert np.allclose(plein[300:500], court[300:500], atol=1e-9)
+
+
+def test_a_late_joining_asset_cannot_shrink_everyone_else_holdout():
+    """Un actif dont l'historique commence tard n'a que des horodatages
+    récents. Compter la coupure sur les LIGNES le laisserait tirer le
+    quantile vers le présent et raccourcir le holdout de tout le panel ;
+    la coupure se prend donc sur les instants distincts."""
+    long_ = _bruit(51, n=3000)
+    tardif = long_.slice(2600, 3000)      # n'existe que sur la fin
+    seul = CandleModel("5m")
+    seul.fit_panel([(long_, None)])
+    melange = CandleModel("5m")
+    melange.fit_panel([(long_, None), (tardif, None)])
+    # le long garde le même train : le nouveau venu n'a pas déplacé la
+    # coupure (il n'apporte aucun instant que le long n'ait déjà)
+    assert melange.n_train >= seul.n_train

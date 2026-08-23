@@ -484,7 +484,12 @@ class CandleModel:
         # Coupure commune dans le TEMPS, pas dans l'index : deux actifs
         # d'historiques différents doivent être coupés au même instant,
         # sinon le holdout de l'un est le train de l'autre.
-        tous = np.sort(np.concatenate([p["ts"][p["idx"]] for p in parts]))
+        # Le quantile se prend sur les instants DISTINCTS, pas sur les
+        # lignes. Un actif arrivé récemment n'a que des horodatages récents
+        # ; les compter une fois par ligne tirerait la coupure vers le
+        # présent et raccourcirait le holdout de tout le monde. Ce qu'on
+        # cherche est « 80 % du temps couvert », pas « 80 % des lignes ».
+        tous = np.unique(np.concatenate([p["ts"][p["idx"]] for p in parts]))
         cut_ts = float(tous[int(0.8 * len(tous))])
         Xtr, ytr, utr, dtr = [], [], [], []
         Xho, yho, sgo, tso = [], [], [], []
