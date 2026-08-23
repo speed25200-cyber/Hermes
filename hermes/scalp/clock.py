@@ -231,6 +231,7 @@ class CandleModel:
             X = np.column_stack([X, np.zeros(n), np.zeros(n)])
         c_win = (1.0 - QUEUE_MISS) * self.cost_win + QUEUE_MISS * self.fee
         meilleur = None
+        self._muet = {"ic": 0.0, "fam": "ridge", "h": 1}
         for h in HORIZONS:
             r = self._essai(X, c, h, c_win)
             if r is not None and (meilleur is None or r["sr"] > meilleur["sr"]):
@@ -238,6 +239,8 @@ class CandleModel:
         if meilleur is None:
             self.status, self.shrink = "veto", 0.0
             self.thr_bps, self.n_trades = c_win, 0
+            self.ic = self._muet["ic"]
+            self.family, self.horizon_bars = self._muet["fam"], self._muet["h"]
             return self.to_dict()
         return self._retenir(meilleur, c_win)
 
@@ -267,7 +270,7 @@ class CandleModel:
         rr = RidgeRegressor(l2=14.0).fit(X[train], y_r[train])
         nn = MLPRegressor(hidden=(24, 12), epochs=120,
                           patience=10).fit(X[train], y_r[train])
-        best = None
+        best, muet = None, self._muet
         for fam, mdl in (("ridge", rr), ("mlp", nn)):
             p = mdl.predict(X[hold])
             sd_p = float(np.std(p))
@@ -290,6 +293,12 @@ class CandleModel:
                         "n_train": len(train),
                         "bps": float(np.mean(net)), "sr": sr,
                     }
+            # Aucun seuil ne déclenche assez souvent pour cette famille :
+            # on retient quand même l'ic, sinon le refus se raconte avec un
+            # ic=0.000 qui n'est pas le sien et le lecteur ne peut pas
+            # distinguer « aucun signal » de « signal trop petit à payer ».
+            if abs(ic) > abs(muet.get("ic", 0.0)):
+                muet.update({"ic": ic, "fam": fam, "h": h})
         return best
 
     def _retenir(self, b: dict, c_win: float) -> dict:
