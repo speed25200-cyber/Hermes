@@ -6,6 +6,8 @@ import json
 import os
 import time
 
+import numpy as np
+
 from ..data.store import Candles, BAR_MS
 from ..exchange.broker import Broker, PaperBroker
 from . import features as F
@@ -93,7 +95,10 @@ class ScalpEngine:
         self._explore_day = ""
         self._explore_last: dict[str, float] = {}
         self.explore_stats = {"trades": 0, "tp_maker": 0, "tp_taker": 0,
-                              "sl": 0, "time": 0}
+                              "sl": 0, "time": 0,
+                              # mesures qui remplacent des hypothèses du
+                              # modèle de coût, une fois assez d'échantillons
+                              "entry_edge_bps": 0.0, "exit_edge_bps": 0.0}
         try:
             with open(self.state_path) as f:
                 prev = json.load(f)
@@ -583,6 +588,17 @@ class ScalpEngine:
                                             maker_at=maker_at)
             if fill and br and br.get("explore"):
                 entree = float(br.get("entry") or fill.price)
+                # ce que la sortie obtient par rapport au marché courant :
+                # un TP traversé remplit à SON prix, mieux que le bid
+                if last > 0:
+                    ex = -float(np.sign(qty)) * (last - fill.price) / last * 1e4
+                    n_ex = (self.explore_stats["tp_maker"]
+                            + self.explore_stats["tp_taker"]
+                            + self.explore_stats["sl"]
+                            + self.explore_stats["time"])
+                    moy = self.explore_stats["exit_edge_bps"]
+                    self.explore_stats["exit_edge_bps"] = \
+                        (moy * n_ex + ex) / (n_ex + 1)
                 self.explore_pnl_day += qty * (fill.price - entree) \
                     - float(br.get("entry_fee") or 0.0) - float(fill.fee)
                 if maker_at is not None:
@@ -653,9 +669,22 @@ class ScalpEngine:
                 qty = arrondi
             if qty == 0 or abs(qty) * last > self.explore_cap_pct * 1e-2 * equity:
                 continue              # minimum d'échange inabordable : passer
+            _, bid, ask = self._px(inst, last)
+            mid = (bid + ask) / 2.0 if bid > 0 and ask > bid else last
             fill = self.broker.market_order(inst, qty, last)   # entrée maker
             if not fill:
                 continue
+            # Ce que l'entrée postée obtient VRAIMENT par rapport au mid.
+            # Le modèle de coût suppose maker + rien ; poser à l'intérieur
+            # du spread gagne une fraction du spread, mais la sélection
+            # adverse la reprend en partie. Personne ne peut trancher ça
+            # depuis un fauteuil : on le mesure, comme QUEUE_MISS. Positif
+            # = rempli mieux que le mid.
+            if mid > 0:
+                edge_e = float(sens) * (mid - fill.price) / mid * 1e4
+                n = self.explore_stats["trades"]
+                moy = self.explore_stats["entry_edge_bps"]
+                self.explore_stats["entry_edge_bps"] = (moy * n + edge_e) / (n + 1)
             self._explore_last[inst] = now
             self.explore_stats["trades"] += 1
             self.opened_bar[inst] = int(now * 1000)
