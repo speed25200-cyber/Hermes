@@ -65,6 +65,7 @@ DAYS = {"1m": 30, "3m": 60, "5m": 120, "15m": 365}
 ASSETS = ("BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP")
 W = {"1m": 0.15, "3m": 0.20, "5m": 0.28, "15m": 0.37}
 FEE = 7.0  # maker in + taker SL, bps
+BAR_MS = {"1m": 60_000, "3m": 180_000, "5m": 300_000, "15m": 900_000}
 
 
 def _roll_std(x: np.ndarray, w: int) -> np.ndarray:
@@ -82,6 +83,28 @@ def _roll_std(x: np.ndarray, w: int) -> np.ndarray:
     return out
 
 
+def _sigma(c: Candles) -> np.ndarray:
+    """Écart-type causal du retour d'une barre — l'unité de mesure de l'actif.
+
+    Vingt points de base ne veulent pas dire la même chose sur BTC un
+    dimanche calme et sur SOL en pleine tempête. Toute la mise en commun
+    des actifs repose sur cette division : exprimées en sigmas, les
+    colonnes de rendement d'un actif deviennent comparables à celles d'un
+    autre, et un panel a enfin un sens. Le plancher est lui aussi causal
+    (5 % de la moyenne courue), pour qu'aucune valeur future ne fuie dans
+    une normalisation.
+    """
+    n = len(c)
+    px = np.asarray(c.c, dtype=np.float64)
+    r1 = np.zeros(n)
+    if n > 1:
+        r1[1:] = np.nan_to_num(
+            px[1:] / np.where(px[:-1] > 0, px[:-1], np.nan) - 1.0, nan=0.0)
+    s = _roll_std(r1, 20)
+    cm = np.cumsum(s) / np.maximum(np.arange(1, n + 1), 1)
+    return np.maximum(s, np.maximum(0.05 * cm, 1e-6))
+
+
 def feat_matrix(c: Candles) -> np.ndarray:
     """Causal features, one row per bar. Row i uses only bars ≤ i.
 
@@ -91,6 +114,13 @@ def feat_matrix(c: Candles) -> np.ndarray:
     bars strictly causally upstream (data.store), defaults to zero when
     absent, and is expressed as a bounded, stationary transform so a
     missing series is indistinguishable from an uninformative one.
+
+    Toute colonne de rendement est divisée par le sigma courant de
+    l'actif. Deux raisons, et la seconde est la plus importante : un
+    modèle entraîné sur un régime calme reconnaît un régime agité, et
+    surtout trois actifs peuvent nourrir la MÊME horloge — la matrice ne
+    dit plus « BTC a bougé de 8 bps », elle dit « il a bougé d'un demi
+    sigma », phrase que SOL peut prononcer aussi.
     """
     n = len(c)
     px = np.asarray(c.c, dtype=np.float64)
@@ -98,19 +128,30 @@ def feat_matrix(c: Candles) -> np.ndarray:
     r1 = np.zeros(n)
     r1[1:] = px[1:] / np.where(px[:-1] > 0, px[:-1], np.nan) - 1.0
     r1 = np.nan_to_num(r1, nan=0.0)
+    sig = _sigma(c)
+
+    def u(x):
+        """En sigmas, borné."""
+        return np.clip(np.nan_to_num(x / sig, nan=0.0), -6.0, 6.0)
+
     def lagret(k):
         out = np.zeros(n)
         if n > k:
             out[k:] = px[k:] / np.where(px[:-k] > 0, px[:-k], np.nan) - 1.0
-        return np.nan_to_num(out, nan=0.0)
+        return np.nan_to_num(out, nan=0.0) / math.sqrt(k)
     loc = (c.c - c.l) / np.maximum(c.h - c.l, 1e-12) - 0.5
     rng = (c.h - c.l) / np.maximum(safe, 1e-12)
     rng = np.nan_to_num(rng, nan=0.0)
-    vol = _roll_std(r1, 20)
     s1, s2, s3 = np.sign(r1), np.roll(np.sign(r1), 1), np.roll(np.sign(r1), 2)
     s2[0] = 0
     s3[:2] = 0
     persist = (s1 + s2 + s3) / 3.0
+
+    # Régime de volatilité : le NIVEAU de sigma dépend de l'actif, son
+    # rapport à sa propre moyenne courue n'en dépend pas. C'est cette
+    # forme-là qui traverse le panel.
+    cm = np.cumsum(sig) / np.maximum(np.arange(1, n + 1), 1)
+    vol_rel = np.clip(sig / np.maximum(cm, 1e-12), 0.0, 5.0) - 1.0
 
     # dérivés : chaque transforme est bornée et vaut 0 quand la série manque
     funding = np.clip(np.nan_to_num(np.asarray(c.funding, dtype=np.float64),
@@ -149,9 +190,9 @@ def feat_matrix(c: Candles) -> np.ndarray:
         d_taker[1:] = np.clip(taker[1:] - taker[:-1], -1, 1)
 
     return np.column_stack([
-        r1, lagret(3), lagret(5), lagret(12),
-        np.clip(loc, -0.5, 0.5), np.clip(rng, 0, 0.08),
-        vol, np.clip(persist, -1, 1),
+        u(r1), u(lagret(3)), u(lagret(5)), u(lagret(12)),
+        np.clip(loc, -0.5, 0.5), np.clip(u(rng), 0, 6),
+        vol_rel, np.clip(persist, -1, 1),
         funding, taker, basis, d_oi,
         zscore(20), zscore(60), np.sin(ang), np.cos(ang), d_taker,
     ])
@@ -189,6 +230,24 @@ def _targets(c: Candles, h: int = 1) -> tuple[np.ndarray, np.ndarray,
     y_up = np.maximum(y_up, 0.0)
     y_dn = np.maximum(y_dn, 0.0)
     return y_r, y_up, y_dn
+
+
+def _portfolio(net: np.ndarray, ts: np.ndarray) -> np.ndarray:
+    """Les trades simultanés font UN rendement, pas plusieurs mesures.
+
+    Trois actifs corrélés à 0,8 qui déclenchent au même instant ne sont
+    pas trois observations indépendantes : compter leurs trades ferait
+    croire à une précision qui n'existe pas — c'est la pathologie des
+    étiquettes chevauchantes, en travers du panel au lieu du temps. En
+    moyennant par instant, la mesure devient celle du portefeuille
+    réellement tenu : si les actifs se répètent la variance ne baisse
+    pas, s'ils se diversifient le gain est réel et le portefeuille
+    l'encaisse.
+    """
+    if len(net) == 0:
+        return np.zeros(0)
+    _, inv = np.unique(np.asarray(ts), return_inverse=True)
+    return np.bincount(inv, weights=net) / np.bincount(inv)
 
 
 def _ic(a: np.ndarray, b: np.ndarray) -> float:
@@ -230,6 +289,11 @@ class CandleModel:
         self.hold_sr = 0.0     # Sharpe par barre du holdout
         self.sel_bar = 0.0     # ce que le hasard aurait produit
         self.n_hold = 0
+        self.n_assets = 1      # combien d'actifs nourrissent cette horloge
+        self.n_periods = 0     # instants mesurés (trades simultanés agrégés)
+        self.n_cells = (len(ASSETS) * len(BARS) * len(FAMILIES)
+                        * len(THRESHOLDS) * len(HORIZONS))
+        self._sig_ref = 1e-3   # sigma de repli si l'appelant n'en donne pas
 
     def to_dict(self) -> dict:
         return {
@@ -240,32 +304,80 @@ class CandleModel:
             "n_holdout": self.n_hold, "family": self.family,
             "thr_bps": self.thr_bps, "n_trades": self.n_trades,
             "horizon_bars": self.horizon_bars,
+            "n_assets": self.n_assets, "n_periods": self.n_periods,
+            "n_trials": self.n_cells,
         }
 
     def _model(self):
         return self.nn if self.family == "mlp" else self.rr
 
     def fit(self, c: Candles, btc: Candles | None = None) -> dict:
-        n = len(c)
-        if n < 250:
+        """Un seul actif : le panel dégénéré à un bloc."""
+        return self.fit_panel([(c, btc)])
+
+    def fit_panel(self, series: list) -> dict:
+        """Une horloge, tous les actifs à la fois.
+
+        Douze modèles indépendants (3 actifs x 4 horloges) posaient deux
+        problèmes que le panel règle d'un coup. Le premier est comptable :
+        chercher l'actif EST une recherche, et la barre déflatée la
+        facturait — 432 cellules. Une horloge partagée n'en cherche plus
+        que 144, et la barre du hasard baisse pour de vrai, sans qu'on ait
+        touché à la porte. Le second est statistique : un modèle qui ne
+        marche que sur SOL est exactement la forme que prend un
+        sur-ajustement. Exiger d'une règle qu'elle tienne sur les trois
+        actifs à la fois est un test de robustesse qu'aucune validation
+        croisée mono-actif ne remplace, et il vient avec trois fois plus
+        de lignes d'entraînement.
+
+        Ce que le panel ne donne PAS, et qu'il serait malhonnête de
+        s'accorder : trois fois plus d'information. BTC, ETH et SOL bougent
+        ensemble à ~0,8 de corrélation. C'est pourquoi la mesure ne compte
+        pas les trades — elle agrège les trades simultanés en UN rendement
+        de portefeuille par instant, et juge cette série-là. Si les actifs
+        se répètent, la variance ne baisse pas et le Sharpe ne bouge pas ;
+        s'ils se diversifient, le gain est réel et le portefeuille le
+        touche vraiment.
+        """
+        blocs = []
+        for c, btc in series:
+            if c is None or len(c) < 250:
+                continue
+            n = len(c)
+            X = feat_matrix(c)
+            sig = _sigma(c)
+            br = np.zeros(n)
+            if btc is not None and len(btc) >= n:
+                bp = np.asarray(btc.c, dtype=np.float64)[-n:]
+                if len(bp) == n:
+                    br[1:] = np.where(bp[:-1] > 0, bp[1:] / bp[:-1] - 1.0, 0.0)
+                br = np.clip(br / sig, -6.0, 6.0)
+                idio = np.clip(X[:, 0] - br, -6.0, 6.0)
+            else:
+                idio = np.zeros(n)
+            blocs.append({"c": c, "X": np.column_stack([X, br, idio]),
+                          "sig": sig, "ts": np.asarray(c.ts, dtype=np.int64)})
+        if not blocs:
             self.status = "few-samples"
             return self.to_dict()
-        X = feat_matrix(c)
-        if btc is not None and len(btc) >= n:
-            br = np.zeros(n)
-            bp = btc.c[-n:] if len(btc) >= n else btc.c
-            if len(bp) == n:
-                br[1:] = np.where(bp[:-1] > 0, bp[1:] / bp[:-1] - 1.0, 0.0)
-            idio = X[:, 0] - br
-            X = np.column_stack([X, br, idio])
-        else:
-            X = np.column_stack([X, np.zeros(n), np.zeros(n)])
+        self.n_assets = len(blocs)
+        # Cellules cherchées : horloges x familles x seuils x HORIZONS. La
+        # dimension « actif » disparaît du guichet parce qu'elle disparaît
+        # de la recherche : une seule horloge par échelle, la même pour
+        # tout le monde. Quand le panel se réduit à un actif, elle revient.
+        self.n_cells = (len(BARS) * len(FAMILIES) * len(THRESHOLDS)
+                        * len(HORIZONS))
+        if self.n_assets < 2:
+            self.n_cells *= len(ASSETS)
+        self._sig_ref = float(np.median(np.concatenate(
+            [b["sig"] for b in blocs])))
         c_win = (1.0 - QUEUE_MISS) * self.cost_win + QUEUE_MISS * self.fee
         meilleur = None
         self._muet = {"ic": 0.0, "fam": "ridge", "h": 1}
         for h in HORIZONS:
-            r = self._essai(X, c, h, c_win)
-            if r is not None and (meilleur is None or r["sr"] > meilleur["sr"]):
+            r = self._essai(blocs, h, c_win)
+            if r is not None and (meilleur is None
+                                  or r["marge"] > meilleur["marge"]):
                 meilleur = r
         if meilleur is None:
             self.status, self.shrink = "veto", 0.0
@@ -275,61 +387,120 @@ class CandleModel:
             return self.to_dict()
         return self._retenir(meilleur, c_win)
 
-    def _essai(self, X: np.ndarray, c: Candles, h: int,
-               c_win: float) -> dict | None:
-        """Un horizon : entraîne, cherche le seuil, rend le meilleur score."""
-        y_r, y_up, y_dn = _targets(c, h)
-        ok = np.isfinite(y_r) & np.isfinite(X).all(axis=1)
-        idx = np.where(ok)[0]
-        if len(idx) < 200:
+    def _essai(self, blocs: list, h: int, c_win: float) -> dict | None:
+        """Un horizon : entraîne sur le panel, cherche le seuil, rend le score."""
+        pas = BAR_MS.get(self.bar, 300_000)
+        parts = []
+        for bl in blocs:
+            y_r, y_up, y_dn = _targets(bl["c"], h)
+            # La cible aussi est en sigmas : sur h barres le mouvement
+            # disponible croît comme racine(h), et c'est cette quantité-là
+            # qui est comparable d'un actif à l'autre. Le retour en points
+            # de base — le seul qui paie des frais — se refait à la sortie
+            # en remultipliant par le sigma de la barre.
+            sg = bl["sig"] * math.sqrt(h)
+            ok = np.isfinite(y_r) & np.isfinite(bl["X"]).all(axis=1)
+            idx = np.where(ok)[0]
+            if len(idx) < 200:
+                continue
+            parts.append({"X": bl["X"], "ts": bl["ts"], "idx": idx, "sg": sg,
+                          "y": y_r, "up": y_up, "dn": y_dn})
+        if not parts:
             return None
-        cut = idx[int(0.8 * len(idx))]
-        # embargo : une étiquette d'entraînement dont la fenêtre de h barres
-        # traverse la coupure a vu le holdout. Elle sort.
-        train = idx[idx < cut - h]
-        # Étiquettes NON CHEVAUCHANTES pour la mesure : sur h barres, deux
-        # étiquettes consécutives partagent h-1 barres, ce qui écrase les
-        # erreurs standard d'un facteur racine(h) et laisse passer du bruit
-        # (constaté : 3 horloges vives sur du hasard pur avant ce pas).
-        # Un pas de h est aussi la vérité opérationnelle : une position qui
-        # vit h barres interdit d'en rouvrir une à chaque barre.
-        hold = idx[idx >= cut][::h]
-        if len(train) < 150 or len(hold) < 60:
+        # Coupure commune dans le TEMPS, pas dans l'index : deux actifs
+        # d'historiques différents doivent être coupés au même instant,
+        # sinon le holdout de l'un est le train de l'autre.
+        tous = np.sort(np.concatenate([p["ts"][p["idx"]] for p in parts]))
+        cut_ts = float(tous[int(0.8 * len(tous))])
+        Xtr, ytr, utr, dtr = [], [], [], []
+        Xho, yho, sgo, tso = [], [], [], []
+        for p in parts:
+            ts, idx, sg = p["ts"], p["idx"], p["sg"]
+            # embargo : une étiquette d'entraînement dont la fenêtre de h
+            # barres traverse la coupure a vu le holdout. Elle sort.
+            tr = idx[ts[idx] < cut_ts - h * pas]
+            ho = idx[ts[idx] >= cut_ts]
+            # Étiquettes NON CHEVAUCHANTES pour la mesure : sur h barres,
+            # deux étiquettes consécutives partagent h-1 barres, ce qui
+            # écrase les erreurs standard d'un facteur racine(h) et laisse
+            # passer du bruit (constaté : 3 horloges vives sur du hasard
+            # pur avant ce pas). L'amincissement se fait sur la GRILLE de
+            # temps et non sur l'index, pour que les actifs restent
+            # alignés et que leurs trades simultanés le restent aussi.
+            ho = ho[(ts[ho] // pas) % h == 0]
+            if len(tr) < 150 or len(ho) < 20:
+                continue
+            Xtr.append(p["X"][tr])
+            ytr.append(np.clip(p["y"][tr] / sg[tr], -8, 8))
+            utr.append(np.clip(p["up"][tr] / sg[tr], 0, 8))
+            dtr.append(np.clip(p["dn"][tr] / sg[tr], 0, 8))
+            Xho.append(p["X"][ho])
+            yho.append(p["y"][ho] * 1e4)
+            sgo.append(sg[ho])
+            tso.append(ts[ho])
+        if not Xtr:
             return None
-        up = RidgeRegressor(l2=14.0).fit(X[train], np.clip(y_up[train], 0, .05))
-        dn = RidgeRegressor(l2=14.0).fit(X[train], np.clip(y_dn[train], 0, .05))
-        rr = RidgeRegressor(l2=14.0).fit(X[train], y_r[train])
+        Xtr = np.vstack(Xtr)
+        ytr, utr, dtr = np.concatenate(ytr), np.concatenate(utr), np.concatenate(dtr)
+        Xho = np.vstack(Xho)
+        yho, sgo, tso = (np.concatenate(yho), np.concatenate(sgo),
+                         np.concatenate(tso))
+        if len(ytr) < 150 or len(yho) < 60:
+            return None
+        up = RidgeRegressor(l2=14.0).fit(Xtr, utr)
+        dn = RidgeRegressor(l2=14.0).fit(Xtr, dtr)
+        rr = RidgeRegressor(l2=14.0).fit(Xtr, ytr)
         nn = MLPRegressor(hidden=(24, 12), epochs=120,
-                          patience=10).fit(X[train], y_r[train])
+                          patience=10).fit(Xtr, ytr)
         best, muet = None, self._muet
-        sd_y = float(np.std(y_r[hold]))
+        sd_y = float(np.std(yho))
         for fam, mdl in (("ridge", rr), ("mlp", nn)):
-            p = mdl.predict(X[hold])
-            sd_p = float(np.std(p))
+            p_bps = mdl.predict(Xho) * sgo * 1e4
+            sd_p = float(np.std(p_bps))
             # Garde-fou d'échelle : un modèle qui prédit des mouvements dix
             # fois plus grands que ceux qui existent n'est pas audacieux,
             # il est cassé. On ne le juge pas, on l'écarte — un tel modèle
             # a produit en direct des seuils à 240771075 bps.
             if not np.isfinite(sd_p) or sd_p > 10.0 * max(sd_y, 1e-12):
                 continue
-            ic = _ic(p, y_r[hold])
+            ic = _ic(p_bps, yho)
             for k in THRESHOLDS:
-                thr = max(k * sd_p, c_win * 1e-4)
-                m = np.abs(p) >= thr
+                thr = max(k * sd_p, c_win)
+                m = np.abs(p_bps) >= thr
                 n_tr = int(m.sum())
                 if n_tr < MIN_TRADES:
                     continue
-                gains = np.sign(p[m]) * y_r[hold][m] * 1e4
+                gains = np.sign(p_bps[m]) * yho[m]
                 net = gains - np.where(gains > 0, c_win, self.fee)
-                sd = float(np.std(net, ddof=1))
-                sr = float(np.mean(net)) / sd if sd > 1e-12 else 0.0
-                if best is None or sr > best["sr"]:
+                # Un instant = un rendement. Les trades simultanés sur
+                # plusieurs actifs sont UNE position de portefeuille, pas
+                # trois observations indépendantes ; les agréger avant de
+                # mesurer est la seule façon de ne pas confondre
+                # diversification et répétition.
+                pnl = _portfolio(net, tso[m])
+                n_per = len(pnl)
+                if n_per < MIN_TRADES:
+                    continue
+                sd = float(np.std(pnl, ddof=1))
+                sr = float(np.mean(pnl)) / sd if sd > 1e-12 else 0.0
+                # On classe les cellules par la MARGE sur leur propre
+                # barre, pas par le Sharpe nu. Un seuil très haut produit
+                # toujours le plus beau Sharpe — sur trente trades, où il
+                # ne prouve rien et ne franchira jamais la barre que ces
+                # trente trades imposent. Trier par (sr - barre), c'est
+                # chercher avec le critère qui décide, au lieu de chercher
+                # un maximum qu'on refusera ensuite. La porte, elle, ne
+                # bouge pas d'un pouce.
+                barre = expected_max_sharpe(self.n_cells, n_per)
+                marge = sr - barre
+                if best is None or marge > best["marge"]:
                     best = {
                         "fam": fam, "rr": rr, "nn": nn, "up": up, "dn": dn,
-                        "h": h, "pred": p, "y": y_r[hold], "ic": ic,
-                        "thr": thr, "n_tr": n_tr, "n_hold": len(hold),
-                        "n_train": len(train),
+                        "h": h, "pred": p_bps[m], "y": yho[m], "ic": ic,
+                        "thr": thr, "n_tr": n_tr, "n_per": n_per,
+                        "n_hold": len(yho), "n_train": len(ytr),
                         "bps": float(np.mean(net)), "sr": sr,
+                        "barre": barre, "marge": marge,
                     }
             # Aucun seuil ne déclenche assez souvent pour cette famille :
             # on retient quand même l'ic, sinon le refus se raconte avec un
@@ -344,17 +515,17 @@ class CandleModel:
         self.family, self.horizon_bars = b["fam"], b["h"]
         self.rr, self.nn, self.up, self.dn = b["rr"], b["nn"], b["up"], b["dn"]
         self.ic = b["ic"]
-        self.thr_bps = float(b["thr"]) * 1e4
+        self.thr_bps = float(b["thr"])
         self.n_trades, self.n_hold = b["n_tr"], int(b["n_hold"])
+        self.n_periods = int(b["n_per"])
         self.n_train = int(b["n_train"])
         resid = np.abs(b["y"] - b["pred"])
-        self.q = float(np.quantile(resid, 0.80)) if len(resid) else 0.0
+        self.q = float(np.quantile(resid, 0.80)) / 1e4 if len(resid) else 0.0
         self.holdout_bps, self.hold_sr = b["bps"], b["sr"]
-        # Cellules cherchées : actifs x horloges x familles x seuils x
-        # HORIZONS. Chercher l'horizon de détention le paie au guichet.
-        n_cells = (len(ASSETS) * len(BARS) * len(FAMILIES)
-                   * len(THRESHOLDS) * len(HORIZONS))
-        self.sel_bar = expected_max_sharpe(n_cells, b["n_tr"])
+        # La barre se lit sur le nombre d'INSTANTS mesurés, pas de trades :
+        # c'est lui qui gouverne la précision d'une moyenne quand les
+        # trades sont corrélés entre eux.
+        self.sel_bar = b["barre"]
         ic_floor = 2.0 / math.sqrt(max(b["n_hold"], 4))
         if self.holdout_bps > 0 and self.hold_sr > self.sel_bar \
                 and self.ic > ic_floor:
@@ -365,24 +536,29 @@ class CandleModel:
             self.status = "veto"
         return self.to_dict()
 
-    def predict_row(self, x: np.ndarray) -> dict:
+    def predict_row(self, x: np.ndarray, sig: float | None = None) -> dict:
         if self.status != "live":
             return {"r_bps": 0.0, "up_bps": 0.0, "dn_bps": 0.0,
                     "q_bps": self.q * 1e4, "veto": True, "bar": self.bar,
                     "status": self.status, "ic": self.ic}
-        r = float(self._model().predict(x.reshape(1, -1))[0]) * self.shrink
-        up = max(float(self.up.predict(x.reshape(1, -1))[0]), 0.0)
-        dn = max(float(self.dn.predict(x.reshape(1, -1))[0]), 0.0)
-        r_bps, q_bps = r * 1e4, self.q * 1e4
+        # Le modèle parle en sigmas ; les frais, eux, se paient en points
+        # de base. La conversion se fait avec le sigma de CETTE barre —
+        # la même que celle utilisée pour juger la règle.
+        s = float(sig if sig is not None else self._sig_ref)
+        s *= math.sqrt(max(int(self.horizon_bars), 1))
+        row = x.reshape(1, -1)
+        raw = float(self._model().predict(row)[0]) * s * 1e4
+        r_bps = raw * self.shrink
+        up = max(float(self.up.predict(row)[0]), 0.0) * s * 1e4
+        dn = max(float(self.dn.predict(row)[0]), 0.0) * s * 1e4
         # La règle jouée EST la règle mesurée : le seuil validé, appliqué à
         # la prédiction brute comme au fit. Rien d'autre — un second filtre
         # non validé ferait trader moins de barres que celles sur
         # lesquelles l'économie a été établie.
-        raw = r_bps / max(self.shrink, 1e-9)   # avant retrait, comme au fit
         veto = abs(raw) < self.thr_bps
         return {
-            "r_bps": r_bps, "up_bps": up * 1e4, "dn_bps": dn * 1e4,
-            "q_bps": q_bps, "veto": veto, "bar": self.bar,
+            "r_bps": r_bps, "up_bps": up, "dn_bps": dn,
+            "q_bps": self.q * 1e4, "veto": veto, "bar": self.bar,
             "horizon_bars": self.horizon_bars,
             "status": self.status, "ic": self.ic,
         }
@@ -391,10 +567,13 @@ class CandleModel:
 def _row(c: Candles, btc: Candles | None) -> np.ndarray:
     X = feat_matrix(c)
     row = X[-1]
+    sig = float(_sigma(c)[-1])
     br = 0.0
     if btc is not None and len(btc) >= 2 and btc.c[-2] > 0:
         br = float(btc.c[-1] / btc.c[-2] - 1.0)
-    idio = float(row[0] - br)
+    # mêmes unités qu'à l'entraînement : le retour BTC en sigmas de CET actif
+    br = float(np.clip(br / max(sig, 1e-9), -6.0, 6.0))
+    idio = float(np.clip(row[0] - br, -6.0, 6.0))
     return np.append(row, [br, idio])
 
 
@@ -409,14 +588,26 @@ class ScaleDesk:
         self.fit_at = 0.0
 
     def fit_store(self, store, names: list[str] | None = None) -> dict:
+        """Une horloge par échelle, nourrie par tous les actifs.
+
+        Le même objet modèle est rangé sous chaque clé (actif, barre) :
+        le reste du moteur continue de demander « l'horloge 5m de SOL »
+        sans savoir qu'elle a été apprise sur les trois. Conséquence
+        voulue côté trading — une horloge validée parle pour BTC, ETH et
+        SOL au même instant, donc trois positions au lieu d'une, et c'est
+        exactement le portefeuille sur lequel elle a été jugée.
+        """
         names = list(names or ASSETS)
         out = {}
         self.models = {}
-        for inst in names:
-            for bar in BARS:
+        for bar in BARS:
+            series, insts = [], []
+            for inst in names:
                 try:
                     c = store.load(inst, bar)
                 except Exception:
+                    continue
+                if c is None or len(c) < 250:
                     continue
                 btc = None
                 if inst != "BTC-USDT-SWAP":
@@ -424,17 +615,22 @@ class ScaleDesk:
                         btc = store.load("BTC-USDT-SWAP", bar)
                     except Exception:
                         btc = None
-                m = CandleModel(bar, self.fee)
-                d = m.fit(c, btc)
+                series.append((c, btc))
+                insts.append(inst)
+            if not series:
+                continue
+            m = CandleModel(bar, self.fee)
+            d = m.fit_panel(series)
+            for inst in insts:
                 self.models[(inst, bar)] = m
                 out[f"{inst.split('-')[0]}:{bar}"] = d
-                self.log(f"clock {inst.split('-')[0]} {bar} {d['status']} "
-                         f"[{d['family']}/h{d['horizon_bars']}] ic={d['ic']:.3f} "
-                         f"net={d['holdout_bps']:+.2f}bps/trade "
-                         f"sr={d['holdout_sr']:+.3f} vs bar={d['sel_bar']:.3f} "
-                         f"seuil={d['thr_bps']:.1f}bps "
-                         f"trades={d['n_trades']}/{d['n_holdout']} "
-                         f"n={d['n_train']}")
+            self.log(f"clock {bar} panel[{len(insts)}] {d['status']} "
+                     f"[{d['family']}/h{d['horizon_bars']}] ic={d['ic']:.3f} "
+                     f"net={d['holdout_bps']:+.2f}bps/trade "
+                     f"sr={d['holdout_sr']:+.3f} vs bar={d['sel_bar']:.3f} "
+                     f"seuil={d['thr_bps']:.1f}bps "
+                     f"trades={d['n_trades']}/{d['n_holdout']} "
+                     f"instants={d['n_periods']} n={d['n_train']}")
         self.fit_at = time.time()
         self.log(f"desk live={self.live_bars() or ['none']}")
         return out
@@ -448,7 +644,7 @@ class ScaleDesk:
             v = {"r_bps": 0.0, "up_bps": 0.0, "dn_bps": 0.0, "q_bps": 0.0,
                  "veto": True, "bar": bar, "status": "unfitted", "ic": 0.0}
         else:
-            v = m.predict_row(_row(c, btc))
+            v = m.predict_row(_row(c, btc), float(_sigma(c)[-1]))
         self.votes[(inst, bar)] = v
         return v
 
@@ -545,8 +741,9 @@ class ScaleDesk:
                 "holdout_sr": getattr(m, "hold_sr", 0.0) if m else 0.0,
                 "sel_bar": getattr(m, "sel_bar", 0.0) if m else 0.0,
                 "n_holdout": getattr(m, "n_hold", 0) if m else 0,
-                "n_trials": len(ASSETS) * len(BARS) * len(FAMILIES)
-                             * len(THRESHOLDS),
+                "n_trials": getattr(m, "n_cells", 0) if m else 0,
+                "n_assets": getattr(m, "n_assets", 1) if m else 1,
+                "n_periods": getattr(m, "n_periods", 0) if m else 0,
                 "family": getattr(m, "family", "ridge") if m else "ridge",
                 "thr_bps": getattr(m, "thr_bps", 0.0) if m else 0.0,
                 "n_trades": getattr(m, "n_trades", 0) if m else 0,
