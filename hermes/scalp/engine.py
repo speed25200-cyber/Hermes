@@ -31,7 +31,11 @@ class ScalpEngine:
         self.max_spread = float(s.get("max_spread_bps", 6.0))
         self.min_vol = float(s.get("min_vol_usd", 10_000_000))
         self.horizon = int(s.get("horizon", 3))
-        self.min_edge = float(s.get("min_edge_bps", 6.0))
+        # Le pré-filtre doit MINORER le coût vrai, pas ajouter un seuil
+        # arbitraire par-dessus : 6 bps en dur bloquait des horloges
+        # validées à 5. Ce qui juge vraiment, c'est l'espérance simulée du
+        # bracket, qui exige déjà de battre sa propre friction d'un quart.
+        self.min_edge = float(s.get("min_edge_bps", 0.0))
         self.max_hold = int(s.get("max_hold_bars", 16))
         self.max_name = float(s.get("max_name_lev", 20.0))
         self.gross_cap = float(s.get("gross_cap", 20.0))

@@ -21,6 +21,7 @@ import numpy as np
 from ..backtest.metrics import expected_max_sharpe
 from ..data.store import Candles
 from ..ml.models import MLPRegressor, RidgeRegressor
+from .economics import QUEUE_MISS
 
 # Deux familles de modèles concourent sur chaque horloge : le ridge (la
 # composante linéaire, 14 poids lisibles) et un petit MLP (les
@@ -32,6 +33,12 @@ from ..ml.models import MLPRegressor, RidgeRegressor
 # un Transformer sur séquences exigerait des millions d'exemples
 # indépendants que quatre ans de bougies ne contiennent pas.
 FAMILIES = ("ridge", "mlp")
+
+# Seuils de déclenchement, en écarts-types de la prédiction elle-même.
+# Une horloge ne trade pas toutes les barres : elle trade celles où elle
+# parle fort. Le seuil est cherché sur le holdout et facturé comme tel.
+THRESHOLDS = (0.0, 0.5, 1.0, 1.5, 2.0, 2.5)
+MIN_TRADES = 40   # sous ce nombre, une moyenne n'est pas une mesure
 
 BARS = ("1m", "3m", "5m", "15m")
 HOLD = {"1m": 3, "3m": 3, "5m": 3, "15m": 3}
@@ -145,6 +152,12 @@ class CandleModel:
         self.rr = RidgeRegressor(l2=14.0)
         self.nn = MLPRegressor(hidden=(24, 12), epochs=120, patience=10)
         self.family = "ridge"   # qui a gagné le droit de parler
+        # Le coût que paie la jambe gagnante : entrée postée + take posé au
+        # carnet. C'est ce que le moteur paie vraiment depuis l'exécution
+        # maker ; la jambe perdante traverse et paie self.fee.
+        self.cost_win = 4.0
+        self.thr_bps = 0.0      # sous ce mouvement prévu, l'horloge se tait
+        self.n_trades = 0       # combien de déclenchements sur le holdout
         self.up = RidgeRegressor(l2=14.0)
         self.dn = RidgeRegressor(l2=14.0)
         self.q = 0.0          # conformal |resid| 80%
@@ -164,6 +177,7 @@ class CandleModel:
             "n_train": self.n_train, "holdout_bps": self.holdout_bps,
             "holdout_sr": self.hold_sr, "sel_bar": self.sel_bar,
             "n_holdout": self.n_hold, "family": self.family,
+            "thr_bps": self.thr_bps, "n_trades": self.n_trades,
         }
 
     def _model(self):
@@ -199,32 +213,69 @@ class CandleModel:
         # chacune est un essai de plus au guichet du hasard.
         self.rr.fit(X[train], y_r[train])
         self.nn.fit(X[train], y_r[train])
+        # La porte doit juger la RÈGLE, pas le modèle. L'ancienne version
+        # facturait 7 bps sur CHAQUE barre du holdout, y compris les barres
+        # où le moteur ne trade jamais : un modèle qui ne parle fort qu'une
+        # fois sur cent était condamné par les quatre-vingt-dix-neuf
+        # silences. On évalue donc au déclenchement réel — |prédiction| au
+        # dessus d'un seuil — et l'on facture les coûts que le moteur paie
+        # vraiment : la sortie gagnante repose au carnet (maker, dégradé du
+        # risque de file), la perdante traverse le spread.
+        c_win = (1.0 - QUEUE_MISS) * self.cost_win + QUEUE_MISS * self.fee
         scores = {}
         for fam, mdl in (("ridge", self.rr), ("mlp", self.nn)):
             p = mdl.predict(X[hold])
-            signed = np.sign(p) * y_r[hold] * 1e4 - self.fee
-            sd = float(np.std(signed, ddof=1))
-            scores[fam] = {
-                "pred": p,
-                "ic": _ic(p, y_r[hold]),
-                "bps": float(np.mean(signed)),
-                "sr": float(np.mean(signed)) / sd if sd > 1e-12 else 0.0,
-            }
-        self.family = max(scores, key=lambda f: scores[f]["sr"])
-        best = scores[self.family]
+            sd_p = float(np.std(p))
+            ic = _ic(p, y_r[hold])
+            for k in THRESHOLDS:
+                # Plancher économique intégré À LA MESURE : un mouvement
+                # prévu sous le coût de la jambe gagnante est arithmétique-
+                # ment sans espoir. En le mettant ici, la règle mesurée est
+                # exactement la règle jouée — un filtre live supplémentaire
+                # ferait trader moins de barres que celles validées.
+                thr = max(k * sd_p, c_win * 1e-4)
+                m = np.abs(p) >= thr
+                n_tr = int(m.sum())
+                if n_tr < MIN_TRADES:
+                    continue
+                gains = np.sign(p[m]) * y_r[hold][m] * 1e4
+                net = gains - np.where(gains > 0, c_win, self.fee)
+                sd = float(np.std(net, ddof=1))
+                sr = float(np.mean(net)) / sd if sd > 1e-12 else 0.0
+                cur = scores.get("best")
+                if cur is None or sr > cur["sr"]:
+                    scores["best"] = {
+                        "fam": fam, "pred": p, "ic": ic, "thr": thr,
+                        "k": k, "n_tr": n_tr,
+                        "bps": float(np.mean(net)), "sr": sr,
+                    }
+        if "best" not in scores:
+            # Assez de barres, mais aucun seuil ne déclenche assez souvent :
+            # l'horloge prédit des mouvements plus petits que le coût. C'est
+            # un refus mesuré, pas un manque de données.
+            self.status, self.shrink = "veto", 0.0
+            self.thr_bps, self.n_trades = c_win, 0
+            self.n_hold = int(len(hold))
+            self.n_train = int(len(train))
+            return self.to_dict()
+        best = scores["best"]
+        self.family = best["fam"]
         pred = best["pred"]
         self.ic = best["ic"]
+        self.thr_bps = float(best["thr"]) * 1e4
+        self.n_trades = best["n_tr"]
         resid = np.abs(y_r[hold] - pred)
         self.q = float(np.quantile(resid, 0.80)) if len(resid) else 0.0
         self.holdout_bps = best["bps"]
         self.n_train = int(len(train))
         sr = best["sr"]
-        # Cells searched every refit: 3 assets x 4 bars x N model families.
-        # The bar each survivor must clear is the expected max of that many
-        # pure-noise draws — adding the MLP made every gate HARDER, not
-        # softer. The ic floor is its own sampling noise, 2/sqrt(n).
-        n_cells = len(ASSETS) * len(BARS) * len(FAMILIES)
-        sel_bar = expected_max_sharpe(n_cells, len(hold))
+        # Cellules cherchées à chaque refit : 3 actifs x 4 horloges x
+        # N familles x N seuils. Le seuil est un paramètre choisi sur le
+        # holdout : il se paie au guichet du hasard comme tout le reste, et
+        # la barre est comparée au nombre de TRADES, pas de barres — c'est
+        # sur eux que la moyenne est estimée.
+        n_cells = len(ASSETS) * len(BARS) * len(FAMILIES) * len(THRESHOLDS)
+        sel_bar = expected_max_sharpe(n_cells, best["n_tr"])
         ic_floor = 2.0 / math.sqrt(max(len(hold), 4))
         self.hold_sr, self.sel_bar, self.n_hold = sr, sel_bar, int(len(hold))
         if self.holdout_bps > 0 and sr > sel_bar and self.ic > ic_floor:
@@ -244,8 +295,12 @@ class CandleModel:
         up = max(float(self.up.predict(x.reshape(1, -1))[0]), 0.0)
         dn = max(float(self.dn.predict(x.reshape(1, -1))[0]), 0.0)
         r_bps, q_bps = r * 1e4, self.q * 1e4
-        # interval contains 0, or move inside the conformal noise + fees → sit
-        veto = abs(r_bps) < (q_bps * 0.75 + self.fee)
+        # La règle jouée EST la règle mesurée : le seuil validé, appliqué à
+        # la prédiction brute comme au fit. Rien d'autre — un second filtre
+        # non validé ferait trader moins de barres que celles sur
+        # lesquelles l'économie a été établie.
+        raw = r_bps / max(self.shrink, 1e-9)   # avant retrait, comme au fit
+        veto = abs(raw) < self.thr_bps
         return {
             "r_bps": r_bps, "up_bps": up * 1e4, "dn_bps": dn * 1e4,
             "q_bps": q_bps, "veto": veto, "bar": self.bar,
@@ -295,8 +350,11 @@ class ScaleDesk:
                 out[f"{inst.split('-')[0]}:{bar}"] = d
                 self.log(f"clock {inst.split('-')[0]} {bar} {d['status']} "
                          f"[{d['family']}] ic={d['ic']:.3f} "
-                         f"holdout={d['holdout_bps']:+.2f}bps "
-                         f"q={d['q_bps']:.1f}bps n={d['n_train']}")
+                         f"net={d['holdout_bps']:+.2f}bps/trade "
+                         f"sr={d['holdout_sr']:+.3f} vs bar={d['sel_bar']:.3f} "
+                         f"seuil={d['thr_bps']:.1f}bps "
+                         f"trades={d['n_trades']}/{d['n_holdout']} "
+                         f"n={d['n_train']}")
         self.fit_at = time.time()
         self.log(f"desk live={self.live_bars() or ['none']}")
         return out
@@ -392,8 +450,11 @@ class ScaleDesk:
                 "holdout_sr": getattr(m, "hold_sr", 0.0) if m else 0.0,
                 "sel_bar": getattr(m, "sel_bar", 0.0) if m else 0.0,
                 "n_holdout": getattr(m, "n_hold", 0) if m else 0,
-                "n_trials": len(ASSETS) * len(BARS) * len(FAMILIES),
+                "n_trials": len(ASSETS) * len(BARS) * len(FAMILIES)
+                             * len(THRESHOLDS),
                 "family": getattr(m, "family", "ridge") if m else "ridge",
+                "thr_bps": getattr(m, "thr_bps", 0.0) if m else 0.0,
+                "n_trades": getattr(m, "n_trades", 0) if m else 0,
                 "alpha": getattr(m, "shrink", 0.0) if m else 0.0,
             }
         d["_best"] = best

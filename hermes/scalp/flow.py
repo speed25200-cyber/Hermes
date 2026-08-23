@@ -36,9 +36,14 @@ import numpy as np
 
 from ..backtest.metrics import expected_max_sharpe
 from ..ml.models import RidgeRegressor
+from .economics import QUEUE_MISS
 
 HORIZON_S = 90.0                       # shortest head; kept for callers
 HORIZONS_S = (90.0, 300.0, 900.0)      # 90 s, 5 min, 15 min
+# Seuils de déclenchement en écarts-types de la prédiction : une tête ne
+# trade pas chaque étiquette, elle trade celles où elle parle fort.
+THRESHOLDS = (0.0, 0.5, 1.0, 1.5, 2.0, 2.5)
+MIN_TRADES = 40
 KEYS = ("imb1", "imb5", "depth", "micro_bps", "ofi", "flow",
         "spread", "tape", "btc_lead", "lag")
 
@@ -74,6 +79,11 @@ class _Head:
         self.shrink = 0.0
         self.status = "warmup"
         self.n = 0
+        # Coût de la jambe gagnante (entrée postée + take posé au carnet) ;
+        # la perdante traverse le spread et paie self.fee.
+        self.cost_win = 4.0
+        self.thr_bps = 0.0      # sous ce mouvement prévu, la tête se tait
+        self.n_trades = 0
 
     @property
     def nom(self) -> str:
@@ -127,34 +137,71 @@ class _Head:
         pred = self.ridge.predict(X[hold])
         self.ic = _ic(pred, y[hold])
         self.q = float(np.quantile(np.abs(y[hold] - pred), 0.80))
-        signed = np.sign(pred) * y[hold] - self.fee
-        mu = float(np.mean(signed))
-        sd = float(np.std(signed, ddof=1))
-        self.hold_sr = mu / sd if sd > 1e-12 else 0.0
         self.n = len(y)
-        # Every refit is one more draw at this gate, and the three horizons
-        # are three parallel searches: each head's bar is charged for all of
-        # them. Capped so a long-running desk is not punished forever for
-        # its own uptime.
+        # La porte juge la RÈGLE, pas le modèle : le moteur ne trade pas
+        # chaque étiquette, il trade celles où la tête parle fort. Facturer
+        # les frais sur les silences condamnait un signal concentré. Coûts
+        # réels : la sortie gagnante repose au carnet, la perdante traverse.
+        c_win = (1.0 - QUEUE_MISS) * self.cost_win + QUEUE_MISS * self.fee
+        sd_p = float(np.std(pred))
+        best = None
+        for k in THRESHOLDS:
+            # Plancher économique intégré à la mesure : sous le coût de la
+            # jambe gagnante, un mouvement prévu est sans espoir. Ici, la
+            # règle mesurée est exactement la règle jouée.
+            thr = max(k * sd_p, c_win)
+            m = np.abs(pred) >= thr
+            n_tr = int(m.sum())
+            if n_tr < MIN_TRADES:
+                continue
+            gains = np.sign(pred[m]) * y[hold][m]
+            net = gains - np.where(gains > 0, c_win, self.fee)
+            sd = float(np.std(net, ddof=1))
+            sr = float(np.mean(net)) / sd if sd > 1e-12 else 0.0
+            if best is None or sr > best["sr"]:
+                best = {"thr": thr, "n_tr": n_tr,
+                        "mu": float(np.mean(net)), "sr": sr}
+        if best is None:
+            # Assez d'étiquettes, mais aucun seuil ne déclenche assez
+            # souvent pour qu'une moyenne soit une mesure : la tête prédit
+            # des mouvements plus petits que le coût. C'est un refus, pas
+            # une chauffe — le dire autrement masquerait un verdict.
+            self.shrink, self.status = 0.0, "veto"
+            self.thr_bps, self.n_trades = c_win, 0
+            self.fits += 1
+            log(f"flow {self.nom} veto n={self.n} hold={len(hold)} "
+                f"ic={self.ic:.3f} aucun seuil ne déclenche {MIN_TRADES}x "
+                f"(mouvement prévu < coût {c_win:.1f}bps) (fit #{self.fits})")
+            return
+        self.thr_bps = float(best["thr"])
+        self.n_trades = best["n_tr"]
+        mu, self.hold_sr = best["mu"], best["sr"]
+        # Every refit is one more draw at this gate; the three horizons are
+        # three parallel searches and the threshold grid is searched inside
+        # each — every one of them is charged. Capped so a long-running desk
+        # is not punished forever for its own uptime.
         self.fits += 1
-        trials = min(max(self.fits, 2), 64) * len(HORIZONS_S)
-        self.sel_bar = expected_max_sharpe(trials, len(hold))
+        trials = (min(max(self.fits, 2), 64) * len(HORIZONS_S)
+                  * len(THRESHOLDS))
+        self.sel_bar = expected_max_sharpe(trials, best["n_tr"])
         if mu > 0 and self.hold_sr > self.sel_bar:
-            floor = 2.0 / math.sqrt(len(hold))
+            floor = 2.0 / math.sqrt(best["n_tr"])
             self.shrink = float(min(0.7, 0.25 + 2.0 * self.ic)) \
                 if self.ic > floor else 0.25
             self.status = "live"
         else:
             self.shrink, self.status = 0.0, "veto"
         log(f"flow {self.nom} {self.status} n={self.n} hold={len(hold)} "
-            f"ic={self.ic:.3f} mean={mu:+.2f}bps sr={self.hold_sr:+.3f} "
-            f"vs bar={self.sel_bar:.3f} (fit #{self.fits}) q={self.q:.1f}")
+            f"ic={self.ic:.3f} net={mu:+.2f}bps/trade sr={self.hold_sr:+.3f} "
+            f"vs bar={self.sel_bar:.3f} seuil={self.thr_bps:.1f}bps "
+            f"trades={best['n_tr']} (fit #{self.fits}) q={self.q:.1f}")
 
     def to_dict(self) -> dict:
         return {"status": self.status, "n": self.n, "ic": self.ic,
                 "q_bps": self.q, "shrink": self.shrink,
                 "fits": self.fits, "sel_bar": self.sel_bar,
-                "hold_sr": self.hold_sr}
+                "hold_sr": self.hold_sr, "thr_bps": self.thr_bps,
+                "n_trades": self.n_trades}
 
 
 class FlowBrain:
@@ -292,9 +339,12 @@ class FlowBrain:
         src = "prior"
         h_bars = max(1, round(best.h / 60.0))
         if best.status == "live" and best.ridge.w is not None:
-            pred = float(best.ridge.predict(x.reshape(1, -1))[0]) * best.shrink
+            brut = float(best.ridge.predict(x.reshape(1, -1))[0])
+            pred = brut * best.shrink
             src = f"flow-{best.nom}"
-            veto = abs(pred) < (0.7 * best.q + self.fee)
+            # La règle jouée EST la règle mesurée : le seuil validé sur la
+            # prédiction brute, plancher économique déjà inclus.
+            veto = abs(brut) < best.thr_bps
         else:
             # Warm-up prior: it estimates a score for the screen and NEVER
             # trades. A hand rule that has never faced a holdout has no
