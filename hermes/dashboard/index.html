@@ -113,13 +113,17 @@ body{
   font-feature-settings:"cv05" 1,"ss03" 1;
   -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;
   padding:0 0 env(safe-area-inset-bottom);
-  /* Deux nappes très douces : le fond cesse d'être un aplat mort sans
-     jamais concurrencer une donnée. */
-  background-image:
-    radial-gradient(1000px 560px at 10% -10%,color-mix(in oklab,var(--accent) 11%,transparent),transparent 62%),
-    radial-gradient(820px 500px at 94% -2%,color-mix(in oklab,var(--short) 5%,transparent),transparent 58%);
-  background-attachment:fixed;
 }
+/* Aurore : trois nappes colorées, très floutées, qui dérivent lentement.
+   C'est elle qui donne au verre quelque chose à dépolir. */
+body::before{content:"";position:fixed;inset:-25%;z-index:-1;pointer-events:none;
+  background:
+    radial-gradient(42% 36% at 18% 12%,color-mix(in oklab,var(--accent) 34%,transparent),transparent 70%),
+    radial-gradient(36% 30% at 86% 6%,color-mix(in oklab,var(--short) 16%,transparent),transparent 70%),
+    radial-gradient(46% 42% at 62% 96%,color-mix(in oklab,var(--long) 15%,transparent),transparent 70%);
+  filter:blur(70px);
+  animation:aurore 26s ease-in-out infinite alternate}
+@keyframes aurore{to{transform:translate(-3%,2.5%) rotate(2deg) scale(1.06)}}
 /* Grain : casse le banding des dégradés, invisible consciemment. */
 body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
   opacity:.022;mix-blend-mode:overlay;
@@ -145,10 +149,9 @@ header{position:sticky;top:0;z-index:50;
 .marque b{font-size:19px;font-weight:660;letter-spacing:-.025em}
 .marque span{font-size:10.5px;color:var(--encre-3);text-transform:uppercase;
   letter-spacing:.13em;font-weight:550}
-.pastille{display:inline-flex;align-items:center;gap:7px;font-size:12px;
-  padding:5px 11px;border-radius:var(--r-plein);border:1px solid var(--filet);
-  background:var(--surface);color:var(--encre-2);white-space:nowrap;
-  box-shadow:var(--ombre-1)}
+.pastille{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;
+  padding:2px 0;border:0;background:transparent;color:var(--encre-3);
+  white-space:nowrap}
 .pastille i{width:6px;height:6px;border-radius:50%;background:var(--encre-3);flex:none}
 .pastille.vif i{background:var(--bon);
   box-shadow:0 0 0 3px color-mix(in oklab,var(--bon) 22%,transparent);
@@ -164,10 +167,13 @@ button.ghost{font:inherit;font-size:12px;font-weight:500;color:var(--encre-2);
              transform var(--duree) var(--courbe)}
 button.ghost:hover{color:var(--encre);border-color:var(--filet-fort)}
 button.ghost:active{transform:scale(.96)}
+button.ghost.icone{padding:8px;border-radius:50%;display:grid;place-items:center;line-height:0}
 
 /* ── Verdict : la réponse avant tout le reste ────────────────────── */
 .verdict{position:relative;overflow:hidden;
-  background:linear-gradient(160deg,var(--surface-2),var(--surface) 46%);
+  background:color-mix(in oklab,var(--surface-2) 74%,transparent);
+  backdrop-filter:blur(28px) saturate(1.55);
+  -webkit-backdrop-filter:blur(28px) saturate(1.55);
   border:1px solid var(--filet);border-radius:var(--r);
   padding:var(--e5) var(--e5) calc(var(--e5) + 2px);margin-bottom:var(--e4);
   box-shadow:var(--lueur),var(--ombre-3);
@@ -197,8 +203,8 @@ button.ghost:active{transform:scale(.96)}
 .chiffre{text-align:right;white-space:nowrap}
 .chiffre .v{font-size:44px;font-weight:660;letter-spacing:-.045em;line-height:1.02;
   font-variant-numeric:tabular-nums}
-.chiffre .l{font-size:10.5px;color:var(--encre-3);text-transform:uppercase;
-  letter-spacing:.11em;margin-top:var(--e2);font-weight:550}
+.chiffre .l{font-size:12px;color:var(--encre-3);
+  margin-top:var(--e2);font-weight:520}
 .hausse{color:var(--bon)} .baisse{color:var(--critique)}
 
 /* ── Marché : graphe navigable ───────────────────────────────────── */
@@ -210,17 +216,17 @@ button.ghost:active{transform:scale(.96)}
 .onglets{display:flex;gap:var(--e1);flex-wrap:nowrap;overflow-x:auto;
   scrollbar-width:none;-webkit-overflow-scrolling:touch;max-width:100%}
 .onglets::-webkit-scrollbar{display:none}
-.ong{font:inherit;border:1px solid transparent;background:transparent;
-  color:var(--encre-2);border-radius:var(--r-s);padding:7px 12px;cursor:pointer;
-  display:flex;flex-direction:column;align-items:flex-start;gap:1px;
-  flex:none;
+.ong{font:inherit;border:0;background:transparent;
+  color:var(--encre-3);border-radius:var(--r-s);padding:6px 11px;cursor:pointer;
+  display:flex;flex-direction:column;align-items:flex-start;gap:0;
+  flex:none;-webkit-tap-highlight-color:transparent;
   transition:background var(--duree) var(--courbe),color var(--duree) var(--courbe),
-             border-color var(--duree) var(--courbe),transform .12s var(--courbe)}
+             transform .12s var(--courbe)}
 .ong:active{transform:scale(.97)}
-.ong .n{font-size:13px;font-weight:650;letter-spacing:-.01em;color:var(--encre)}
-.ong .p{font-size:12px;display:flex;gap:6px;align-items:baseline}
-.ong[aria-selected="true"]{background:var(--surface-2);border-color:var(--filet-fort);
-  box-shadow:var(--lueur),var(--ombre-1)}
+.ong .n{font-size:13px;font-weight:640;letter-spacing:-.01em;color:var(--encre-2)}
+.ong .p{font-size:11px;display:flex;gap:5px;align-items:baseline}
+.ong[aria-selected="true"]{background:color-mix(in oklab,var(--accent) 14%,transparent)}
+.ong[aria-selected="true"] .n{color:var(--accent)}
 /* Contrôle segmenté façon Apple : la pilule glisse sous l'unité choisie. */
 .seg{margin-left:auto;position:relative;display:flex;background:var(--surface-2);
   border:1px solid var(--filet);border-radius:var(--r-s);padding:3px;gap:0}
@@ -232,7 +238,9 @@ button.ghost:active{transform:scale(.96)}
   padding:5px 13px;cursor:pointer;position:relative;z-index:1;white-space:nowrap;
   transition:color var(--duree) var(--courbe)}
 .seg button[aria-selected="true"]{color:var(--encre)}
-.gzone{position:relative;height:460px;touch-action:none;cursor:crosshair}
+.gzone{position:relative;height:460px;touch-action:none;cursor:crosshair;
+  transition:height .4s var(--courbe)}
+.gzone.sans{height:190px}
 .gzone canvas{display:block;width:100%;height:100%}
 .gleg{position:absolute;top:10px;left:12px;font-size:11.5px;color:var(--encre-2);
   pointer-events:none;background:color-mix(in oklab,var(--surface) 78%,transparent);
@@ -246,12 +254,15 @@ button.ghost:active{transform:scale(.96)}
 .grille{display:grid;gap:var(--e4);margin-bottom:var(--e4);align-items:start}
 .g2{grid-template-columns:1fr 1fr}
 .g3{grid-template-columns:repeat(3,1fr)}
-.carte{background:var(--surface);border:1px solid var(--filet);border-radius:var(--r);
-  box-shadow:var(--lueur),var(--ombre-2);overflow:hidden;
+.carte{background:color-mix(in oklab,var(--surface) 72%,transparent);
+  backdrop-filter:blur(28px) saturate(1.55);
+  -webkit-backdrop-filter:blur(28px) saturate(1.55);
+  border:1px solid var(--filet);border-radius:var(--r);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08),var(--ombre-2);overflow:hidden;
   transition:box-shadow .35s var(--courbe),transform .35s var(--courbe)}
-.carte:hover{box-shadow:var(--lueur),var(--ombre-3);transform:translateY(-2px)}
-.carte>h2{font-size:11px;font-weight:620;text-transform:uppercase;letter-spacing:.11em;
-  color:var(--encre-3);padding:var(--e4) var(--e5) 0;
+.carte:hover{box-shadow:inset 0 1px 0 rgba(255,255,255,.1),var(--ombre-3);transform:translateY(-2px)}
+.carte>h2{font-size:15px;font-weight:650;letter-spacing:-.015em;
+  color:var(--encre);padding:var(--e4) var(--e5) 0;
   display:flex;align-items:center;gap:var(--e2)}
 .carte>h2 .aide{font-weight:400;text-transform:none;letter-spacing:0;color:var(--encre-3);
   font-size:12px;margin-left:auto;text-align:right}
@@ -284,8 +295,8 @@ button.ghost:active{transform:scale(.96)}
 .decision:hover .mesure{background:color-mix(in oklab,var(--surface-2) 55%,var(--surface))}
 /* Les intitulés tiennent sur une ou deux lignes selon la largeur ; sans
    hauteur commune les valeurs d'une même rangée ne s'alignent plus. */
-.mesure .l{font-size:10px;color:var(--encre-3);text-transform:uppercase;
-  letter-spacing:.09em;font-weight:550;line-height:1.32;
+.mesure .l{font-size:11px;color:var(--encre-3);letter-spacing:0;
+  font-weight:520;line-height:1.32;
   min-height:2.64em;display:flex;align-items:flex-start}
 .mesure .v{font-size:16px;font-weight:560;margin-top:3px;letter-spacing:-.02em;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -344,8 +355,8 @@ button.ghost:active{transform:scale(.96)}
 
 /* ── Tableaux ────────────────────────────────────────────────────── */
 .tbl{width:100%;border-collapse:collapse;font-size:13px}
-.tbl th{text-align:left;font-size:10px;font-weight:620;text-transform:uppercase;
-  letter-spacing:.09em;color:var(--encre-3);padding:0 var(--e3) var(--e2);white-space:nowrap}
+.tbl th{text-align:left;font-size:11px;font-weight:560;
+  color:var(--encre-3);padding:0 var(--e3) var(--e2);white-space:nowrap}
 .tbl td{padding:var(--e2) var(--e3);border-top:1px solid var(--filet);white-space:nowrap}
 .tbl tbody tr{transition:background var(--duree) var(--courbe)}
 .tbl tbody tr:hover{background:color-mix(in oklab,var(--surface-2) 60%,transparent)}
@@ -390,14 +401,17 @@ footer{padding-bottom:96px}
 
 /* Héros du marché : le prix avant tout. */
 .hero{padding:var(--e3) 0 var(--e4)}
-.hnom{font-size:12px;font-weight:620;text-transform:uppercase;
-  letter-spacing:.12em;color:var(--encre-3);margin-bottom:2px}
+.hnom{font-size:13px;font-weight:560;color:var(--encre-3);margin-bottom:2px}
 .hligne{display:flex;align-items:baseline;gap:var(--e3);flex-wrap:wrap}
 .hpx{font-size:52px;font-weight:680;letter-spacing:-.05em;line-height:1.02;
   font-variant-numeric:tabular-nums}
 .hchg{font-size:14px;font-weight:600;padding:4px 11px;border-radius:var(--r-plein)}
 .hchg.hausse{background:color-mix(in oklab,var(--bon) 16%,transparent)}
 .hchg.baisse{background:color-mix(in oklab,var(--critique) 16%,transparent)}
+.hero{display:flex;align-items:flex-end;justify-content:space-between;gap:var(--e4);flex-wrap:wrap}
+.heq{text-align:right}
+.heqv{font-size:24px;font-weight:640;letter-spacing:-.03em}
+.heqd{font-size:12px;font-weight:560;margin-top:1px}
 
 /* Le dock : navigation flottante en verre, façon iOS. */
 .dock{position:fixed;left:50%;bottom:calc(14px + env(safe-area-inset-bottom));
@@ -406,15 +420,15 @@ footer{padding-bottom:96px}
   background:var(--vitre);border:1px solid var(--filet-fort);
   backdrop-filter:blur(28px) saturate(1.8);
   -webkit-backdrop-filter:blur(28px) saturate(1.8);
-  box-shadow:var(--lueur),0 8px 40px -8px rgba(0,0,0,.55)}
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 10px 44px -8px rgba(0,0,0,.6)}
 .dock button{font:inherit;border:0;background:transparent;color:var(--encre-3);
   border-radius:19px;padding:8px 15px 7px;cursor:pointer;
   display:flex;flex-direction:column;align-items:center;gap:3px;
   -webkit-tap-highlight-color:transparent;
   transition:color .25s var(--courbe),background .25s var(--courbe),transform .18s var(--courbe)}
 .dock button:active{transform:scale(.92)}
-.dock button svg{width:22px;height:22px;fill:none;stroke:currentColor;
-  stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.dock button svg{width:23px;height:23px;fill:none;stroke:currentColor;
+  stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .dock button span{font-size:10px;font-weight:600;letter-spacing:.01em}
 .dock button[aria-selected="true"]{color:var(--accent);
   background:color-mix(in oklab,var(--accent) 13%,transparent)}
@@ -437,6 +451,11 @@ footer{padding-bottom:96px}
   .seg button{flex:1}
   .gzone{height:340px}
   .hpx{font-size:42px}
+  /* le bloc equity enroulé sous le prix devient une ligne de base propre */
+  .heq{text-align:left;display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+  .heq .hnom{margin:0}
+  .heqv{font-size:19px}
+  .heqd{margin:0}
   .gtitre{font-size:28px}
   .dock{left:12px;right:12px;transform:none;justify-content:space-between}
   .dock button{padding:8px 10px 7px;flex:1}
@@ -484,7 +503,12 @@ footer{padding-bottom:96px}
     <div class="pastille" id="lien"><i></i><span>connexion…</span></div>
     <div class="pastille" id="horloge"><i></i><span>—</span></div>
     <div class="pousse">
-      <button class="ghost" id="theme">Clair</button>
+      <button class="ghost icone" id="theme" aria-label="Basculer le thème">
+        <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+             stroke-width="1.8" stroke-linecap="round">
+          <circle cx="12" cy="12" r="4.2"/>
+          <path d="M12 2.5v2.4M12 19.1v2.4M2.5 12h2.4M19.1 12h2.4M4.9 4.9l1.7 1.7M17.4 17.4l1.7 1.7M19.1 4.9l-1.7 1.7M6.6 17.4l-1.7 1.7"/>
+        </svg></button>
     </div>
   </header>
 
@@ -493,10 +517,17 @@ footer{padding-bottom:96px}
     <!-- ═══ MARCHÉ : le prix en héros, le graphe plein cadre ═══ -->
     <section class="vue active" id="vue-marche">
       <div class="hero">
-        <div class="hnom" id="hero-nom">—</div>
-        <div class="hligne">
-          <div class="hpx num" id="hero-px">—</div>
-          <div class="hchg num" id="hero-chg"></div>
+        <div>
+          <div class="hnom" id="hero-nom">—</div>
+          <div class="hligne">
+            <div class="hpx num" id="hero-px">—</div>
+            <div class="hchg num" id="hero-chg"></div>
+          </div>
+        </div>
+        <div class="heq" id="hero-eq-bloc" hidden>
+          <div class="hnom">Equity</div>
+          <div class="heqv num" id="hero-eq">—</div>
+          <div class="heqd num" id="hero-eq-d"></div>
         </div>
       </div>
       <div class="carte marche">
@@ -659,7 +690,8 @@ let dernier = null, serie = [], echecs = 0;
   let t = null;
   try { t = localStorage.getItem("hermes-theme"); } catch(e){}
   if (t === "light" || t === "dark") rac.dataset.theme = t;
-  const maj = () => { $("theme").textContent = effectif() === "light" ? "Sombre" : "Clair"; };
+  const maj = () => { $("theme").setAttribute("aria-label",
+    effectif() === "light" ? "Passer au thème sombre" : "Passer au thème clair"); };
   maj();
   if (window.matchMedia) {
     try {
@@ -1296,6 +1328,7 @@ const Marche = (() => {
       if (jeton !== chargement) return;
       rows = d.candles || []; plusAncien = !!d.has_more; cross = null;
       $("gvide").style.display = rows.length ? "none" : "flex";
+      zone.classList.toggle("sans", !rows.length);
       if (!rows.length){ $("gvide").textContent = "Aucune chandelle en magasin pour cet horizon."; dessiner(); return; }
       const n = rows.length, p = Math.min(130, n + 4);
       vb = tb = n + 2; va = ta = vb - p;
@@ -1530,6 +1563,17 @@ function rendre(d){
   const dep = Number(((d.trader||{}).paper_broker||{}).start_cash || 10000);
   const el = $("pnl");
   const bloc = $("equity").closest(".chiffre");
+  const heq = $("hero-eq-bloc");
+  if (heq){
+    heq.hidden = !(eq > 0);
+    if (eq > 0){
+      majChiffre($("hero-eq"), nf(eq, 2));
+      const dp = eq - dep;
+      const hd = $("hero-eq-d");
+      hd.textContent = sgn(dp) + " · " + pct(dep ? dp / dep : 0, 2);
+      hd.className = "heqd num " + (dp >= 0 ? "hausse" : "baisse");
+    }
+  }
   if (!(eq > 0)) {
     // Sans état de courtier, l'équité n'est pas nulle : elle est inconnue.
     // Afficher « -100 % » ferait passer une absence de donnée pour une ruine,
