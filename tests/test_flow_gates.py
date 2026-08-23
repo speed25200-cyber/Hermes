@@ -141,3 +141,39 @@ def test_inference_speaks_at_the_horizon_of_the_live_head(tmp_path):
     inf = fb.infer(x, micro)
     assert inf["h_bars"] == 15, "l'horizon doit suivre la tête qui tire"
     assert inf["bar"] == "15m"
+
+
+def test_a_shrunk_model_is_measured_instead_of_refused_on_sight(tmp_path):
+    """Le seuil était plancherré au coût : « sous 4,8 bps prévus, sans
+    espoir ». Vrai d'un modèle calibré ; ce n'en est pas un. Un ridge
+    régularisé rend une moyenne conditionnelle rétrécie vers zéro — ici
+    il annonce 3,3 bps là où la réalité en délivre près du double, et la
+    règle rapporte après frais réels. La production disait la même chose
+    autrement : flow 90s refusé pour « mouvement prévu < coût » avec un
+    ic de 0,182.
+
+    Ce qui remplace l'hypothèse n'est pas rien : deux mesures, le net par
+    trade après coûts et le Sharpe contre la barre déflatée.
+    """
+    fb = _cerveau(tmp_path)
+    rng = np.random.default_rng(0)
+    _nourrir(fb, rng, 1600, gain=4.0, bruit=2.0)
+    tete = fb.heads[90.0]
+    tete.fit(lambda m: None)
+    assert tete.status == "live"
+    assert tete.thr_bps < 4.75, (
+        f"seuil {tete.thr_bps:.2f} — le plancher au coût est de retour")
+    assert tete.pente > 1.2, "la pente doit montrer le rétrécissement"
+
+
+def test_the_measured_economics_still_refuse_a_losing_rule(tmp_path):
+    """Contre-épreuve, et c'est elle qui fait tenir la précédente : sans
+    plancher, une tête dont le mouvement capturé ne paie pas les frais
+    doit toujours être écartée — par la mesure, cette fois."""
+    fb = _cerveau(tmp_path)
+    rng = np.random.default_rng(1)
+    # gain 1.5 sur un bruit de 12 : ic réel, capture ~1 bps, frais 4,8
+    _nourrir(fb, rng, 1600, gain=1.5, bruit=12.0)
+    tete = fb.heads[90.0]
+    tete.fit(lambda m: None)
+    assert tete.status == "veto"

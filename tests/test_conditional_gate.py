@@ -89,7 +89,13 @@ def test_a_concentrated_signal_now_reaches_the_book():
             vivants += 1
             assert d["n_trades"] >= MIN_TRADES
             assert d["holdout_sr"] > d["sel_bar"]
-            assert d["thr_bps"] > 0
+            # Le seuil peut valoir zéro : « trader chaque barre » est
+            # une cellule de la grille comme une autre, et si elle paie
+            # ses frais sur tout le holdout c'est le résultat le plus
+            # solide de la grille, pas le plus laxiste. Ce qui est exigé
+            # tient aux deux lignes au-dessus : net positif après coûts
+            # réels, et Sharpe au-dessus de la barre déflatée.
+            assert d["thr_bps"] >= 0
     assert vivants >= 1, f"0/4 vivant alors que le net vaut {nets}"
 
 

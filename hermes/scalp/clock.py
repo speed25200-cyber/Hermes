@@ -333,6 +333,7 @@ class CandleModel:
         self.n_cells = (len(ASSETS) * len(BARS) * len(FAMILIES)
                         * len(THRESHOLDS) * len(HORIZONS))
         self.variant = "abs"   # brut, ou net de la moyenne du panel
+        self.pente = 0.0       # ce que la réalité multiplie à l'annonce
         self._sig_ref = 1e-3   # sigma de repli si l'appelant n'en donne pas
 
     def to_dict(self) -> dict:
@@ -345,7 +346,7 @@ class CandleModel:
             "thr_bps": self.thr_bps, "n_trades": self.n_trades,
             "horizon_bars": self.horizon_bars,
             "n_assets": self.n_assets, "n_periods": self.n_periods,
-            "variant": self.variant,
+            "variant": self.variant, "pente": self.pente,
             "n_trials": self.n_cells,
         }
 
@@ -513,6 +514,10 @@ class CandleModel:
             if not np.isfinite(sd_p) or sd_p > 10.0 * max(sd_y, 1e-12):
                 continue
             ic = _ic(p_bps, yho)
+            # Diagnostic : de combien la réalité multiplie ce que le
+            # modèle annonce. Loin sous 1, ses points de base n'en sont pas.
+            vp = float(np.var(p_bps))
+            pente = (float(np.cov(p_bps, yho)[0, 1]) / vp) if vp > 1e-18 else 0.0
             # « neu » : à chaque instant, on retranche la moyenne du panel.
             # Le signal ne dit plus « ça monte » mais « ça monte plus que
             # les autres » — et comme le portefeuille moyenne ensuite des
@@ -526,7 +531,15 @@ class CandleModel:
             for var, pv in variantes:
                 sd_v = float(np.std(pv))
                 for k in THRESHOLDS:
-                    thr = max(k * sd_v, c_win)
+                    # Pas de plancher au coût. Il serait juste pour un
+                    # modèle calibré ; un ridge régularisé rend une
+                    # moyenne conditionnelle rétrécie vers zéro et peut
+                    # annoncer 2 bps là où la réalité en délivre 9. Le
+                    # plancher refusait a priori ce que la mesure peut
+                    # accepter. Ce qui reste est mesuré, pas supposé : net
+                    # positif après coûts réels, et Sharpe au-dessus de la
+                    # barre déflatée.
+                    thr = k * sd_v
                     m = np.abs(pv) >= thr
                     n_tr = int(m.sum())
                     if n_tr < MIN_TRADES:
@@ -563,7 +576,7 @@ class CandleModel:
                             "var": var,
                             "n_hold": len(yho), "n_train": len(ytr),
                             "bps": float(np.mean(net)), "sr": sr,
-                            "barre": barre, "marge": marge,
+                            "barre": barre, "marge": marge, "pente": pente,
                         }
             # Aucun seuil ne déclenche assez souvent pour cette famille :
             # on retient quand même l'ic, sinon le refus se raconte avec un
@@ -577,6 +590,7 @@ class CandleModel:
         """Adopte l'horizon, la famille et le seuil gagnants."""
         self.family, self.horizon_bars = b["fam"], b["h"]
         self.variant = b.get("var", "abs")
+        self.pente = float(b.get("pente") or 0.0)
         self.rr, self.nn, self.up, self.dn = b["rr"], b["nn"], b["up"], b["dn"]
         self.ic = b["ic"]
         self.thr_bps = float(b["thr"])
@@ -696,7 +710,7 @@ class ScaleDesk:
                      f"ic={d['ic']:.3f} "
                      f"net={d['holdout_bps']:+.2f}bps/trade "
                      f"sr={d['holdout_sr']:+.3f} vs bar={d['sel_bar']:.3f} "
-                     f"seuil={d['thr_bps']:.1f}bps "
+                     f"seuil={d['thr_bps']:.1f}bps pente={d['pente']:.2f} "
                      f"trades={d['n_trades']}/{d['n_holdout']} "
                      f"instants={d['n_periods']} n={d['n_train']}")
         self.fit_at = time.time()

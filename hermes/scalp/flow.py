@@ -83,6 +83,7 @@ class _Head:
         # la perdante traverse le spread et paie self.fee.
         self.cost_win = 4.0
         self.thr_bps = 0.0      # sous ce mouvement prévu, la tête se tait
+        self.pente = 0.0        # ce que la réalité multiplie à l'annonce
         self.n_trades = 0
 
     @property
@@ -137,6 +138,12 @@ class _Head:
         pred = self.ridge.predict(X[hold])
         self.ic = _ic(pred, y[hold])
         self.q = float(np.quantile(np.abs(y[hold] - pred), 0.80))
+        # Diagnostic, jamais une décision : de combien la réalité multiplie
+        # ce que la tête annonce. Très en dessous de 1, le modèle est
+        # rétréci et ses points de base ne sont pas des points de base.
+        vp = float(np.var(pred))
+        self.pente = (float(np.cov(pred, y[hold])[0, 1]) / vp) if vp > 1e-18 \
+            else 0.0
         self.n = len(y)
         # La porte juge la RÈGLE, pas le modèle : le moteur ne trade pas
         # chaque étiquette, il trade celles où la tête parle fort. Facturer
@@ -145,11 +152,18 @@ class _Head:
         c_win = (1.0 - QUEUE_MISS) * self.cost_win + QUEUE_MISS * self.fee
         sd_p = float(np.std(pred))
         best = None
+        # Le seuil était plancherré au coût de la jambe gagnante : « sous
+        # 4,8 bps prévus, sans espoir ». C'est vrai d'un modèle calibré ;
+        # ce n'en est pas un. Un ridge régularisé rend une moyenne
+        # conditionnelle rétrécie vers zéro — il peut annoncer 2 bps là où
+        # la réalité en délivre 9, et l'ic de 0,182 mesuré en production
+        # sur 90 s disait précisément qu'il voyait quelque chose. Le
+        # plancher refusait donc a priori ce que la mesure aurait pu
+        # accepter. Il tombe. Rien ne s'ouvre pour autant : le net par
+        # trade doit rester positif APRÈS coûts réels, et le Sharpe doit
+        # battre la barre déflatée. Deux mesures remplacent une hypothèse.
         for k in THRESHOLDS:
-            # Plancher économique intégré à la mesure : sous le coût de la
-            # jambe gagnante, un mouvement prévu est sans espoir. Ici, la
-            # règle mesurée est exactement la règle jouée.
-            thr = max(k * sd_p, c_win)
+            thr = k * sd_p
             m = np.abs(pred) >= thr
             n_tr = int(m.sum())
             if n_tr < MIN_TRADES:
@@ -167,11 +181,11 @@ class _Head:
             # des mouvements plus petits que le coût. C'est un refus, pas
             # une chauffe — le dire autrement masquerait un verdict.
             self.shrink, self.status = 0.0, "veto"
-            self.thr_bps, self.n_trades = c_win, 0
+            self.thr_bps, self.n_trades = 0.0, 0
             self.fits += 1
             log(f"flow {self.nom} veto n={self.n} hold={len(hold)} "
                 f"ic={self.ic:.3f} aucun seuil ne déclenche {MIN_TRADES}x "
-                f"(mouvement prévu < coût {c_win:.1f}bps) (fit #{self.fits})")
+                f"(fit #{self.fits})")
             return
         self.thr_bps = float(best["thr"])
         self.n_trades = best["n_tr"]
@@ -194,6 +208,7 @@ class _Head:
         log(f"flow {self.nom} {self.status} n={self.n} hold={len(hold)} "
             f"ic={self.ic:.3f} net={mu:+.2f}bps/trade sr={self.hold_sr:+.3f} "
             f"vs bar={self.sel_bar:.3f} seuil={self.thr_bps:.1f}bps "
+            f"pente={self.pente:.2f} "
             f"trades={best['n_tr']} (fit #{self.fits}) q={self.q:.1f}")
 
     def to_dict(self) -> dict:
@@ -201,6 +216,7 @@ class _Head:
                 "q_bps": self.q, "shrink": self.shrink,
                 "fits": self.fits, "sel_bar": self.sel_bar,
                 "hold_sr": self.hold_sr, "thr_bps": self.thr_bps,
+                "pente": self.pente,
                 "n_trades": self.n_trades}
 
 
