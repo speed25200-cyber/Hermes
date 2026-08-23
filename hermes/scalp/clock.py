@@ -302,9 +302,16 @@ class CandleModel:
         nn = MLPRegressor(hidden=(24, 12), epochs=120,
                           patience=10).fit(X[train], y_r[train])
         best, muet = None, self._muet
+        sd_y = float(np.std(y_r[hold]))
         for fam, mdl in (("ridge", rr), ("mlp", nn)):
             p = mdl.predict(X[hold])
             sd_p = float(np.std(p))
+            # Garde-fou d'échelle : un modèle qui prédit des mouvements dix
+            # fois plus grands que ceux qui existent n'est pas audacieux,
+            # il est cassé. On ne le juge pas, on l'écarte — un tel modèle
+            # a produit en direct des seuils à 240771075 bps.
+            if not np.isfinite(sd_p) or sd_p > 10.0 * max(sd_y, 1e-12):
+                continue
             ic = _ic(p, y_r[hold])
             for k in THRESHOLDS:
                 thr = max(k * sd_p, c_win * 1e-4)

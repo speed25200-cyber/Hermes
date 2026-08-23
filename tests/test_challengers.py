@@ -108,3 +108,37 @@ def test_mlp_early_stopping_survives_pure_noise():
     p = m.predict(X[2400:])
     ic = float(np.corrcoef(p, y[2400:])[0, 1]) if p.std() > 1e-12 else 0.0
     assert abs(ic) < 0.08
+
+
+def test_a_feature_unseen_in_training_cannot_blow_up_the_net():
+    """Une colonne constante dans le train mais non nulle plus tard —
+    une série dérivée qui commence en cours d'historique — donnait un
+    écart-type nul. Diviser par 1e-9 envoyait 5e9 dans le réseau, dont
+    les prédictions explosaient de huit ordres de grandeur : en direct,
+    des seuils de déclenchement à 240771075 bps."""
+    rng = np.random.default_rng(0)
+    n = 4000
+    X = rng.normal(size=(n, 6))
+    X[:, 3] = 0.0
+    X[3300:, 3] = 5.0            # jamais vue à l'entraînement
+    y = rng.normal(0, 3e-4, n)
+    p = MLPRegressor().fit(X[:3200], y[:3200]).predict(X[3200:])
+    assert np.isfinite(p).all()
+    assert p.std() < 5.0 * y.std(), f"ratio {p.std() / y.std():.1f}"
+
+
+def test_a_broken_scale_is_skipped_not_judged():
+    """Deuxième filet, au niveau de la porte : un modèle dont les
+    prédictions dépassent dix fois l'échelle de la cible est écarté,
+    jamais retenu comme gagnant."""
+    from hermes.scalp.clock import CandleModel
+    rng = np.random.default_rng(3)
+    n = 3000
+    px = 100 * np.exp(np.cumsum(rng.normal(0, 0.004, n)))
+    o = np.concatenate([[100.0], px[:-1]])
+    w = np.abs(rng.normal(0, 0.0013, n)) * px
+    c = Candles("X", "5m", np.arange(n) * 300_000, o,
+                np.maximum(o, px) + w, np.minimum(o, px) - w, px,
+                np.abs(rng.normal(1000, 300, n)))
+    d = CandleModel("5m").fit(c)
+    assert d["thr_bps"] < 1e4, f"seuil aberrant : {d['thr_bps']}"

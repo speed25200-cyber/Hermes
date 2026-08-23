@@ -115,6 +115,12 @@ class GradientBoostedStumps:
         return out
 
 
+# Bornes des entrées standardisées. Au-delà de huit écarts-types, une
+# valeur n'apporte plus d'information exploitable — elle apporte du
+# levier numérique.
+CLIP_STD = 8.0
+
+
 class MLPRegressor:
     """Small fully-connected net, numpy only, built for noisy finance data.
 
@@ -168,10 +174,20 @@ class MLPRegressor:
             n_val = max(n // 4, 1)
         tr, va = slice(0, n - n_val), slice(n - n_val, n)
         self._mu = X[tr].mean(axis=0)
-        self._sd = X[tr].std(axis=0) + 1e-9
+        # Une colonne CONSTANTE dans le train mais non nulle plus tard —
+        # typiquement une série dérivée qui commence en cours d'historique —
+        # donne un écart-type nul. Diviser par 1e-9 envoyait alors une
+        # entrée à 5e9 dans le réseau, dont les prédictions explosaient de
+        # huit ordres de grandeur (constaté en production : des seuils à
+        # 240771075 bps). Le plancher est relatif à l'échelle de la
+        # colonne, et les entrées standardisées sont bornées : une valeur
+        # jamais vue à l'entraînement ne peut plus faire dérailler le
+        # réseau, elle est simplement extrême.
+        ech = np.abs(X[tr]).mean(axis=0) + 1e-12
+        self._sd = np.maximum(X[tr].std(axis=0), 1e-6 * ech) + 1e-12
         self._ymu = float(y[tr].mean())
         self._ysd = float(y[tr].std() + 1e-12)
-        Xs = (X - self._mu) / self._sd
+        Xs = np.clip((X - self._mu) / self._sd, -CLIP_STD, CLIP_STD)
         ys = (y - self._ymu) / self._ysd
         rng = np.random.default_rng(self.seed)
         sizes = [d, *self.hidden, 1]
@@ -228,7 +244,8 @@ class MLPRegressor:
     def predict(self, X: np.ndarray) -> np.ndarray:
         if self.Ws is None:
             return np.zeros(len(X))
-        Xs = (np.asarray(X, dtype=np.float64) - self._mu) / self._sd
+        Xs = np.clip((np.asarray(X, dtype=np.float64) - self._mu) / self._sd,
+                     -CLIP_STD, CLIP_STD)
         return self._forward(Xs)[:, 0] * self._ysd + self._ymu
 
 
