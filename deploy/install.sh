@@ -116,7 +116,18 @@ systemctl enable hermes >/dev/null 2>&1 || true
 systemctl enable --now hermes-research.timer >/dev/null 2>&1 || true
 systemctl enable --now hermes-dashboard >/dev/null 2>&1 || true
 systemctl restart hermes-dashboard || true
-# stop the engine during research (avoids duplicate backfills and sqlite
-# write races); hermes-research restarts it when it finishes
-systemctl stop hermes || true
+# Two deploy shapes, and the engine's fate differs:
+#   full  -> research starts next, so STOP the engine (avoids duplicate
+#            backfills and sqlite write races); the research unit's
+#            ExecStartPost restarts it with the new code when done.
+#   code  -> no research follows, so RESTART the engine here. The
+#            unconditional stop used to rely on a research pass that
+#            mode=code never launches — the engine stayed down until
+#            someone noticed (it did, for 75 minutes).
+if [ "${HERMES_KEEP_ENGINE:-0}" = "1" ]; then
+    systemctl restart hermes || true
+    echo "install: engine restarted with new code"
+else
+    systemctl stop hermes || true
+fi
 echo "install: OK"

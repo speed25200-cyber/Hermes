@@ -121,8 +121,11 @@ jobs:
 
       - name: Run installer
         run: |
+          # mode=code : pas de recherche derrière, l'installeur doit
+          # relancer le moteur lui-même (HERMES_KEEP_ENGINE=1)
+          if [ "${{ inputs.mode }}" = "code" ]; then KEEP=1; else KEEP=0; fi
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
-            "bash /root/hermes/deploy/install.sh"
+            "HERMES_KEEP_ENGINE=$KEEP bash /root/hermes/deploy/install.sh"
 
       - name: Start data backfill + research (runs on the VPS, detached)
         if: ${{ inputs.mode != 'code' }}
