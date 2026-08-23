@@ -20,7 +20,18 @@ import numpy as np
 
 from ..backtest.metrics import expected_max_sharpe
 from ..data.store import Candles
-from ..ml.models import RidgeRegressor
+from ..ml.models import MLPRegressor, RidgeRegressor
+
+# Deux familles de modèles concourent sur chaque horloge : le ridge (la
+# composante linéaire, 14 poids lisibles) et un petit MLP (les
+# interactions que le linéaire ne peut pas voir — « le momentum ne paie
+# que quand le funding est tendu »). La gate ne préfère personne : elle
+# facture la barre pour TOUTES les familles cherchées et garde celle qui
+# la bat avec la meilleure marge. À ce volume d'étiquettes (10^4), c'est
+# l'architecture que la littérature mesure comme gagnante (Gu-Kelly-Xiu) ;
+# un Transformer sur séquences exigerait des millions d'exemples
+# indépendants que quatre ans de bougies ne contiennent pas.
+FAMILIES = ("ridge", "mlp")
 
 BARS = ("1m", "3m", "5m", "15m")
 HOLD = {"1m": 3, "3m": 3, "5m": 3, "15m": 3}
@@ -132,6 +143,8 @@ class CandleModel:
         self.bar = bar
         self.fee = float(fee_bps)
         self.rr = RidgeRegressor(l2=14.0)
+        self.nn = MLPRegressor(hidden=(24, 12), epochs=120, patience=10)
+        self.family = "ridge"   # qui a gagné le droit de parler
         self.up = RidgeRegressor(l2=14.0)
         self.dn = RidgeRegressor(l2=14.0)
         self.q = 0.0          # conformal |resid| 80%
@@ -141,7 +154,7 @@ class CandleModel:
         self.n_train = 0
         self.holdout_bps = 0.0
         self.hold_sr = 0.0     # Sharpe par barre du holdout
-        self.sel_bar = 0.0     # ce que le hasard aurait produit (12 cellules)
+        self.sel_bar = 0.0     # ce que le hasard aurait produit
         self.n_hold = 0
 
     def to_dict(self) -> dict:
@@ -150,8 +163,11 @@ class CandleModel:
             "shrink": self.shrink, "status": self.status,
             "n_train": self.n_train, "holdout_bps": self.holdout_bps,
             "holdout_sr": self.hold_sr, "sel_bar": self.sel_bar,
-            "n_holdout": self.n_hold,
+            "n_holdout": self.n_hold, "family": self.family,
         }
+
+    def _model(self):
+        return self.nn if self.family == "mlp" else self.rr
 
     def fit(self, c: Candles, btc: Candles | None = None) -> dict:
         n = len(c)
@@ -177,23 +193,37 @@ class CandleModel:
             return self.to_dict()
         cut = idx[int(0.8 * len(idx))]
         train, hold = idx[idx < cut], idx[idx >= cut]
-        self.rr.fit(X[train], y_r[train])
         self.up.fit(X[train], np.clip(y_up[train], 0, 0.05))
         self.dn.fit(X[train], np.clip(y_dn[train], 0, 0.05))
-        pred = self.rr.predict(X[hold])
-        self.ic = _ic(pred, y_r[hold])
+        # Les familles concourent sur le même train et le même holdout ;
+        # chacune est un essai de plus au guichet du hasard.
+        self.rr.fit(X[train], y_r[train])
+        self.nn.fit(X[train], y_r[train])
+        scores = {}
+        for fam, mdl in (("ridge", self.rr), ("mlp", self.nn)):
+            p = mdl.predict(X[hold])
+            signed = np.sign(p) * y_r[hold] * 1e4 - self.fee
+            sd = float(np.std(signed, ddof=1))
+            scores[fam] = {
+                "pred": p,
+                "ic": _ic(p, y_r[hold]),
+                "bps": float(np.mean(signed)),
+                "sr": float(np.mean(signed)) / sd if sd > 1e-12 else 0.0,
+            }
+        self.family = max(scores, key=lambda f: scores[f]["sr"])
+        best = scores[self.family]
+        pred = best["pred"]
+        self.ic = best["ic"]
         resid = np.abs(y_r[hold] - pred)
         self.q = float(np.quantile(resid, 0.80)) if len(resid) else 0.0
-        signed = np.sign(pred) * y_r[hold] * 1e4 - self.fee
-        self.holdout_bps = float(np.mean(signed))
+        self.holdout_bps = best["bps"]
         self.n_train = int(len(train))
-        sd = float(np.std(signed, ddof=1))
-        sr = self.holdout_bps / sd if sd > 1e-12 else 0.0
-        # Twelve cells are searched every refit (3 assets x 4 bars), so the
-        # bar each one must clear is the expected max of twelve pure-noise
-        # draws — and the ic floor is its own sampling noise, 2/sqrt(n).
-        # The old fixed ic>0.03 sat BELOW that floor at every bar size.
-        n_cells = len(ASSETS) * len(BARS)
+        sr = best["sr"]
+        # Cells searched every refit: 3 assets x 4 bars x N model families.
+        # The bar each survivor must clear is the expected max of that many
+        # pure-noise draws — adding the MLP made every gate HARDER, not
+        # softer. The ic floor is its own sampling noise, 2/sqrt(n).
+        n_cells = len(ASSETS) * len(BARS) * len(FAMILIES)
         sel_bar = expected_max_sharpe(n_cells, len(hold))
         ic_floor = 2.0 / math.sqrt(max(len(hold), 4))
         self.hold_sr, self.sel_bar, self.n_hold = sr, sel_bar, int(len(hold))
@@ -206,11 +236,11 @@ class CandleModel:
         return self.to_dict()
 
     def predict_row(self, x: np.ndarray) -> dict:
-        if self.rr.w is None or self.status != "live":
+        if self.status != "live":
             return {"r_bps": 0.0, "up_bps": 0.0, "dn_bps": 0.0,
                     "q_bps": self.q * 1e4, "veto": True, "bar": self.bar,
                     "status": self.status, "ic": self.ic}
-        r = float(self.rr.predict(x.reshape(1, -1))[0]) * self.shrink
+        r = float(self._model().predict(x.reshape(1, -1))[0]) * self.shrink
         up = max(float(self.up.predict(x.reshape(1, -1))[0]), 0.0)
         dn = max(float(self.dn.predict(x.reshape(1, -1))[0]), 0.0)
         r_bps, q_bps = r * 1e4, self.q * 1e4
@@ -264,7 +294,8 @@ class ScaleDesk:
                 self.models[(inst, bar)] = m
                 out[f"{inst.split('-')[0]}:{bar}"] = d
                 self.log(f"clock {inst.split('-')[0]} {bar} {d['status']} "
-                         f"ic={d['ic']:.3f} holdout={d['holdout_bps']:+.2f}bps "
+                         f"[{d['family']}] ic={d['ic']:.3f} "
+                         f"holdout={d['holdout_bps']:+.2f}bps "
                          f"q={d['q_bps']:.1f}bps n={d['n_train']}")
         self.fit_at = time.time()
         self.log(f"desk live={self.live_bars() or ['none']}")
@@ -361,7 +392,8 @@ class ScaleDesk:
                 "holdout_sr": getattr(m, "hold_sr", 0.0) if m else 0.0,
                 "sel_bar": getattr(m, "sel_bar", 0.0) if m else 0.0,
                 "n_holdout": getattr(m, "n_hold", 0) if m else 0,
-                "n_trials": len(ASSETS) * len(BARS),
+                "n_trials": len(ASSETS) * len(BARS) * len(FAMILIES),
+                "family": getattr(m, "family", "ridge") if m else "ridge",
                 "alpha": getattr(m, "shrink", 0.0) if m else 0.0,
             }
         d["_best"] = best

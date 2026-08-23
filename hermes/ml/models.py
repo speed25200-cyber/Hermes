@@ -113,3 +113,124 @@ class GradientBoostedStumps:
         for f, thr, left, right in self.stumps:
             out += self.learning_rate * np.where(X[:, f] <= thr, left, right)
         return out
+
+
+class MLPRegressor:
+    """Small fully-connected net, numpy only, built for noisy finance data.
+
+    Everything that usually makes a net lie on markets is closed off:
+
+      * the validation split is TEMPORAL (the last `val_frac` of the rows,
+        never shuffled) and early stopping restores the best-val weights —
+        a net that memorises the past stops improving on the future and
+        training halts there;
+      * inputs are standardised on train statistics only;
+      * capacity is tiny (default 32x16 ~ 1k weights) with L2, because at
+        10^4 noisy labels variance kills expressiveness;
+      * fixed seed, deterministic batches: the same data always yields the
+        same model, so a refit is a decision, not a dice roll.
+    """
+
+    def __init__(self, hidden: tuple[int, ...] = (32, 16), l2: float = 1e-4,
+                 lr: float = 3e-3, epochs: int = 150, batch: int = 1024,
+                 patience: int = 12, val_frac: float = 0.15, seed: int = 7):
+        self.hidden = tuple(int(h) for h in hidden)
+        self.l2 = float(l2)
+        self.lr = float(lr)
+        self.epochs = int(epochs)
+        self.batch = int(batch)
+        self.patience = int(patience)
+        self.val_frac = float(val_frac)
+        self.seed = int(seed)
+        self.Ws: list[np.ndarray] | None = None
+        self.bs: list[np.ndarray] | None = None
+        self._mu = None
+        self._sd = None
+        self._ymu = 0.0
+        self._ysd = 1.0
+
+    def _forward(self, X, keep=False):
+        acts = [X]
+        a = X
+        for i, (W, b) in enumerate(zip(self.Ws, self.bs)):
+            z = a @ W + b
+            a = np.maximum(z, 0.0) if i < len(self.Ws) - 1 else z
+            if keep:
+                acts.append(a)
+        return (a, acts) if keep else a
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> "MLPRegressor":
+        X = np.asarray(X, dtype=np.float64)
+        y = np.asarray(y, dtype=np.float64)
+        n, d = X.shape
+        n_val = max(int(n * self.val_frac), 16)
+        if n - n_val < 32:                      # trop petit pour un réseau
+            n_val = max(n // 4, 1)
+        tr, va = slice(0, n - n_val), slice(n - n_val, n)
+        self._mu = X[tr].mean(axis=0)
+        self._sd = X[tr].std(axis=0) + 1e-9
+        self._ymu = float(y[tr].mean())
+        self._ysd = float(y[tr].std() + 1e-12)
+        Xs = (X - self._mu) / self._sd
+        ys = (y - self._ymu) / self._ysd
+        rng = np.random.default_rng(self.seed)
+        sizes = [d, *self.hidden, 1]
+        self.Ws = [rng.normal(0, math_sqrt(2.0 / sizes[i]),
+                              (sizes[i], sizes[i + 1]))
+                   for i in range(len(sizes) - 1)]
+        self.bs = [np.zeros(sizes[i + 1]) for i in range(len(sizes) - 1)]
+        mW = [np.zeros_like(W) for W in self.Ws]
+        vW = [np.zeros_like(W) for W in self.Ws]
+        mb = [np.zeros_like(b) for b in self.bs]
+        vb = [np.zeros_like(b) for b in self.bs]
+        b1, b2, eps = 0.9, 0.999, 1e-8
+        t = 0
+        best = float("inf")
+        best_W, best_b = None, None
+        since = 0
+        n_tr = n - n_val
+        order = np.arange(n_tr)
+        for epoch in range(self.epochs):
+            rng.shuffle(order)
+            for s in range(0, n_tr, self.batch):
+                idx = order[s:s + self.batch]
+                xb, yb = Xs[idx], ys[idx]
+                out, acts = self._forward(xb, keep=True)
+                g = 2.0 * (out[:, 0] - yb)[:, None] / len(idx)
+                t += 1
+                for i in reversed(range(len(self.Ws))):
+                    a_prev = acts[i]
+                    gW = a_prev.T @ g + self.l2 * self.Ws[i]
+                    gb = g.sum(axis=0)
+                    if i > 0:
+                        g = (g @ self.Ws[i].T) * (acts[i] > 0)
+                    mW[i] = b1 * mW[i] + (1 - b1) * gW
+                    vW[i] = b2 * vW[i] + (1 - b2) * gW * gW
+                    mb[i] = b1 * mb[i] + (1 - b1) * gb
+                    vb[i] = b2 * vb[i] + (1 - b2) * gb * gb
+                    cW = mW[i] / (1 - b1 ** t) / (np.sqrt(vW[i] / (1 - b2 ** t)) + eps)
+                    cb = mb[i] / (1 - b1 ** t) / (np.sqrt(vb[i] / (1 - b2 ** t)) + eps)
+                    self.Ws[i] -= self.lr * cW
+                    self.bs[i] -= self.lr * cb
+            val = float(np.mean((self._forward(Xs[va])[:, 0] - ys[va]) ** 2))
+            if val < best - 1e-6:
+                best, since = val, 0
+                best_W = [W.copy() for W in self.Ws]
+                best_b = [b.copy() for b in self.bs]
+            else:
+                since += 1
+                if since >= self.patience:
+                    break
+        if best_W is not None:
+            self.Ws, self.bs = best_W, best_b
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        if self.Ws is None:
+            return np.zeros(len(X))
+        Xs = (np.asarray(X, dtype=np.float64) - self._mu) / self._sd
+        return self._forward(Xs)[:, 0] * self._ysd + self._ymu
+
+
+def math_sqrt(x: float) -> float:
+    return float(np.sqrt(x))
