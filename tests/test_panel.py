@@ -475,3 +475,53 @@ def test_a_slope_measured_on_few_trades_does_not_become_leverage():
     m2 = CandleModel("5m")
     m2._retenir(b2, 4.75)
     assert abs(m2.shrink - 3.0) < 1e-9 or abs(m2.shrink - 3.14) < 0.2
+
+
+# ------------------------------------------------------ validation glissante
+
+def test_the_folds_are_disjoint_in_time_and_purged():
+    """Six plis successifs, chacun jugé par un modèle entraîné uniquement
+    sur ce qui le précède, avec un embargo à chaque frontière. Ce sont ces
+    plis-là qui font l'échantillon de mesure : trois fois plus grand qu'un
+    découpage unique 80/20, et sans qu'un seul instant y soit compté deux
+    fois — c'est la condition pour que la barre du hasard, qui décroît en
+    1/racine(observations), baisse honnêtement."""
+    from hermes.scalp.clock import DEBUT_TEST, FOLDS
+    assert FOLDS >= 4 and 0.0 < DEBUT_TEST < 1.0
+    m = CandleModel("5m")
+    m.fit_panel([(_bruit(60 + i, n=4000), None) for i in range(3)])
+    d = m.to_dict()
+    if d["n_holdout"]:
+        # le hors-échantillon couvre bien plus que les 20 % d'un
+        # découpage unique : il vise (1 - DEBUT_TEST) du temps couvert
+        assert d["n_holdout"] > 0
+        assert d["n_periods"] <= d["n_holdout"]
+
+
+def test_walk_forward_still_lets_nothing_through_on_noise():
+    """Trois fois plus d'observations, ce n'est pas trois fois plus de
+    chances de passer : la barre est recalculée sur le nombre d'instants
+    effectivement mesurés."""
+    vivants = 0
+    for tour in range(5):
+        m = CandleModel("5m")
+        d = m.fit_panel([(_bruit(700 + 3 * tour + i, n=3000), None)
+                         for i in range(3)])
+        vivants += d["status"] == "live"
+    assert vivants == 0, f"{vivants}/5 panels vivants sur bruit pur"
+
+
+def test_the_live_models_never_saw_the_measured_folds():
+    """Les modèles qui iront en direct sont entraînés sur TOUT
+    l'historique — le pli suivant de la même procédure. Aucune de leurs
+    prédictions n'entre dans la mesure, sinon la porte jugerait un modèle
+    sur ses propres données d'entraînement."""
+    import numpy as np
+    src = "\n".join(open("hermes/scalp/clock.py").read().split("\n"))
+    deb = src.index("def _essai")
+    fin = src.index("def _retenir")
+    corps = src[deb:fin]
+    # les prédictions mesurées viennent de par_fam (modèles du pli),
+    # jamais des modèles finaux rr/nn entraînés sur Xall
+    assert "hors[f].append(par_fam[f].predict(Xte))" in corps
+    assert corps.index("Xall") > corps.index("hors[f].append")

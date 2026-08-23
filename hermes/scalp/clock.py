@@ -81,6 +81,25 @@ HORIZONS = (1, 3, 6)
 # réglage gratuit : la variante est cherchée, donc facturée au guichet.
 VARIANTS = ("abs", "neu")
 
+# Validation glissante. Un découpage unique 80/20 ne rend que 20 % de
+# l'histoire en hors-échantillon, et la barre du hasard décroît en
+# 1/racine(observations) : c'est LUI le goulot, pas le signal — mesuré en
+# production, l'horloge 3m sort à sr=+0,064 contre une barre de 0,141 sur
+# 454 instants seulement. Six plis successifs couvrant les 60 % de temps
+# les plus récents, chacun jugé par un modèle entraîné uniquement sur ce
+# qui le précède, rendent trois fois plus d'observations et divisent la
+# barre par racine(3).
+#
+# Ce n'est pas une porte plus douce, c'est une mesure plus fidèle : ce qui
+# est mesuré devient la PROCÉDURE réellement déployée — réapprendre
+# périodiquement sur tout l'historique, puis trader la période suivante —
+# au lieu d'un modèle figé une fois pour toutes. Chaque pli purge ses
+# étiquettes d'entraînement dont la fenêtre traverse sa frontière, et les
+# plis sont disjoints dans le temps : leurs instants ne se comptent pas
+# deux fois.
+FOLDS = 6
+DEBUT_TEST = 0.40
+
 BARS = ("1m", "3m", "5m", "15m")
 HOLD = {"1m": 3, "3m": 3, "5m": 3, "15m": 3}
 # Profondeur d'historique par horloge. La barre du hasard décroît en
@@ -464,7 +483,7 @@ class CandleModel:
         return self._retenir(meilleur, c_win)
 
     def _essai(self, blocs: list, h: int, c_win: float) -> dict | None:
-        """Un horizon : entraîne sur le panel, cherche le seuil, rend le score."""
+        """Un horizon : validation glissante sur le panel, puis recherche."""
         pas = BAR_MS.get(self.bar, 300_000)
         parts = []
         for bl in blocs:
@@ -483,60 +502,96 @@ class CandleModel:
                           "y": y_r, "up": y_up, "dn": y_dn})
         if not parts:
             return None
-        # Coupure commune dans le TEMPS, pas dans l'index : deux actifs
+        # Frontières communes dans le TEMPS, pas dans l'index : deux actifs
         # d'historiques différents doivent être coupés au même instant,
-        # sinon le holdout de l'un est le train de l'autre.
-        # Le quantile se prend sur les instants DISTINCTS, pas sur les
-        # lignes. Un actif arrivé récemment n'a que des horodatages récents
-        # ; les compter une fois par ligne tirerait la coupure vers le
-        # présent et raccourcirait le holdout de tout le monde. Ce qu'on
-        # cherche est « 80 % du temps couvert », pas « 80 % des lignes ».
+        # sinon le test de l'un est l'entraînement de l'autre. Et le
+        # quantile se prend sur les instants DISTINCTS : un actif arrivé
+        # récemment n'a que des horodatages récents, les compter une fois
+        # par ligne tirerait les frontières vers le présent.
         tous = np.unique(np.concatenate([p["ts"][p["idx"]] for p in parts]))
-        cut_ts = float(tous[int(0.8 * len(tous))])
-        Xtr, ytr, utr, dtr = [], [], [], []
-        Xho, yho, sgo, tso = [], [], [], []
-        for p in parts:
-            ts, idx, sg = p["ts"], p["idx"], p["sg"]
-            # embargo : une étiquette d'entraînement dont la fenêtre de h
-            # barres traverse la coupure a vu le holdout. Elle sort.
-            tr = idx[ts[idx] < cut_ts - h * pas]
-            ho = idx[ts[idx] >= cut_ts]
-            # Étiquettes NON CHEVAUCHANTES pour la mesure : sur h barres,
-            # deux étiquettes consécutives partagent h-1 barres, ce qui
-            # écrase les erreurs standard d'un facteur racine(h) et laisse
-            # passer du bruit (constaté : 3 horloges vives sur du hasard
-            # pur avant ce pas). L'amincissement se fait sur la GRILLE de
-            # temps et non sur l'index, pour que les actifs restent
-            # alignés et que leurs trades simultanés le restent aussi.
-            ho = ho[(ts[ho] // pas) % h == 0]
-            if len(tr) < 150 or len(ho) < 20:
+        if len(tous) < 800:
+            return None
+        bornes = [float(tous[min(int(q * len(tous)), len(tous) - 1)])
+                  for q in np.linspace(DEBUT_TEST, 1.0, FOLDS + 1)]
+        bornes[-1] = float(tous[-1]) + pas          # dernière borne incluse
+        hors = {f: [] for f in FAMILIES}
+        yho, sgo, tso = [], [], []
+        for k in range(FOLDS):
+            t0, t1 = bornes[k], bornes[k + 1]
+            if t1 <= t0:
                 continue
-            Xtr.append(p["X"][tr])
-            ytr.append(np.clip(p["y"][tr] / sg[tr], -8, 8))
-            utr.append(np.clip(p["up"][tr] / sg[tr], 0, 8))
-            dtr.append(np.clip(p["dn"][tr] / sg[tr], 0, 8))
-            Xho.append(p["X"][ho])
-            yho.append(p["y"][ho] * 1e4)
-            sgo.append(sg[ho])
-            tso.append(ts[ho])
-        if not Xtr:
+            Xtr, ytr, Xte, yte, sgte, tste = [], [], [], [], [], []
+            for p in parts:
+                ts, idx, sg = p["ts"], p["idx"], p["sg"]
+                # embargo : une étiquette d'entraînement dont la fenêtre de
+                # h barres traverse la frontière a vu le pli de test.
+                tr = idx[ts[idx] < t0 - h * pas]
+                te = idx[(ts[idx] >= t0) & (ts[idx] < t1)]
+                # Étiquettes NON CHEVAUCHANTES pour la mesure : sur h
+                # barres, deux étiquettes consécutives partagent h-1
+                # barres, ce qui écrase les erreurs standard d'un facteur
+                # racine(h) et laisse passer du bruit (constaté : 3
+                # horloges vives sur du hasard pur avant ce pas).
+                # L'amincissement se fait sur la GRILLE de temps et non sur
+                # l'index, pour que les actifs restent alignés et que leurs
+                # trades simultanés le restent aussi.
+                te = te[(ts[te] // pas) % h == 0]
+                if len(tr) < 150 or len(te) < 3:
+                    continue
+                Xtr.append(p["X"][tr])
+                ytr.append(np.clip(p["y"][tr] / sg[tr], -8, 8))
+                Xte.append(p["X"][te])
+                yte.append(p["y"][te] * 1e4)
+                sgte.append(sg[te])
+                tste.append(ts[te])
+            if not Xtr:
+                continue
+            Xtr, ytr = np.vstack(Xtr), np.concatenate(ytr)
+            Xte = np.vstack(Xte)
+            if len(ytr) < 300 or len(Xte) < 20:
+                continue
+            rr_k = RidgeRegressor(l2=14.0).fit(Xtr, ytr)
+            nn_k = MLPRegressor(hidden=(24, 12), epochs=120,
+                                patience=10).fit(Xtr, ytr)
+            par_fam = {"ridge": rr_k, "mlp": nn_k,
+                       "ens": _Ensemble(rr_k, nn_k)}
+            for f in FAMILIES:
+                hors[f].append(par_fam[f].predict(Xte))
+            yho.append(np.concatenate(yte))
+            sgo.append(np.concatenate(sgte))
+            tso.append(np.concatenate(tste))
+            del Xtr, Xte
+        if not yho:
             return None
-        Xtr = np.vstack(Xtr)
-        ytr, utr, dtr = np.concatenate(ytr), np.concatenate(utr), np.concatenate(dtr)
-        Xho = np.vstack(Xho)
-        yho, sgo, tso = (np.concatenate(yho), np.concatenate(sgo),
-                         np.concatenate(tso))
-        if len(ytr) < 150 or len(yho) < 60:
+        yho = np.concatenate(yho)
+        sgo, tso = np.concatenate(sgo), np.concatenate(tso)
+        if len(yho) < 200:
             return None
-        up = RidgeRegressor(l2=14.0).fit(Xtr, utr)
-        dn = RidgeRegressor(l2=14.0).fit(Xtr, dtr)
-        rr = RidgeRegressor(l2=14.0).fit(Xtr, ytr)
+        # Les modèles qui iront en direct sont le pli suivant de la même
+        # procédure : entraînés sur TOUT l'historique disponible. Aucune de
+        # leurs prédictions n'entre dans la mesure ci-dessus.
+        Xall, yall, uall, dall = [], [], [], []
+        for p in parts:
+            idx, sg = p["idx"], p["sg"]
+            Xall.append(p["X"][idx])
+            yall.append(np.clip(p["y"][idx] / sg[idx], -8, 8))
+            uall.append(np.clip(p["up"][idx] / sg[idx], 0, 8))
+            dall.append(np.clip(p["dn"][idx] / sg[idx], 0, 8))
+        Xall = np.vstack(Xall)
+        yall, uall, dall = (np.concatenate(yall), np.concatenate(uall),
+                            np.concatenate(dall))
+        up = RidgeRegressor(l2=14.0).fit(Xall, uall)
+        dn = RidgeRegressor(l2=14.0).fit(Xall, dall)
+        rr = RidgeRegressor(l2=14.0).fit(Xall, yall)
         nn = MLPRegressor(hidden=(24, 12), epochs=120,
-                          patience=10).fit(Xtr, ytr)
+                          patience=10).fit(Xall, yall)
+        n_train = len(yall)
+        del Xall
+
         best, muet = None, self._muet
         sd_y = float(np.std(yho))
-        for fam, mdl in (("ridge", rr), ("mlp", nn), ("ens", _Ensemble(rr, nn))):
-            p_bps = mdl.predict(Xho) * sgo * 1e4
+        for fam in FAMILIES:
+            p_bps = np.concatenate(hors[fam]) * sgo * 1e4
             sd_p = float(np.std(p_bps))
             # Garde-fou d'échelle : un modèle qui prédit des mouvements dix
             # fois plus grands que ceux qui existent n'est pas audacieux,
@@ -620,7 +675,7 @@ class CandleModel:
                             "h": h, "pred": pv[m], "y": yho[m], "ic": ic,
                             "thr": thr, "n_tr": n_tr, "n_per": n_per,
                             "var": var,
-                            "n_hold": len(yho), "n_train": len(ytr),
+                            "n_hold": len(yho), "n_train": n_train,
                             "bps": mu, "sr": sr, "cle": cle, "sd": sd,
                             "barre": barre, "marge": marge, "pente": pente,
                         }

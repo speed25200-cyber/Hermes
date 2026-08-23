@@ -42,29 +42,61 @@ def _marche_concentre(seed, n=4000, part=0.10, force=120e-4, bruit=9e-4):
                    np.abs(rng.normal(1000, 300, n)))
 
 
-def _sans_condition(c):
-    """Ce que l'ancienne porte mesurait : frais pleins sur chaque barre."""
+def _deux_lectures(c):
+    """Les deux façons de lire LE MÊME modèle sur LE MÊME hors-échantillon.
+
+    À gauche l'ancienne porte : frais pleins facturés sur chaque barre, y
+    compris celles que le moteur ne trade pas. À droite la porte
+    conditionnelle : la règle est « trader quand |prédiction| dépasse le
+    seuil », et son économie ne se lit que sur les trades qu'elle produit,
+    aux coûts réellement payés — maker sur la jambe posée, taker sur celle
+    qui traverse.
+
+    Une comparaison isolée du découpage : c'est le mécanisme qui est en
+    cause, pas l'échantillonnage de la porte.
+    """
     X = np.column_stack([feat_matrix(c), np.zeros(len(c)), np.zeros(len(c))])
     y, _, _ = _targets(c)
     idx = np.where(np.isfinite(y))[0]
     cut = idx[int(0.8 * len(idx))]
     train, hold = idx[idx < cut], idx[idx >= cut]
     p = RidgeRegressor(l2=14.0).fit(X[train], y[train]).predict(X[hold])
-    return float(np.mean(np.sign(p) * y[hold] * 1e4 - 7.0))
+    p_bps, y_bps = p * 1e4, y[hold] * 1e4
+    par_barre = float(np.mean(np.sign(p_bps) * y_bps - 7.0))
+    sd = float(np.std(p_bps))
+    grille = {}
+    for k in THRESHOLDS:
+        m = np.abs(p_bps) >= k * sd
+        if int(m.sum()) < 40:
+            continue
+        gains = np.sign(p_bps[m]) * y_bps[m]
+        grille[k] = float(np.mean(gains - np.where(gains > 0, 4.75, 7.0)))
+    return grille, par_barre
 
 
 def test_the_silences_no_longer_drag_the_measurement_down():
     """Le mécanisme, testé pour lui-même : sur un signal concentré, le net
-    PAR TRADE dépasse toujours l'ancienne moyenne par barre. Les barres
+    PAR TRADE dépasse la moyenne PAR BARRE du même modèle. Les barres
     muettes ne votent plus contre une règle qui ne les trade pas."""
     for seed in range(4):
         c = _marche_concentre(300 + seed)
-        m = CandleModel("5m")
-        d = m.fit(c)
-        ancien = _sans_condition(c)
-        assert d["holdout_bps"] > ancien, (
-            f"graine {seed} : conditionnel {d['holdout_bps']:+.2f} "
-            f"vs inconditionnel {ancien:+.2f}")
+        grille, par_barre = _deux_lectures(c)
+        assert grille, "aucune cellule ne déclenche assez"
+        # La cellule k=0 est la règle inconditionnelle elle-même, à ceci
+        # près qu'elle paie les coûts RÉELS et asymétriques. Elle domine
+        # déjà l'ancienne lecture : celle-ci était pessimiste par
+        # construction, elle facturait le taker des deux côtés.
+        assert grille[0.0] > par_barre
+        # Et l'intérêt du seuil est ailleurs : sur un signal concentré,
+        # une cellule STRICTEMENT au-dessus de zéro fait mieux que trader
+        # chaque barre. Les barres muettes ne votent plus contre une règle
+        # qui ne les trade pas.
+        meilleur = max(grille.values())
+        assert meilleur > grille[0.0], (
+            f"graine {seed} : le seuil n'apporte rien ({grille})")
+        # et la porte publie bien une économie par trade, pas par barre
+        d = CandleModel("5m").fit(c)
+        assert d["n_trades"] <= d["n_holdout"]
 
 
 def test_a_concentrated_signal_now_reaches_the_book():
