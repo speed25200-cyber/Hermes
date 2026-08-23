@@ -219,3 +219,48 @@ def test_a_losing_cell_never_takes_the_place_of_a_paying_one(tmp_path):
     tete.fit(lambda m: None)
     # sur ce marché une cellule payante existe : c'est elle qui est retenue
     assert tete.status == "live"
+
+
+def test_looking_less_often_is_how_the_bar_comes_down(tmp_path):
+    """La barre déflatée facture chaque regard. Un ajustement tous les 40
+    labels en produit soixante-seize sur trois mille étiquettes, d'où
+    1152 cellules facturées pour une règle mesurée sur 62 trades et une
+    barre à 0,41.
+
+    La réponse honnête n'est pas de baisser le tarif : c'est de regarder
+    moins. Un regard quand l'échantillon a grandi d'un quart apporte une
+    information nouvelle à peu près constante ; entre deux, refaire le
+    même ajustement sur quarante étiquettes de plus ne change pas le
+    modèle, il ne fait qu'ajouter un tirage à payer.
+    """
+    fb = _cerveau(tmp_path)
+    rng = np.random.default_rng(6)
+    tete = fb.heads[90.0]
+    vus = 0
+    for lot in range(60):
+        _nourrir(fb, rng, 50, gain=1.0, bruit=10.0,
+                 t0=vus * tete.h, h=90.0)
+        vus += 50
+        tete._depuis += 50
+        if tete._depuis >= max(50, 0.25 * len(tete.y)) or (
+                tete.status == "warmup" and len(tete.y) >= 250):
+            tete._depuis = 0
+            tete.fit(lambda m: None)
+    # 3000 étiquettes : une quinzaine de regards, pas soixante-seize
+    assert 5 <= tete.fits <= 25, f"{tete.fits} regards"
+    assert len(tete.y) == 3000
+
+
+def test_the_price_of_a_look_is_unchanged(tmp_path):
+    """Contre-épreuve : le tarif du guichet n'a pas bougé d'un pouce. Ce
+    qui baisse est le nombre de regards, pas ce qu'ils coûtent."""
+    from hermes.backtest.metrics import expected_max_sharpe
+    from hermes.scalp.flow import HORIZONS_S, THRESHOLDS
+    for fits, n_tr in ((10, 62), (45, 62), (64, 200)):
+        attendu = expected_max_sharpe(
+            min(max(fits, 2), 64) * len(HORIZONS_S) * len(THRESHOLDS), n_tr)
+        assert attendu > 0
+    # moins de regards, barre plus basse — mécaniquement, sans rien assouplir
+    peu = expected_max_sharpe(10 * len(HORIZONS_S) * len(THRESHOLDS), 62)
+    beaucoup = expected_max_sharpe(64 * len(HORIZONS_S) * len(THRESHOLDS), 62)
+    assert peu < beaucoup

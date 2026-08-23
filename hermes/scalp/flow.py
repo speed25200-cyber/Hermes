@@ -70,6 +70,7 @@ class _Head:
         self.y: list[float] = []        # bps
         self.T: list[float] = []        # label time (for the purged split)
         self.fits = 0                   # refits so far -> selection trials
+        self._depuis = 0                # étiquettes depuis le dernier ajustement
         self.sel_bar = 0.0
         self.hold_sr = 0.0
         self._acc: dict[str, float] = {}  # inst -> time of last ACCEPTED label
@@ -351,8 +352,22 @@ class FlowBrain:
             head.trim()
             n = n_new[h]
             total += n
-            if n and (len(head.y) % 40 < n
+            head._depuis += n
+            # Ajustement tous les 40 labels : sur 3042 étiquettes cela fait
+            # soixante-seize regards à la porte, et la barre déflatée les
+            # facture tous — 1152 cellules pour une règle mesurée sur 62
+            # trades, d'où une barre à 0,41 qu'aucun signal réel ne franchit.
+            # La bonne réponse n'est pas de payer moins cher : c'est de
+            # REGARDER MOINS. Un regard quand l'échantillon a grandi d'un
+            # quart apporte à peu près une information nouvelle constante ;
+            # entre deux, refaire le même ajustement sur 40 étiquettes de
+            # plus ne change pas le modèle, il ne fait que rajouter un
+            # tirage. De 250 à 8000 étiquettes cela fait une quinzaine de
+            # regards au lieu de deux cents, puis un tous les 2000 une fois
+            # la fenêtre pleine. Le tarif du guichet, lui, est inchangé.
+            if n and (head._depuis >= max(50, 0.25 * len(head.y))
                       or (head.status == "warmup" and len(head.y) >= 250)):
+                head._depuis = 0
                 head.fit(self.log)
                 refit = True
         if refit:
