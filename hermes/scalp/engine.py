@@ -241,6 +241,16 @@ class ScalpEngine:
         btc_r1 = 0.0
         if btc is not None and len(btc) >= 2 and btc.c[-2] > 0:
             btc_r1 = float(btc.c[-1] / btc.c[-2] - 1.0)
+        # Tout le panel vote AVANT que quoi que ce soit ne fusionne. Une
+        # horloge validée en marché-neutre ne décide pas sur sa propre
+        # prédiction mais sur son écart à la moyenne du panel : cet écart
+        # n'existe qu'une fois tout le monde passé au micro. Voter et
+        # fusionner dans la même boucle aurait fait juger le premier actif
+        # sur la moyenne du tour PRÉCÉDENT.
+        for inst in self.instruments:
+            c = candles_1m.get(inst)
+            if c is not None and len(c) >= 12:
+                self.horizons.vote_clock(inst, bar, c, btc)
         out = []
         for inst in self.instruments:
             c = candles_1m.get(inst)
@@ -254,7 +264,6 @@ class ScalpEngine:
             feat["ofi"] = float(micro.get("ofi") or 0.0)
             feat["vwap_vs"] = float((self.tape.get(inst) or {}).get("vwap_vs") or 0.0)
             pred = M.predict(feat, btc_r1, inst.startswith("BTC-"), self.horizon)
-            self.horizons.vote_clock(inst, bar, c, btc)
             last = float(feat["px"] or 0.0)
             btc_last = float((self.ticks.get("BTC-USDT-SWAP") or {}).get("last") or 0.0)
             if btc is not None and len(btc) and btc.c[-1] > 0:

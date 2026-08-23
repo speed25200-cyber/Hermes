@@ -70,6 +70,17 @@ MIN_TRADES = 40   # sous ce nombre, une moyenne n'est pas une mesure
 # racine(h) quand le coût reste plat — l'horizon se cherche, et se paie.
 HORIZONS = (1, 3, 6)
 
+# Deux façons de jouer la même prédiction. « abs » prend le mouvement tel
+# qu'il est prévu : on subit le facteur marché, qui à cinq minutes domine
+# tout et n'est quasiment pas prévisible. « neu » retranche à chaque
+# instant la moyenne du panel — on n'achète plus « SOL va monter » mais
+# « SOL va monter PLUS que les autres ». Le livre devient long-short, la
+# composante commune s'annule dans le portefeuille, et il ne reste que la
+# dispersion, qui est la partie réellement prévisible à cet horizon.
+# C'est le vieux fonds neutre transposé au perpétuel. Ce n'est pas un
+# réglage gratuit : la variante est cherchée, donc facturée au guichet.
+VARIANTS = ("abs", "neu")
+
 BARS = ("1m", "3m", "5m", "15m")
 HOLD = {"1m": 3, "3m": 3, "5m": 3, "15m": 3}
 # Profondeur d'historique par horloge. La barre du hasard décroît en
@@ -321,6 +332,7 @@ class CandleModel:
         self.n_periods = 0     # instants mesurés (trades simultanés agrégés)
         self.n_cells = (len(ASSETS) * len(BARS) * len(FAMILIES)
                         * len(THRESHOLDS) * len(HORIZONS))
+        self.variant = "abs"   # brut, ou net de la moyenne du panel
         self._sig_ref = 1e-3   # sigma de repli si l'appelant n'en donne pas
 
     def to_dict(self) -> dict:
@@ -333,6 +345,7 @@ class CandleModel:
             "thr_bps": self.thr_bps, "n_trades": self.n_trades,
             "horizon_bars": self.horizon_bars,
             "n_assets": self.n_assets, "n_periods": self.n_periods,
+            "variant": self.variant,
             "n_trials": self.n_cells,
         }
 
@@ -400,7 +413,11 @@ class CandleModel:
         self.n_cells = (len(BARS) * len(FAMILIES) * len(THRESHOLDS)
                         * len(HORIZONS))
         if self.n_assets < 2:
+            # un seul actif : la dimension revient au guichet, et la
+            # variante neutre n'a pas de sens (rien à retrancher)
             self.n_cells *= len(ASSETS)
+        else:
+            self.n_cells *= len(VARIANTS)
         self._sig_ref = float(np.median(np.concatenate(
             [b["sig"] for b in blocs])))
         c_win = (1.0 - QUEUE_MISS) * self.cost_win + QUEUE_MISS * self.fee
@@ -496,44 +513,58 @@ class CandleModel:
             if not np.isfinite(sd_p) or sd_p > 10.0 * max(sd_y, 1e-12):
                 continue
             ic = _ic(p_bps, yho)
-            for k in THRESHOLDS:
-                thr = max(k * sd_p, c_win)
-                m = np.abs(p_bps) >= thr
-                n_tr = int(m.sum())
-                if n_tr < MIN_TRADES:
-                    continue
-                gains = np.sign(p_bps[m]) * yho[m]
-                net = gains - np.where(gains > 0, c_win, self.fee)
-                # Un instant = un rendement. Les trades simultanés sur
-                # plusieurs actifs sont UNE position de portefeuille, pas
-                # trois observations indépendantes ; les agréger avant de
-                # mesurer est la seule façon de ne pas confondre
-                # diversification et répétition.
-                pnl = _portfolio(net, tso[m])
-                n_per = len(pnl)
-                if n_per < MIN_TRADES:
-                    continue
-                sd = float(np.std(pnl, ddof=1))
-                sr = float(np.mean(pnl)) / sd if sd > 1e-12 else 0.0
-                # On classe les cellules par la MARGE sur leur propre
-                # barre, pas par le Sharpe nu. Un seuil très haut produit
-                # toujours le plus beau Sharpe — sur trente trades, où il
-                # ne prouve rien et ne franchira jamais la barre que ces
-                # trente trades imposent. Trier par (sr - barre), c'est
-                # chercher avec le critère qui décide, au lieu de chercher
-                # un maximum qu'on refusera ensuite. La porte, elle, ne
-                # bouge pas d'un pouce.
-                barre = expected_max_sharpe(self.n_cells, n_per)
-                marge = sr - barre
-                if best is None or marge > best["marge"]:
-                    best = {
-                        "fam": fam, "rr": rr, "nn": nn, "up": up, "dn": dn,
-                        "h": h, "pred": p_bps[m], "y": yho[m], "ic": ic,
-                        "thr": thr, "n_tr": n_tr, "n_per": n_per,
-                        "n_hold": len(yho), "n_train": len(ytr),
-                        "bps": float(np.mean(net)), "sr": sr,
-                        "barre": barre, "marge": marge,
-                    }
+            # « neu » : à chaque instant, on retranche la moyenne du panel.
+            # Le signal ne dit plus « ça monte » mais « ça monte plus que
+            # les autres » — et comme le portefeuille moyenne ensuite des
+            # legs de signes opposés, le mouvement commun s'annule au lieu
+            # d'être pris en pleine face.
+            variantes = [("abs", p_bps)]
+            if self.n_assets >= 2:
+                _, iv = np.unique(tso, return_inverse=True)
+                moy = np.bincount(iv, weights=p_bps) / np.bincount(iv)
+                variantes.append(("neu", p_bps - moy[iv]))
+            for var, pv in variantes:
+                sd_v = float(np.std(pv))
+                for k in THRESHOLDS:
+                    thr = max(k * sd_v, c_win)
+                    m = np.abs(pv) >= thr
+                    n_tr = int(m.sum())
+                    if n_tr < MIN_TRADES:
+                        continue
+                    gains = np.sign(pv[m]) * yho[m]
+                    net = gains - np.where(gains > 0, c_win, self.fee)
+                    # Un instant = un rendement. Les trades simultanés sur
+                    # plusieurs actifs sont UNE position de portefeuille, pas
+                    # plusieurs observations indépendantes ; les agréger avant
+                    # de mesurer est la seule façon de ne pas confondre
+                    # diversification et répétition — et, en variante neutre,
+                    # c'est cette moyenne-là qui annule le facteur commun.
+                    pnl = _portfolio(net, tso[m])
+                    n_per = len(pnl)
+                    if n_per < MIN_TRADES:
+                        continue
+                    sd = float(np.std(pnl, ddof=1))
+                    sr = float(np.mean(pnl)) / sd if sd > 1e-12 else 0.0
+                    # On classe les cellules par la MARGE sur leur propre
+                    # barre, pas par le Sharpe nu. Un seuil très haut produit
+                    # toujours le plus beau Sharpe — sur trente trades, où il
+                    # ne prouve rien et ne franchira jamais la barre que ces
+                    # trente trades imposent. Trier par (sr - barre), c'est
+                    # chercher avec le critère qui décide, au lieu de chercher
+                    # un maximum qu'on refusera ensuite. La porte, elle, ne
+                    # bouge pas d'un pouce.
+                    barre = expected_max_sharpe(self.n_cells, n_per)
+                    marge = sr - barre
+                    if best is None or marge > best["marge"]:
+                        best = {
+                            "fam": fam, "rr": rr, "nn": nn, "up": up, "dn": dn,
+                            "h": h, "pred": pv[m], "y": yho[m], "ic": ic,
+                            "thr": thr, "n_tr": n_tr, "n_per": n_per,
+                            "var": var,
+                            "n_hold": len(yho), "n_train": len(ytr),
+                            "bps": float(np.mean(net)), "sr": sr,
+                            "barre": barre, "marge": marge,
+                        }
             # Aucun seuil ne déclenche assez souvent pour cette famille :
             # on retient quand même l'ic, sinon le refus se raconte avec un
             # ic=0.000 qui n'est pas le sien et le lecteur ne peut pas
@@ -545,6 +576,7 @@ class CandleModel:
     def _retenir(self, b: dict, c_win: float) -> dict:
         """Adopte l'horizon, la famille et le seuil gagnants."""
         self.family, self.horizon_bars = b["fam"], b["h"]
+        self.variant = b.get("var", "abs")
         self.rr, self.nn, self.up, self.dn = b["rr"], b["nn"], b["up"], b["dn"]
         self.ic = b["ic"]
         self.thr_bps = float(b["thr"])
@@ -587,11 +619,14 @@ class CandleModel:
         # la prédiction brute comme au fit. Rien d'autre — un second filtre
         # non validé ferait trader moins de barres que celles sur
         # lesquelles l'économie a été établie.
+        # En variante neutre, ce n'est pas cette prédiction-ci qui décide
+        # mais son écart à la moyenne du panel — que seul le pupitre
+        # connaît. On publie le brut et on se tait ; ScaleDesk tranchera.
         veto = abs(raw) < self.thr_bps
         return {
-            "r_bps": r_bps, "up_bps": up, "dn_bps": dn,
+            "r_bps": r_bps, "up_bps": up, "dn_bps": dn, "raw_bps": raw,
             "q_bps": self.q * 1e4, "veto": veto, "bar": self.bar,
-            "horizon_bars": self.horizon_bars,
+            "horizon_bars": self.horizon_bars, "variant": self.variant,
             "status": self.status, "ic": self.ic,
         }
 
@@ -657,7 +692,8 @@ class ScaleDesk:
                 self.models[(inst, bar)] = m
                 out[f"{inst.split('-')[0]}:{bar}"] = d
             self.log(f"clock {bar} panel[{len(insts)}] {d['status']} "
-                     f"[{d['family']}/h{d['horizon_bars']}] ic={d['ic']:.3f} "
+                     f"[{d['family']}/h{d['horizon_bars']}/{d['variant']}] "
+                     f"ic={d['ic']:.3f} "
                      f"net={d['holdout_bps']:+.2f}bps/trade "
                      f"sr={d['holdout_sr']:+.3f} vs bar={d['sel_bar']:.3f} "
                      f"seuil={d['thr_bps']:.1f}bps "
@@ -680,7 +716,42 @@ class ScaleDesk:
         self.votes[(inst, bar)] = v
         return v
 
+    def _neutraliser(self, bar: str) -> None:
+        """Retranche, pour cette échelle, la moyenne du panel au tour courant.
+
+        Une horloge validée en neutre n'a pas été mesurée sur « SOL
+        monte » mais sur « SOL monte plus que les autres ». Jouer le brut
+        serait jouer une règle que personne n'a validée ; il faut donc
+        que tous les actifs aient voté avant de trancher — c'est pourquoi
+        le moteur fait voter tout le panel avant de fusionner quoi que ce
+        soit.
+        """
+        m = None
+        bruts = []
+        for (i, b), v in self.votes.items():
+            if b != bar or not v or v.get("status") != "live":
+                continue
+            mm = self.models.get((i, b))
+            if mm is None or getattr(mm, "variant", "abs") != "neu":
+                continue
+            m = mm
+            bruts.append((i, float(v.get("raw_bps") or 0.0)))
+        if m is None or len(bruts) < 2:
+            # rien à retrancher : une jambe seule n'est pas un livre neutre
+            for i, _ in bruts:
+                self.votes[(i, bar)]["veto"] = True
+            return
+        moy = sum(x for _, x in bruts) / len(bruts)
+        for i, brut in bruts:
+            v = self.votes[(i, bar)]
+            net = brut - moy
+            v["raw_neu"] = net
+            v["r_bps"] = net * m.shrink
+            v["veto"] = abs(net) < m.thr_bps
+
     def fuse(self, inst: str) -> dict:
+        for bar in BARS:
+            self._neutraliser(bar)
         vs = [self.votes.get((inst, bar)) for bar in BARS]
         vs = [v for v in vs if v]
         live = [v for v in vs if not v["veto"] and v.get("status") == "live"]
@@ -776,6 +847,7 @@ class ScaleDesk:
                 "n_trials": getattr(m, "n_cells", 0) if m else 0,
                 "n_assets": getattr(m, "n_assets", 1) if m else 1,
                 "n_periods": getattr(m, "n_periods", 0) if m else 0,
+                "variant": getattr(m, "variant", "abs") if m else "abs",
                 "family": getattr(m, "family", "ridge") if m else "ridge",
                 "thr_bps": getattr(m, "thr_bps", 0.0) if m else 0.0,
                 "n_trades": getattr(m, "n_trades", 0) if m else 0,

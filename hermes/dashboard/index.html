@@ -902,7 +902,7 @@ function rendrePreuve(d){
   const best = h._best || {};
   const noms = Object.keys(best).sort();
   $("preuve-aide").textContent = noms.length
-    ? "Sharpe par trade sur trades indépendants, contre le hasard"
+    ? "Sharpe du portefeuille par instant mesuré, contre le hasard"
     : "";
   if (!noms.length) {
     $("preuve").innerHTML = '<div class="vide">Aucun apprentissage enregistré.</div>';
@@ -923,18 +923,20 @@ function rendrePreuve(d){
       <div class="dtete">
         <span class="dsym">${esc(nom)}</span>
         <span class="jeton ${vivant ? "actif" : "attente"}">${vivant ? "Retenu" : "Écarté"}</span>
-        <span class="dpx">${esc(b.policy || "flat")} · ${esc(b.bar || "?")}</span>
-        <span class="motif">${b.n_trials || 0} essais</span>
+        <span class="dpx">${esc(b.policy || "flat")} · ${esc(b.bar || "?")}
+          · ${esc(b.family || "ridge")}${b.variant === "neu" ? " · neutre" : ""}</span>
+        <span class="motif">${b.n_trials || 0} essais · panel de ${b.n_assets || 1}</span>
       </div>
       <div class="mesures">
-        <div class="mesure"><div class="l">Sharpe par trade</div>
+        <div class="mesure"><div class="l">Sharpe par instant</div>
           <div class="v num ${vivant ? "hausse" : "baisse"}">${nf(sr, 3)}</div></div>
         <div class="mesure"><div class="l">Barre du hasard</div>
           <div class="v num petit">${nf(bar, 3)}</div></div>
         <div class="mesure"><div class="l">Marge</div>
           <div class="v num petit ${marge > 0 ? "hausse" : "baisse"}">${nf(marge, 3)}</div></div>
-        <div class="mesure"><div class="l">Trades indépendants</div>
-          <div class="v num petit">${b.n_holdout || 0}</div></div>
+        <div class="mesure"><div class="l">Instants mesurés</div>
+          <div class="v num petit">${b.n_periods || 0}<span
+            class="petit"> · ${b.n_trades || 0} trades</span></div></div>
         <div class="mesure"><div class="l">Poids du modèle</div>
           <div class="v num petit">${nf(Number(b.alpha || 0), 2)}</div></div>
       </div>

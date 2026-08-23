@@ -15,8 +15,8 @@ import numpy as np
 
 from hermes.data.store import Candles
 from hermes.scalp.clock import (ASSETS, BARS, FAMILIES, HORIZONS, THRESHOLDS,
-                                CandleModel, ScaleDesk, _portfolio, _sigma,
-                                feat_matrix)
+                                VARIANTS, CandleModel, ScaleDesk, _portfolio,
+                                _sigma, feat_matrix)
 
 
 def _bruit(seed, n=1600, vol=0.004, inst="X"):
@@ -86,9 +86,11 @@ def test_pooling_removes_the_asset_dimension_from_the_bill():
     panel.fit_panel([(_bruit(20 + i), None) for i in range(3)])
     solo = CandleModel("5m")
     solo.fit(_bruit(20))
-    attendu = len(BARS) * len(FAMILIES) * len(THRESHOLDS) * len(HORIZONS)
-    assert panel.n_cells == attendu
-    assert solo.n_cells == attendu * len(ASSETS)
+    base = len(BARS) * len(FAMILIES) * len(THRESHOLDS) * len(HORIZONS)
+    # en panel, la variante marché-neutre est cherchée — donc facturée ;
+    # seule, elle n'a rien à retrancher et n'est pas cherchée du tout.
+    assert panel.n_cells == base * len(VARIANTS)
+    assert solo.n_cells == base * len(ASSETS)
 
 
 def test_noise_still_passes_nothing_through_the_panel():
@@ -184,3 +186,72 @@ def test_the_search_ranks_cells_by_margin_not_by_raw_sharpe():
     if d["n_periods"]:
         attendu = expected_max_sharpe(d["n_trials"], d["n_periods"])
         assert abs(d["sel_bar"] - attendu) < 1e-9
+
+
+# ------------------------------------------------------------ marché-neutre
+
+def test_a_neutral_clock_trades_the_spread_not_the_market():
+    """En variante neutre, deux actifs qui montent tous les deux autant
+    ne donnent AUCUN signal : le livre ne prend pas le marché, il prend
+    l'écart. Et deux actifs qui divergent donnent deux jambes de signes
+    opposés — un long et un short au même instant."""
+    from hermes.scalp.clock import CandleModel, ScaleDesk
+    desk = ScaleDesk()
+    m = CandleModel("5m")
+    m.status, m.variant, m.shrink, m.thr_bps = "live", "neu", 0.5, 5.0
+    for inst in ("BTC-USDT-SWAP", "ETH-USDT-SWAP"):
+        desk.models[(inst, "5m")] = m
+
+    # même mouvement prévu des deux côtés : rien à arbitrer
+    for inst in ("BTC-USDT-SWAP", "ETH-USDT-SWAP"):
+        desk.votes[(inst, "5m")] = {"raw_bps": 30.0, "r_bps": 15.0,
+                                    "veto": False, "status": "live",
+                                    "bar": "5m", "q_bps": 10.0, "ic": 0.05,
+                                    "up_bps": 20.0, "dn_bps": 20.0}
+    desk._neutraliser("5m")
+    assert all(desk.votes[(i, "5m")]["veto"]
+               for i in ("BTC-USDT-SWAP", "ETH-USDT-SWAP"))
+
+    # divergence franche : un long, un short
+    desk.votes[("BTC-USDT-SWAP", "5m")].update(raw_bps=40.0, veto=False)
+    desk.votes[("ETH-USDT-SWAP", "5m")].update(raw_bps=-40.0, veto=False)
+    desk._neutraliser("5m")
+    a = desk.votes[("BTC-USDT-SWAP", "5m")]
+    b = desk.votes[("ETH-USDT-SWAP", "5m")]
+    assert not a["veto"] and not b["veto"]
+    assert a["r_bps"] > 0 > b["r_bps"]
+
+
+def test_a_neutral_clock_with_a_single_leg_stands_down():
+    """Une jambe seule n'est pas un livre neutre : sans contrepartie, la
+    règle jouée ne serait plus celle qui a été mesurée."""
+    from hermes.scalp.clock import CandleModel, ScaleDesk
+    desk = ScaleDesk()
+    m = CandleModel("5m")
+    m.status, m.variant, m.shrink, m.thr_bps = "live", "neu", 0.5, 5.0
+    desk.models[("BTC-USDT-SWAP", "5m")] = m
+    desk.votes[("BTC-USDT-SWAP", "5m")] = {"raw_bps": 99.0, "r_bps": 49.5,
+                                           "veto": False, "status": "live",
+                                           "bar": "5m", "q_bps": 10.0,
+                                           "ic": 0.05, "up_bps": 20.0,
+                                           "dn_bps": 20.0}
+    desk._neutraliser("5m")
+    assert desk.votes[("BTC-USDT-SWAP", "5m")]["veto"] is True
+
+
+def test_an_absolute_clock_is_left_alone_by_the_neutraliser():
+    """La neutralisation ne doit toucher qu'aux horloges qui ont été
+    validées en neutre — jamais réécrire le verdict d'une autre."""
+    from hermes.scalp.clock import CandleModel, ScaleDesk
+    desk = ScaleDesk()
+    m = CandleModel("5m")
+    m.status, m.variant, m.shrink, m.thr_bps = "live", "abs", 0.5, 5.0
+    for inst in ("BTC-USDT-SWAP", "ETH-USDT-SWAP"):
+        desk.models[(inst, "5m")] = m
+        desk.votes[(inst, "5m")] = {"raw_bps": 30.0, "r_bps": 15.0,
+                                    "veto": False, "status": "live",
+                                    "bar": "5m", "q_bps": 10.0, "ic": 0.05,
+                                    "up_bps": 20.0, "dn_bps": 20.0}
+    desk._neutraliser("5m")
+    assert not desk.votes[("BTC-USDT-SWAP", "5m")]["veto"]
+    assert desk.votes[("BTC-USDT-SWAP", "5m")]["r_bps"] == 15.0
