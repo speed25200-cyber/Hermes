@@ -525,3 +525,30 @@ def test_the_live_models_never_saw_the_measured_folds():
     # jamais des modèles finaux rr/nn entraînés sur Xall
     assert "hors[f].append(par_fam[f].predict(Xte))" in corps
     assert corps.index("Xall") > corps.index("hors[f].append")
+
+
+def test_the_legs_are_weighted_by_risk_not_by_headcount():
+    """Un actif trois fois plus agité ne doit pas peser trois fois plus
+    dans la variance du portefeuille mesuré. Chaque jambe est pondérée
+    par l'inverse de sa volatilité — ce que le moteur fait déjà en
+    dimensionnant (le plafond de ruine donne un levier proportionnel à
+    1/volatilité). Mesurer équipondéré reviendrait à juger un livre que
+    personne ne tient."""
+    ts = np.array([0, 0, 0])
+    net = np.array([10.0, 10.0, -30.0])
+    sig = np.array([1e-3, 1e-3, 3e-3])       # le troisième est agité
+    plat = _portfolio(net, ts)
+    risque = _portfolio(net, ts, 1.0 / sig)
+    assert abs(plat - (-10.0 / 3.0)) < 1e-9
+    # pondéré par le risque, la jambe agitée compte trois fois moins
+    attendu = (1000 * 10 + 1000 * 10 + 333.333 * -30) / (1000 + 1000 + 333.333)
+    assert abs(risque[0] - attendu) < 1e-2
+
+
+def test_a_single_leg_is_unaffected_by_the_weighting():
+    """Quand un seul actif déclenche, la pondération ne change rien : le
+    portefeuille EST cette jambe."""
+    ts = np.array([0, 1, 2])
+    net = np.array([5.0, -3.0, 8.0])
+    sig = np.array([1e-3, 4e-3, 2e-3])
+    assert np.allclose(_portfolio(net, ts), _portfolio(net, ts, 1.0 / sig))

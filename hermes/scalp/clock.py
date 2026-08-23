@@ -314,7 +314,8 @@ def _targets(c: Candles, h: int = 1) -> tuple[np.ndarray, np.ndarray,
     return y_r, y_up, y_dn
 
 
-def _portfolio(net: np.ndarray, ts: np.ndarray) -> np.ndarray:
+def _portfolio(net: np.ndarray, ts: np.ndarray,
+               w: np.ndarray | None = None) -> np.ndarray:
     """Les trades simultanés font UN rendement, pas plusieurs mesures.
 
     Trois actifs corrélés à 0,8 qui déclenchent au même instant ne sont
@@ -325,11 +326,26 @@ def _portfolio(net: np.ndarray, ts: np.ndarray) -> np.ndarray:
     réellement tenu : si les actifs se répètent la variance ne baisse
     pas, s'ils se diversifient le gain est réel et le portefeuille
     l'encaisse.
+
+    Les jambes ne pèsent pas également : chacune est pondérée par
+    l'inverse de sa volatilité, de sorte que toutes apportent le même
+    risque. Ce n'est pas un réglage de rendement mais une question de
+    fidélité — le moteur dimensionne déjà ainsi (le plafond de ruine
+    donne un levier proportionnel à 1/volatilité), et mesurer un
+    portefeuille équipondéré en points de base laisserait DOGE, trois
+    fois plus agité que BTC, dominer la variance sans apporter plus
+    d'avantage. On mesurerait alors un livre que personne ne tient.
     """
     if len(net) == 0:
         return np.zeros(0)
     _, inv = np.unique(np.asarray(ts), return_inverse=True)
-    return np.bincount(inv, weights=net) / np.bincount(inv)
+    if w is None:
+        return np.bincount(inv, weights=net) / np.bincount(inv)
+    w = np.asarray(w, dtype=np.float64)
+    w = np.where(np.isfinite(w) & (w > 0), w, 0.0)
+    tot = np.bincount(inv, weights=w)
+    tot = np.where(tot > 0, tot, 1.0)
+    return np.bincount(inv, weights=w * net) / tot
 
 
 def _ic(a: np.ndarray, b: np.ndarray) -> float:
@@ -634,7 +650,7 @@ class CandleModel:
                     # de mesurer est la seule façon de ne pas confondre
                     # diversification et répétition — et, en variante neutre,
                     # c'est cette moyenne-là qui annule le facteur commun.
-                    pnl = _portfolio(net, tso[m])
+                    pnl = _portfolio(net, tso[m], 1.0 / np.maximum(sgo[m], 1e-12))
                     n_per = len(pnl)
                     if n_per < MIN_TRADES:
                         continue
