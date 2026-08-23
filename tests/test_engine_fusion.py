@@ -434,3 +434,65 @@ def test_a_live_clock_actually_puts_positions_on_the_book(tmp_path):
         f"une horloge validée n'a rien mis au carnet : {pos} ; "
         f"{[(p['inst'], p['dir'], p['reason']) for p in eng.last_preds]}")
     assert all(q > 0 for q in pos.values()), pos
+
+
+def test_a_measured_rule_is_not_refused_by_a_model_that_never_saw_it(tmp_path):
+    """choose_bracket demande si un couple objectif/stop bat sa friction
+    SOUS UN BROWNIEN. Aux amplitudes réelles d'un scalp — dix points de
+    base prévus contre vingt-cinq de volatilité — il refuse à peu près
+    tout : mesuré, il rend None pour edge<=10 dès que la volatilité passe
+    vingt. Il aurait donc refusé en bloc les trades d'une horloge dûment
+    mesurée à +5,4 bps nets par trade sur 553 trades.
+
+    Quand la mesure existe, c'est elle qui tranche : on joue exactement la
+    règle validée — sortie au temps — avec un stop large qui est un
+    garde-fou de ruine, pas un instrument de rendement.
+    """
+    from hermes.scalp import economics as ECON
+    assert ECON.choose_bracket(edge_bps=10.0, vol_bps=25.0, horizon=3,
+                               cost_bps=7.0, cost_tp_bps=4.0) is None
+
+    eng = _moteur(tmp_path)
+    eng.horizons.fuse = lambda i: {
+        "r_bps": +10.0, "q_bps": 8.0, "veto": False, "bar": "3m",
+        "tp_bps": 12, "sl_bps": 18, "ml_bps": 10.0, "score": 1.25,
+        "status": "live", "policy": "candle-solo", "ic": 0.18,
+        "clocks": {}, "alpha": 0.5, "horizon_bars": 3,
+        "net_bps": 5.39, "net_sd": 45.0}
+    preds = _preds(eng)
+    p = preds[0]
+    assert p["dir"] == "long", p["reason"]
+    assert p["sortie_temps"] is True
+    assert p["ev_bps"] == 5.39
+    # le stop est un garde-fou, largement au-delà du mouvement prévu
+    assert p["sl_bps"] >= 3.0 * abs(p["edge_bps"])
+
+
+def test_without_a_measurement_the_refusal_stands(tmp_path):
+    """Contre-épreuve : sans économie mesurée derrière, un signal que le
+    modèle refuse reste refusé. La sortie au temps n'est pas une porte
+    dérobée, c'est le droit de jouer ce qui a été prouvé."""
+    eng = _moteur(tmp_path)
+    eng.horizons.fuse = lambda i: {
+        "r_bps": +10.0, "q_bps": 8.0, "veto": False, "bar": "3m",
+        "tp_bps": 12, "sl_bps": 18, "ml_bps": 10.0, "score": 1.25,
+        "status": "live", "policy": "candle-solo", "ic": 0.18,
+        "clocks": {}, "alpha": 0.5, "horizon_bars": 3,
+        "net_bps": 0.0, "net_sd": 0.0}
+    p = _preds(eng)[0]
+    assert p["dir"] == "flat" and p["reason"] == "no-ev"
+
+
+def test_a_time_exit_is_sized_from_its_own_measured_moments(tmp_path):
+    """f* = E[R]/E[R²] sur les moments MESURÉS, pas re-dérivé d'un
+    brownien. Une règle deux fois plus rentable à dispersion égale doit
+    prendre plus de taille."""
+    eng = _moteur(tmp_path)
+    base = {"sortie_temps": True, "net_sd": 45.0, "sl_bps": 40.0,
+            "tp_bps": 140.0, "edge_bps": 10.0, "vol_bps": 25.0,
+            "h_bars": 3, "cost_bps": 8.0, "size_mult": 1.0}
+    maigre = eng._pick_lev(dict(base, net_bps=3.0))
+    gras = eng._pick_lev(dict(base, net_bps=9.0))
+    assert gras > maigre >= 0.0
+    # une règle qui perd ne prend aucune taille
+    assert eng._pick_lev(dict(base, net_bps=-4.0)) == 0.0

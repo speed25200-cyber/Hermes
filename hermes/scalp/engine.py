@@ -347,6 +347,9 @@ class ScalpEngine:
             # round trip killed forecasts the maker take could have paid for.
             hurdle = max(self.min_edge, self.cost_tp_bps, spread + 1.5)
             reason = ""
+            sortie_temps = False
+            # la source dont l'économie a été mesurée sur données réelles
+            temoin = cinf if any(n == "candle" for *_, n in sources) else {}
             # The losing exit is taken: fees plus half the spread. The
             # winning exit rests at the take and pays maker, no spread.
             cost_bps = self.round_trip_bps + 0.5 * spread
@@ -361,10 +364,30 @@ class ScalpEngine:
                     horizon=h_use, cost_bps=cost_bps,
                     cost_tp_bps=self.cost_tp_bps)
                 if bracket is None:
-                    # No take/stop pair on this forecast is worth its own
-                    # friction. Predicting a direction is not the same as
-                    # having a trade.
-                    direction, reason = "flat", "no-ev"
+                    # Aucun couple objectif/stop ne bat sa propre friction
+                    # SOUS LE MODÈLE. Or le modèle est un mouvement
+                    # brownien qui n'a jamais vu ces données, et la règle
+                    # que l'horloge a validée n'est pas un bracket : c'est
+                    # « entrer sur le signal, tenir h barres, sortir ». Aux
+                    # amplitudes réelles d'un scalp — 10 bps prévus contre
+                    # 25 de volatilité — choose_bracket refuse à peu près
+                    # tout, ce qui aurait refusé en bloc les trades d'une
+                    # horloge dûment mesurée à +5,4 bps nets par trade.
+                    #
+                    # Quand la mesure existe, c'est elle qui tranche. On
+                    # joue alors exactement la règle mesurée : sortie au
+                    # temps, avec un stop LARGE qui est un garde-fou de
+                    # ruine et non un instrument de rendement. Sans mesure,
+                    # le refus reste.
+                    mes = float(temoin.get("net_bps") or 0.0)
+                    mes_sd = float(temoin.get("net_sd") or 0.0)
+                    if mes > 0.0 and mes_sd > 0.0:
+                        direction = "long" if edge > 0 else "short"
+                        garde = max(3.0 * abs(edge), 2.0 * max(pred["vol_bps"], 1.0))
+                        bracket = (10.0 * abs(edge) + garde, garde, mes)
+                        sortie_temps = True
+                    else:
+                        direction, reason = "flat", "no-ev"
                 elif edge > 0:
                     direction = "long"
                 else:
@@ -391,6 +414,11 @@ class ScalpEngine:
                 "tp_bps": bracket[0] if bracket else inf["tp_bps"],
                 "sl_bps": bracket[1] if bracket else inf["sl_bps"],
                 "ev_bps": bracket[2] if bracket else 0.0,
+                # sortie au temps : le take est hors d'atteinte, c'est la
+                # durée validée qui referme la position
+                "sortie_temps": sortie_temps,
+                "net_bps": float(temoin.get("net_bps") or 0.0),
+                "net_sd": float(temoin.get("net_sd") or 0.0),
                 "cost_bps": cost_bps,
                 "cost_tp_bps": self.cost_tp_bps,
                 "size_mult": float(inf.get("size_mult") or 1.0),
@@ -461,8 +489,19 @@ class ScalpEngine:
         h = int(p.get("h_bars") or self.horizon)
         cost = float(p.get("cost_bps") or self.round_trip_bps)
         c_tp = float(p.get("cost_tp_bps") or self.cost_tp_bps)
-        kelly = ECON.kelly_fraction(tp, sl, edge, vol, h, cost,
-                                    cost_tp_bps=c_tp)
+        if p.get("sortie_temps"):
+            # La règle jouée est celle qui a été mesurée : entrer, tenir h
+            # barres, sortir. Son Kelly se lit directement dans ses moments
+            # mesurés — f* = E[R]/E[R²] — au lieu d'être re-dérivé d'un
+            # brownien qui n'a jamais vu ces données. Quart de Kelly comme
+            # partout ailleurs, et le plafond de ruine s'applique ensuite.
+            mu = float(p.get("net_bps") or 0.0) * 1e-4
+            sd = float(p.get("net_sd") or 0.0) * 1e-4
+            m2 = mu * mu + sd * sd
+            kelly = 0.25 * mu / m2 if (m2 > 1e-18 and mu > 0) else 0.0
+        else:
+            kelly = ECON.kelly_fraction(tp, sl, edge, vol, h, cost,
+                                        cost_tp_bps=c_tp)
         kelly *= float(p.get("size_mult") or 1.0)
         lev = kelly * self._risk_scale()
         lev = min(lev, 0.025 / (sl * 1e-4), self.lev_max, self.max_name)
@@ -544,7 +583,12 @@ class ScalpEngine:
         plan = next((q for q in (self.last_preds or [])
                      if q.get("inst") == inst), {})
         h = int(plan.get("h_bars") or self.horizon)
-        self.hold_ms[inst] = int(min(90, max(6, 2 * h)) * 60_000)
+        # Deux fois l'horizon pour ne pas couper un bracket avant que sa
+        # prévision ait eu le temps de se réaliser. Mais une sortie au
+        # temps N'EST QUE sa durée : la tenir plus longtemps jouerait une
+        # règle plus longue que celle qui a été mesurée.
+        garde = h if plan.get("sortie_temps") else min(90, max(6, 2 * h))
+        self.hold_ms[inst] = int(max(garde, 1) * 60_000)
         sl_bps = float(sl_bps if sl_bps is not None else self.stop_bps)
         tp_bps = float(tp_bps if tp_bps is not None else self.take_bps)
         # These arrive already chosen by expected value; the floors that used

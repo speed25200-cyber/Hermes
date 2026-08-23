@@ -354,6 +354,7 @@ class CandleModel:
         self.n_hold = 0
         self.n_assets = 1      # combien d'actifs nourrissent cette horloge
         self.n_periods = 0     # instants mesurés (trades simultanés agrégés)
+        self.hold_sd = 0.0     # écart-type du net par trade, mesuré
         self.n_cells = (len(ASSETS) * len(BARS) * len(FAMILIES)
                         * len(THRESHOLDS) * len(HORIZONS))
         self.variant = "abs"   # brut, ou net de la moyenne du panel
@@ -366,7 +367,8 @@ class CandleModel:
             "shrink": self.shrink, "status": self.status,
             "n_train": self.n_train, "holdout_bps": self.holdout_bps,
             "holdout_sr": self.hold_sr, "sel_bar": self.sel_bar,
-            "n_holdout": self.n_hold, "family": self.family,
+            "n_holdout": self.n_hold, "net_sd": self.hold_sd,
+            "family": self.family,
             "thr_bps": self.thr_bps, "n_trades": self.n_trades,
             "horizon_bars": self.horizon_bars,
             "n_assets": self.n_assets, "n_periods": self.n_periods,
@@ -619,7 +621,7 @@ class CandleModel:
                             "thr": thr, "n_tr": n_tr, "n_per": n_per,
                             "var": var,
                             "n_hold": len(yho), "n_train": len(ytr),
-                            "bps": mu, "sr": sr, "cle": cle,
+                            "bps": mu, "sr": sr, "cle": cle, "sd": sd,
                             "barre": barre, "marge": marge, "pente": pente,
                         }
             # Aucun seuil ne déclenche assez souvent pour cette famille :
@@ -644,6 +646,10 @@ class CandleModel:
         resid = np.abs(b["y"] - b["pred"])
         self.q = float(np.quantile(resid, 0.80)) / 1e4 if len(resid) else 0.0
         self.holdout_bps, self.hold_sr = b["bps"], b["sr"]
+        # L'écart-type du net par trade. Avec la moyenne, il donne le Kelly
+        # de la règle telle qu'elle a été MESURÉE — f* = E[R]/E[R²] — sans
+        # passer par un mouvement brownien qui n'a jamais vu ces données.
+        self.hold_sd = float(b.get("sd") or 0.0)
         # La barre se lit sur le nombre d'INSTANTS mesurés, pas de trades :
         # c'est lui qui gouverne la précision d'une moyenne quand les
         # trades sont corrélés entre eux.
@@ -702,6 +708,7 @@ class CandleModel:
         veto = abs(raw) < self.thr_bps
         return {
             "r_bps": r_bps, "up_bps": up, "dn_bps": dn, "raw_bps": raw,
+            "net_bps": self.holdout_bps, "net_sd": self.hold_sd,
             "q_bps": self.q * 1e4, "veto": veto, "bar": self.bar,
             "horizon_bars": self.horizon_bars, "variant": self.variant,
             "status": self.status, "ic": self.ic,
@@ -887,6 +894,10 @@ class ScaleDesk:
             "status": "live", "policy": "candle-solo" if solo else "candle",
             "bar": dom["bar"], "clocks": clock_s, "r_bps": wsum,
             "up_bps": float(dom["up_bps"]), "dn_bps": float(dom["dn_bps"]),
+            # ce que la règle a RÉELLEMENT rapporté par trade, et sa
+            # dispersion : de quoi dimensionner sans modèle
+            "net_bps": float(dom.get("net_bps") or 0.0),
+            "net_sd": float(dom.get("net_sd") or 0.0),
             # la position doit vivre exactement l'horizon sur lequel
             # l'horloge dominante a été validée, pas une constante
             "horizon_bars": int(dom.get("horizon_bars") or 1),
