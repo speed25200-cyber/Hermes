@@ -521,6 +521,7 @@ class ScalpEngine:
         self.brackets[inst] = {
             "side": side, "entry": entry, "sl": sl, "tp": tp,
             "sl_bps": sl_bps, "tp_bps": tp_bps,
+            "t0": int(time.time() * 1000),   # l'écran affiche la tenue
         }
 
     def check_exits(self, candles_1m: dict[str, Candles] | None = None) -> list[str]:
@@ -696,12 +697,17 @@ class ScalpEngine:
                 continue
             pending[inst] = tgt_w * equity / last
         for inst in self.broker.positions():
-            # une position éclaireur vit par son bracket (TP/SL/time-stop),
-            # pas par la cible du desk — sauf si une vraie cible arrive
-            if (self.brackets.get(inst) or {}).get("explore") \
-                    and inst not in pending:
-                continue
             pending.setdefault(inst, 0.0)
+        # Une position éclaireur vit par son bracket (TP/SL/time-stop), pas
+        # par la cible du desk : _targets met un poids ZÉRO sur tout
+        # instrument plat, et cette cible nulle refermait chaque éclaireur
+        # au cycle suivant en payant deux fois les frais — mesuré en live :
+        # ouvert 10:25:09, aplati 10:25:20. Une vraie cible non nulle,
+        # elle, garde la priorité.
+        for inst in list(pending):
+            if (self.brackets.get(inst) or {}).get("explore") \
+                    and abs(pending[inst]) < 1e-12:
+                pending.pop(inst)
         self.pending = pending
         self._explore(preds, equity, targets)
         self._vol = vol

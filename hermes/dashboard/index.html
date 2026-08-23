@@ -347,6 +347,20 @@ button.ghost.icone{padding:8px;border-radius:50%;display:grid;place-items:center
 .rail .leg{display:flex;justify-content:space-between;margin-top:var(--e2);
   font-size:11px;color:var(--encre-3)}
 
+/* ── Positions : le PnL d'abord, l'anatomie ensuite, le rail enfin ── */
+.posi{border-top:1px solid var(--filet);padding:var(--e4) var(--e5)}
+.posi:first-child{border-top:0}
+.ptete{display:flex;align-items:center;gap:var(--e2);flex-wrap:wrap}
+.ppnl{margin-left:auto;text-align:right;line-height:1.18}
+.ppnl b{font-size:18px;font-weight:660;letter-spacing:-.02em;display:block}
+.ppnl i{font-style:normal;font-size:11px;font-weight:520;opacity:.8}
+.pmeta{font-size:12.5px;color:var(--encre-2);margin:7px 0 2px}
+.pmeta b{font-weight:640;color:var(--encre)}
+.jeton.eclaireur{text-transform:none;letter-spacing:.02em;
+  background:color-mix(in oklab,var(--encre-3) 14%,transparent);
+  color:var(--encre-2);
+  border-color:color-mix(in oklab,var(--encre-3) 26%,transparent)}
+
 /* ── Jauges de risque ────────────────────────────────────────────── */
 .jauge+.jauge{margin-top:var(--e4)}
 .jauge .t{display:flex;justify-content:space-between;gap:var(--e3);
@@ -492,7 +506,7 @@ footer{padding-bottom:96px}
   .verdict h1{font-size:20px}
   .wrap{padding:0 var(--e3) var(--e6)}
   header{padding:var(--e3) 0;margin-bottom:var(--e4)}
-  .carte>h2,.decision{padding-left:var(--e4);padding-right:var(--e4)}
+  .carte>h2,.decision,.posi{padding-left:var(--e4);padding-right:var(--e4)}
   .corps{padding:var(--e3) var(--e4) var(--e4)}
   .carte>h2{flex-wrap:wrap}
   .carte>h2 .aide{margin-left:0;flex-basis:100%;text-align:left}
@@ -945,7 +959,8 @@ function rendrePositions(d){
   const pos = pb.pos || s.positions || {};
   const prix = d.tickers || {};
   const lignes = Object.entries(pos).filter(([,q]) => Math.abs(q) > 1e-12);
-  $("pos-aide").textContent = lignes.length ? lignes.length + " ouverte(s)" : "";
+  $("pos-aide").textContent = !lignes.length ? ""
+    : lignes.length > 1 ? lignes.length + " ouvertes" : "1 ouverte";
   if (!lignes.length) { $("positions").innerHTML = '<div class="vide">Aucune position ouverte.</div>'; return; }
 
   $("positions").innerHTML = lignes.map(([inst, q]) => {
@@ -957,6 +972,18 @@ function rendrePositions(d){
     const lng = q > 0;
     const notion = Math.abs(q) * px;
     const pnl = q * (px - entree);
+    const pnlBps = notion > 0 ? (pnl / notion) * 1e4 : 0;
+    const dec = px > 1000 ? 1 : 4;
+    let tenue = "";
+    if (Number(b.t0) > 0) {
+      const mn = Math.floor((Date.now() - Number(b.t0)) / 60000);
+      // un t0 aberrant (horloge décalée, état recopié) ne doit jamais
+      // afficher « 8781 h » : au-delà de 48 h on se tait
+      tenue = (mn < 0 || mn > 2880) ? ""
+            : mn < 1 ? "à l'instant"
+            : mn < 60 ? mn + " min"
+            : Math.floor(mn / 60) + " h " + String(mn % 60).padStart(2, "0");
+    }
     // Le rail est un axe perte -> gain, pas un axe de prix : le stop reste a
     // gauche et l'objectif a droite dans les deux sens. Un short affichait
     // sinon son stop du cote vert du degrade.
@@ -968,12 +995,19 @@ function rendrePositions(d){
     };
     const m = (v, cls, lab, bord) => (isFinite(v) && v>0)
       ? `<div class="marq ${cls}" style="left:${at(v).toFixed(2)}%"><b class="${bord||""}">${lab}</b></div>` : "";
-    return `<div class="decision">
-      <div class="dtete">
+    return `<div class="posi">
+      <div class="ptete">
         <span class="dsym">${esc(court(inst))}</span>
         <span class="sens ${lng?"long":"short"}">${lng?"▲ LONG":"▼ SHORT"}</span>
-        <span class="dpx num">${nf(Math.abs(q),6)} · ${usdt(notion)}</span>
-        <span class="motif num ${pnl>=0?"hausse":"baisse"}">${sgn(pnl)} USDT</span>
+        ${b.explore ? '<span class="jeton eclaireur">éclaireur</span>' : ""}
+        <div class="ppnl num ${pnl>=0?"hausse":"baisse"}">
+          <b>${sgn(pnl)} USDT</b><i>${sgn(pnlBps)} bps</i>
+        </div>
+      </div>
+      <div class="pmeta num">
+        entrée ${nf(entree,dec)} → <b>${nf(px,dec)}</b>
+        · ${nf(Math.abs(q),4)} ${esc(court(inst))}
+        · ${usdt(notion)}${tenue ? " · " + tenue : ""}
       </div>
       <div class="rail">
         <div class="piste">

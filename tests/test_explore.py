@@ -98,23 +98,31 @@ def test_wide_spread_and_missing_l2_are_refused(tmp_path):
 
 
 def test_the_rebalance_does_not_flatten_an_explorer(tmp_path):
-    """tick() met une cible zéro sur toute position — sauf l'éclaireur,
-    qui vit par son bracket. Sans l'exemption il mourait au cycle suivant
-    en payant deux fois les frais pour rien."""
+    """_targets met un poids ZÉRO sur tout instrument plat — pas une clé
+    absente. La première exemption ne couvrait que l'absence, et chaque
+    éclaireur mourait au cycle suivant (mesuré en live : ouvert 10:25:09,
+    aplati 10:25:20). Le segment de tick() est reproduit ici avec la
+    cible nulle explicite, comme en production."""
     eng, b, _ = _moteur(tmp_path)
     _tick(b, "SOL-USDT-SWAP", 180.0)
     eng._explore([_pred()], 10_000.0, {})
     qty = b.positions()["SOL-USDT-SWAP"]
-    # le segment de tick() qui construit pending :
+    targets = {"SOL-USDT-SWAP": 0.0}       # ce que _targets produit vraiment
     pending = {}
+    for inst, tgt_w in targets.items():
+        pending[inst] = tgt_w * 10_000.0 / 180.0
     for inst in b.positions():
-        if (eng.brackets.get(inst) or {}).get("explore") and inst not in pending:
-            continue
         pending.setdefault(inst, 0.0)
+    for inst in list(pending):
+        if (eng.brackets.get(inst) or {}).get("explore") \
+                and abs(pending[inst]) < 1e-12:
+            pending.pop(inst)
     assert "SOL-USDT-SWAP" not in pending
     eng.pending = pending
     eng.execute_pending()
     assert b.positions().get("SOL-USDT-SWAP") == qty, "l'éclaireur survit"
+    # une vraie cible non nulle, elle, reprend la main
+    assert eng.brackets["SOL-USDT-SWAP"].get("t0"), "la tenue est datée"
 
 
 def test_a_crossed_take_feeds_the_queue_measurement(tmp_path):
