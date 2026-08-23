@@ -255,3 +255,32 @@ def test_an_absolute_clock_is_left_alone_by_the_neutraliser():
     desk._neutraliser("5m")
     assert not desk.votes[("BTC-USDT-SWAP", "5m")]["veto"]
     assert desk.votes[("BTC-USDT-SWAP", "5m")]["r_bps"] == 15.0
+
+
+def test_the_net_sees_the_sequence_not_only_its_summaries():
+    """Les huit derniers retours sont donnés un par un. Une base fixe de
+    sommes (retours cumulés à 3, 5, 12) ne peut pas représenter un motif
+    qui alterne ; huit colonnes distinctes le peuvent, et c'est au réseau
+    de choisir son filtre."""
+    from hermes.scalp.clock import N_FEATURES, feat_matrix
+    c = _bruit(41, n=400)
+    X = feat_matrix(c)
+    assert X.shape[1] == N_FEATURES
+    # colonne 0 = retour courant ; colonnes 17..24 = ses huit décalages,
+    # rapportés au sigma D'AUJOURD'HUI — « quelle taille avait ce mouvement
+    # à l'échelle d'aujourd'hui », la seule unité qui traverse le panel.
+    from hermes.scalp.clock import _sigma
+    sig = _sigma(c)
+    px = np.asarray(c.c, dtype=np.float64)
+    r1 = np.zeros(len(c))
+    r1[1:] = px[1:] / px[:-1] - 1.0
+    for k in range(1, 9):
+        attendu = np.clip(r1[:-k] / sig[k:], -6.0, 6.0)
+        assert np.allclose(X[k:, 16 + k], attendu), f"décalage {k} cassé"
+
+
+def test_the_sequence_columns_stay_causal():
+    c = _bruit(42, n=700)
+    from hermes.scalp.clock import feat_matrix
+    plein, court = feat_matrix(c), feat_matrix(c.slice(0, 500))
+    assert np.allclose(plein[300:500], court[300:500], atol=1e-9)

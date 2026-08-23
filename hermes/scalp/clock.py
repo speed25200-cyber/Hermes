@@ -144,6 +144,9 @@ def _sigma(c: Candles) -> np.ndarray:
     return np.maximum(s, np.maximum(0.05 * cm, 1e-6))
 
 
+N_FEATURES = 27   # colonnes de feat_matrix ; +2 (BTC, idio) à l'entraînement
+
+
 def feat_matrix(c: Candles) -> np.ndarray:
     """Causal features, one row per bar. Row i uses only bars ≤ i.
 
@@ -228,12 +231,33 @@ def feat_matrix(c: Candles) -> np.ndarray:
     if n > 1:
         d_taker[1:] = np.clip(taker[1:] - taker[:-1], -1, 1)
 
+    # La SÉQUENCE, pas seulement ses résumés. Les retours cumulés à 3, 5 et
+    # 12 barres imposent une base fixe : ils forcent le modèle à voir des
+    # sommes, jamais des motifs. Les huit derniers retours donnés un par un
+    # laissent le réseau apprendre le filtre qu'il veut — momentum à
+    # certains décalages, réversion à d'autres, alternance — ce qu'aucune
+    # somme pondérée d'avance ne peut représenter. C'est le « MLP sur la
+    # séquence des bougies précédentes » sous la seule forme que ce volume
+    # d'étiquettes justifie : huit entrées de plus sur des centaines de
+    # milliers de lignes, pas un Transformer qui en réclamerait des
+    # millions d'indépendantes.
+    def decale(x, k):
+        out = np.zeros(n)
+        if n > k:
+            out[k:] = x[:-k]
+        return out
+    seq = [u(decale(r1, k)) for k in range(1, 9)]
+    # Et la forme des deux bougies précédentes : où le prix a fermé dans
+    # sa fourchette dit un rejet, un chiffre que le retour seul efface.
+    loc_c = np.clip(loc, -0.5, 0.5)
+
     return np.column_stack([
         u(r1), u(lagret(3)), u(lagret(5)), u(lagret(12)),
-        np.clip(loc, -0.5, 0.5), np.clip(u(rng), 0, 6),
+        loc_c, np.clip(u(rng), 0, 6),
         vol_rel, np.clip(persist, -1, 1),
         funding, taker, basis, d_oi,
         zscore(20), zscore(60), np.sin(ang), np.cos(ang), d_taker,
+        *seq, decale(loc_c, 1), decale(loc_c, 2),
     ])
 
 

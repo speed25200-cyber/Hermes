@@ -1,7 +1,8 @@
 """Next-bar labels are causal; conformal sits when the interval covers 0."""
 import numpy as np
 from hermes.data.synthetic import generate
-from hermes.scalp.clock import CandleModel, _targets, feat_matrix
+from hermes.scalp.clock import (N_FEATURES, CandleModel, _targets,
+                                feat_matrix)
 
 
 def test_next_bar_label_ignores_bar_after_next():
@@ -19,7 +20,7 @@ def test_feat_row_is_finite():
     X = feat_matrix(c)
     # 8 colonnes OHLCV + funding, taker, basis, delta-OI
     # + z-scores 20/60 barres, heure du jour (sin/cos), poussée du taker
-    assert X.shape[1] == 17
+    assert X.shape[1] == N_FEATURES
     assert np.isfinite(X[-1]).all()
 
 
