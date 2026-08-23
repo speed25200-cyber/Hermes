@@ -329,3 +329,69 @@ def test_a_lone_clock_is_not_shrunk_twice():
     attendu = (0.15 * 30.0 + 0.28 * 10.0) / (0.15 + 0.28)
     assert abs(inf2["ml_bps"] - attendu) < 1e-9, inf2["ml_bps"]
     assert inf2["alpha"] == 1.0
+
+
+# ------------------------------------------------------- calibration d'échelle
+
+def _reversion(seed, n=6000, k=-0.55):
+    """Marché à réversion nette : la porte peut y retenir une règle."""
+    rng = np.random.default_rng(seed)
+    r = np.zeros(n)
+    e = rng.normal(0, 0.004, n)
+    for t in range(1, n):
+        r[t] = k * r[t - 1] + e[t]
+    px = 100 * np.exp(np.cumsum(r))
+    o = np.concatenate([[100.0], px[:-1]])
+    w = np.abs(rng.normal(0, 0.001, n)) * px
+    return Candles("A", "5m", np.arange(n) * 300_000, o,
+                   np.maximum(o, px) + w, np.minimum(o, px) - w, px,
+                   np.abs(rng.normal(1000, 300, n)))
+
+
+def test_the_scale_applied_to_a_prediction_is_the_measured_slope():
+    """Le facteur appliqué avant le choix du bracket et de la taille était
+    min(0,6 ; 0,2+2·ic) — une formule. Les modèles sont pourtant DÉJÀ
+    rétrécis : la pente mesurée vaut 1,6 à 2,4 en production. La formule
+    rétrécissait donc une seconde fois, et le moteur voyait un mouvement
+    trois à douze fois trop petit."""
+    m = CandleModel("5m")
+    d = m.fit(_reversion(60))
+    assert d["status"] == "live", d
+    assert abs(m.shrink - min(3.0, max(0.0, m.pente))) < 1e-12
+    assert m.pente > 0.0
+
+
+def test_calibrating_cannot_move_the_gate():
+    """Une pente est une ÉCHELLE estimée, pas une cellule cherchée. Le
+    seuil vaut k·écart-type de la prédiction et le gain suit son SIGNE :
+    multiplier toutes les prédictions par un facteur positif laisse le
+    jeu de trades, le net et le Sharpe rigoureusement identiques. C'est
+    pourquoi calibrer ne coûte rien à la porte."""
+    rng = np.random.default_rng(8)
+    p = rng.normal(0, 3.0, 4000)
+    y = 1.8 * p + rng.normal(0, 25.0, 4000)
+    for facteur in (1.0, 5.0):
+        pv = p * facteur
+        thr = 1.0 * float(np.std(pv))
+        m = np.abs(pv) >= thr
+        gains = np.sign(pv[m]) * y[m]
+        net = gains - np.where(gains > 0, 4.75, 7.0)
+        if facteur == 1.0:
+            ref = (int(m.sum()), float(np.mean(net)),
+                   float(np.mean(net) / np.std(net, ddof=1)))
+        else:
+            assert int(m.sum()) == ref[0]
+            assert abs(float(np.mean(net)) - ref[1]) < 1e-12
+
+
+def test_a_live_clock_hands_the_engine_a_calibrated_move():
+    """Ce que le moteur reçoit doit être le mouvement attendu, pas la
+    sortie brute d'un modèle rétréci — c'est cette valeur-là qui décide
+    du bracket et de la taille."""
+    from hermes.scalp.clock import _row, _sigma
+    c = _reversion(61)
+    m = CandleModel("5m")
+    if m.fit(c)["status"] != "live":
+        return
+    v = m.predict_row(_row(c, None), float(_sigma(c)[-1]))
+    assert abs(v["r_bps"] - v["raw_bps"] * m.shrink) < 1e-9
