@@ -93,8 +93,6 @@ def test_disagreeing_validated_sources_sit_out(tmp_path):
     eng = _moteur(tmp_path)
     inst = eng.instruments[0]
     # forcer deux sources vivantes de signes opposés
-    eng.brain.status = "live"
-    eng.brain.ridge.w = np.zeros(11)
     eng.brain.infer = lambda x, m: {"r_bps": +14.0, "ml_bps": 14.0, "q_bps": 6.0,
                                     "tp_bps": 12, "sl_bps": 18, "veto": False,
                                     "score": 1.75, "status": "flow", "policy": "flow",
@@ -110,8 +108,6 @@ def test_disagreeing_validated_sources_sit_out(tmp_path):
 
 def test_agreeing_sources_fuse_and_can_trade(tmp_path):
     eng = _moteur(tmp_path)
-    eng.brain.status = "live"
-    eng.brain.ridge.w = np.zeros(11)
     eng.brain.infer = lambda x, m: {"r_bps": +16.0, "ml_bps": 16.0, "q_bps": 6.0,
                                     "tp_bps": 12, "sl_bps": 18, "veto": False,
                                     "score": 2.0, "status": "flow", "policy": "flow",

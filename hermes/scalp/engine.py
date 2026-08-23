@@ -246,7 +246,9 @@ class ScalpEngine:
             # Two validated sources now co-decide. Agreement adds size,
             # disagreement sits out, and either alone may still trade.
             cinf = self.horizons.fuse(inst)
-            h_flow = max(1, round(HORIZON_S / 60.0))
+            # the flow brain now speaks at the horizon of its best
+            # validated head — 90 s, 5 min or 15 min
+            h_flow = int(inf.get("h_bars") or max(1, round(HORIZON_S / 60.0)))
             mins = {"1m": 1, "3m": 3, "5m": 5, "15m": 15}
             h_clock = mins.get(cinf.get("bar") or "5m", 5) * HOLD.get(cinf.get("bar") or "5m", 3)
             sources = []

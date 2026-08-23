@@ -20,7 +20,9 @@ def test_labels_after_horizon(tmp_path):
     b.pending[0]["t"] = time.time() - HORIZON_S - 1
     n = b.settle({"BTC-USDT-SWAP": 100.2})
     assert n == 1
-    assert abs(b.y[0] - 20.0) < 1e-6  # +20 bps
+    assert abs(b.heads[HORIZON_S].y[0] - 20.0) < 1e-6  # +20 bps
+    # l'échantillon reste en attente pour les horizons plus longs
+    assert len(b.pending) == 1 and HORIZON_S in b.pending[0]["done"]
 
 
 def test_prior_waits_without_l2(tmp_path):
