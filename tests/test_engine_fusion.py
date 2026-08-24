@@ -924,3 +924,32 @@ def test_the_real_entry_delay_gets_measured(tmp_path):
     repris, _ = _moteur_pos(tmp_path, dict(b.pos))
     assert repris.exec_stats["n_entrees"] == 1
     assert 40.0 <= repris.exec_stats["retard_s"] <= 45.0
+
+
+def test_the_size_the_edge_alone_would_justify_is_published(tmp_path):
+    """« La règle est faible » et « la règle est bridée » sont deux
+    problèmes opposés, et rien au relevé ne les distinguait. Le calculer
+    par division serait faux : le plafond de ruine borne le levier AVANT
+    le frein, donc quand il mord, retirer le frein ne change rien."""
+    eng, _ = _moteur_pos(tmp_path)
+    eng._risk_scale = lambda: 0.25
+    eng.live_stats = {"n": 0, "bps": 0.0}
+    p = {"inst": "XRP-USDT-SWAP", "dir": "short", "policy": "candle",
+         "bar": "1m", "ml": "live", "conf": 1.0, "h_bars": 6,
+         "edge_bps": -6.7,
+         "vol_bps": 30.0, "tp_bps": 40.0, "sl_bps": 353.0,
+         "cost_bps": 9.0, "cost_tp_bps": 4.0,
+         "net_bps": 16.3, "net_sd": 72.9, "net_n": 337,
+         "sortie_temps": True}
+    w = abs(eng._targets([p])["XRP-USDT-SWAP"])
+    plein = float(p["poids_plein"])
+    assert plein > w > 0
+    # le rodage seul explique l'écart : le plafond de ruine mord, donc le
+    # frein de 0,25 ne retire rien de plus
+    assert abs(plein * eng._confiance() - w) < 1e-9, (plein, w)
+
+    # sans plafond mordant, le frein compte bien dans l'écart
+    q = dict(p, sl_bps=8.0)
+    wq = abs(eng._targets([q])["XRP-USDT-SWAP"])
+    assert float(q["poids_plein"]) > wq / eng._confiance() + 1e-9, \
+        "plafond non mordant : le frein doit compter en plus du rodage"

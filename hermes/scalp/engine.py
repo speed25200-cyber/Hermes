@@ -573,7 +573,7 @@ class ScalpEngine:
             return max(0.25, 1.0 - (used - 0.4 * lim) / (0.45 * lim))
         return min(taper(dd, dd_lim), taper(day, day_lim))
 
-    def _pick_lev(self, p: dict) -> float:
+    def _pick_lev(self, p: dict, frein: float | None = None) -> float:
         """Growth-optimal size, then the caps.
 
         Quarter-Kelly from the same simulation that priced the bracket sets
@@ -623,7 +623,7 @@ class ScalpEngine:
             kelly = ECON.kelly_fraction(tp, sl, edge, vol, h, cost,
                                         cost_tp_bps=c_tp)
         kelly *= float(p.get("size_mult") or 1.0)
-        lev = kelly * self._risk_scale()
+        lev = kelly * (self._risk_scale() if frein is None else float(frein))
         lev = min(lev, 0.025 / (sl * 1e-4), self.lev_max, self.max_name)
         # Rendu SANS troncature. Le levier que l'échange accepte est un
         # entier, mais la TAILLE d'une position ne l'est pas : elle se
@@ -657,6 +657,17 @@ class ScalpEngine:
                 w = float(lev)
             else:
                 w = float(margin_each * lev)
+            # Ce que l'avantage SEUL justifierait, frein et rodage retires.
+            # Le calculer par division serait faux : le plafond de ruine
+            # — 2,5 % de fonds propres par stop touche — borne le levier
+            # AVANT les deux multiplicateurs, et quand il mord, retirer le
+            # frein ne change plus rien. Il faut donc refaire le chemin,
+            # pas diviser le resultat. Sans ce chiffre a cote de l'autre,
+            # « la regle est faible » et « la regle est bridee » se
+            # ressemblent trop — et ce sont deux problemes opposes.
+            plein = self._pick_lev(p, frein=1.0)
+            p["poids_plein"] = abs(float(plein if margin_each is None
+                                         else margin_each * plein))
             # La confiance de rodage agit sur le NOTIONNEL, pas sur le
             # levier — un dixième de poids est un dixième de poids, alors
             # qu'un dixième de levier entier est zéro.
