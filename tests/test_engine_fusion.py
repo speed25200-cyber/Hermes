@@ -496,3 +496,44 @@ def test_a_time_exit_is_sized_from_its_own_measured_moments(tmp_path):
     assert gras > maigre >= 0.0
     # une règle qui perd ne prend aucune taille
     assert eng._pick_lev(dict(base, net_bps=-4.0)) == 0.0
+
+
+def test_a_measured_rule_sizes_itself_from_its_own_moments(tmp_path):
+    """Quand une horloge a été mesurée, c'est elle qui dimensionne — pas
+    un brownien qui n'a jamais vu ces données. Constaté en direct : une
+    position SOL ouverte à 5x là où les moments mesurés de la règle
+    (+9,29 bps par trade, écart-type 61,9) donnent trois fois moins après
+    quart de Kelly et demi-taille de solitude."""
+    eng = _moteur(tmp_path)
+    p = {"tp_bps": 40.0, "sl_bps": 50.0, "edge_bps": 9.0, "vol_bps": 25.0,
+         "h_bars": 6, "cost_bps": 9.0, "cost_tp_bps": 4.0, "size_mult": 0.5,
+         "net_bps": 9.29, "net_sd": 61.9, "sortie_temps": True}
+    mesure = eng._pick_lev(p)
+    # f* = 0.25 x mu/(mu^2+sd^2) sur les moments mesurés, puis demi-taille
+    # pour la solitude, puis plafond de ruine (2,5 % par stop)
+    attendu = 0.25 * 9.29e-4 / ((9.29e-4) ** 2 + (61.9e-4) ** 2) * 0.5
+    assert abs(mesure - float(int(min(attendu, 0.025 / 50e-4)))) < 1e-9
+    # le plafond de ruine reste le dernier mot, quelle que soit la mesure
+    genereux = eng._pick_lev({**p, "net_bps": 90.0, "net_sd": 20.0})
+    assert genereux <= 0.025 / (50e-4) + 1e-9
+
+
+def test_without_a_measurement_the_simulated_bracket_is_still_the_judge(tmp_path):
+    """Contre-épreuve : sans économie mesurée derrière — le flux seul —
+    rien ne change, le bracket simulé reste le seul juge disponible et il
+    peut toujours refuser."""
+    eng = _moteur(tmp_path)
+    eng.brain.infer = lambda x, m: {"r_bps": +6.0, "ml_bps": 6.0, "q_bps": 6.0,
+                                    "tp_bps": 12, "sl_bps": 18, "veto": False,
+                                    "score": 0.75, "status": "flow",
+                                    "policy": "flow", "bar": "90s",
+                                    "ic": 0.2, "clocks": {}}
+    eng.horizons.fuse = lambda i: {"r_bps": 0.0, "veto": True, "bar": "5m",
+                                   "status": "incoherent", "policy": "flat",
+                                   "clocks": {}, "ic": 0.0, "q_bps": 12.0,
+                                   "tp_bps": 12, "sl_bps": 18, "ml_bps": 0.0,
+                                   "score": 0.0}
+    for p in _preds(eng):
+        assert p["policy"] in ("flow", "flat")
+        if p["dir"] == "flat":
+            assert p["reason"] in ("no-ev", "cost", "veto", "incoherent")

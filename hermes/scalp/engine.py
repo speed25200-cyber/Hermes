@@ -359,39 +359,44 @@ class ScalpEngine:
             elif abs(edge) < hurdle:
                 direction, reason = "flat", "cost"
             else:
-                bracket = ECON.choose_bracket(
-                    edge_bps=edge, vol_bps=max(pred["vol_bps"], 1.0),
-                    horizon=h_use, cost_bps=cost_bps,
-                    cost_tp_bps=self.cost_tp_bps)
-                if bracket is None:
-                    # Aucun couple objectif/stop ne bat sa propre friction
-                    # SOUS LE MODÈLE. Or le modèle est un mouvement
-                    # brownien qui n'a jamais vu ces données, et la règle
-                    # que l'horloge a validée n'est pas un bracket : c'est
-                    # « entrer sur le signal, tenir h barres, sortir ». Aux
-                    # amplitudes réelles d'un scalp — 10 bps prévus contre
-                    # 25 de volatilité — choose_bracket refuse à peu près
-                    # tout, ce qui aurait refusé en bloc les trades d'une
-                    # horloge dûment mesurée à +5,4 bps nets par trade.
-                    #
-                    # Quand la mesure existe, c'est elle qui tranche. On
-                    # joue alors exactement la règle mesurée : sortie au
-                    # temps, avec un stop LARGE qui est un garde-fou de
-                    # ruine et non un instrument de rendement. Sans mesure,
-                    # le refus reste.
-                    mes = float(temoin.get("net_bps") or 0.0)
-                    mes_sd = float(temoin.get("net_sd") or 0.0)
-                    if mes > 0.0 and mes_sd > 0.0:
-                        direction = "long" if edge > 0 else "short"
-                        garde = max(3.0 * abs(edge), 2.0 * max(pred["vol_bps"], 1.0))
-                        bracket = (10.0 * abs(edge) + garde, garde, mes)
-                        sortie_temps = True
-                    else:
-                        direction, reason = "flat", "no-ev"
-                elif edge > 0:
-                    direction = "long"
+                # La règle jouée est la règle mesurée — toujours, pas
+                # seulement en dernier recours. Ce que l'horloge a validé
+                # n'est PAS un bracket : c'est « entrer sur le signal,
+                # tenir h barres, sortir », et son économie a été établie
+                # sur données réelles aux coûts réels. Tant que cette
+                # mesure existe, elle décide de tout : direction, sortie,
+                # et taille.
+                #
+                # La version précédente ne s'en servait que si
+                # choose_bracket refusait. Quand il acceptait, on jouait
+                # un objectif/stop que personne n'avait validé et on
+                # dimensionnait au brownien : mesuré en direct, une
+                # position SOL à 5x là où les moments MESURÉS de la règle
+                # (+9,29 bps par trade, écart-type 61,9) donnent 3x après
+                # quart de Kelly et demi-taille de solitude. Le brownien
+                # n'a jamais vu ces données ; les moments, si.
+                mes = float(temoin.get("net_bps") or 0.0)
+                mes_sd = float(temoin.get("net_sd") or 0.0)
+                if mes > 0.0 and mes_sd > 0.0:
+                    direction = "long" if edge > 0 else "short"
+                    # stop LARGE : garde-fou de ruine, pas instrument de
+                    # rendement — la règle mesurée sort au temps
+                    garde = max(3.0 * abs(edge), 2.0 * max(pred["vol_bps"], 1.0))
+                    bracket = (10.0 * abs(edge) + garde, garde, mes)
+                    sortie_temps = True
                 else:
-                    direction = "short"
+                    # Sans économie mesurée derrière (le flux seul), le
+                    # bracket simulé reste le seul juge disponible.
+                    bracket = ECON.choose_bracket(
+                        edge_bps=edge, vol_bps=max(pred["vol_bps"], 1.0),
+                        horizon=h_use, cost_bps=cost_bps,
+                        cost_tp_bps=self.cost_tp_bps)
+                    if bracket is None:
+                        direction, reason = "flat", "no-ev"
+                    elif edge > 0:
+                        direction = "long"
+                    else:
+                        direction = "short"
             out.append({
                 "inst": inst,
                 "px": feat["px"],
