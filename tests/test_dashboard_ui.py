@@ -211,3 +211,32 @@ def test_a_running_research_pass_explains_the_silence(page):
     from hermes.dashboard.server import StateReader  # l'API le sert bien
     import inspect
     assert "services" in inspect.getsource(StateReader.snapshot)
+
+
+def _html():
+    import os
+    ici = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with open(os.path.join(ici, "hermes", "dashboard", "index.html"),
+              encoding="utf-8") as f:
+        return f.read()
+
+
+def test_a_position_shows_what_cannot_be_reconstructed_afterwards():
+    """Le levier auquel une position a été prise et la marge qu'elle
+    immobilise ne se retrouvent pas après coup : la cible du desk a changé
+    depuis. L'écran montrait une position sans jamais les dire."""
+    s = _html()
+    for cle in ("b.lev", "b.margin", "b.hold_ms", "b.policy", "b.trail"):
+        assert cle in s, f"la carte de position ignore {cle}"
+    assert "sortie temps" in s, "la durée restante validée n'est pas affichée"
+    assert ".chip{" in s and ".pchips{" in s
+
+
+def test_the_engine_records_leverage_and_margin_on_every_position():
+    """Contre-épreuve côté moteur : l'écran ne peut montrer que ce que le
+    bracket porte."""
+    import inspect
+    from hermes.scalp.engine import ScalpEngine
+    src = inspect.getsource(ScalpEngine._arm)
+    for cle in ('"lev"', '"margin"', '"notional"', '"hold_ms"', '"policy"'):
+        assert cle in src, f"_arm n'enregistre pas {cle}"

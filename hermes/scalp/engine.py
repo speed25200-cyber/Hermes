@@ -34,8 +34,14 @@ class ScalpEngine:
         # trader, et elles ont tenu le panel à trois actifs pendant que la
         # définition en annonçait six.
         self.instruments = list(CLOCK_ASSETS)
-        self.universe_n = len(self.instruments)
-        self.trade_top = len(self.instruments)
+        self.store = None          # branché par la boucle live
+        self.attendus: list[str] = []   # réclamés par le volume, sans histoire
+        self.min_barres = 5_000    # barres 1m exigées avant d'entrer au panel
+        # Le panel vise les N perpétuels USDT les plus échangés sur OKX ;
+        # la liste écrite en dur ne sert que de point de départ avant le
+        # premier classement par volume.
+        self.universe_n = int(s.get("universe_n", len(self.instruments)))
+        self.trade_top = int(s.get("trade_top", self.universe_n))
         self.require_l2 = False
         self.max_spread = float(s.get("max_spread_bps", 6.0))
         self.min_vol = float(s.get("min_vol_usd", 10_000_000))
@@ -273,11 +279,96 @@ class ScalpEngine:
             pass
 
     def refresh_universe(self, tickers: dict[str, dict]) -> list[str]:
-        self.ticks = tickers
-        self.instruments = list(CLOCK_ASSETS)
+        """Le panel = les N perpétuels USDT les plus échangés sur OKX.
+
+        Cette fonction recevait les tickers et les jetait : elle recopiait
+        six noms écrits en dur. Or l'horloge est un PANEL — une seule règle
+        pour tous les actifs, jugée sur le rendement de portefeuille à
+        chaque instant. Chaque jambe supplémentaire moyenne une variance
+        idiosyncratique de plus : à poids de risque égal, passer de six à
+        vingt jambes divise la part non commune de l'écart-type par
+        racine(20/6), soit 1,8. C'est le levier le plus direct sur le
+        Sharpe du panel, et il ne coûte aucune barre — la dimension
+        « actif » ne fait pas partie de la grille cherchée dès que le panel
+        en compte au moins deux.
+
+        Trois garde-fous, tous nécessaires :
+
+        - le SPREAD. Un actif très échangé mais large au carnet paie sa
+          fourchette à chaque aller-retour ; à 6 bps d'écart sur un
+          avantage de 4, la jambe est perdante par construction.
+        - l'HISTOIRE. Une horloge se valide sur des dizaines de milliers de
+          barres. Un nom fraîchement listé n'en a pas et ne ferait
+          qu'ajouter du bruit au panel ; il attend d'avoir été rattrapé.
+        Le meneur transversal (BTC) n'est PAS forcé dans le panel : son
+        rôle est d'être une source de données — la colonne de décalage BTC
+        -> alts de toutes les autres jambes — et le magasin la possède
+        qu'il soit tradé ou non. Lui réserver une place de trading la
+        volerait à un nom que le volume a réellement classé devant.
+
+        - l'HYSTÉRÉSIS. Le classement par volume bouge en permanence au
+          voisinage du rang N. Un sortant est conservé tant qu'il reste
+          dans les 1,5·N premiers, sinon le panel changerait d'identité
+          toutes les quinze minutes — exactement le défaut qu'on a mesuré
+          sur la cellule retenue par la porte.
+        """
+        self.ticks = tickers or {}
+        n = max(1, int(self.universe_n))
+        classe = self.classement(tickers)
+        if not classe:
+            self.universe_at = time.time()
+            return self.instruments
+        garde = set(classe[: int(n * 1.5)])
+        retenus = [i for i in self.instruments if i in garde][:n]
+        for inst in classe:
+            if len(retenus) >= n:
+                break
+            if inst not in retenus and self._assez_dhistoire(inst):
+                retenus.append(inst)
+        self.instruments = retenus
+        self.universe_n = n
         self.universe_at = time.time()
+        # Ce que le volume reclame mais que l histoire ne permet pas encore :
+        # la boucle live va le rattraper en tache de fond, et le nom entrera
+        # au panel des qu il aura de quoi etre juge.
+        self.attendus = [i for i in classe[:n] if i not in retenus]
         self.flatten_foreign()
         return self.instruments
+
+    def classement(self, tickers: dict[str, dict] | None) -> list[str]:
+        """Les perpetuels USDT eligibles, du plus echange au moins echange.
+
+        Le spread est un filtre et non un tri : un actif large au carnet
+        paie sa fourchette a chaque aller-retour, et a 6 bps d ecart sur
+        un avantage de 4 la jambe est perdante par construction — la
+        garder au classement ne servirait qu a la voir echouer.
+        """
+        cands = []
+        for inst, t in (tickers or {}).items():
+            if not inst.endswith("-USDT-SWAP"):
+                continue
+            v = float((t or {}).get("vol_usd") or 0.0)
+            sp = float((t or {}).get("spread_bps") or 999.0)
+            if v < self.min_vol or sp > self.max_spread:
+                continue
+            cands.append((v, inst))
+        cands.sort(reverse=True)
+        return [i for _, i in cands]
+
+    def _assez_dhistoire(self, inst: str) -> bool:
+        """Assez de barres stockées pour qu'une horloge puisse le juger.
+
+        Sans magasin branché — en test — on ne bloque rien : c'est la
+        boucle live qui possède le magasin, et elle seule peut savoir.
+        """
+        store = getattr(self, "store", None)
+        if store is None:
+            return True
+        try:
+            c = store.load(inst, "1m")
+        except Exception:
+            return False
+        return c is not None and len(c) >= self.min_barres
 
     def flatten_foreign(self) -> None:
         """Close leftover names that are not in the live scalp universe
@@ -837,12 +928,29 @@ class ScalpEngine:
             sl = entry * (1.0 + sl_bps * 1e-4)
             tp = entry * (1.0 - tp_bps * 1e-4)
             side = "short"
+        # Ce qu il faut pour LIRE la position sans recouper trois fichiers :
+        # le levier envoye a l echange, la marge reellement immobilisee, la
+        # duree validee, et la source qui a decide. L ecran montrait une
+        # position sans jamais dire a quel levier elle etait prise ni ce
+        # qu elle bloquait en marge — deux chiffres qu on ne peut pas
+        # reconstituer apres coup, parce que la cible du desk a change
+        # depuis.
+        notion = abs(float(qty)) * entry
+        lev = float(plan.get("lev") or 0.0)
         self.brackets[inst] = {
             "side": side, "entry": entry, "sl": sl, "tp": tp,
             "sl_bps": sl_bps, "tp_bps": tp_bps,
             # une position ouverte sur règle mesurée doit vivre sa durée
             "sortie_temps": bool(plan.get("sortie_temps")),
             "t0": int(time.time() * 1000),   # l'écran affiche la tenue
+            "lev": lev,
+            "notional": notion,
+            "margin": (notion / lev) if lev > 0 else notion,
+            "hold_ms": int(self.hold_ms.get(inst) or 0),
+            "policy": plan.get("policy"),
+            "edge_bps": float(plan.get("edge_bps") or 0.0),
+            "h_bars": int(plan.get("h_bars") or 0),
+            "bar": plan.get("bar"),
         }
 
     def _tient(self, inst: str, qty) -> bool:

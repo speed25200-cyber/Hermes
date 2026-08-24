@@ -93,8 +93,12 @@ DEFAULTS: dict[str, Any] = {
         # lequel elle a été jugée.
         "instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP",
                         "XRP-USDT-SWAP", "DOGE-USDT-SWAP", "BNB-USDT-SWAP"],
-        "universe_n": 6,
-        "trade_top": 6,
+        # Les vingt perpétuels USDT les plus échangés d OKX, choisis par
+        # VOLUME reel a chaque rafraichissement — pas une liste ecrite en
+        # dur. Chaque jambe de plus moyenne une variance idiosyncratique de
+        # plus dans le rendement de portefeuille que la porte juge.
+        "universe_n": 20,
+        "trade_top": 20,
         "require_l2": False,
         "max_spread_bps": 6.0,
         "min_vol_usd": 10_000_000.0,

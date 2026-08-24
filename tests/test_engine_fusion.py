@@ -1050,3 +1050,62 @@ def test_the_gate_publishes_its_deflated_net(tmp_path):
         v = m.predict_row(np.zeros(m.n_features) if hasattr(m, "n_features")
                           else np.zeros(27), 1e-3)
         assert "net_defl" in v
+
+
+def test_the_panel_is_the_most_traded_names_not_a_hardcoded_list(tmp_path):
+    """`refresh_universe` recevait les tickers et les jetait : elle recopiait
+    six noms écrits en dur. Or l'horloge est un PANEL jugé sur le rendement
+    de portefeuille à chaque instant — chaque jambe de plus moyenne une
+    variance idiosyncratique de plus, et la dimension « actif » ne coûte
+    aucune barre dès que le panel en compte au moins deux."""
+    eng, _ = _moteur_pos(tmp_path)
+    eng.universe_n = 4
+    eng.min_vol = 1_000_000.0
+    eng.max_spread = 6.0
+    t = {
+        "AAA-USDT-SWAP":  {"vol_usd": 9e9, "spread_bps": 1.0, "last": 1.0},
+        "BBB-USDT-SWAP":  {"vol_usd": 8e9, "spread_bps": 1.0, "last": 1.0},
+        "CCC-USDT-SWAP":  {"vol_usd": 7e9, "spread_bps": 1.0, "last": 1.0},
+        "DDD-USDT-SWAP":  {"vol_usd": 6e9, "spread_bps": 1.0, "last": 1.0},
+        "EEE-USDT-SWAP":  {"vol_usd": 5e9, "spread_bps": 1.0, "last": 1.0},
+        # écarté : fourchette trop large malgré un gros volume
+        "LARGE-USDT-SWAP": {"vol_usd": 9.5e9, "spread_bps": 40.0, "last": 1.0},
+        # écarté : trop peu échangé
+        "PETIT-USDT-SWAP": {"vol_usd": 1e5, "spread_bps": 1.0, "last": 1.0},
+        # écarté : pas un perpétuel USDT
+        "AAA-USD-SWAP":    {"vol_usd": 9e9, "spread_bps": 1.0, "last": 1.0},
+    }
+    uni = eng.refresh_universe(t)
+    assert len(uni) == 4
+    assert "LARGE-USDT-SWAP" not in uni, "une fourchette de 40 bps mange l'avantage"
+    assert "PETIT-USDT-SWAP" not in uni
+    assert "AAA-USD-SWAP" not in uni
+    # classés par volume réel, sans place réservée : BTC n'est pas forcé
+    # dans le panel, il est ramassé comme SOURCE de la colonne de décalage
+    assert uni == ["AAA-USDT-SWAP", "BBB-USDT-SWAP",
+                   "CCC-USDT-SWAP", "DDD-USDT-SWAP"]
+
+
+def test_the_panel_does_not_change_identity_every_quarter_hour(tmp_path):
+    """Le classement par volume bouge en permanence au voisinage du rang N.
+    Sans hystérésis le panel changerait d'identité toutes les quinze
+    minutes — exactement le défaut mesuré sur la cellule de la porte."""
+    eng, _ = _moteur_pos(tmp_path)
+    eng.universe_n = 3
+    eng.min_vol = 1_000.0
+    base = {f"{c}-USDT-SWAP": {"vol_usd": v, "spread_bps": 1.0, "last": 1.0}
+            for c, v in (("AAA", 9e9), ("BBB", 8e9), ("CCC", 7e9),
+                         ("DDD", 6.9e9), ("EEE", 6e9), ("FFF", 5e9))}
+    eng.refresh_universe(base)
+    avant = list(eng.instruments)
+    assert avant == ["AAA-USDT-SWAP", "BBB-USDT-SWAP", "CCC-USDT-SWAP"]
+
+    # CCC et DDD permutent d'un cheveu : le panel ne doit pas bouger
+    base["DDD-USDT-SWAP"]["vol_usd"] = 7.05e9
+    assert eng.refresh_universe(base) == avant
+
+    # en revanche un vrai effondrement le fait sortir du filet (1,5 x N)
+    base["CCC-USDT-SWAP"]["vol_usd"] = 1e6
+    apres = eng.refresh_universe(base)
+    assert "CCC-USDT-SWAP" not in apres, apres
+    assert "DDD-USDT-SWAP" in apres

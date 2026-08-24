@@ -355,6 +355,18 @@ button.ghost.icone{padding:8px;border-radius:50%;display:grid;place-items:center
 .ppnl b{font-size:18px;font-weight:660;letter-spacing:-.02em;display:block}
 .ppnl i{font-style:normal;font-size:11px;font-weight:520;opacity:.8}
 .pmeta{font-size:12.5px;color:var(--encre-2);margin:7px 0 2px}
+/* Les chiffres qu on ne peut pas reconstituer apres coup : a quel levier
+   la position a ete prise, ce qu elle immobilise en marge, et combien de
+   temps la regle validee lui laisse encore. */
+.pchips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+.chip{display:inline-flex;align-items:baseline;gap:5px;padding:3px 8px;
+  border:1px solid var(--filet);border-radius:999px;background:var(--surface-2);
+  font-size:11.5px;line-height:1.3;white-space:nowrap}
+.chip i{font-style:normal;color:var(--encre-3);font-size:10.5px;
+  text-transform:uppercase;letter-spacing:.04em}
+.chip b{font-weight:620;font-variant-numeric:tabular-nums}
+.chip.chaud{border-color:var(--attention);color:var(--attention)}
+.chip.suiv{border-color:var(--bon);color:var(--bon)}
 .pmeta b{font-weight:640;color:var(--encre)}
 .jeton.eclaireur{text-transform:none;letter-spacing:.02em;
   background:color-mix(in oklab,var(--encre-3) 14%,transparent);
@@ -986,6 +998,22 @@ function rendrePositions(d){
     const pnl = q * (px - entree);
     const pnlBps = notion > 0 ? (pnl / notion) * 1e4 : 0;
     const dec = px > 1000 ? 1 : 4;
+    const lev = Number(b.lev) || 0;
+    const marge = Number(b.margin) || (lev > 0 ? notion / lev : 0);
+    const trail = Number(b.trail);
+    // Combien de temps la regle validee lui laisse encore vivre. Sans ce
+    // chiffre, une position tenue a l horizon mesure et une position
+    // oubliee se ressemblent exactement a l ecran.
+    let reste = "", resteCourt = false;
+    if (Number(b.t0) > 0 && Number(b.hold_ms) > 0) {
+      const ms = Number(b.t0) + Number(b.hold_ms) - Date.now();
+      if (ms > -60000 && ms < 864e5) {
+        const sec = Math.max(0, Math.round(ms / 1000));
+        resteCourt = sec < 60;
+        reste = sec < 60 ? sec + " s"
+              : Math.floor(sec/60) + " min " + String(sec%60).padStart(2,"0");
+      }
+    }
     let tenue = "";
     if (Number(b.t0) > 0) {
       const mn = Math.floor((Date.now() - Number(b.t0)) / 60000);
@@ -1020,6 +1048,14 @@ function rendrePositions(d){
         entrée ${nf(entree,dec)} → <b>${nf(px,dec)}</b>
         · ${nf(Math.abs(q),4)} ${esc(court(inst))}
         · ${usdt(notion)}${tenue ? " · " + tenue : ""}
+      </div>
+      <div class="pchips">
+        ${lev>0 ? `<span class="chip"><i>levier</i><b>x${nf(lev,lev<10?1:0)}</b></span>` : ""}
+        ${marge>0 ? `<span class="chip"><i>marge</i><b>${usdt(marge)}</b></span>` : ""}
+        ${reste ? `<span class="chip ${resteCourt?"chaud":""}"><i>sortie temps</i><b>${reste}</b></span>` : ""}
+        ${b.policy ? `<span class="chip"><i>source</i><b>${esc(String(b.policy))}${b.h_bars?" h="+b.h_bars:""}</b></span>` : ""}
+        ${isFinite(b.edge_bps)&&b.edge_bps ? `<span class="chip"><i>prévu</i><b>${sgn(b.edge_bps)} bps</b></span>` : ""}
+        ${isFinite(trail)&&trail>0 ? `<span class="chip suiv"><i>trail</i><b>${nf(trail,dec)}</b></span>` : ""}
       </div>
       <div class="rail">
         <div class="piste">

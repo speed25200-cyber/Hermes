@@ -27,6 +27,11 @@ from ..ml.regime import regime_series
 from ..portfolio.allocator import Allocator
 from ..research.evolve import evolve
 from ..research.validate import ValidatedStrategy, split_is_oos, validate_candidates
+
+# Instruments dont on relit le carnet et le ruban a chaque tour. Ils ne
+# nourrissent que le modele de flux ; les bougies, elles, sont relues
+# pour tout le panel a chaque tour parce que c'est l'horloge qui trade.
+MICRO_PAR_TOUR = 6
 from ..risk import LeverageGovernor, RiskEngine
 from ..strategy.signals import compute_position
 from ..exchange.broker import Broker, PaperBroker
@@ -656,15 +661,44 @@ class LiveRunner:
                 self.log(f"sync {inst} failed: {type(exc).__name__}: {exc}")
         self._ensure_scalp_data()
 
-    def _ensure_scalp_data(self) -> None:
+    def _panel_vise(self) -> list[str]:
+        """Les noms que le panel VEUT, classes par volume reel sur OKX.
+
+        Le remplissage ne suivait pas l univers : il recopiait les six noms
+        ecrits en dur, si bien qu un actif promu par le volume n avait
+        jamais d histoire et ne pouvait donc jamais entrer — le classement
+        dynamique n aurait servi a rien. En cas d echec de l appel public
+        on retombe sur l univers courant, jamais sur rien.
+        """
+        if self.scalp is None:
+            return []
+        n = max(1, int(getattr(self.scalp, "universe_n", 6)))
+        try:
+            classe = self.scalp.classement(self.client.swap_tickers())
+        except Exception as exc:
+            self.log(f"desk classement: {type(exc).__name__}: {exc}")
+            classe = []
+        vise = list(dict.fromkeys(list(self.scalp.instruments) + classe))[:n]
+        # Le meneur transversal doit etre RAMASSE meme s il ne trade pas :
+        # sa serie porte la colonne de decalage de toutes les autres jambes,
+        # et sans elle cette colonne vaut zero pour tout le panel.
+        from ..scalp.clock import ASSETS as _A
+        if _A and _A[0] not in vise:
+            vise.append(_A[0])
+        return vise
+
+    def _ensure_scalp_data(self, noms: list[str] | None = None) -> None:
         if self.scalp is None:
             return
         from ..data.fetcher import fetch_candles
-        from ..scalp.clock import ASSETS, BARS, DAYS
-        leaders = list(ASSETS)
+        from ..scalp.clock import BARS, DAYS
+        cibles = noms if noms is not None else self._panel_vise()
+        if cibles:
+            self.log(f"desk panel vise {len(cibles)}: "
+                     + ",".join(i.split("-")[0] for i in cibles[:20]))
         for bar in BARS:
             d = DAYS[bar]
-            for inst in leaders:
+            for inst in cibles:
                 try:
                     self.log(f"desk backfill {inst} {bar} ({d}d)...")
                     fetch_candles(self.client, self.store, inst, bar, d, log=self.log)
@@ -776,6 +810,7 @@ class LiveRunner:
                     except Exception as exc:
                         self.log(f"scalp tickers: {type(exc).__name__}: {exc}")
                         ticks = {}
+                    self.scalp.store = self.store
                     if ticks and (last_uni == 0.0 or time.time() - last_uni > 900):
                         before = list(self.scalp.instruments)
                         uni = self.scalp.refresh_universe(ticks)
@@ -786,6 +821,20 @@ class LiveRunner:
                             self.log(f"scalp universe {len(uni)}: "
                                      + ",".join(i.split("-")[0] for i in uni[:12])
                                      + ("…" if len(uni) > 12 else ""))
+                        # Un nom que le volume reclame mais qui n a pas
+                        # encore d histoire ne peut pas etre juge. On le
+                        # rattrape en tache de fond : sans cela le
+                        # classement dynamique promettrait une place que
+                        # l actif ne pourrait jamais prendre.
+                        att = list(getattr(self.scalp, "attendus", []))[:3]
+                        if att and not getattr(self, "_rattrapage", False):
+                            self._rattrapage = True
+                            def _bf(noms=att):
+                                try:
+                                    self._ensure_scalp_data(noms)
+                                finally:
+                                    self._rattrapage = False
+                            threading.Thread(target=_bf, daemon=True).start()
                     elif ticks:
                         self.scalp.ticks = ticks
                     if ticks and hasattr(self.broker, "mark_ticks"):
@@ -802,7 +851,19 @@ class LiveRunner:
                     t0, r0 = self.client.timeout, self.client.max_retries
                     self.client.timeout, self.client.max_retries = 4.0, 1
                     try:
-                        for inst in names:
+                        # Le carnet et le ruban ne nourrissent que le modèle
+                        # de flux, qui est en veto ; les bougies nourrissent
+                        # l'horloge, qui trade. À vingt instruments, tout
+                        # récupérer à chaque tour ferait quatre-vingts
+                        # appels et rallongerait le cycle — donc le retard
+                        # d'entrée, la chose même qu'on vient de ramener à
+                        # une seconde. On tourne donc la microstructure et
+                        # on garde les bougies pour tout le monde.
+                        micro = names[book_rr % max(len(names), 1):][:MICRO_PAR_TOUR]
+                        if len(micro) < min(MICRO_PAR_TOUR, len(names)):
+                            micro += names[: MICRO_PAR_TOUR - len(micro)]
+                        book_rr += len(micro) or 1
+                        for inst in micro:
                             try:
                                 self.scalp.ingest_book(inst, self.client.books(inst, sz=10))
                             except Exception as exc:
@@ -811,6 +872,7 @@ class LiveRunner:
                                 self.scalp.ingest_trades(inst, self.client.last_trades(inst, limit=50))
                             except Exception:
                                 pass
+                        for inst in names:
                             try:
                                 update_latest(self.client, self.store, inst, "1m", limit=120)
                             except Exception:
