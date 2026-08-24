@@ -143,3 +143,123 @@ def test_volume_is_reachable_at_all():
     bruit = sum(1 for s in range(2)
                 if CandleModel("1m").fit_panel(panel(s, 0.0))["status"] == "live")
     assert bruit == 0, f"{bruit}/2 — une horloge passe sur du bruit"
+
+
+def test_the_market_factor_leaves_the_asset_out_and_aligns_on_time():
+    """Deux proprietes sans lesquelles le facteur transversal est faux, et
+    faux SILENCIEUSEMENT — rien ne planterait, les chiffres resteraient
+    plausibles.
+
+    Privee de soi : inclure l actif dans sa propre moyenne retrecit
+    mecaniquement son residu d un facteur (N-1)/N et melange sa cible a
+    son entree.
+
+    Alignee sur les HORODATAGES : deux actifs d historiques differents
+    n ont pas la meme longueur, et un alignement par la fin ferait lire a
+    l un la barre de l autre. C est exactement le defaut que l ancien
+    _br_serie evitait de justesse en refusant les series trop courtes.
+    """
+    import numpy as np
+    from hermes.scalp.clock import _mkt_series
+
+    t = np.arange(6, dtype=np.int64) * 60_000
+    a = np.array([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    b = np.array([0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    c = np.array([-1.0, -2.0, -3.0, -4.0, -5.0, -6.0])
+    m = _mkt_series([(t, a), (t, b), (t, c)])
+    assert np.allclose(m[0], (b + c) / 2.0), "la moyenne inclut lactif lui-meme"
+    assert np.allclose(m[1], (a + c) / 2.0)
+    assert np.allclose(m[2], (a + b) / 2.0)
+
+    # Historiques rague : le troisieme actif ne couvre que la fin. Sur les
+    # barres ou il est absent, les autres se moyennent entre eux ; la ou
+    # il est present, il compte.
+    court_t, court_u = t[3:], np.array([10.0, 10.0, 10.0])
+    m = _mkt_series([(t, a), (t, b), (court_t, court_u)])
+    assert np.allclose(m[0][:3], b[:3]), "un actif absent a quand meme compte"
+    assert np.allclose(m[0][3:], (b[3:] + court_u) / 2.0)
+    assert np.allclose(m[2], (a[3:] + b[3:]) / 2.0), "alignement par la fin"
+
+    # Un seul actif : pas de panel, pas de moyenne — et surtout pas zero
+    # confondu avec une mesure.
+    assert _mkt_series([(t, a)]) == [None]
+
+
+def test_the_residual_is_measured_against_the_panel_when_there_is_one():
+    """xs remplace idio : meme colonne, meilleur estimateur.
+
+    Contre BTC, le residu vaut e_i - e_btc, domine par l idio de BTC qui
+    est souvent le plus gros du panel. Contre la moyenne des N-1 autres,
+    il vaut e_i - bruit/racine(N-1). La colonne ne change pas de place,
+    elle change de precision — et le nombre de colonnes croisees reste
+    trois, ce qui compte : quatre colonnes de bruit avaient suffi a faire
+    echouer une regle par ailleurs vraie.
+    """
+    import numpy as np
+    from hermes.scalp.clock import CROISEES, N_CROISE, col, croise
+
+    n = 40
+    X = np.zeros((n, len(__import__("hermes.scalp.clock", fromlist=["COLONNES"]).COLONNES)))
+    X[:, col("r1")] = 1.0
+    br = np.full(n, 0.25)
+    mkt = np.full(n, 0.75)
+
+    sans = croise(X, br)
+    avec = croise(X, br, mkt)
+    assert sans.shape == avec.shape and N_CROISE == 3
+    i_xs = X.shape[1] + CROISEES.index("xs")
+    i_br = X.shape[1] + CROISEES.index("btc_r1")
+    assert np.allclose(sans[:, i_xs], 0.75), "sans panel, le residu reste contre BTC"
+    assert np.allclose(avec[:, i_xs], 0.25), "le residu ignore la moyenne du panel"
+    # et le MENEUR reste BTC dans les deux cas : c est lui qui porte le
+    # decalage BTC -> alts, que la moyenne du panel ne peut pas porter.
+    assert np.allclose(sans[:, i_br], 0.25) and np.allclose(avec[:, i_br], 0.25)
+
+
+def test_the_clock_can_see_a_cross_sectional_reversal():
+    """« Ce que ce nom a fait de plus que le marche » revient en partie a
+    court horizon : c est l effet transversal le mieux etabli de ce
+    marche, et l horloge y etait a moitie aveugle.
+
+    A moitie seulement, parce qu elle mesurait bien un residu — mais
+    contre BTC, dont l idiosyncrasie est souvent la plus grosse du panel.
+    Le residu valait alors e_i - e_btc : le bon signal plus le bruit du
+    plus bruyant. Contre la moyenne des autres, il vaut e_i moins un bruit
+    divise par racine(N-1).
+
+    Mesure sur ce marche-la, huit actifs, BTC portant trois fois l idio
+    des autres : ic +0,2242 contre BTC seul, +0,3047 avec le residu panel,
+    a nombre de colonnes egal. La contre-epreuve compte autant — sur du
+    bruit pur, aucune des deux ne passe.
+    """
+    import numpy as np
+    from hermes.data.store import Candles
+    from hermes.scalp.clock import CandleModel
+
+    noms = ["BTC", "ETH", "SOL", "XRP", "DOGE", "BNB"]
+
+    def panel(seed, kappa, n=2400):
+        rng = np.random.default_rng(seed)
+        ts = np.arange(n, dtype=np.int64) * 300_000
+        f = rng.normal(0, 6e-4, n)                       # facteur commun
+        e = np.vstack([rng.normal(0, 12e-4 if i == 0 else 4e-4, n)
+                       for i in range(len(noms))])       # BTC bouge seul
+        r = f[None, :] + e
+        r[:, 1:] -= kappa * e[:, :-1]                    # reversion du residu
+        cs = []
+        for i, nom in enumerate(noms):
+            px = 100 * np.exp(np.cumsum(np.clip(r[i], -0.05, 0.05)))
+            o = np.concatenate([[100.0], px[:-1]])
+            w = np.abs(rng.normal(0, 3e-4, n)) * px
+            cs.append(Candles(nom, "5m", ts, o, np.maximum(o, px) + w,
+                              np.minimum(o, px) - w, px,
+                              np.abs(rng.normal(1000, 100, n))))
+        return [(cs[i], None if i == 0 else cs[0]) for i in range(len(noms))]
+
+    vifs = sum(1 for s in range(2)
+               if CandleModel("5m").fit_panel(panel(30 + s, 0.6))["status"] == "live")
+    assert vifs == 2, f"{vifs}/2 — la reversion transversale nest pas vue"
+
+    bruit = sum(1 for s in range(2)
+                if CandleModel("5m").fit_panel(panel(30 + s, 0.0))["status"] == "live")
+    assert bruit == 0, f"{bruit}/2 — une horloge passe sur du bruit pur"

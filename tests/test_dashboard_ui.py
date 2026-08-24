@@ -327,3 +327,20 @@ def test_the_ledger_identity_is_closed_on_screen_not_approximated(page):
     bloc = page.split("function rendreLivre", 1)[1].split("function rendrePositions", 1)[0]
     assert "eq - (dep + avant + brut + frais + fund)" in bloc, \
         "le latent nest plus le residu de lidentite"
+
+
+def test_the_page_answers_why_the_positions_are_small(page):
+    """« Pourquoi les gains et positions ont l air minuscules ? »
+
+    La reponse existait a l ecran mais en pieces detachees : le frein sur
+    une tuile, le rodage sur une autre, et la taille que l avantage seul
+    justifierait — poids_plein — nulle part. Il fallait multiplier deux
+    chiffres puis les comparer a un troisieme, absent. Le bandeau porte
+    desormais le rapport en clair, avec les deux montants en dollars.
+    """
+    assert "Taille jouée" in page
+    bloc = page.split("function rendreBandeau", 1)[1].split("function rendrePanel", 1)[0]
+    assert "poids_plein" in bloc, "la taille pleine nest pas lue"
+    assert "joue / plein" in bloc, "le rapport nest pas calcule"
+    # les deux montants doivent etre en dollars, pas en poids abstraits
+    assert bloc.count("usdt(") >= 2

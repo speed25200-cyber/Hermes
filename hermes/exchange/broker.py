@@ -256,7 +256,11 @@ class PaperBroker(Broker):
         self.pos[inst] = new
         if leverage and abs(new) > 1e-12:
             self.lever[inst] = lev_now.get(inst, float(leverage))
-        if abs(self.pos[inst]) < 1e-12:
+        # 1e-12 laissait vivre le residu d arrondi : fermer -9,999999999883
+        # DOGE par +10 laisse 1,16e-10, qui passait le test et restait au
+        # livre pour toujours. Rien de legitime ne pese 1e-9 unite — un
+        # milliardieme de DOGE vaut 1e-10 dollar.
+        if abs(self.pos[inst]) < 1e-9:
             self.pos.pop(inst, None)
             self.entry.pop(inst, None)
             self.lever.pop(inst, None)

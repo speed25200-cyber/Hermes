@@ -694,6 +694,29 @@ class LiveRunner:
             vise.append(_A[0])
         return vise
 
+    def _ajuster(self, noms: list[str], quoi: str) -> bool:
+        """Un seul ajustement d horloge a la fois.
+
+        Trois chemins peuvent le declencher — le demarrage, le fond qui
+        vient de finir son rattrapage, et le refit horaire. fit_store vide
+        self.models avant de le repeupler : deux passes concurrentes
+        laisseraient le vote lire un dictionnaire a moitie rempli, et le
+        moteur veto-erait des horloges vivantes sans que rien ne plante.
+        Le second arrivant renonce au lieu d attendre : son tour reviendra.
+        """
+        verrou = getattr(self, "_verrou_fit", None)
+        if verrou is None:
+            verrou = self._verrou_fit = threading.Lock()
+        if not verrou.acquire(blocking=False):
+            return False
+        try:
+            self.scalp.horizons.fit_store(self.store, list(noms))
+        except Exception as exc:
+            self.log(f"{quoi}: {type(exc).__name__}: {exc}")
+        finally:
+            verrou.release()
+        return True
+
     def _ensure_scalp_data(self, noms: list[str] | None = None) -> None:
         if self.scalp is None:
             return
@@ -797,14 +820,31 @@ class LiveRunner:
             # journal : quatorze noms en rattrapage 3m juste apres un
             # redemarrage. Comme celui de ensure_data, il ne vise que le
             # panel courant ; le reste arrive en tache de fond.
-            self._ensure_scalp_data(list(self.scalp.instruments))
-            try:
-                # Le panel appris est celui que le moteur trade : une
-                # seule définition, dans clock.ASSETS.
-                self.scalp.horizons.fit_store(
-                    self.store, list(self.scalp.instruments))
-            except Exception as exc:
-                self.log(f"learner fit: {type(exc).__name__}: {exc}")
+            # Le rattrapage d histoire NE BLOQUE PLUS le demarrage.
+            #
+            # Mesure en direct : la profondeur 1m passee de trente a
+            # soixante jours a fait passer ce rattrapage de huit a dix-sept
+            # minutes pour SIX noms — dix-sept minutes sans un tick, sans
+            # un instantane ecrit, sans une position surveillee, et un
+            # ecran qui montre l etat du processus precedent. A vingt noms
+            # il en aurait fait cinquante-sept.
+            #
+            # Or le magasin porte deja l histoire du tour precedent :
+            # l horloge s ajuste tout de suite sur ce qui est la, le fond
+            # se creuse derriere, et un second ajustement suit quand il a
+            # fini. Sur une machine vierge le premier ajustement rend
+            # « few-samples » — c est la verite, et elle ne coute rien.
+            noms = list(self.scalp.instruments)
+            self._ajuster(noms, "learner fit")
+
+            def _fond():
+                try:
+                    self._ensure_scalp_data(noms)
+                except Exception as exc:
+                    self.log(f"desk fond: {type(exc).__name__}: {exc}")
+                self._ajuster(noms, "learner fit (fond)")
+
+            threading.Thread(target=_fond, daemon=True).start()
             threading.Thread(target=self._bg_sync, daemon=True).start()
         else:
             self.ensure_data()
@@ -866,12 +906,10 @@ class LiveRunner:
                     names = list(self.scalp.instruments)
                     if time.time() - last_learn > 3600:
                         last_learn = time.time()
-                        def _refit():
-                            try:
-                                self.scalp.horizons.fit_store(self.store, names)
-                            except Exception as exc:
-                                self.log(f"learner refit: {type(exc).__name__}: {exc}")
-                        threading.Thread(target=_refit, daemon=True).start()
+                        threading.Thread(
+                            target=self._ajuster,
+                            args=(names, "learner refit"),
+                            daemon=True).start()
                     t0, r0 = self.client.timeout, self.client.max_retries
                     self.client.timeout, self.client.max_retries = 4.0, 1
                     try:

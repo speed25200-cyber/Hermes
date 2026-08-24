@@ -217,7 +217,10 @@ def test_the_startup_backfill_does_not_block_on_the_new_names():
     # plus échangés et bloquerait le démarrage sur quatorze instruments
     assert "_ensure_scalp_data()" not in boucle, \
         "un rattrapage bloquant vise encore tout le panel visé"
-    assert "_ensure_scalp_data(list(self.scalp.instruments))" in boucle
+    # La cible reste le panel COURANT, nommée en une variable depuis que le
+    # rattrapage a été sorti du chemin bloquant.
+    assert "noms = list(self.scalp.instruments)" in boucle
+    assert "_ensure_scalp_data(noms)" in boucle
     assert "attendus" in boucle, "aucun rattrapage des noms réclamés"
     assert "_rattrapage" in boucle, "rien n'empêche deux rattrapages simultanés"
     # le rattrapage doit vivre HORS du bloc de rafraichissement d'univers,
@@ -227,3 +230,78 @@ def test_the_startup_backfill_does_not_block_on_the_new_names():
     assert i_att > i_uni
     assert "elif ticks:" in boucle[:i_att], \
         "le rattrapage est enfermé dans le rafraichissement d'univers"
+
+
+def test_the_startup_backfill_does_not_block_the_engine():
+    """Le rattrapage d histoire au demarrage BLOQUAIT tout.
+
+    Mesure en direct : la profondeur 1m portee de trente a soixante jours
+    a fait passer ce rattrapage de huit a dix-sept minutes pour SIX noms —
+    dix-sept minutes sans un tick, sans un instantane ecrit, sans une
+    position surveillee, et un ecran affichant l etat du processus
+    precedent. A vingt noms il en aurait fait cinquante-sept.
+
+    Le magasin porte deja l histoire du tour d avant : on s ajuste dessus
+    tout de suite, on creuse derriere. Ce test pinne l ORDRE — l ajustement
+    initial vient avant l appel bloquant, et cet appel vit dans un fil.
+    """
+    import inspect
+
+    from hermes.live.trader import LiveRunner
+
+    src = inspect.getsource(LiveRunner.run_forever)
+    tete = src.split("last_cycle_bar", 1)[0]
+    i_fit = tete.index("self._ajuster(noms")
+    i_bf = tete.index("self._ensure_scalp_data(noms)")
+    assert i_fit < i_bf, "le rattrapage bloque encore l ajustement initial"
+    # et il est dans un fil, pas sur le chemin du demarrage
+    bloc = tete[tete.index("def _fond"):]
+    assert "threading.Thread(target=_fond" in bloc
+    assert "self._ensure_scalp_data(noms)" in bloc.split("threading.Thread")[0]
+
+
+def test_two_clock_fits_never_run_at_once():
+    """Trois chemins declenchent un ajustement — le demarrage, le fond qui
+    finit son rattrapage, le refit horaire. fit_store VIDE self.models
+    avant de le repeupler : deux passes concurrentes laisseraient le vote
+    lire un dictionnaire a moitie rempli, et le moteur veto-erait des
+    horloges vivantes sans que rien ne plante. C est le genre de defaut
+    qu on ne voit jamais dans un journal."""
+    import threading
+
+    from hermes.live.trader import LiveRunner
+
+    class _Faux:
+        def __init__(self):
+            self.dedans = 0
+            self.max = 0
+            self.n = 0
+
+    faux = _Faux()
+    barriere = threading.Event()
+
+    class _Desk:
+        def fit_store(self, store, names):
+            faux.dedans += 1
+            faux.max = max(faux.max, faux.dedans)
+            faux.n += 1
+            barriere.wait(0.4)
+            faux.dedans -= 1
+
+    class _Scalp:
+        horizons = _Desk()
+
+    r = LiveRunner.__new__(LiveRunner)
+    r.scalp = _Scalp()
+    r.store = None
+    r.log = lambda m: None
+
+    fils = [threading.Thread(target=r._ajuster, args=(["BTC"], "t"))
+            for _ in range(4)]
+    for f in fils:
+        f.start()
+    barriere.set()
+    for f in fils:
+        f.join(3.0)
+    assert faux.max == 1, f"{faux.max} ajustements simultanes"
+    assert faux.n >= 1, "aucun ajustement n a eu lieu"

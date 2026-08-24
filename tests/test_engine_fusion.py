@@ -384,18 +384,22 @@ def test_every_asset_votes_before_anything_fuses(tmp_path):
     validée."""
     eng = _moteur(tmp_path)
     ordre = []
-    vrai_vote = eng.horizons.vote_clock
+    vrai_vote = eng.horizons.vote_panel
     vraie_fusion = eng.horizons.fuse
 
-    def vote(inst, bar, c, btc):
-        ordre.append(("vote", inst))
-        return vrai_vote(inst, bar, c, btc)
+    def vote(bar, candles, btc):
+        # Le panel vote d un bloc depuis que le facteur de marche de
+        # chaque jambe est la moyenne des AUTRES : elle n existe qu une
+        # fois tout le monde rassemble.
+        for inst in candles:
+            ordre.append(("vote", inst))
+        return vrai_vote(bar, candles, btc)
 
     def fuse(inst):
         ordre.append(("fuse", inst))
         return vraie_fusion(inst)
 
-    eng.horizons.vote_clock, eng.horizons.fuse = vote, fuse
+    eng.horizons.vote_panel, eng.horizons.fuse = vote, fuse
     _desk_partage(eng, _Horloge("abs"))
     _preds(eng)
     votes = [i for i, (k, _) in enumerate(ordre) if k == "vote"]
@@ -1600,3 +1604,115 @@ def test_a_dust_position_can_still_be_closed(tmp_path):
     eng2.pending = {inst: -9_990.0}
     eng2.execute_pending()
     assert abs(b2.pos[inst] + 10_000.0) < 1e-6, "l ajustement de 89 cents est passe"
+
+
+def test_ownerless_dust_gets_swept_even_without_a_target(tmp_path):
+    """Le plancher d ordre laisse desormais passer une FERMETURE — encore
+    faut-il qu une cible zero soit emise, et un nom sans signal n en
+    recoit aucune.
+
+    Mesure en direct, deux heures apres le correctif precedent : -10 DOGE,
+    89 centimes, toujours au livre, affiches a l ecran comme une position
+    ouverte. Le balayage ferme ce qui est sous le plancher ET sans
+    proprietaire ; ce qui porte encore un bracket est un vrai trade en
+    cours, meme petit, et n est pas touche.
+    """
+    inst = "DOGE-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path, {inst: -10.0})
+    eng.ticks[inst] = {"last": 0.0888, "bid": 0.0887, "ask": 0.0889,
+                       "spread_bps": 2.0}
+    dits = []
+    eng.log = dits.append
+    eng._balayer_poussiere()
+    assert abs(b.pos.get(inst, 0.0)) < 1e-9, f"reste {b.pos.get(inst)}"
+    assert any("poussiere" in m for m in dits), dits
+
+    # Un vrai trade sous le plancher — rare mais possible — garde son
+    # bracket et n est pas balaye : c est check_exits qui le pilote.
+    autre = tmp_path / "b"
+    autre.mkdir()
+    eng2, b2 = _moteur_pos(autre, {inst: -10.0})
+    eng2.ticks[inst] = dict(eng.ticks[inst])
+    eng2.brackets[inst] = {"side": "short", "entry": 0.0888, "sl": 0.09,
+                           "tp": 0.087, "sl_bps": 100.0, "tp_bps": 100.0,
+                           "sortie_temps": True, "t0": 1}
+    eng2._balayer_poussiere()
+    assert abs(b2.pos[inst] + 10.0) < 1e-9, "un trade en cours a ete balaye"
+
+
+def test_a_rounding_residue_cannot_survive_a_close():
+    """Fermer -9,999999999883585 DOGE par +10 laisse 1,16e-10. Le seuil de
+    disparition etait a 1e-12 : le residu passait, restait au livre, et
+    reapparaissait a l ecran comme une position. Rien de legitime ne pese
+    un milliardieme d unite — un milliardieme de DOGE vaut 1e-10 dollar."""
+    from hermes.exchange.broker import PaperBroker
+
+    b = PaperBroker(cash=10_000.0)
+    b.mark_prices({"DOGE-USDT-SWAP": 0.0888})
+    b.pos["DOGE-USDT-SWAP"] = -9.999999999883585
+    b.entry["DOGE-USDT-SWAP"] = 0.0888
+    b.market_order("DOGE-USDT-SWAP", 10.0, 0.0888, force_taker=True)
+    assert "DOGE-USDT-SWAP" not in b.pos, b.pos
+
+
+def test_the_legs_carry_equal_RISK_not_equal_notional(tmp_path):
+    """La porte ne mesure pas un livre equipondere.
+
+    _portfolio agrege les trades simultanes en ponderant chaque jambe par
+    l inverse de sa volatilite : c est ce livre-la dont le Sharpe a
+    franchi la barre. Le moteur envoyait pourtant le MEME notionnel a
+    toutes les jambes — visible a l ecran, cinq positions a 191, 192, 193
+    USDT. DOGE, trois fois plus agite que BTC, dominait alors la variance
+    du livre reellement tenu sans apporter plus d avantage : on jouait un
+    portefeuille que personne n avait mesure.
+
+    Une seule horloge parle pour tout le panel au meme instant, donc tous
+    les moments — net, ecart-type, nombre — sont IDENTIQUES d une jambe a
+    l autre. Ce qui les distingue est leur volatilite propre, et elle
+    arrive par le garde-fou mesure : stop_bps = stop_sig x sigma x
+    racine(h).
+    """
+    eng, _ = _moteur_pos(tmp_path)
+    commun = {"policy": "candle", "bar": "1m", "ml": "live", "h_bars": 6,
+              "sortie_temps": True, "net_bps": 13.0, "net_sd": 60.0,
+              "net_defl": 1.9, "net_n": 300, "tp_bps": 200.0,
+              "vol_bps": 10.0, "cost_bps": 7.0}
+    preds = [
+        dict(commun, inst="BTC-USDT-SWAP", dir="long", edge_bps=12.0,
+             sl_bps=40.0, px=79_000.0),      # calme
+        dict(commun, inst="DOGE-USDT-SWAP", dir="long", edge_bps=12.0,
+             sl_bps=120.0, px=0.0888),       # trois fois plus agite
+    ]
+    tg = eng._targets(preds)
+    w_btc = abs(tg["BTC-USDT-SWAP"])
+    w_doge = abs(tg["DOGE-USDT-SWAP"])
+    assert w_btc > 0 and w_doge > 0, tg
+    # Trois fois moins volatile, trois fois plus de notionnel — a moins
+    # que le plafond de ruine ne morde avant, ce qu il ne fait pas ici.
+    r = w_btc / w_doge
+    assert 2.5 < r < 3.5, f"rapport de notionnel {r:.2f}, attendu ~3"
+    # ...et le RISQUE, lui, est egal : notionnel x volatilite constant.
+    assert abs(w_btc * 40.0 - w_doge * 120.0) < 1e-9
+
+    # Le garde-fou de ruine reste per-jambe et borne encore la plus
+    # agrandie : 2,5 % de fonds propres par stop touche, quoi qu il arrive.
+    for p in preds:
+        assert p["lev"] <= 0.025 / (p["sl_bps"] * 1e-4) + 1.0
+
+
+def test_risk_parity_does_not_change_the_total_size(tmp_path):
+    """La parite REPARTIT, elle n agrandit pas. Le facteur vaut 1 en
+    moyenne : deux jambes de meme volatilite doivent recevoir exactement
+    ce qu elles recevaient avant, sinon la correction aurait change la
+    taille du livre en plus de sa forme — et on ne saurait plus laquelle
+    des deux a produit l effet mesure ensuite."""
+    eng, _ = _moteur_pos(tmp_path)
+    commun = {"policy": "candle", "bar": "1m", "ml": "live", "h_bars": 6,
+              "sortie_temps": True, "net_bps": 13.0, "net_sd": 60.0,
+              "net_defl": 1.9, "net_n": 300, "tp_bps": 200.0,
+              "vol_bps": 10.0, "cost_bps": 7.0, "sl_bps": 60.0}
+    a = eng._targets([dict(commun, inst="BTC-USDT-SWAP", dir="long",
+                           edge_bps=12.0, px=79_000.0),
+                      dict(commun, inst="ETH-USDT-SWAP", dir="long",
+                           edge_bps=12.0, px=2_500.0)])
+    assert abs(abs(a["BTC-USDT-SWAP"]) - abs(a["ETH-USDT-SWAP"])) < 1e-12

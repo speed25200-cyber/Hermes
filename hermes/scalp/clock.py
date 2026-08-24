@@ -262,7 +262,7 @@ COLONNES = (
     "r1_1", "r1_2", "r1_3", "r1_4", "r1_5", "r1_6", "r1_7", "r1_8",
     "loc_1", "loc_2",
 )
-CROISEES = ("btc_r1", "idio", "btc_r1_1")
+CROISEES = ("btc_r1", "xs", "btc_r1_1")
 N_FEATURES = len(COLONNES)   # colonnes de feat_matrix (un seul actif)
 
 
@@ -657,14 +657,21 @@ class CandleModel:
         touche vraiment.
         """
         self._precedent = precedent
-        blocs = []
+        prep = []
         for c, btc in series:
             if c is None or len(c) < 250:
                 continue
-            X = feat_matrix(c)
-            sig = _sigma(c)
-            blocs.append({"c": c, "X": croise(X, _br_serie(c, btc)),
-                          "sig": sig, "ts": np.asarray(c.ts, dtype=np.int64)})
+            prep.append({"c": c, "btc": btc, "X": feat_matrix(c),
+                         "sig": _sigma(c),
+                         "ts": np.asarray(c.ts, dtype=np.int64)})
+        # Le facteur de marche est la moyenne du panel privee de soi ; BTC
+        # ne sert de repli que lorsqu il n y a personne d autre.
+        refs = _mkt_series([(p["ts"], p["X"][:, col("r1")]) for p in prep])
+        blocs = []
+        for p, mk in zip(prep, refs):
+            blocs.append({"c": p["c"],
+                          "X": croise(p["X"], _br_serie(p["c"], p["btc"]), mk),
+                          "sig": p["sig"], "ts": p["ts"]})
         if not blocs:
             self.status = "few-samples"
             return self.to_dict()
@@ -1153,10 +1160,16 @@ class CandleModel:
         }
 
 
-def croise(X: np.ndarray, br: np.ndarray | None = None) -> np.ndarray:
+def croise(X: np.ndarray, br: np.ndarray | None = None,
+           mkt: np.ndarray | None = None) -> np.ndarray:
     """Les colonnes croisées, construites UNE fois pour les deux chemins.
 
-    L'horloge ne voyait du reste du marché que le retour BTC CONTEMPORAIN
+    Trois colonnes, et chacune dit une chose que les deux autres ne disent
+    pas : le retour BTC CONTEMPORAIN (le meneur), le RÉSIDU de cet actif —
+    mesuré contre la moyenne du panel privée de soi quand elle existe,
+    contre BTC sinon — et le retour BTC de la barre PRÉCÉDENTE.
+
+    L'horloge ne voyait du reste du marché que le retour BTC contemporain
     et le résidu de cet actif par rapport à lui. Or le décalage BTC ->
     alts à l'échelle de la minute vit dans la barre PRÉCÉDENTE de BTC, et
     elle n'était nulle part. A/B sur panel synthétique avec un lead-lag
@@ -1186,11 +1199,17 @@ def croise(X: np.ndarray, br: np.ndarray | None = None) -> np.ndarray:
     écrits séparément.
     """
     n = len(X)
-    if br is None:
+    if br is None and mkt is None:
         return np.column_stack([X, np.zeros((n, N_CROISE))])
-    br = np.clip(np.nan_to_num(np.asarray(br, dtype=np.float64), nan=0.0),
-                 -6.0, 6.0)
-    idio = np.clip(X[:, 0] - br, -6.0, 6.0)
+    z = np.zeros(n)
+    br = z if br is None else np.clip(
+        np.nan_to_num(np.asarray(br, dtype=np.float64), nan=0.0), -6.0, 6.0)
+    # Le RESIDU se mesure contre la moyenne du panel quand elle existe,
+    # contre BTC sinon. Une seule colonne dans les deux cas : on remplace
+    # un estimateur par un meilleur, on n en ajoute pas un second.
+    ref = br if mkt is None else np.clip(
+        np.nan_to_num(np.asarray(mkt, dtype=np.float64), nan=0.0), -6.0, 6.0)
+    xs = np.clip(X[:, 0] - ref, -6.0, 6.0)
 
     def d(x, k):
         out = np.zeros(n)
@@ -1198,7 +1217,7 @@ def croise(X: np.ndarray, br: np.ndarray | None = None) -> np.ndarray:
             out[k:] = x[:-k]
         return out
 
-    return np.column_stack([X, br, idio, d(br, 1)])
+    return np.column_stack([X, br, xs, d(br, 1)])
 
 
 def _br_serie(c: Candles, btc: Candles | None) -> np.ndarray | None:
@@ -1212,6 +1231,74 @@ def _br_serie(c: Candles, btc: Candles | None) -> np.ndarray | None:
     br = np.zeros(n)
     br[1:] = np.where(bp[:-1] > 0, bp[1:] / bp[:-1] - 1.0, 0.0)
     return br / _sigma(c)
+
+
+def _mkt_series(grilles: list) -> list:
+    """La moyenne du panel PRIVEE DE SOI, alignee sur chaque actif.
+
+    L horloge ne voyait du reste du marche que BTC. C est un mauvais
+    facteur des que le panel compte vingt jambes, et pour une raison
+    precise : BTC porte son propre mouvement idiosyncratique, souvent le
+    plus gros du panel. Retrancher BTC laisse donc e_i - e_btc, domine par
+    le bruit de BTC ; retrancher la moyenne des dix-neuf autres laisse
+    e_i - bruit/racine(19). Ce residu-la EST la quantite tradable de la
+    litterature transversale crypto — « ce que ce nom a fait de plus que
+    le marche », dont la reversion a court horizon est l effet le mieux
+    etabli du domaine.
+
+    Mais elle ne REMPLACE pas BTC, elle remplace seulement le RESIDU.
+    BTC contemporain est un MENEUR : son mouvement d aujourd hui predit
+    celui des alts demain. La moyenne du panel est faite d alts, donc deja
+    en retard d une barre — elle ne peut pas porter cette information-la.
+    Le fixture de lead-lag l a montre sans ambiguite : remplacer BTC par
+    la moyenne fait tomber la porte de 2/2 a 0/2. Les deux quantites
+    disent des choses differentes ; on garde le meneur et on ameliore
+    l estimateur du residu, a nombre de colonnes CONSTANT — idio (contre
+    BTC) devient xs (contre le panel).
+
+    Mesure, panel synthetique de huit actifs a facteur commun, reversion
+    plantee sur la part idiosyncratique, BTC portant trois fois l idio des
+    autres. Trois variantes, deux fixtures :
+
+                          lead-lag   reversion k=0,60      k=0,25
+      BTC seul (avant)      2/2      ic +0,2242 m +0,3437  ic +0,0847 m -0,2919
+      panel a la place      0/2      ic +0,3167 m +0,3749  ic +0,1467 m -0,1908
+      BTC + residu panel    2/2      ic +0,3047 m +0,3261  ic +0,1325 m -0,2130
+
+    Le retenu prend 85 % du gain d ic sans rien perdre du lead-lag. A
+    k=0,60 sa marge est un cheveu SOUS celle de BTC seul (-0,018) — un
+    regime ou tout passe largement ; a k=0,25, le regime marginal qui est
+    celui de la production, elle est meilleure de +0,079. C est l ordre de
+    grandeur de la marge mesuree en direct (0,035).
+
+    Contre-epreuve sur bruit pur, meme protocole : 0/3 partout, ic -0,006
+    a -0,026. Aucune de ces colonnes ne fabrique d avantage.
+
+    PRIVEE DE SOI, et ce n est pas un detail : inclure l actif dans sa
+    propre moyenne retrecit mecaniquement son residu d un facteur (N-1)/N
+    et melange sa cible a son entree.
+
+    L alignement se fait sur les HORODATAGES et non sur les index — deux
+    actifs d historiques differents n ont pas la meme longueur, et un
+    alignement par la fin ferait lire a l un la barre de l autre.
+    """
+    if len(grilles) < 2:
+        return [None] * len(grilles)
+    tous = np.unique(np.concatenate([t for t, _ in grilles]))
+    somme = np.zeros(len(tous))
+    compte = np.zeros(len(tous))
+    places = []
+    for t, u in grilles:
+        p = np.searchsorted(tous, t)
+        places.append(p)
+        somme[p] += u          # horodatages uniques au sein d un actif
+        compte[p] += 1.0
+    out = []
+    for (t, u), p in zip(grilles, places):
+        autres = compte[p] - 1.0
+        out.append(np.where(autres > 0.5,
+                            (somme[p] - u) / np.maximum(autres, 1.0), 0.0))
+    return out
 
 
 def _row(c: Candles, btc: Candles | None) -> np.ndarray:
@@ -1290,6 +1377,35 @@ class ScaleDesk:
 
     def live_bars(self) -> list[str]:
         return sorted({bar for (inst, bar), m in self.models.items() if m.status == "live"})
+
+    def vote_panel(self, bar: str, candles: dict, btc: Candles | None) -> None:
+        """Tout le panel vote d un coup, sur le MEME facteur de marche.
+
+        Le vote se faisait actif par actif, chacun ne voyant que BTC. Or
+        l horloge est desormais entrainee contre la moyenne du panel
+        privee de soi : voter contre BTC jouerait une regle que personne
+        n a validee — le decalage le plus silencieux qui soit, puisque
+        rien ne planterait et que les chiffres resteraient plausibles.
+
+        La matrice de chaque actif n est calculee QU UNE FOIS : c est
+        exactement le travail que _row faisait deja par actif, redistribue.
+        """
+        noms = [i for i, c in (candles or {}).items()
+                if c is not None and len(c) >= 20]
+        mats = {i: feat_matrix(candles[i]) for i in noms}
+        refs = _mkt_series([(np.asarray(candles[i].ts, dtype=np.int64),
+                             mats[i][:, col("r1")]) for i in noms])
+        for i, mk in zip(noms, refs):
+            c = candles[i]
+            m = self.models.get((i, bar))
+            if m is None:
+                self.votes[(i, bar)] = {
+                    "r_bps": 0.0, "up_bps": 0.0, "dn_bps": 0.0, "q_bps": 0.0,
+                    "veto": True, "bar": bar, "status": "unfitted", "ic": 0.0}
+                continue
+            br = _br_serie(c, None if i.startswith("BTC-") else btc)
+            self.votes[(i, bar)] = m.predict_row(
+                croise(mats[i], br, mk)[-1], float(_sigma(c)[-1]))
 
     def vote_clock(self, inst: str, bar: str, c: Candles, btc: Candles | None) -> dict:
         m = self.models.get((inst, bar))

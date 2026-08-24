@@ -558,10 +558,12 @@ class ScalpEngine:
         # n'existe qu'une fois tout le monde passé au micro. Voter et
         # fusionner dans la même boucle aurait fait juger le premier actif
         # sur la moyenne du tour PRÉCÉDENT.
-        for inst in self.instruments:
-            c = candles_1m.get(inst)
-            if c is not None and len(c) >= 12:
-                self.horizons.vote_clock(inst, bar, c, btc)
+        # Le panel vote d un bloc : le facteur de marche de chaque jambe
+        # est la moyenne des AUTRES, et elle n existe qu une fois tout le
+        # monde rassemble. Voter actif par actif contre BTC jouerait une
+        # regle que la porte n a pas validee.
+        self.horizons.vote_panel(
+            bar, {i: candles_1m.get(i) for i in self.instruments}, btc)
         out = []
         for inst in self.instruments:
             c = candles_1m.get(inst)
@@ -796,7 +798,8 @@ class ScalpEngine:
             return max(0.25, 1.0 - (used - 0.4 * lim) / (0.45 * lim))
         return min(taper(dd, dd_lim), taper(day, day_lim))
 
-    def _pick_lev(self, p: dict, frein: float | None = None) -> float:
+    def _pick_lev(self, p: dict, frein: float | None = None,
+                  parite: float = 1.0) -> float:
         """Growth-optimal size, then the caps.
 
         Quarter-Kelly from the same simulation that priced the bracket sets
@@ -867,6 +870,21 @@ class ScalpEngine:
             kelly = ECON.kelly_fraction(tp, sl, edge, vol, h, cost,
                                         cost_tp_bps=c_tp)
         kelly *= float(p.get("size_mult") or 1.0)
+        # PARITE DE RISQUE entre les jambes. La porte ne mesure pas un
+        # livre equipondere : _portfolio agrege les trades simultanes en
+        # ponderant chaque jambe par l inverse de sa volatilite, pour que
+        # toutes apportent le meme risque. Le moteur, lui, envoyait le
+        # MEME notionnel a toutes — DOGE, trois fois plus agite que BTC,
+        # dominait alors la variance du livre reellement tenu sans
+        # apporter plus d avantage. On jouait donc un portefeuille que
+        # personne n avait mesure.
+        #
+        # Le facteur arrive de _targets, ou seul on connait les autres
+        # jambes du tour. Il vaut 1 en moyenne : la taille TOTALE ne
+        # change pas, sa repartition oui. Et il passe AVANT les plafonds,
+        # pour qu une jambe agrandie reste bornee par son propre plafond
+        # de ruine.
+        kelly *= max(float(parite), 0.0)
         lev = kelly * (self._risk_scale() if frein is None else float(frein))
         lev = min(lev, 0.025 / (sl * 1e-4), self.lev_max, self.max_name)
         # Rendu SANS troncature. Le levier que l'échange accepte est un
@@ -886,13 +904,24 @@ class ScalpEngine:
         keep = {p["inst"] for p in live[: self.trade_top]}
         n_keep = max(1, len(keep))
         margin_each = 0.92 / n_keep if self.max_name > 1.0 else None
+        # Parite de risque : la part de chaque jambe est proportionnelle a
+        # 1/volatilite, et le garde-fou mesure EST cette volatilite —
+        # stop_bps = stop_sig x sigma x racine(h). Normalise a une moyenne
+        # de 1, de sorte que seule la REPARTITION change.
+        inv = {}
+        for p in preds:
+            if p.get("inst") in keep and p.get("dir") != "flat":
+                inv[p["inst"]] = 1.0 / max(float(p.get("sl_bps") or 0.0), 1.0)
+        moy_inv = (sum(inv.values()) / len(inv)) if inv else 0.0
         for p in preds:
             if p["dir"] == "flat" or p["inst"] not in keep:
                 raw[p["inst"]] = 0.0
                 p["lev"] = 0.0
                 p["margin"] = 0.0
                 continue
-            lev = self._pick_lev(p)          # réel, non tronqué
+            part = ((inv.get(p["inst"], moy_inv) / moy_inv)
+                    if moy_inv > 0 else 1.0)
+            lev = self._pick_lev(p, parite=part)   # réel, non tronqué
             # Le levier envoyé à l'échange est un entier ; il ne descend
             # pas sous 1 et ne franchit jamais le plafond de ruine par le
             # haut, d'où la troncature vers le bas.
@@ -909,7 +938,7 @@ class ScalpEngine:
             # pas diviser le resultat. Sans ce chiffre a cote de l'autre,
             # « la regle est faible » et « la regle est bridee » se
             # ressemblent trop — et ce sont deux problemes opposes.
-            plein = self._pick_lev(p, frein=1.0)
+            plein = self._pick_lev(p, frein=1.0, parite=part)
             p["poids_plein"] = abs(float(plein if margin_each is None
                                          else margin_each * plein))
             # La confiance de rodage agit sur le NOTIONNEL, pas sur le
@@ -1122,6 +1151,38 @@ class ScalpEngine:
         if last <= 0:
             return True          # prix inconnu : on ne déclare rien mort
         return q * last >= self.poussiere_usd
+
+    def _balayer_poussiere(self) -> None:
+        """Une position sous le plancher economique et sans proprietaire sort.
+
+        Le plancher d ordre laissait desormais passer une FERMETURE, mais
+        encore fallait-il qu une cible zero soit emise pour cet
+        instrument — et un nom sans signal ne recoit aucune cible du tout.
+        Mesure en direct : -10 DOGE, 89 centimes, toujours la des heures
+        apres, affiches a l ecran comme une position ouverte. Exactement la
+        micro-position qu on reproche au moteur.
+
+        Une position qui porte encore un bracket est un vrai trade en
+        cours, meme petit : on n y touche pas. Ce qui sort, c est le
+        reliquat d arrondi que plus personne ne tient.
+        """
+        for inst, q in list(self.broker.positions().items()):
+            if abs(float(q)) < 1e-12 or self._tient(inst, q):
+                continue
+            if (self.brackets.get(inst) or {}).get("entry"):
+                continue
+            last, _, _ = self._px(inst)
+            if last <= 0:
+                continue
+            if not self.broker.market_order(inst, -float(q), last,
+                                            force_taker=True):
+                continue
+            self.opened_bar.pop(inst, None)
+            self.hold_ms.pop(inst, None)
+            self.opened_h.pop(inst, None)
+            self.brackets.pop(inst, None)
+            self.log(f"scalp poussiere {inst} qty={float(q):+.9f} "
+                     f"({abs(float(q)) * last:.2f} USD)")
 
     def _orphelines(self, pos: dict) -> None:
         """Toute position doit appartenir à une règle ; sinon elle sort.
@@ -1423,6 +1484,7 @@ class ScalpEngine:
             return {"preds": self.last_preds, "equity": self.broker.equity(), "halted": True}
 
         self.check_exits(candles_1m)
+        self._balayer_poussiere()
 
         if not self.risk.trading_allowed:
             self.pending = {}

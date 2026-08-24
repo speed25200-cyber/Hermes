@@ -1096,7 +1096,25 @@ function rendreBandeau(d){
                : "taille pleine acquise", conf < 1 ? "att" : ""));
   if (isFinite(retard) && retard > 0)
     t.push(tuile("Retard d'entrée", nf(retard,2) + " s",
-      "la porte suppose 0", retard > 3 ? "att" : ""));
+      "mesuré, facturé à la porte", retard > 3 ? "att" : ""));
+
+  // « Pourquoi les positions sont-elles si petites ? » — la question se
+  // posait a chaque coup d oeil, et la reponse demandait de multiplier
+  // deux tuiles de tete puis de comparer a un chiffre absent de l ecran.
+  // On la met en clair : ce qui est joue, ce que l avantage seul
+  // justifierait, et le rapport entre les deux.
+  const pr = s.preds || [];
+  let joue = 0, plein = 0;
+  for (const p of pr){
+    joue  += Math.abs(Number(p.lev) || 0);
+    plein += Math.abs(Number(p.poids_plein) || 0);
+  }
+  if (plein > 0){
+    const bride = joue / plein;
+    t.push(tuile("Taille jouée", "×" + nf(bride, 3),
+      usdt(joue * eq) + " sur " + usdt(plein * eq) + " que l'avantage justifie",
+      bride < 0.5 ? "att" : ""));
+  }
   el.innerHTML = t.join("");
 }
 
