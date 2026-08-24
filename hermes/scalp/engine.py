@@ -37,6 +37,10 @@ class ScalpEngine:
         self.store = None          # branché par la boucle live
         self.attendus: list[str] = []   # réclamés par le volume, sans histoire
         self.min_barres = 5_000    # barres 1m exigées avant d'entrer au panel
+        # Une crypto remplit presque toutes ses barres ; un perpétuel adossé
+        # à une action en remplit cinq septièmes. Le seuil sépare les deux
+        # sans liste noire à tenir à jour.
+        self.couverture_min = 0.90
         # Le panel vise les N perpétuels USDT les plus échangés sur OKX ;
         # la liste écrite en dur ne sert que de point de départ avant le
         # premier classement par volume.
@@ -356,10 +360,23 @@ class ScalpEngine:
         return [i for _, i in cands]
 
     def _assez_dhistoire(self, inst: str) -> bool:
-        """Assez de barres stockées pour qu'une horloge puisse le juger.
+        """Assez de barres stockees, ET une serie qui tourne 24/7.
 
-        Sans magasin branché — en test — on ne bloque rien : c'est la
-        boucle live qui possède le magasin, et elle seule peut savoir.
+        Le classement par volume seul ramene desormais des ACTIONS et
+        des matieres premieres tokenisees — SanDisk, SK Hynix, SpaceX,
+        l or — qui figurent parmi les perpetuels USDT les plus echanges
+        d OKX. Ce n est pas seulement un ecart avec « le top 20 des
+        cryptos » : le panel met les actifs en commun en les divisant
+        par leur sigma, ce qui suppose qu ils partagent la MEME horloge.
+        Un instrument qui s arrete le week-end n en partage aucune, et
+        la colonne de decalage BTC -> alts n a aucun sens pour lui.
+
+        Le critere est donc la CONTINUITE plutot qu une liste noire :
+        une crypto cote 24 heures sur 24 et remplit presque toutes ses
+        barres d une minute ; un perpetuel adosse a une action en
+        remplit environ cinq septiemes. Une liste noire ecrite a la main
+        serait perimee au prochain listing ; ce critere-la se maintient
+        tout seul.
         """
         store = getattr(self, "store", None)
         if store is None:
@@ -368,7 +385,14 @@ class ScalpEngine:
             c = store.load(inst, "1m")
         except Exception:
             return False
-        return c is not None and len(c) >= self.min_barres
+        if c is None or len(c) < self.min_barres:
+            return False
+        ts = np.asarray(c.ts, dtype=np.float64)
+        duree = float(ts[-1] - ts[0])
+        if duree <= 0:
+            return False
+        attendues = duree / 60_000.0 + 1.0
+        return (len(c) / attendues) >= self.couverture_min
 
     def flatten_foreign(self) -> None:
         """Close leftover names that are not in the live scalp universe

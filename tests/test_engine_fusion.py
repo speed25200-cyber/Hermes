@@ -1191,3 +1191,41 @@ def test_dust_does_not_turn_the_next_entry_into_a_resize(tmp_path):
     eng.log = dits.append
     eng.check_exits(); eng.check_exits()
     assert not any("orpheline" in m for m in dits), dits
+
+
+def test_a_tokenised_stock_never_enters_the_crypto_panel(tmp_path):
+    """Le classement par volume seul ramène des ACTIONS et des matières
+    premières tokenisées — SanDisk, SK Hynix, SpaceX, l'or — qui figurent
+    parmi les perpétuels USDT les plus échangés d'OKX. Le panel divise les
+    actifs par leur sigma en supposant qu'ils partagent la MÊME horloge :
+    un instrument qui s'arrête le week-end n'en partage aucune, et la
+    colonne de décalage BTC n'a aucun sens pour lui."""
+    import numpy as np
+    from hermes.data.store import Candles
+
+    def serie(nom, couverture):
+        """couverture = fraction des barres d'une minute réellement là."""
+        n = 6000
+        pas = int(round(60_000 / couverture))
+        ts = np.arange(n, dtype=np.int64) * pas
+        px = 100 + np.zeros(n)
+        return Candles(nom, "1m", ts, px, px, px, px, np.ones(n))
+
+    class _Magasin:
+        def load(self, inst, bar, **kw):
+            return serie(inst, 0.995 if inst.startswith("SOL") else 5 / 7)
+
+    eng, _ = _moteur_pos(tmp_path)
+    eng.store = _Magasin()
+    assert eng._assez_dhistoire("SOL-USDT-SWAP") is True
+    assert eng._assez_dhistoire("XAU-USDT-SWAP") is False, \
+        "un instrument qui s'arrête le week-end est entré au panel"
+    assert eng._assez_dhistoire("SKHYNIX-USDT-SWAP") is False
+
+    # et un nom sans histoire du tout reste dehors
+    class _Vide:
+        def load(self, inst, bar, **kw):
+            return serie(inst, 0.99)._replace(ts=np.arange(10, dtype=np.int64)) \
+                if hasattr(serie(inst, 0.99), "_replace") else None
+    eng.store = type("V", (), {"load": lambda self, i, b, **k: None})()
+    assert eng._assez_dhistoire("NEUF-USDT-SWAP") is False
