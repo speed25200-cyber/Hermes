@@ -265,13 +265,13 @@ def test_the_net_sees_the_sequence_not_only_its_summaries():
     sommes (retours cumulés à 3, 5, 12) ne peut pas représenter un motif
     qui alterne ; huit colonnes distinctes le peuvent, et c'est au réseau
     de choisir son filtre."""
-    from hermes.scalp.clock import N_FEATURES, feat_matrix
+    from hermes.scalp.clock import N_FEATURES, col, feat_matrix
     c = _bruit(41, n=400)
     X = feat_matrix(c)
     assert X.shape[1] == N_FEATURES
-    # colonne 0 = retour courant ; colonnes 17..24 = ses huit décalages,
-    # rapportés au sigma D'AUJOURD'HUI — « quelle taille avait ce mouvement
-    # à l'échelle d'aujourd'hui », la seule unité qui traverse le panel.
+    # Les décalages se repèrent par leur NOM. Un indice écrit en dur se
+    # décale en silence dès qu'une colonne est insérée avant — c'est
+    # exactement ce qui est arrivé en ajoutant le volume.
     from hermes.scalp.clock import _sigma
     sig = _sigma(c)
     px = np.asarray(c.c, dtype=np.float64)
@@ -279,7 +279,7 @@ def test_the_net_sees_the_sequence_not_only_its_summaries():
     r1[1:] = px[1:] / px[:-1] - 1.0
     for k in range(1, 9):
         attendu = np.clip(r1[:-k] / sig[k:], -6.0, 6.0)
-        assert np.allclose(X[k:, 16 + k], attendu), f"décalage {k} cassé"
+        assert np.allclose(X[k:, col(f"r1_{k}")], attendu), f"décalage {k} cassé"
 
 
 def test_the_sequence_columns_stay_causal():
@@ -736,3 +736,16 @@ def test_a_narrow_stop_eats_a_third_of_a_real_edge():
     # et au-delà de deux sigmas, la largeur ne change presque plus rien
     loin = _economie(np.random.default_rng(11), *args, 8.0, 11.0 / 6)
     assert abs(loin - dehors) < 0.25, {"3sig": dehors, "8sig": loin}
+
+
+def test_the_column_names_cannot_drift_from_the_matrix():
+    """Un indice écrit en dur se décale en silence dès qu'une colonne est
+    insérée avant lui. Les noms sont la seule référence stable, et leur
+    nombre doit coller à ce que la matrice rend vraiment."""
+    from hermes.scalp.clock import (COLONNES, CROISEES, N_CROISE, N_FEATURES,
+                                    croise, feat_matrix)
+    c = _bruit(7, n=400)
+    X = feat_matrix(c)
+    assert X.shape[1] == N_FEATURES == len(COLONNES)
+    assert len(set(COLONNES)) == len(COLONNES), "deux colonnes portent le même nom"
+    assert croise(X).shape[1] == N_FEATURES + N_CROISE == len(COLONNES) + len(CROISEES)

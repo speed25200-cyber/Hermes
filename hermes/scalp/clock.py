@@ -206,8 +206,26 @@ def _sigma(c: Candles) -> np.ndarray:
     return np.maximum(s, np.maximum(0.05 * cm, 1e-6))
 
 
-N_FEATURES = 27   # colonnes de feat_matrix (un seul actif)
-N_CROISE = 3      # colonnes croisées ajoutées par croise()
+# Les colonnes de feat_matrix, NOMMEES et dans l ordre. Les tests
+# reperaient jusqu ici les decalages de rendement par un indice ecrit en
+# dur ; inserer une colonne au milieu — le volume — les a casses en
+# silence. Un nom ne se decale pas.
+COLONNES = (
+    "r1", "lag3", "lag5", "lag12", "loc", "rng", "vol_rel", "persist",
+    "funding", "taker", "basis", "d_oi", "z20", "z60", "sin_h", "cos_h",
+    "d_taker", "vz",
+    "r1_1", "r1_2", "r1_3", "r1_4", "r1_5", "r1_6", "r1_7", "r1_8",
+    "loc_1", "loc_2",
+)
+CROISEES = ("btc_r1", "idio", "btc_r1_1")
+N_FEATURES = len(COLONNES)   # colonnes de feat_matrix (un seul actif)
+
+
+def col(nom: str) -> int:
+    """L indice d une colonne par son NOM, jamais par sa position."""
+    return COLONNES.index(nom)
+
+N_CROISE = len(CROISEES)   # colonnes ajoutées par croise()
 
 
 def feat_matrix(c: Candles) -> np.ndarray:
@@ -288,6 +306,29 @@ def feat_matrix(c: Candles) -> np.ndarray:
     hod = (np.asarray(c.ts, dtype=np.float64) / 3_600_000.0) % 24.0
     ang = 2.0 * math.pi * hod / 24.0
 
+    # Le VOLUME, absent de toute la matrice jusqu'ici. Ni le rendement ni
+    # la forme de la bougie ne le disent : un mouvement d'un demi sigma sur
+    # gros volume et le même sur volume mort donnent exactement les mêmes
+    # colonnes. Or ils ne veulent pas dire la même chose — l'un est une
+    # arrivée d'information, l'autre un accident de liquidité, et la barre
+    # suivante ne fait pas la même chose. Mesuré : avec un effet volume x
+    # sens planté à la même intensité qu'une interaction que la matrice
+    # attrape (3 horloges sur 3, ic +0,138), elle rend 0 sur 3 et ic
+    # +0,029. Aveugle, pas subtile.
+    #
+    # Une seule colonne, en z causal du logarithme : le NIVEAU de volume
+    # dépend de l'actif et de l'heure, son écart à sa propre moyenne
+    # courue n'en dépend pas — c'est cette forme-là qui traverse le panel.
+    # Le produit avec le sens n'est pas donné : le réseau le forme seul,
+    # comme il forme déjà celui de l'open interest.
+    lv = np.log1p(np.maximum(np.nan_to_num(np.asarray(c.v, dtype=np.float64),
+                                           nan=0.0), 0.0))
+    mv = np.convolve(lv, np.ones(60) / 60.0, mode="full")[:n]
+    mv[:60] = lv[:60]
+    sv = _roll_std(lv, 60)
+    vz = np.clip(np.nan_to_num((lv - mv) / np.maximum(sv, 1e-9), nan=0.0),
+                 -4.0, 4.0)
+
     # Poussée du flux taker : le NIVEAU du déséquilibre est déjà là, sa
     # VARIATION ne l'est pas — et c'est elle qui marque une arrivée.
     d_taker = np.zeros(n)
@@ -319,7 +360,7 @@ def feat_matrix(c: Candles) -> np.ndarray:
         loc_c, np.clip(u(rng), 0, 6),
         vol_rel, np.clip(persist, -1, 1),
         funding, taker, basis, d_oi,
-        zscore(20), zscore(60), np.sin(ang), np.cos(ang), d_taker,
+        zscore(20), zscore(60), np.sin(ang), np.cos(ang), d_taker, vz,
         *seq, decale(loc_c, 1), decale(loc_c, 2),
     ])
 
