@@ -560,3 +560,96 @@ def test_the_threshold_grid_reaches_past_where_production_kept_landing():
     b1 = expected_max_sharpe(apres, 466)
     assert b1 > b0, "elargir la recherche doit RELEVER la barre"
     assert (b1 / b0 - 1.0) < 0.03, f"cout de la barre {b1 / b0 - 1:.1%}"
+
+
+def _panel_nul_dur(seed, n=2000, k=3):
+    """Un panel ou il n y a RIEN a trouver, et ou tout conspire pour
+    qu on croie le contraire.
+
+    Un bruit gaussien independant est l hypothese nulle la plus facile :
+    elle sous-estime largement ce que le hasard peut rendre. Ce qui
+    fabrique les Sharpes fallacieux, c est la PERSISTANCE des variables
+    explicatives — elle donne au modele de quoi raconter une histoire
+    coherente sur du vide — et les queues epaisses, qui laissent quelques
+    barres dominer une moyenne.
+
+    On met donc tout cela dans le nul : innovations de Student a quatre
+    degres de liberte, volatilite qui s auto-entretient, facteur commun
+    au panel, et funding / flux / open interest / basis fortement
+    autocorreles.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+
+    rng = np.random.default_rng(seed)
+
+    def ar1(rho, sd):
+        x = np.zeros(n)
+        e = rng.standard_normal(n) * sd
+        for i in range(1, n):
+            x[i] = rho * x[i - 1] + e[i]
+        return x
+
+    lv = ar1(0.97, 0.12)
+    vol = 0.0026 * np.exp(lv - lv.var() / 2)
+    commun = rng.standard_t(4, n) / np.sqrt(2.0) * vol
+    series = []
+    for i in range(k):
+        idio = rng.standard_t(4, n) / np.sqrt(2.0) * vol
+        r = np.clip(0.7 * commun + idio, -0.06, 0.06)
+        px = 100 * np.exp(np.cumsum(r))
+        o = np.concatenate([[100.0], px[:-1]])
+        w = np.abs(rng.normal(0, 1.0, n)) * vol * px
+        v = np.exp(ar1(0.95, 0.25)) * 1000.0
+        z = np.tanh(ar1(0.93, 0.4))
+        series.append((Candles(
+            f"A{i}", "5m", np.arange(n) * 300_000, o,
+            np.maximum(o, px) + w, np.minimum(o, px) - w, px, v,
+            funding=ar1(0.995, 2e-5), oi=np.exp(ar1(0.99, 0.02)) * 1e6,
+            taker_buy=v * (0.5 + 0.4 * z), taker_sell=v * (0.5 - 0.4 * z),
+            mark=px * (1.0 + ar1(0.9, 1e-4)), index=px), None))
+    return series
+
+
+def test_the_bar_holds_against_an_adversarial_null():
+    """La barre est une FORMULE. Est-elle exacte, ou seulement prudente ?
+
+    La question vaut cher : si expected_max_sharpe surestimait le maximum
+    atteignable par hasard, on refuserait de l avantage reel, et c est
+    exactement ce qui empeche Hermes de trader. Les 3 888 cellules
+    cherchees sont fortement correlees — un seuil de 0,0 et un de 0,5
+    tradent presque les memes barres — et l esperance du maximum de
+    variables correlees est plus petite que celle de variables
+    independantes.
+
+    Mesure, recherche COMPLETE lancee sur des panels ou il n y a rien :
+
+      nul GAUSSIEN, 155 instants   sr gagnant +0,037   formule 0,336
+      nul DUR,      137 instants   sr gagnant +0,120   formule 0,379
+                                   q95 +0,390          rapport q95/formule 1,03
+      nul DUR,      232 instants   sr gagnant +0,038   formule 0,279
+                                   q95 +0,144          rapport q95/formule 0,52
+
+    Le premier chiffre donnait un rapport de 0,11 et semblait dire que la
+    barre etait neuf fois trop haute. C etait l artefact d une nulle trop
+    facile. Sur la nulle DURE la formule reproduit presque exactement le
+    95e centile du maximum — elle est bien calibree, pas prudente. La
+    piste « la barre est trop stricte, il y a de l avantage a liberer »
+    est donc FERMEE, et elle doit le rester : quiconque la rouvre doit
+    refaire cette mesure-la, pas celle du nul gaussien.
+
+    Ce que ce test garde : sur une nulle adverse, aucune horloge ne passe,
+    et la barre annoncee reste au-dessus du maximum observe. Il echoue si
+    la barre devient anti-conservatrice.
+    """
+    from hermes.scalp.clock import CandleModel
+
+    vivantes, ecarts = 0, []
+    for s in range(4):
+        d = CandleModel("5m").fit_panel(_panel_nul_dur(900 + s))
+        vivantes += d["status"] == "live"
+        ecarts.append(d["sel_bar"] - d["holdout_sr"])
+    assert vivantes == 0, f"{vivantes}/4 horloges vivantes sur une nulle dure"
+    assert min(ecarts) > 0.0, (
+        f"la barre est passee SOUS le maximum du hasard : marge {min(ecarts):+.4f}")
