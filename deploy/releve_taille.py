@@ -15,6 +15,53 @@ import sys
 CHEMIN = "/root/hermes/state/scalp.json"
 
 
+def _livre(d: dict) -> None:
+    """Ou part l argent, sur la vie entiere du compte.
+
+    L equite seule ne dit pas si un recul vient du marche, des frais ou du
+    financement. Le compte a recule de 6,4 % pendant que la regle mesuree
+    affichait -0,22 bps sur 53 trades : a quelques centaines de dollars de
+    notionnel, cela fait des cents, pas des centaines de dollars. Le reste
+    vient forcement d ailleurs, et sans ce bloc on ne peut que le deviner.
+
+    L identite boucle : depart + brut - frais - financement + latent =
+    equite. Un ecart non nul veut dire qu il manque un poste.
+    """
+    lv = d.get("livre")
+    if not isinstance(lv, dict) or not lv:
+        print("pas de livre dans ce releve (moteur anterieur)")
+        print()
+        return
+    dep = float(lv.get("depart") or 0.0)
+    eq = float(lv.get("equite") or 0.0)
+    brut = float(lv.get("brut") or 0.0)
+    frais = float(lv.get("frais") or 0.0)
+    fund = float(lv.get("funding") or 0.0)
+    notion = float(lv.get("notionnel") or 0.0)
+    n = int(lv.get("n") or 0)
+    avant = float(lv.get("avant") or 0.0)
+    latent = eq - (dep + avant + brut - frais - fund)
+    print("ou part l argent, vie entiere du compte")
+    print(f"  depart         {dep:>+12.2f} USD")
+    if avant:
+        print(f"  avant le livre {avant:>+12.2f} USD   (non decompose)")
+    print(f"  brut realise   {brut:>+12.2f} USD")
+    print(f"  frais          {-frais:>+12.2f} USD"
+          + (f"   ({frais / notion * 1e4:.2f} bps sur {notion:,.0f} traites)"
+             if notion > 0 else ""))
+    print(f"  financement    {-fund:>+12.2f} USD")
+    print(f"  latent         {latent:>+12.2f} USD")
+    print(f"  equite         {eq:>+12.2f} USD   "
+          f"({(eq / dep - 1.0) * 100:+.2f} % en {n} fills)")
+    if int(lv.get("liq") or 0):
+        print(f"  LIQUIDATIONS   {int(lv['liq'])}")
+    # Le chiffre qui tranche : les frais paient-ils plus que le marche ne
+    # prend ? Si oui, le probleme est le nombre de trades, pas le signal.
+    if frais > 0 and abs(brut) < frais:
+        print("  -> les frais dominent le brut : c est un moulin, pas un pari")
+    print()
+
+
 def _attribution(trades: list) -> None:
     """Ou part l argent, par motif de sortie.
 
@@ -82,6 +129,7 @@ def main() -> int:
     # l avantage seul justifierait, avant que le frein et le rodage ne
     # multiplient. Tant que les deux chiffres ne sont pas cote a cote,
     # « la regle est faible » et « la regle est bridee » se ressemblent.
+    _livre(d)
     _attribution(d.get("trades") or [])
     print(f"{'inst':<6} {'pol':<7} {'dir':<5} {'h':>2} {'edge':>7} "
           f"{'net':>7} {'sd':>6} {'n':>5} {'defl':>7} {'poids':>8} "

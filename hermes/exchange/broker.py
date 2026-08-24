@@ -62,6 +62,27 @@ class PaperBroker(Broker):
     specs: dict[str, dict] = field(default_factory=dict)
     lever: dict[str, float] = field(default_factory=dict)  # OKX lev per inst
     margin_mode: bool = True
+    # Ou part l argent, cumule sur toute la vie du compte. L equite seule
+    # ne dit pas si un recul vient du marche, des frais ou du financement,
+    # et le journal des fills est plafonne a deux cents lignes : il ne
+    # peut pas repondre pour une semaine de trading. Ces compteurs-la si.
+    livre: dict = field(default_factory=lambda: {
+        "brut": 0.0,        # PnL realise avant frais, sur les tranches fermees
+        "frais": 0.0,       # frais payes, entrees et sorties confondues
+        "funding": 0.0,     # financement paye (positif = paye)
+        "notionnel": 0.0,   # notionnel traite, pour ramener les frais en bps
+        "n": 0,             # nombre de fills
+        "liq": 0,           # liquidations declenchees
+        # Ce que le compte avait deja gagne ou perdu AVANT que le livre
+        # existe. Sans ce poste, tout le passe non mesure se deverserait
+        # dans le latent et le diagnostic mentirait au premier coup d oeil.
+        "avant": 0.0,
+    })
+    depart: float = 0.0     # capital initial, fige au premier ordre
+
+    def __post_init__(self) -> None:
+        if self.depart <= 0.0:
+            self.depart = float(self.cash)
 
     def set_specs(self, specs: dict[str, dict]) -> None:
         self.specs = dict(specs)
@@ -91,6 +112,7 @@ class PaperBroker(Broker):
         eq = self.equity()
         if eq > 0.004 * notion and eq > 0:
             return
+        self.livre["liq"] = int(self.livre.get("liq", 0)) + 1
         for inst, q in list(self.pos.items()):
             px = float(self.prices.get(inst) or 0.0)
             if px > 0 and abs(q) > 0:
@@ -216,10 +238,15 @@ class PaperBroker(Broker):
         if old != 0.0 and old * qty < 0:
             closed = min(abs(old), abs(qty))
             sign = 1.0 if old > 0 else -1.0
-            self.cash += sign * closed * (px - float(self.entry.get(inst, px)))
+            brut = sign * closed * (px - float(self.entry.get(inst, px)))
+            self.cash += brut
+            self.livre["brut"] = float(self.livre.get("brut", 0.0)) + brut
         notional = abs(qty) * px
         fee = notional * fee_bps * 1e-4
         self.cash -= fee
+        self.livre["frais"] = float(self.livre.get("frais", 0.0)) + fee
+        self.livre["notionnel"] = float(self.livre.get("notionnel", 0.0)) + notional
+        self.livre["n"] = int(self.livre.get("n", 0)) + 1
         if old == 0.0 or old * qty > 0:
             tot = abs(old) + abs(qty)
             self.entry[inst] = ((abs(old) * self.entry.get(inst, px)
@@ -243,13 +270,28 @@ class PaperBroker(Broker):
         q = self.pos.get(inst, 0.0)
         px = self.prices.get(inst, 0.0)
         if q and px:
-            self.cash -= q * px * rate
+            paye = q * px * rate
+            self.cash -= paye
+            self.livre["funding"] = float(self.livre.get("funding", 0.0)) + paye
 
     def to_dict(self) -> dict:
         return {"cash": self.cash, "pos": self.pos, "prices": self.prices,
-                "entry": self.entry, "lever": self.lever, "margin_mode": True}
+                "entry": self.entry, "lever": self.lever, "margin_mode": True,
+                "livre": dict(self.livre), "depart": float(self.depart)}
 
     def restore(self, d: dict) -> None:
+        src = d.get("livre")
+        if isinstance(src, dict):
+            for k in self.livre:
+                v = src.get(k)
+                if isinstance(v, bool) or not isinstance(v, (int, float)):
+                    continue
+                if v != v or v in (float("inf"), float("-inf")):
+                    continue
+                self.livre[k] = type(self.livre[k])(v)
+        dep = d.get("depart")
+        if isinstance(dep, (int, float)) and not isinstance(dep, bool) and dep == dep:
+            self.depart = float(dep)
         self.pos = dict(d.get("pos", {}))
         self.prices = dict(d.get("prices", {}))
         self.entry = dict(d.get("entry", {}))
@@ -262,6 +304,12 @@ class PaperBroker(Broker):
             for inst, q in self.pos.items():
                 locked += float(q) * float(self.entry.get(inst) or self.prices.get(inst) or 0.0)
             self.cash = cash + locked
+        # Un compte qui tournait deja quand le livre a ete ajoute porte un
+        # passe que le livre n a pas vu. On le nomme au lieu de le laisser
+        # contaminer le latent : l identite reste exacte, et la ligne dit
+        # honnetement « ceci n a pas ete mesure ».
+        if not int(self.livre.get("n", 0)) and "livre" not in d:
+            self.livre["avant"] = float(self.equity()) - float(self.depart)
 
 
 

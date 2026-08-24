@@ -266,6 +266,12 @@ class ScalpEngine:
             # « la règle ne trade plus » et « la règle est freinée » se
             # ressemblent trop.
             "frein_risque": self._risk_scale(),
+            # Ou part l argent, sur la vie entiere du compte. Le journal
+            # des fills est plafonne : il ne peut pas repondre pour une
+            # semaine. Ces compteurs-la si, et ils bouclent au centime.
+            "livre": {**(getattr(self.broker, "livre", None) or {}),
+                      "depart": float(getattr(self.broker, "depart", 0.0) or 0.0),
+                      "equite": eq},
             "explore": {
                 "enabled": self.explore_on,
                 "pnl_day_usd": self.explore_pnl_day,

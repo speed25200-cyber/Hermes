@@ -1259,3 +1259,100 @@ def test_a_rejected_name_is_never_chased_again(tmp_path):
     assert "XAU-USDT-SWAP" not in eng.classement(t)
     assert "XAU-USDT-SWAP" not in eng.attendus, \
         "l'actif recalé serait rattrapé à chaque tour"
+
+
+def test_the_ledger_explains_every_dollar_of_the_equity_curve():
+    """« Il fait n importe quoi » est une accusation qu on ne peut ni
+    confirmer ni refuter avec l equite seule.
+
+    Le compte etait a -6,4 % pendant que la regle mesuree affichait
+    -0,22 bps sur 53 trades : ces deux chiffres ne peuvent pas etre vrais
+    ensemble sans une troisieme colonne. -0,22 bps sur un notionnel de
+    quelques centaines de dollars, ce sont des cents ; le recul, lui, se
+    compte en centaines de dollars. La difference est ailleurs — frais des
+    trades NON mesures, financement, liquidation — et le journal des fills
+    est plafonne a deux cents lignes, donc incapable de repondre pour une
+    semaine.
+
+    Le livre repond, et il doit repondre EXACTEMENT : capital de depart
+    plus brut realise, moins frais, moins financement, egale l equite au
+    centime — sinon il manque un poste et le diagnostic ment.
+    """
+    from hermes.exchange.broker import PaperBroker
+
+    b = PaperBroker(cash=10_000.0)
+    b.mark_prices({"A-USDT-SWAP": 100.0, "B-USDT-SWAP": 50.0})
+    b.market_order("A-USDT-SWAP", 2.0, 100.0)
+    b.market_order("B-USDT-SWAP", -3.0, 50.0)
+    b.apply_funding("A-USDT-SWAP", 1e-4)          # long paie
+    b.apply_funding("B-USDT-SWAP", 1e-4)          # short encaisse
+    b.mark_prices({"A-USDT-SWAP": 101.0, "B-USDT-SWAP": 49.0})
+    b.market_order("A-USDT-SWAP", -2.0, 101.0)    # ferme, realise
+    b.mark_prices({"B-USDT-SWAP": 48.0})          # l autre reste ouverte
+
+    upnl = b.equity() - b.cash
+    recon = (b.depart + b.livre["brut"] - b.livre["frais"]
+             - b.livre["funding"] + upnl)
+    assert abs(recon - b.equity()) < 1e-9, (
+        f"le livre laisse {b.equity() - recon:+.6f} USD inexplique")
+    assert b.livre["n"] == 3 and b.livre["notionnel"] > 0
+    # Le financement n est pas nul et il a un SENS : le long paie, le
+    # short encaisse. Les deux notionnels sont DELIBEREMENT differents —
+    # 200 contre 150 — car a notionnels egaux la somme vaut exactement
+    # zero et le test passerait sans rien prouver.
+    assert b.livre["funding"] > 0.0, "le long paie plus que le short n encaisse"
+
+
+def test_the_ledger_survives_a_restart():
+    """Un compteur de vie entiere qui repart a zero a chaque mise en ligne
+    ne mesure plus rien. Il traverse la persistance, comme la mesure de la
+    regle — et un fichier tronque le laisse simplement en place."""
+    from hermes.exchange.broker import PaperBroker
+
+    b = PaperBroker(cash=10_000.0)
+    b.mark_prices({"A-USDT-SWAP": 100.0})
+    b.market_order("A-USDT-SWAP", 1.0, 100.0)
+    b.market_order("A-USDT-SWAP", -1.0, 99.0)
+    d = b.to_dict()
+
+    c = PaperBroker(cash=10_000.0)
+    c.restore(d)
+    assert c.livre == b.livre and c.depart == b.depart
+
+    e = PaperBroker(cash=10_000.0)
+    e.restore({"cash": 9_000.0, "livre": {"frais": "beaucoup", "n": None}})
+    assert e.livre["frais"] == 0.0 and e.livre["n"] == 0
+
+
+def test_the_ledger_names_the_past_it_did_not_see():
+    """Le livre arrive sur un compte qui trade deja depuis une semaine.
+
+    Tout ce passe-la — des milliers de fills payes par une version
+    anterieure — n est PAS dans ses compteurs. Le laisser tomber dans le
+    latent produirait un releve qui accuse le marche d un recul cause par
+    les frais. On le nomme : une ligne « avant le livre », non decomposee,
+    honnete sur ce qu elle ignore, et l identite continue de boucler au
+    centime.
+    """
+    from hermes.exchange.broker import PaperBroker
+
+    b = PaperBroker(cash=10_000.0)
+    b.restore({"cash": 9_338.97, "pos": {}, "prices": {},
+               "entry": {}, "margin_mode": True})
+    assert abs(b.livre["avant"] - (9_338.97 - 10_000.0)) < 1e-9
+    recon = (b.depart + b.livre["avant"] + b.livre["brut"]
+             - b.livre["frais"] - b.livre["funding"])
+    assert abs(b.equity() - recon) < 1e-9
+
+    # Et une fois que le livre existe, il ne se re-attribue plus le passe
+    # a chaque redemarrage — sinon la ligne doublerait a chaque mise en
+    # ligne et le total exploserait.
+    b.mark_prices({"A-USDT-SWAP": 100.0})
+    b.market_order("A-USDT-SWAP", 1.0, 100.0)
+    b.market_order("A-USDT-SWAP", -1.0, 99.0)
+    c = PaperBroker(cash=10_000.0)
+    c.restore(b.to_dict())
+    assert abs(c.livre["avant"] - b.livre["avant"]) < 1e-9
+    d = PaperBroker(cash=10_000.0)
+    d.restore(c.to_dict())
+    assert abs(d.livre["avant"] - b.livre["avant"]) < 1e-9
