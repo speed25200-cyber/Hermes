@@ -21,12 +21,10 @@ def _marche_interaction(seed, n=2400, effet=12e-4, bruit=8e-4):
     Deux exigences que ce marché doit satisfaire ensemble, et qui se
     contrarient si on n y prend pas garde.
 
-    D abord il doit être TRADABLE : l effet porte sur la barre i+2, pas
-    i+1. Un mouvement prévisible une seule barre à l avance n est pas un
-    avantage — le moteur voit la clôture qui produit le signal, puis agit
-    au tic suivant, et cette barre-là est déjà passée. Le régime de
-    funding persiste, comme dans la réalité, pour que le signe reste
-    connu au moment où l ordre part.
+    D abord le régime de funding persiste, comme dans la réalité : un
+    signe tiré à pile ou face à chaque barre rendrait l avantage
+    intradable dès que la machine prend le moindre retard, et le marché
+    de test ne doit pas dépendre d une exécution instantanée.
 
     Ensuite il doit rester INVISIBLE au linéaire : corr(y, flux) et
     corr(y, funding) valent zéro, seul leur PRODUIT porte le signal. D où
@@ -39,7 +37,7 @@ def _marche_interaction(seed, n=2400, effet=12e-4, bruit=8e-4):
     f = np.repeat(fb, 10)[:n] * (2e-4 + rng.random(n) * 3e-4)
     z = rng.uniform(-1.0, 1.0, n)               # flux taker, observable
     r = rng.normal(0, bruit, n)
-    r[2:] += effet * z[:-2] * np.sign(f[:-2])
+    r[1:] += effet * z[:-1] * np.sign(f[:-1])
     r = np.clip(r, -0.02, 0.02)
     px = 100 * np.exp(np.cumsum(r))
     o = np.concatenate([[100.0], px[:-1]])

@@ -14,6 +14,7 @@ jamais en diversification.
 import numpy as np
 
 from hermes.data.store import Candles
+from hermes.ml.models import RidgeRegressor
 from hermes.scalp.clock import (ASSETS, BARS, FAMILIES, HORIZONS, THRESHOLDS,
                                 VARIANTS, CandleModel, ScaleDesk, _portfolio,
                                 _sigma, feat_matrix)
@@ -599,30 +600,36 @@ def test_a_clearly_better_cell_still_wins():
 
 # --------------------------------------------------- décalage d'entrée
 
-def test_the_label_starts_where_the_engine_can_actually_enter():
-    """L'étiquette partait du cours de clôture de la barre qui PRODUIT le
-    signal, comme si l'ordre partait à l'instant même. Le moteur voit
-    cette clôture puis agit au tic suivant — mesuré : « desk 1m @ barre »
-    journalisé 66 secondes après la fermeture de cette barre, et
-    execute_pending consomme les cibles du tic PRÉCÉDENT. Le décalage est
-    d'une barre par horloge, par construction."""
+def test_the_entry_lag_is_measured_not_assumed():
+    """Le décalage vaut zéro, et ce zéro est mesuré : le moteur détecte
+    la clôture d'une barre et agit dans les secondes qui suivent — six
+    secondes sur la 1m, quarante-trois sur la 15m, soit un quart de barre
+    et trois centièmes de barre.
+
+    Cette constante a brièvement valu 1, sur une lecture fautive : un
+    horodatage de barre est son heure d'OUVERTURE, et le prendre pour sa
+    clôture gonflait le délai d'un facteur dix. Le paramètre reste pour
+    montrer ce qu'un vrai délai détruirait ; sa valeur décrit la machine.
+    """
     from hermes.scalp.clock import ENTREE_DECALEE, _targets
-    assert ENTREE_DECALEE == 1
+    assert ENTREE_DECALEE == 0
     n = 30
     px = np.arange(100.0, 100.0 + n)
     c = Candles("X", "1m", np.arange(n) * 60_000, px, px + 0.5, px - 0.5,
                 px, np.ones(n))
     y, _, _ = _targets(c, h=3)
-    # entrée à px[i+1], sortie à px[i+1+3]
-    assert abs(y[0] - (px[4] / px[1] - 1.0)) < 1e-12
-    sans = _targets(c, h=3, lag=0)[0]
-    assert abs(sans[0] - (px[3] / px[0] - 1.0)) < 1e-12
+    assert abs(y[0] - (px[3] / px[0] - 1.0)) < 1e-12
+    decale = _targets(c, h=3, lag=1)[0]
+    assert abs(decale[0] - (px[4] / px[1] - 1.0)) < 1e-12
 
 
-def test_a_one_bar_ahead_signal_is_no_longer_measurable():
-    """Le cas qui explique le direct. Un marché dont le mouvement n'est
-    prévisible QU'UNE barre à l'avance est intradable : la porte doit le
-    refuser, alors qu'elle l'acceptait avant le décalage."""
+def test_a_one_bar_ahead_signal_would_not_survive_a_real_delay():
+    """Ce que le paramètre sert à montrer : un mouvement prévisible d'UNE
+    seule barre disparaît intégralement dès qu'on entre une barre plus
+    tard. Ce n'est pas la situation de cette machine — son délai est de
+    quelques secondes — mais c'est la forme que prendrait le problème si
+    elle ralentissait, et la raison pour laquelle les marchés de test
+    plantent désormais des avantages qui durent plus d'une barre."""
     rng = np.random.default_rng(77)
     n = 3000
     drive = rng.choice([-1.0, 1.0], n)          # tiré à chaque barre
@@ -636,4 +643,16 @@ def test_a_one_bar_ahead_signal_is_no_longer_measurable():
                 np.maximum(o, px) + w, np.minimum(o, px) - w, px, vtot,
                 taker_buy=vtot * (0.5 + 0.45 * drive),
                 taker_sell=vtot * (0.5 - 0.45 * drive))
-    assert CandleModel("5m").fit(c)["status"] != "live"
+    from hermes.scalp.clock import _ic, _targets, feat_matrix
+    X = np.column_stack([feat_matrix(c), np.zeros(n), np.zeros(n)])
+    idx0 = np.arange(200, 2500)
+    ics = {}
+    for lag in (0, 1):
+        y = _targets(c, h=1, lag=lag)[0]
+        ok = idx0[np.isfinite(y[idx0])]
+        cut = ok[int(0.7 * len(ok))]
+        tr, ho = ok[ok < cut], ok[ok >= cut]
+        p = RidgeRegressor(l2=14.0).fit(X[tr], y[tr]).predict(X[ho])
+        ics[lag] = abs(_ic(p, y[ho]))
+    assert ics[0] > 0.15, f"le signal doit être visible sans délai : {ics}"
+    assert ics[1] < 0.5 * ics[0], f"une barre de retard doit le tuer : {ics}"

@@ -100,9 +100,21 @@ VARIANTS = ("abs", "neu")
 FOLDS = 6
 DEBUT_TEST = 0.40
 
-# Décalage d'entrée, en barres. Le moteur ne peut pas entrer au cours de
-# clôture qui produit le signal : il le voit, puis agit au tic suivant.
-ENTREE_DECALEE = 1
+# Décalage d'entrée, en barres. Zéro, et le chiffre est mesuré, pas
+# supposé : le moteur détecte la clôture d'une barre et agit dans les
+# secondes qui suivent — « desk 1m @ <barre> » est journalisé six
+# secondes après la fermeture de cette barre, « desk 15m » quarante-trois
+# secondes. Rapporté à la durée d'une barre, cela fait un quart de barre
+# sur la 1m et trois centièmes sur la 15m.
+#
+# Cette constante a brièvement valu 1, sur une lecture fautive de ces
+# mêmes journaux : l'horodatage d'une barre est son heure d'OUVERTURE, et
+# la prendre pour sa clôture gonflait le délai d'un facteur dix. Un
+# décalage d'une barre entière aurait été quatre à trente fois trop
+# sévère selon l'horloge. Le paramètre reste, parce qu'un test s'en sert
+# pour montrer ce qu'un vrai délai d'entrée détruirait ; sa valeur, elle,
+# est celle qui décrit la machine.
+ENTREE_DECALEE = 0
 
 BARS = ("1m", "3m", "5m", "15m")
 HOLD = {"1m": 3, "3m": 3, "5m": 3, "15m": 3}
@@ -295,20 +307,12 @@ def _targets(c: Candles, h: int = 1,
     croît comme racine(h) quand le coût, lui, reste plat. Un horizon est
     donc un paramètre, cherché et facturé comme les autres.
 
-    Reste le décalage d'entrée, et il n'est pas cosmétique. L'étiquette
-    partait du cours de clôture de la barre qui PRODUIT le signal, comme
-    si l'ordre partait à l'instant même. Le moteur, lui, voit cette
-    clôture puis agit au tic suivant — une soixantaine de secondes plus
-    tard, soit à la clôture de la barre d'après (mesuré : « desk 1m @
-    <barre> » journalisé 66 secondes après la fermeture de cette barre).
-    Sur une horloge d'une minute, la première barre contient souvent
-    l'essentiel du mouvement prévu, et l'offrir gratuitement à la mesure
-    produit exactement ce qu'on observe : une règle mesurée à +10 bps par
-    trade qui en rend -6 en direct.
-
-    L'entrée est donc décalée d'une barre, et la sortie avec elle. C'est
-    plus sévère, et c'est le but : ce qu'on mesure doit être ce qu'on
-    peut jouer.
+    Le décalage d'entrée est paramétrable et vaut zéro par défaut, parce
+    que c'est ce que la machine fait : elle détecte la clôture d'une barre
+    et agit dans les secondes qui suivent, pas une barre plus tard. Le
+    paramètre existe pour pouvoir MONTRER, dans un test, ce qu'un vrai
+    délai détruirait — un mouvement prévisible une seule barre à l'avance
+    ne survit à aucun retard.
     """
     n = len(c)
     h = max(int(h), 1)
