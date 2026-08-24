@@ -115,6 +115,12 @@ class ScalpEngine:
         # holdout est une mesure ; le direct en est une autre, et quand les
         # deux se contredisent on ne choisit pas la plus flatteuse.
         self.live_stats = {"n": 0, "bps": 0.0}
+        # Le retard reel entre la cloture de barre qui a produit la cible
+        # et l'ordre qui la joue. La porte mesure une entree AU PRIX DE
+        # CLOTURE ; tant que ce chiffre n'est pas au releve, l'ecart entre
+        # la regle mesuree et la regle jouee reste une supposition.
+        self.exec_stats = {"n_entrees": 0, "retard_s": 0.0}
+        self._pending_ts = 0.0
         self.explore_stats = {"trades": 0, "tp_maker": 0, "tp_taker": 0,
                               "sl": 0, "time": 0,
                               # mesures qui remplacent des hypothèses du
@@ -136,6 +142,8 @@ class ScalpEngine:
                             ("n", "bps"))
             self._reprendre(self.explore_stats, prev.get("explore"),
                             tuple(self.explore_stats))
+            self._reprendre(self.exec_stats, prev.get("entree"),
+                            tuple(self.exec_stats))
             # Une position ouverte appartient à une règle : prix d'entrée,
             # stop, durée validée, politique qui l'a décidée. Rien de tout
             # cela ne survivait au redémarrage — le moteur retrouvait la
@@ -234,6 +242,7 @@ class ScalpEngine:
                       "opened_h": self.opened_h},
             "live_rule": dict(self.live_stats,
                               confiance=self._confiance()),
+            "entree": dict(self.exec_stats),
             # Le frein du gouverneur : à -6,1 % dun budget de 8 %, il
             # retombe à 0,25 et le levier passe sous son plancher entier —
             # le moteur cesse alors de trader. Sans ce chiffre au relevé,
@@ -1123,6 +1132,7 @@ class ScalpEngine:
             if ouvert and lim and (maintenant - ouvert) < lim:
                 pending.pop(inst)
         self.pending = pending
+        self._pending_ts = time.time()
         self._explore(preds, equity, targets)
         self._vol = vol
         self.risk.update_equity(self.broker.equity(), now)
@@ -1140,6 +1150,13 @@ class ScalpEngine:
         self.pending = {}
         if not orders:
             return
+        if self._pending_ts:
+            n = int(self.exec_stats.get("n_entrees") or 0)
+            moy = float(self.exec_stats.get("retard_s") or 0.0)
+            self.exec_stats["retard_s"] = \
+                (moy * n + (time.time() - self._pending_ts)) / (n + 1)
+            self.exec_stats["n_entrees"] = n + 1
+            self._pending_ts = 0.0
         equity = max(self.broker.equity(), 1.0)
         current = self.broker.positions()
         vol = getattr(self, "_vol", {})

@@ -74,8 +74,8 @@ jobs:
             # NB: toute cette commande ssh est déjà entre apostrophes —
             # aucun script inséré ici ne doit en contenir une seule.
             tr "," "\n" < /root/hermes/state/scalp.json 2>/dev/null \
-              | grep -E "tp_maker|tp_taker|entry_edge_bps|exit_maker_bps|exit_taker_bps|pnl_day_usd|confiance|frein_risque|\"bps\"|\"n\"|budget_usd|\"sl\"|\"time\"|\"trades\"" \
-              | head -12 || echo "pas encore de scalp.json"
+              | grep -E "tp_maker|tp_taker|entry_edge_bps|exit_maker_bps|exit_taker_bps|pnl_day_usd|confiance|frein_risque|\"bps\"|\"n\"|retard_s|n_entrees|budget_usd|\"sl\"|\"time\"|\"trades\"" \
+              | head -16 || echo "pas encore de scalp.json"
             echo
             echo "===== profondeur par instrument (panel des horloges) ====="
             # NB: commande ssh dejà entre apostrophes — aucune apostrophe ici,

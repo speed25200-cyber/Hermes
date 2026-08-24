@@ -895,3 +895,32 @@ def test_a_reversal_closes_one_trade_and_opens_another(tmp_path):
         "le stop du court est resté sous le prix : il sortirait aussitôt"
     touches = eng.check_exits()
     assert touches == [], f"sortie immédiate sur un stop jamais armé: {touches}"
+
+
+def test_the_real_entry_delay_gets_measured(tmp_path):
+    """La porte mesure une entrée AU PRIX DE CLÔTURE de la barre. Tant que
+    le retard réel entre la cible et l'ordre qui la joue n'est pas au
+    relevé, l'écart entre la règle mesurée et la règle jouée reste une
+    supposition — et c'est exactement le genre d'hypothèse qui fait perdre
+    de l'argent à une règle mesurée gagnante."""
+    inst = "BTC-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path)
+    eng.ticks[inst] = {"last": 100.0, "bid": 99.9, "ask": 100.1,
+                       "spread_bps": 2.0}
+    eng.last_preds = [{"inst": inst, "policy": "candle", "bar": "1m",
+                       "dir": "long", "ml": "live", "conf": 1.0,
+                       "h_bars": 6, "edge_bps": 12.0, "lev": 1.0,
+                       "vol_bps": 25.0, "tp_bps": 30.0, "sl_bps": 40.0,
+                       "sortie_temps": True}]
+    eng._vol = {inst: 25.0}
+    eng.pending = {inst: 1.0}
+    eng._pending_ts = time.time() - 41.0
+    eng.execute_pending()
+    assert eng.exec_stats["n_entrees"] == 1
+    assert 40.0 <= eng.exec_stats["retard_s"] <= 45.0, eng.exec_stats
+
+    # et la mesure survit au redémarrage, comme les autres compteurs
+    eng._snapshot({"equity": 10_000.0})
+    repris, _ = _moteur_pos(tmp_path, dict(b.pos))
+    assert repris.exec_stats["n_entrees"] == 1
+    assert 40.0 <= repris.exec_stats["retard_s"] <= 45.0

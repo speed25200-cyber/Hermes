@@ -843,6 +843,19 @@ class LiveRunner:
                         self.log("KILL SWITCH TRIPPED - idling (no systemd restart mill).")
                         while True:
                             time.sleep(30)
+                    # Les cibles d'une barre qui vient de fermer partent
+                    # MAINTENANT. Le pending n'etait consomme que dans la
+                    # branche « aucune nouvelle barre » ci-dessous, donc
+                    # jamais sur le cycle qui venait de le produire : il
+                    # attendait le tour suivant, et un tour comprend la
+                    # collecte des carnets, des trades et des bougies des
+                    # six instruments. La porte, elle, mesure une entree
+                    # AU PRIX DE CLOTURE de la barre (ENTREE_DECALEE = 0).
+                    # Ce decalage-la n'est pas une hypothese de plus dans
+                    # le modele de cout : il change la regle jouee sans
+                    # que rien ne le mesure.
+                    if any_new and self.risk.trading_allowed:
+                        self.scalp.execute_pending()
                     if not any_new:
                         if self.risk.trading_allowed:
                             self.scalp.check_exits()
