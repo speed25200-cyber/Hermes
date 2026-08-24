@@ -124,8 +124,37 @@ class ScalpEngine:
             with open(self.state_path) as f:
                 prev = json.load(f)
             self.trades = list(prev.get("trades") or [])[-200:]
+            # Une mesure ne redémarre pas à zéro parce qu'on a redéployé.
+            # Le rodage ne laisse la règle prendre sa taille pleine qu'après
+            # 30 trades fermés ; si le compteur repart de zéro à chaque mise
+            # en ligne, il n'atteint jamais 30 et la taille reste bloquée au
+            # dixième — la règle validée serait condamnée aux micro-positions
+            # par un détail de persistance, pas par ses résultats.
+            self._reprendre(self.live_stats, prev.get("live_rule"),
+                            ("n", "bps"))
+            self._reprendre(self.explore_stats, prev.get("explore"),
+                            tuple(self.explore_stats))
         except (OSError, ValueError):
             pass
+
+    @staticmethod
+    def _reprendre(cible: dict, source: object, cles: tuple) -> None:
+        """Recharge des compteurs de mesure, et seulement eux.
+
+        On ne relit que les clés attendues, et seulement si elles portent un
+        nombre fini : `confiance` par exemple est dérivé, il se recalcule et
+        n'a rien à faire dans l'état repris. Un fichier tronqué, ou écrit par
+        une version antérieure, laisse simplement les compteurs à zéro.
+        """
+        if not isinstance(source, dict):
+            return
+        for k in cles:
+            v = source.get(k)
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                continue
+            if v != v or v in (float("inf"), float("-inf")):
+                continue
+            cible[k] = type(cible[k])(v)
 
     # ------------------------------------------------------------------ #
 

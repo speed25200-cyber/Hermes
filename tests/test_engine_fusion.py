@@ -677,3 +677,50 @@ def test_a_braked_rule_trades_smaller_instead_of_not_at_all(tmp_path):
     eng._risk_scale = lambda: 0.25
     freine = eng._pick_lev(p)
     assert 0 < freine < plein, f"freiné {freine} contre plein {plein}"
+
+
+def test_the_live_count_survives_a_redeploy(tmp_path):
+    """Le rodage compte les trades fermés pour décider quand la règle a
+    droit à sa taille pleine. Ce compteur était publié dans le relevé mais
+    jamais relu au démarrage : chaque mise en ligne le remettait à zéro, il
+    n'atteignait donc jamais les 30 trades du palier et la confiance restait
+    collée à 0,1. La règle validée était condamnée au dixième de taille par
+    un oubli de persistance, pas par ses résultats."""
+    eng = _moteur(tmp_path)
+    assert eng._confiance() == 0.1
+    eng.live_stats["n"] = 130
+    eng.live_stats["bps"] = 12.0
+    eng.explore_stats["trades"] = 44
+    eng.explore_stats["exit_maker_bps"] = -1.5
+    eng.explore_stats["n_exit_maker"] = 9
+    eng._snapshot({"equity": 10_000.0})
+
+    repris = _moteur(tmp_path)
+    assert repris.live_stats["n"] == 130
+    assert repris.live_stats["bps"] == 12.0
+    assert repris._confiance() == 1.0, "le rodage doit être fini, pas rejoué"
+    # les mesures de l'éclaireur servent le modèle de coût : elles non plus
+    # ne se rachètent pas à chaque redémarrage
+    assert repris.explore_stats["trades"] == 44
+    assert repris.explore_stats["n_exit_maker"] == 9
+    assert repris.explore_stats["exit_maker_bps"] == -1.5
+
+
+def test_a_derived_or_corrupt_field_is_never_taken_back(tmp_path):
+    """`confiance` se recalcule à partir de `n` et du net réalisé ; la
+    relire reviendrait à figer une taille que les résultats ne soutiennent
+    plus. Et un état tronqué ou bricolé à la main ne doit pas pouvoir
+    injecter n'importe quoi dans les compteurs."""
+    import json
+
+    eng = _moteur(tmp_path)
+    with open(eng.state_path, "w") as f:
+        json.dump({"live_rule": {"n": 130, "bps": "beaucoup",
+                                 "confiance": 1.0},
+                   "explore": {"trades": None, "tp_maker": True}}, f)
+    repris = _moteur(tmp_path)
+    assert repris.live_stats["n"] == 130
+    assert repris.live_stats["bps"] == 0.0, "une chaîne n'est pas une mesure"
+    assert repris._confiance() == 0.1, "net réalisé nul : pas de taille pleine"
+    assert repris.explore_stats["trades"] == 0
+    assert repris.explore_stats["tp_maker"] == 0, "un booléen n'est pas un compte"
