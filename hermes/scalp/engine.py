@@ -403,7 +403,17 @@ class ScalpEngine:
                     direction = "long" if edge > 0 else "short"
                     # stop LARGE : garde-fou de ruine, pas instrument de
                     # rendement — la règle mesurée sort au temps
-                    garde = max(3.0 * abs(edge), 2.0 * max(pred["vol_bps"], 1.0))
+                    # Le garde-fou est celui qui a été MESURÉ avec la
+                    # règle, pas une formule inventée ici. Le premier
+                    # trade mesuré en direct l'a montré : un stop posé à
+                    # 63 bps sur un horizon dont l'écart-type vaut 76 se
+                    # déclenche une fois sur deux et transforme un
+                    # avantage en saignée. La porte cherche maintenant sa
+                    # largeur et la fait voyager jusqu'ici.
+                    garde = float(temoin.get("stop_mesure") or 0.0)
+                    if garde <= 0.0:
+                        garde = max(3.0 * abs(edge),
+                                    2.0 * max(pred["vol_bps"], 1.0))
                     bracket = (10.0 * abs(edge) + garde, garde, mes)
                     sortie_temps = True
                 else:

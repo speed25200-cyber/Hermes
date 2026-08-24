@@ -81,6 +81,23 @@ HORIZONS = (1, 3, 6)
 # réglage gratuit : la variante est cherchée, donc facturée au guichet.
 VARIANTS = ("abs", "neu")
 
+# Largeurs de stop candidates, en écarts-types du mouvement sur l'horizon
+# tenu. La règle mesurée n'avait AUCUN stop, la règle jouée en avait un —
+# et la différence n'est pas cosmétique : à six barres d'une minute sur un
+# actif à 31 bps de volatilité par barre, l'écart-type du mouvement vaut
+# 76 bps, et le garde-fou posé à 63 tombait DEDANS. Il se déclenche alors
+# une fois sur deux, cristallisant -63 bps là où le gain moyen mesuré vaut
+# +11. Constaté au premier trade mesuré en direct : XRP ouvert à 14:27:30
+# sur une prévision de -7,2 bps, stoppé 3,7 minutes plus tard à -85,8.
+#
+# Le stop fait donc partie de la règle, il est cherché avec elle et
+# facturé comme les autres dimensions. Deux réserves d'honnêteté sur la
+# simulation : on suppose un remplissage AU stop (un trou de cotation
+# ferait pire), et l'excursion se lit sur les extrêmes de barre sans
+# savoir si l'adverse a précédé le favorable (ce qui, lui, fait pire dans
+# l'autre sens). Aucune des deux ne se corrige sans données tick.
+STOPS = (2.0, 3.0, 4.0)
+
 # Validation glissante. Un découpage unique 80/20 ne rend que 20 % de
 # l'histoire en hors-échantillon, et la barre du hasard décroît en
 # 1/racine(observations) : c'est LUI le goulot, pas le signal — mesuré en
@@ -418,9 +435,10 @@ class CandleModel:
         self.n_periods = 0     # instants mesurés (trades simultanés agrégés)
         self.hold_sd = 0.0     # écart-type du net par trade, mesuré
         self.n_cells = (len(ASSETS) * len(BARS) * len(FAMILIES)
-                        * len(THRESHOLDS) * len(HORIZONS))
+                        * len(THRESHOLDS) * len(HORIZONS) * len(STOPS))
         self.variant = "abs"   # brut, ou net de la moyenne du panel
         self.pente = 0.0       # ce que la réalité multiplie à l'annonce
+        self.stop_sig = 3.0    # stop retenu, en sigmas de l'horizon tenu
         self._sig_ref = 1e-3   # sigma de repli si l'appelant n'en donne pas
         self._precedent = None  # cellule retenue au dernier ajustement
         self.ident = None       # (famille, horizon, k, variante) retenue
@@ -437,6 +455,7 @@ class CandleModel:
             "horizon_bars": self.horizon_bars,
             "n_assets": self.n_assets, "n_periods": self.n_periods,
             "variant": self.variant, "pente": self.pente,
+            "stop_sig": self.stop_sig,
             "garde": bool(self.ident is not None
                           and self.ident == self._precedent),
             "n_trials": self.n_cells,
@@ -506,7 +525,7 @@ class CandleModel:
         # de la recherche : une seule horloge par échelle, la même pour
         # tout le monde. Quand le panel se réduit à un actif, elle revient.
         self.n_cells = (len(BARS) * len(FAMILIES) * len(THRESHOLDS)
-                        * len(HORIZONS))
+                        * len(HORIZONS) * len(STOPS))
         if self.n_assets < 2:
             # un seul actif : la dimension revient au guichet, et la
             # variante neutre n'a pas de sens (rien à retrancher)
@@ -589,12 +608,13 @@ class CandleModel:
                   for q in np.linspace(DEBUT_TEST, 1.0, FOLDS + 1)]
         bornes[-1] = float(tous[-1]) + pas          # dernière borne incluse
         hors = {f: [] for f in FAMILIES}
-        yho, sgo, tso = [], [], []
+        yho, sgo, tso, upo, dno = [], [], [], [], []
         for k in range(FOLDS):
             t0, t1 = bornes[k], bornes[k + 1]
             if t1 <= t0:
                 continue
             Xtr, ytr, Xte, yte, sgte, tste = [], [], [], [], [], []
+            upte, dnte = [], []
             for p in parts:
                 ts, idx, sg = p["ts"], p["idx"], p["sg"]
                 # embargo : une étiquette d'entraînement dont la fenêtre de
@@ -618,6 +638,8 @@ class CandleModel:
                 yte.append(p["y"][te] * 1e4)
                 sgte.append(sg[te])
                 tste.append(ts[te])
+                upte.append(p["up"][te] * 1e4)
+                dnte.append(p["dn"][te] * 1e4)
             if not Xtr:
                 continue
             Xtr, ytr = np.vstack(Xtr), np.concatenate(ytr)
@@ -634,11 +656,14 @@ class CandleModel:
             yho.append(np.concatenate(yte))
             sgo.append(np.concatenate(sgte))
             tso.append(np.concatenate(tste))
+            upo.append(np.concatenate(upte))
+            dno.append(np.concatenate(dnte))
             del Xtr, Xte
         if not yho:
             return None
         yho = np.concatenate(yho)
         sgo, tso = np.concatenate(sgo), np.concatenate(tso)
+        upo, dno = np.concatenate(upo), np.concatenate(dno)
         if len(yho) < 200:
             return None
         # Les modèles qui iront en direct sont le pli suivant de la même
@@ -686,77 +711,98 @@ class CandleModel:
                 variantes.append(("neu", p_bps - moy[iv]))
             for var, pv in variantes:
                 sd_v = float(np.std(pv))
-                for k in THRESHOLDS:
-                    # Pas de plancher au coût. Il serait juste pour un
-                    # modèle calibré ; un ridge régularisé rend une
-                    # moyenne conditionnelle rétrécie vers zéro et peut
-                    # annoncer 2 bps là où la réalité en délivre 9. Le
-                    # plancher refusait a priori ce que la mesure peut
-                    # accepter. Ce qui reste est mesuré, pas supposé : net
-                    # positif après coûts réels, et Sharpe au-dessus de la
-                    # barre déflatée.
-                    thr = k * sd_v
-                    m = np.abs(pv) >= thr
-                    n_tr = int(m.sum())
-                    if n_tr < MIN_TRADES:
-                        continue
-                    gains = np.sign(pv[m]) * yho[m]
-                    net = gains - np.where(gains > 0, c_win, self.fee)
-                    # Un instant = un rendement. Les trades simultanés sur
-                    # plusieurs actifs sont UNE position de portefeuille, pas
-                    # plusieurs observations indépendantes ; les agréger avant
-                    # de mesurer est la seule façon de ne pas confondre
-                    # diversification et répétition — et, en variante neutre,
-                    # c'est cette moyenne-là qui annule le facteur commun.
-                    pnl = _portfolio(net, tso[m], 1.0 / np.maximum(sgo[m], 1e-12))
-                    n_per = len(pnl)
-                    if n_per < MIN_TRADES:
-                        continue
-                    sd = float(np.std(pnl, ddof=1))
-                    sr = float(np.mean(pnl)) / sd if sd > 1e-12 else 0.0
-                    # On classe les cellules par la MARGE sur leur propre
-                    # barre, pas par le Sharpe nu. Un seuil très haut produit
-                    # toujours le plus beau Sharpe — sur trente trades, où il
-                    # ne prouve rien et ne franchira jamais la barre que ces
-                    # trente trades imposent. Trier par (sr - barre), c'est
-                    # chercher avec le critère qui décide, au lieu de chercher
-                    # un maximum qu'on refusera ensuite. La porte, elle, ne
-                    # bouge pas d'un pouce.
-                    barre = expected_max_sharpe(self.n_cells, n_per)
-                    marge = sr - barre
-                    # Une cellule qui perd de l'argent après frais ne peut
-                    # de toute façon pas passer la porte : elle ne doit
-                    # pas prendre la place d'une qui en gagne dans ce
-                    # qu'on retient et publie. C'est un ordre de
-                    # présentation, pas une porte — les deux conditions de
-                    # _retenir sont inchangées.
-                    mu = float(np.mean(net))
-                    # Calibration, mesurée là où la règle DÉCLENCHE : de
-                    # combien la réalité multiplie ce que le modèle
-                    # annonce sur ces barres-là. Un ridge régularisé rend
-                    # une moyenne conditionnelle rétrécie vers zéro ; en
-                    # production cette pente vaut 1,6 à 2,4. Ce n'est pas
-                    # une cellule cherchée mais une échelle estimée, et le
-                    # Sharpe est invariant d'échelle : la porte n'en est
-                    # pas affectée d'un iota.
-                    vp = float(np.var(pv[m]))
-                    pente = (float(np.cov(pv[m], yho[m])[0, 1]) / vp) \
-                        if vp > 1e-18 else 0.0
-                    cle = (1 if mu > 0 else 0, marge)
-                    ident = (fam, h, float(k), var)
-                    cellule = {
-                        "fam": fam, "rr": rr, "nn": nn, "up": up, "dn": dn,
-                        "h": h, "pred": pv[m], "y": yho[m], "ic": ic,
-                        "thr": thr, "n_tr": n_tr, "n_per": n_per,
-                        "var": var, "ident": ident,
-                        "n_hold": len(yho), "n_train": n_train,
-                        "bps": mu, "sr": sr, "cle": cle, "sd": sd,
-                        "barre": barre, "marge": marge, "pente": pente,
-                    }
-                    if best is None or cle > best["cle"]:
-                        best = cellule
-                    if ident == self._precedent:
-                        sortant = cellule
+                for ks in STOPS:
+                    for k in THRESHOLDS:
+                        # Pas de plancher au coût. Il serait juste pour un
+                        # modèle calibré ; un ridge régularisé rend une
+                        # moyenne conditionnelle rétrécie vers zéro et peut
+                        # annoncer 2 bps là où la réalité en délivre 9. Le
+                        # plancher refusait a priori ce que la mesure peut
+                        # accepter. Ce qui reste est mesuré, pas supposé : net
+                        # positif après coûts réels, et Sharpe au-dessus de la
+                        # barre déflatée.
+                        thr = k * sd_v
+                        m = np.abs(pv) >= thr
+                        n_tr = int(m.sum())
+                        if n_tr < MIN_TRADES:
+                            continue
+                        # La règle JOUÉE : entrer, tenir h barres, sortir —
+                        # sauf si l'excursion adverse touche le stop d'abord,
+                        # auquel cas on sort là, en traversant.
+                        sens = np.sign(pv[m])
+                        stop = ks * sgo[m] * 1e4
+                        adverse = np.where(sens > 0, dno[m], upo[m])
+                        touche = adverse >= stop
+                        # Un stop déclenché ne remplit PAS à son niveau :
+                        # le prix le traverse et l'ordre part au marché.
+                        # Le supposer rempli au niveau exact rendait les
+                        # stops étroits artificiellement bons — vérifié
+                        # sur marche aléatoire, un stop à un sigma
+                        # ressortait meilleur qu'un stop à six, ce qui est
+                        # impossible sans dérive. On ne connaît pas le
+                        # chemin dans la barre ; on sait seulement que le
+                        # remplissage est entre le niveau et l'extrême de
+                        # la barre. Le milieu des deux est le seul choix
+                        # non arbitraire.
+                        gains = np.where(touche, -0.5 * (stop + adverse),
+                                         sens * yho[m])
+                        net = gains - np.where(
+                            touche, self.fee, np.where(gains > 0, c_win, self.fee))
+                        # Un instant = un rendement. Les trades simultanés sur
+                        # plusieurs actifs sont UNE position de portefeuille, pas
+                        # plusieurs observations indépendantes ; les agréger avant
+                        # de mesurer est la seule façon de ne pas confondre
+                        # diversification et répétition — et, en variante neutre,
+                        # c'est cette moyenne-là qui annule le facteur commun.
+                        pnl = _portfolio(net, tso[m], 1.0 / np.maximum(sgo[m], 1e-12))
+                        n_per = len(pnl)
+                        if n_per < MIN_TRADES:
+                            continue
+                        sd = float(np.std(pnl, ddof=1))
+                        sr = float(np.mean(pnl)) / sd if sd > 1e-12 else 0.0
+                        # On classe les cellules par la MARGE sur leur propre
+                        # barre, pas par le Sharpe nu. Un seuil très haut produit
+                        # toujours le plus beau Sharpe — sur trente trades, où il
+                        # ne prouve rien et ne franchira jamais la barre que ces
+                        # trente trades imposent. Trier par (sr - barre), c'est
+                        # chercher avec le critère qui décide, au lieu de chercher
+                        # un maximum qu'on refusera ensuite. La porte, elle, ne
+                        # bouge pas d'un pouce.
+                        barre = expected_max_sharpe(self.n_cells, n_per)
+                        marge = sr - barre
+                        # Une cellule qui perd de l'argent après frais ne peut
+                        # de toute façon pas passer la porte : elle ne doit
+                        # pas prendre la place d'une qui en gagne dans ce
+                        # qu'on retient et publie. C'est un ordre de
+                        # présentation, pas une porte — les deux conditions de
+                        # _retenir sont inchangées.
+                        mu = float(np.mean(net))
+                        # Calibration, mesurée là où la règle DÉCLENCHE : de
+                        # combien la réalité multiplie ce que le modèle
+                        # annonce sur ces barres-là. Un ridge régularisé rend
+                        # une moyenne conditionnelle rétrécie vers zéro ; en
+                        # production cette pente vaut 1,6 à 2,4. Ce n'est pas
+                        # une cellule cherchée mais une échelle estimée, et le
+                        # Sharpe est invariant d'échelle : la porte n'en est
+                        # pas affectée d'un iota.
+                        vp = float(np.var(pv[m]))
+                        pente = (float(np.cov(pv[m], yho[m])[0, 1]) / vp) \
+                            if vp > 1e-18 else 0.0
+                        cle = (1 if mu > 0 else 0, marge)
+                        ident = (fam, h, float(k), var, float(ks))
+                        cellule = {
+                            "fam": fam, "rr": rr, "nn": nn, "up": up, "dn": dn,
+                            "h": h, "pred": pv[m], "y": yho[m], "ic": ic,
+                            "thr": thr, "n_tr": n_tr, "n_per": n_per,
+                            "var": var, "ident": ident, "stop": float(ks),
+                            "n_hold": len(yho), "n_train": n_train,
+                            "bps": mu, "sr": sr, "cle": cle, "sd": sd,
+                            "barre": barre, "marge": marge, "pente": pente,
+                        }
+                        if best is None or cle > best["cle"]:
+                            best = cellule
+                        if ident == self._precedent:
+                            sortant = cellule
             # Aucun seuil ne déclenche assez souvent pour cette famille :
             # on retient quand même l'ic, sinon le refus se raconte avec un
             # ic=0.000 qui n'est pas le sien et le lecteur ne peut pas
@@ -773,6 +819,7 @@ class CandleModel:
         self.variant = b.get("var", "abs")
         self.ident = b.get("ident")
         self.pente = float(b.get("pente") or 0.0)
+        self.stop_sig = float(b.get("stop") or 3.0)
         self.rr, self.nn, self.up, self.dn = b["rr"], b["nn"], b["up"], b["dn"]
         self.ic = b["ic"]
         self.thr_bps = float(b["thr"])
@@ -844,6 +891,7 @@ class CandleModel:
         veto = abs(raw) < self.thr_bps
         return {
             "r_bps": r_bps, "up_bps": up, "dn_bps": dn, "raw_bps": raw,
+            "stop_bps": self.stop_sig * s * 1e4,
             "net_bps": self.holdout_bps, "net_sd": self.hold_sd,
             "net_n": self.n_periods,
             "q_bps": self.q * 1e4, "veto": veto, "bar": self.bar,
@@ -922,7 +970,8 @@ class ScaleDesk:
                      f"ic={d['ic']:.3f} "
                      f"net={d['holdout_bps']:+.2f}bps/trade "
                      f"sr={d['holdout_sr']:+.3f} vs bar={d['sel_bar']:.3f} "
-                     f"seuil={d['thr_bps']:.1f}bps pente={d['pente']:.2f} "
+                     f"seuil={d['thr_bps']:.1f}bps stop={d['stop_sig']:.0f}sig "
+                     f"pente={d['pente']:.2f} "
                      f"{'gardee ' if d.get('garde') else ''}"
                      f"trades={d['n_trades']}/{d['n_holdout']} "
                      f"instants={d['n_periods']} n={d['n_train']}")
@@ -1042,6 +1091,8 @@ class ScaleDesk:
             "net_bps": float(dom.get("net_bps") or 0.0),
             "net_sd": float(dom.get("net_sd") or 0.0),
             "net_n": int(dom.get("net_n") or 0),
+            # le garde-fou EST celui qui a été mesuré, pas un autre
+            "stop_mesure": float(dom.get("stop_bps") or 0.0),
             # la position doit vivre exactement l'horizon sur lequel
             # l'horloge dominante a été validée, pas une constante
             "horizon_bars": int(dom.get("horizon_bars") or 1),

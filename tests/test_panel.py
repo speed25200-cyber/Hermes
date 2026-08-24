@@ -87,7 +87,9 @@ def test_pooling_removes_the_asset_dimension_from_the_bill():
     panel.fit_panel([(_bruit(20 + i), None) for i in range(3)])
     solo = CandleModel("5m")
     solo.fit(_bruit(20))
-    base = len(BARS) * len(FAMILIES) * len(THRESHOLDS) * len(HORIZONS)
+    from hermes.scalp.clock import STOPS
+    base = (len(BARS) * len(FAMILIES) * len(THRESHOLDS) * len(HORIZONS)
+            * len(STOPS))
     # en panel, la variante marché-neutre est cherchée — donc facturée ;
     # seule, elle n'a rien à retrancher et n'est pas cherchée du tout.
     assert panel.n_cells == base * len(VARIANTS)
@@ -656,3 +658,75 @@ def test_a_one_bar_ahead_signal_would_not_survive_a_real_delay():
         ics[lag] = abs(_ic(p, y[ho]))
     assert ics[0] > 0.15, f"le signal doit être visible sans délai : {ics}"
     assert ics[1] < 0.5 * ics[0], f"une barre de retard doit le tuer : {ics}"
+
+
+# ------------------------------------------------- le stop fait partie de la règle
+
+def test_the_stop_is_measured_with_the_rule_not_bolted_on_after():
+    """La règle mesurée n'avait aucun stop, la règle jouée en avait un.
+    À six barres d'une minute sur un actif à 31 bps de volatilité par
+    barre, l'écart-type du mouvement vaut 76 bps et le garde-fou posé à 63
+    tombait DEDANS : il se déclenche une fois sur deux et cristallise
+    -63 bps là où le gain moyen mesuré vaut +11. Constaté au premier trade
+    mesuré en direct — XRP ouvert sur une prévision de -7,2 bps, stoppé
+    3,7 minutes plus tard à -85,8.
+
+    Le stop est donc cherché AVEC la règle, facturé comme les autres
+    dimensions, et le moteur joue exactement celui qui a été mesuré."""
+    from hermes.scalp.clock import STOPS
+    m = CandleModel("5m")
+    d = m.fit_panel([(_bruit(120 + i, n=3000), None) for i in range(3)])
+    assert d["stop_sig"] in STOPS
+    assert m.n_cells % len(STOPS) == 0
+
+
+def _economie(rng, n, h, sg, ks, derive=0.0):
+    """Net moyen par trade d'une règle « tenir h barres, stop à ks sigmas ».
+
+    Remplissage au MILIEU du niveau et de l'extrême de barre : un stop
+    traversé ne remplit pas à son prix, et le supposer rendait les stops
+    étroits artificiellement bons — vérifié, un stop à un sigma
+    ressortait meilleur qu'un stop à six, ce qui est impossible sans
+    dérive.
+    """
+    pas = rng.normal(derive, sg, size=(n, h))
+    chemin = np.cumsum(pas, axis=1)
+    fin = chemin[:, -1]
+    stop = ks * sg * np.sqrt(h)
+    adverse = -chemin.min(axis=1)
+    touche = adverse >= stop
+    gains = np.where(touche, -0.5 * (stop + adverse), fin)
+    return float(np.mean(gains - np.where(touche, 7.0,
+                                          np.where(gains > 0, 4.75, 7.0))))
+
+
+def test_a_narrow_stop_is_never_free_on_a_driftless_walk():
+    """Sans dérive, aucun stop ne peut créer de valeur — l'arrêt optionnel
+    l'interdit. Il ne peut qu'en coûter : le dépassement au déclenchement,
+    et le taker payé là où une sortie au temps aurait pu poser. Un stop
+    étroit doit donc mesurer STRICTEMENT moins bien qu'un stop large."""
+    rng = np.random.default_rng(5)
+    etroit = _economie(rng, 8000, 6, 30.0, 1.0)
+    large = _economie(np.random.default_rng(5), 8000, 6, 30.0, 6.0)
+    assert etroit < large, {"1sig": etroit, "6sig": large}
+
+
+def test_a_narrow_stop_eats_a_third_of_a_real_edge():
+    """Le cas qui compte, aux paramètres de la production : volatilité de
+    31 bps par barre, six barres tenues — donc un écart-type de 76 bps sur
+    l'horizon — et un avantage mesuré de 11 bps par trade. Le garde-fou
+    que le moteur posait valait 63 bps, soit 0,83 sigma : DEDANS.
+
+    À cette largeur il mange plus du tiers de l'avantage. Au-delà de deux
+    sigmas l'effet s'éteint — ce qui place exactement la grille cherchée
+    (2, 3, 4) dans la bonne région, et l'ancien garde-fou ad hoc dans la
+    mauvaise.
+    """
+    args = (40000, 6, 31.0)
+    dedans = _economie(np.random.default_rng(11), *args, 0.83, 11.0 / 6)
+    dehors = _economie(np.random.default_rng(11), *args, 3.0, 11.0 / 6)
+    assert dehors > 0.0, f"l'avantage doit survivre à un stop large : {dehors}"
+    assert dedans < 0.75 * dehors, {"0.83sig": dedans, "3sig": dehors}
+    # et au-delà de deux sigmas, la largeur ne change presque plus rien
+    loin = _economie(np.random.default_rng(11), *args, 8.0, 11.0 / 6)
+    assert abs(loin - dehors) < 0.25, {"3sig": dehors, "8sig": loin}
