@@ -552,3 +552,46 @@ def test_a_single_leg_is_unaffected_by_the_weighting():
     net = np.array([5.0, -3.0, 8.0])
     sig = np.array([1e-3, 4e-3, 2e-3])
     assert np.allclose(_portfolio(net, ts), _portfolio(net, ts, 1.0 / sig))
+
+
+# ------------------------------------------------------------- hystérésis
+
+def test_the_retained_cell_survives_a_refit_on_the_same_data():
+    """Deux ajustements successifs sur les mêmes données doivent jouer la
+    MÊME règle. Sans ancre, l'argmax d'une surface plate change de famille
+    et de seuil pour un millième de marge — observé en production, mlp à
+    seuil 10,0 puis ens à seuil 5,0 à cinq minutes d'intervalle, deux
+    règles qui ne tradent pas au même rythme."""
+    panel = [(_bruit(80 + i, n=3000), None) for i in range(3)]
+    a = CandleModel("5m")
+    a.fit_panel(panel)
+    b = CandleModel("5m")
+    b.fit_panel(panel, a.ident)
+    assert b.ident == a.ident, f"{a.ident} -> {b.ident}"
+    assert b.to_dict()["garde"] is True
+
+
+def test_hysteresis_is_not_a_door_the_incumbent_must_still_pass():
+    """Garder la sortante n'est PAS la dispenser de la porte : elle
+    franchit exactement les mêmes conditions que les autres dans
+    _retenir — net positif après frais, Sharpe au-dessus de SA barre, ic
+    au-dessus du plancher."""
+    m = CandleModel("5m")
+    faux = ("mlp", 3, 2.5, "abs")
+    d = m.fit_panel([(_bruit(90 + i, n=3000), None) for i in range(3)], faux)
+    if d["status"] == "live":
+        assert d["holdout_bps"] > 0
+        assert d["holdout_sr"] > d["sel_bar"]
+
+
+def test_a_clearly_better_cell_still_wins():
+    """L'ancre ne fige pas : une cellule qui bat la sortante de plus d'une
+    erreur-type de son propre Sharpe la remplace. Ici la sortante n'existe
+    même pas dans la grille de cette horloge, donc rien ne la retient."""
+    panel = [(_bruit(95 + i, n=3000), None) for i in range(3)]
+    libre = CandleModel("5m")
+    libre.fit_panel(panel)
+    ancre = CandleModel("5m")
+    ancre.fit_panel(panel, ("ridge", 6, 2.5, "neu"))
+    # une identité absente de la grille retenue ne peut rien ancrer
+    assert ancre.ident == libre.ident

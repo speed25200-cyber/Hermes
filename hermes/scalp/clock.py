@@ -395,6 +395,8 @@ class CandleModel:
         self.variant = "abs"   # brut, ou net de la moyenne du panel
         self.pente = 0.0       # ce que la réalité multiplie à l'annonce
         self._sig_ref = 1e-3   # sigma de repli si l'appelant n'en donne pas
+        self._precedent = None  # cellule retenue au dernier ajustement
+        self.ident = None       # (famille, horizon, k, variante) retenue
 
     def to_dict(self) -> dict:
         return {
@@ -408,6 +410,8 @@ class CandleModel:
             "horizon_bars": self.horizon_bars,
             "n_assets": self.n_assets, "n_periods": self.n_periods,
             "variant": self.variant, "pente": self.pente,
+            "garde": bool(self.ident is not None
+                          and self.ident == self._precedent),
             "n_trials": self.n_cells,
         }
 
@@ -418,11 +422,12 @@ class CandleModel:
             return _Ensemble(self.rr, self.nn)
         return self.rr
 
-    def fit(self, c: Candles, btc: Candles | None = None) -> dict:
+    def fit(self, c: Candles, btc: Candles | None = None,
+            precedent=None) -> dict:
         """Un seul actif : le panel dégénéré à un bloc."""
-        return self.fit_panel([(c, btc)])
+        return self.fit_panel([(c, btc)], precedent)
 
-    def fit_panel(self, series: list) -> dict:
+    def fit_panel(self, series: list, precedent=None) -> dict:
         """Une horloge, tous les actifs à la fois.
 
         Douze modèles indépendants (3 actifs x 4 horloges) posaient deux
@@ -446,6 +451,7 @@ class CandleModel:
         s'ils se diversifient, le gain est réel et le portefeuille le
         touche vraiment.
         """
+        self._precedent = precedent
         blocs = []
         for c, btc in series:
             if c is None or len(c) < 250:
@@ -485,11 +491,36 @@ class CandleModel:
         c_win = (1.0 - QUEUE_MISS) * self.cost_win + QUEUE_MISS * self.fee
         meilleur = None
         self._muet = {"ic": 0.0, "fam": "ridge", "h": 1}
+        sortant = None
         for h in HORIZONS:
             r = self._essai(blocs, h, c_win)
-            if r is not None and (meilleur is None
-                                  or r["cle"] > meilleur["cle"]):
+            if r is None:
+                continue
+            if r.get("sortant") is not None:
+                sortant = r["sortant"]
+            if meilleur is None or r["cle"] > meilleur["cle"]:
                 meilleur = r
+        # Hystérésis. La surface des marges est plate — deux cellules
+        # voisines se départagent au millième — et l'argmax changeait donc
+        # de famille et de seuil d'un ajustement à l'autre : mlp/seuil 10,0
+        # puis ens/seuil 5,0 à cinq minutes d'intervalle, deux règles qui
+        # ne tradent pas au même rythme. La barre déflatée paie déjà ce
+        # bruit de sélection ; ce qu'elle ne répare pas, c'est qu'en direct
+        # la règle jouée change toutes les heures et ne ressemble alors
+        # durablement à AUCUNE économie mesurée.
+        #
+        # La cellule sortante est donc conservée tant qu'aucune autre ne la
+        # bat de plus d'une erreur-type de son propre Sharpe (1/racine des
+        # instants). Ce n'est pas une porte : la sortante doit franchir
+        # exactement les mêmes conditions que n'importe quelle autre dans
+        # _retenir, et si elle cesse de gagner de l'argent elle n'est même
+        # plus candidate.
+        if (sortant is not None and meilleur is not None
+                and sortant["ident"] != meilleur["ident"]):
+            bruit = 1.0 / math.sqrt(max(sortant["n_per"], 1))
+            if (sortant["cle"][0] == meilleur["cle"][0]
+                    and sortant["marge"] + bruit >= meilleur["marge"]):
+                meilleur = sortant
         if meilleur is None:
             self.status, self.shrink = "veto", 0.0
             self.thr_bps, self.n_trades = c_win, 0
@@ -604,7 +635,7 @@ class CandleModel:
         n_train = len(yall)
         del Xall
 
-        best, muet = None, self._muet
+        best, sortant, muet = None, None, self._muet
         sd_y = float(np.std(yho))
         for fam in FAMILIES:
             p_bps = np.concatenate(hors[fam]) * sgo * 1e4
@@ -685,28 +716,35 @@ class CandleModel:
                     pente = (float(np.cov(pv[m], yho[m])[0, 1]) / vp) \
                         if vp > 1e-18 else 0.0
                     cle = (1 if mu > 0 else 0, marge)
+                    ident = (fam, h, float(k), var)
+                    cellule = {
+                        "fam": fam, "rr": rr, "nn": nn, "up": up, "dn": dn,
+                        "h": h, "pred": pv[m], "y": yho[m], "ic": ic,
+                        "thr": thr, "n_tr": n_tr, "n_per": n_per,
+                        "var": var, "ident": ident,
+                        "n_hold": len(yho), "n_train": n_train,
+                        "bps": mu, "sr": sr, "cle": cle, "sd": sd,
+                        "barre": barre, "marge": marge, "pente": pente,
+                    }
                     if best is None or cle > best["cle"]:
-                        best = {
-                            "fam": fam, "rr": rr, "nn": nn, "up": up, "dn": dn,
-                            "h": h, "pred": pv[m], "y": yho[m], "ic": ic,
-                            "thr": thr, "n_tr": n_tr, "n_per": n_per,
-                            "var": var,
-                            "n_hold": len(yho), "n_train": n_train,
-                            "bps": mu, "sr": sr, "cle": cle, "sd": sd,
-                            "barre": barre, "marge": marge, "pente": pente,
-                        }
+                        best = cellule
+                    if ident == self._precedent:
+                        sortant = cellule
             # Aucun seuil ne déclenche assez souvent pour cette famille :
             # on retient quand même l'ic, sinon le refus se raconte avec un
             # ic=0.000 qui n'est pas le sien et le lecteur ne peut pas
             # distinguer « aucun signal » de « signal trop petit à payer ».
             if abs(ic) > abs(muet.get("ic", 0.0)):
                 muet.update({"ic": ic, "fam": fam, "h": h})
+        if best is not None:
+            best["sortant"] = sortant
         return best
 
     def _retenir(self, b: dict, c_win: float) -> dict:
         """Adopte l'horizon, la famille et le seuil gagnants."""
         self.family, self.horizon_bars = b["fam"], b["h"]
         self.variant = b.get("var", "abs")
+        self.ident = b.get("ident")
         self.pente = float(b.get("pente") or 0.0)
         self.rr, self.nn, self.up, self.dn = b["rr"], b["nn"], b["up"], b["dn"]
         self.ic = b["ic"]
@@ -821,6 +859,10 @@ class ScaleDesk:
         """
         names = list(names or ASSETS)
         out = {}
+        # La cellule retenue au dernier ajustement sert d'ancre : sur une
+        # surface de marges aussi plate, l'argmax change d'avis pour un
+        # millième et la règle jouée changerait toutes les heures.
+        anciens = {b: m for (i, b), m in self.models.items()}
         self.models = {}
         for bar in BARS:
             series, insts = [], []
@@ -841,8 +883,9 @@ class ScaleDesk:
                 insts.append(inst)
             if not series:
                 continue
+            ancien = anciens.get(bar)
             m = CandleModel(bar, self.fee)
-            d = m.fit_panel(series)
+            d = m.fit_panel(series, getattr(ancien, "ident", None))
             for inst in insts:
                 self.models[(inst, bar)] = m
                 out[f"{inst.split('-')[0]}:{bar}"] = d
@@ -852,6 +895,7 @@ class ScaleDesk:
                      f"net={d['holdout_bps']:+.2f}bps/trade "
                      f"sr={d['holdout_sr']:+.3f} vs bar={d['sel_bar']:.3f} "
                      f"seuil={d['thr_bps']:.1f}bps pente={d['pente']:.2f} "
+                     f"{'gardee ' if d.get('garde') else ''}"
                      f"trades={d['n_trades']}/{d['n_holdout']} "
                      f"instants={d['n_periods']} n={d['n_train']}")
         self.fit_at = time.time()
