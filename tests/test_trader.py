@@ -198,3 +198,27 @@ def test_governor_scales_book_targets(tmp_path):
     tgt_half = r_half["targets"].get(inst, 0.0)
     assert abs(tgt_full) > 0.01, "test needs a live signal"
     assert abs(tgt_half - 0.5 * tgt_full) < 1e-9
+
+
+def test_the_startup_backfill_does_not_block_on_the_new_names():
+    """`_ensure_scalp_data` est BLOQUANT : il tourne avant la boucle. Viser
+    d'emblée les vingt plus échangés arrêterait le moteur le temps de
+    quatorze instruments sur quatre échelles — le rattrapage coûterait la
+    mesure qu'il est censé enrichir. Au démarrage on ne rattrape que le
+    panel courant, déjà en cache ; le reste arrive en tâche de fond."""
+    import inspect
+    from hermes.live.trader import LiveRunner
+    src = inspect.getsource(LiveRunner.ensure_data)
+    assert "_ensure_scalp_data(list(self.scalp.instruments)" in src, \
+        "le démarrage vise autre chose que le panel courant"
+
+    boucle = inspect.getsource(LiveRunner.run_forever)
+    assert "attendus" in boucle, "aucun rattrapage des noms réclamés"
+    assert "_rattrapage" in boucle, "rien n'empêche deux rattrapages simultanés"
+    # le rattrapage doit vivre HORS du bloc de rafraichissement d'univers,
+    # qui ne s'exécute qu'un quart d'heure sur deux
+    i_uni = boucle.index("> 900")
+    i_att = boucle.index("attendus")
+    assert i_att > i_uni
+    assert "elif ticks:" in boucle[:i_att], \
+        "le rattrapage est enfermé dans le rafraichissement d'univers"

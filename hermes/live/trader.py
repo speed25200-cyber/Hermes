@@ -659,7 +659,14 @@ class LiveRunner:
                                      log=self.log)
             except Exception as exc:
                 self.log(f"sync {inst} failed: {type(exc).__name__}: {exc}")
-        self._ensure_scalp_data()
+        # Au demarrage on ne rattrape QUE le panel courant — deja en cache,
+        # donc quelques secondes. Viser d emblee les vingt plus echanges
+        # bloquerait la boucle le temps de quatorze instruments sur quatre
+        # echelles, et le moteur ne traderait pas pendant ce temps : le
+        # rattrapage couterait la mesure qu il est cense enrichir. Les noms
+        # que le volume reclame en plus arrivent par la tache de fond, trois
+        # par tour, et entrent au panel des qu ils ont de quoi etre juges.
+        self._ensure_scalp_data(list(self.scalp.instruments) if self.scalp else [])
 
     def _panel_vise(self) -> list[str]:
         """Les noms que le panel VEUT, classes par volume reel sur OKX.
@@ -821,22 +828,30 @@ class LiveRunner:
                             self.log(f"scalp universe {len(uni)}: "
                                      + ",".join(i.split("-")[0] for i in uni[:12])
                                      + ("…" if len(uni) > 12 else ""))
-                        # Un nom que le volume reclame mais qui n a pas
-                        # encore d histoire ne peut pas etre juge. On le
-                        # rattrape en tache de fond : sans cela le
-                        # classement dynamique promettrait une place que
-                        # l actif ne pourrait jamais prendre.
-                        att = list(getattr(self.scalp, "attendus", []))[:3]
-                        if att and not getattr(self, "_rattrapage", False):
-                            self._rattrapage = True
-                            def _bf(noms=att):
-                                try:
-                                    self._ensure_scalp_data(noms)
-                                finally:
-                                    self._rattrapage = False
-                            threading.Thread(target=_bf, daemon=True).start()
                     elif ticks:
                         self.scalp.ticks = ticks
+                    # Un nom que le volume reclame mais qui n a pas encore
+                    # d histoire ne peut pas etre juge. On le rattrape en
+                    # tache de fond — a CHAQUE tour, pas seulement au
+                    # rafraichissement d univers : trois noms tous les quarts
+                    # d heure mettraient plus d une heure a completer le
+                    # panel. Le verrou empeche deux rattrapages simultanes.
+                    att = [i for i in getattr(self.scalp, "attendus", [])][:3]
+                    if att and not getattr(self, "_rattrapage", False):
+                        self._rattrapage = True
+                        def _bf(noms=att):
+                            try:
+                                self._ensure_scalp_data(noms)
+                                # rayes de la liste une fois rattrapes :
+                                # sinon le meme trio serait refetche a chaque
+                                # tour jusqu au prochain classement, dans un
+                                # quart d heure
+                                self.scalp.attendus = [
+                                    i for i in self.scalp.attendus
+                                    if i not in set(noms)]
+                            finally:
+                                self._rattrapage = False
+                        threading.Thread(target=_bf, daemon=True).start()
                     if ticks and hasattr(self.broker, "mark_ticks"):
                         self.broker.mark_ticks(ticks)
                     names = list(self.scalp.instruments)
