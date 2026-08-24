@@ -77,6 +77,10 @@ jobs:
               | grep -E "tp_maker|tp_taker|entry_edge_bps|exit_maker_bps|exit_taker_bps|pnl_day_usd|confiance|frein_risque|\"bps\"|\"n\"|retard_s|n_entrees|budget_usd|\"sl\"|\"time\"|\"trades\"" \
               | head -16 || echo "pas encore de scalp.json"
             echo
+            echo "===== chaine de taille : pourquoi la position fait CETTE taille ====="
+            python3 /root/hermes/deploy/releve_taille.py 2>/dev/null \
+              || echo "releve de taille indisponible"
+            echo
             echo "===== profondeur par instrument (panel des horloges) ====="
             # NB: commande ssh dejà entre apostrophes — aucune apostrophe ici,
             # et une seule ligne, sinon le bloc YAML se casse sur l|indentation.
