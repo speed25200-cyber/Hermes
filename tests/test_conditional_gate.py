@@ -370,3 +370,98 @@ def test_the_hour_of_day_wraps_around_midnight():
     X = feat_matrix(c)
     s, k = X[:, 14], X[:, 15]
     assert np.allclose(s ** 2 + k ** 2, 1.0, atol=1e-9)
+
+
+def test_doubling_the_instants_divides_the_bar_by_root_two():
+    """Le calcul sur lequel repose la profondeur d historique de l horloge
+    1m, pinne pour qu il ne puisse pas deriver en silence.
+
+    Mesure en production le 24 aout : sr=+0,242 contre barre=0,207 sur
+    290 instants, marge 0,035. La barre deflatee ne depend du nombre d
+    instants que par 1/racine(n) — donc doubler les instants la divise par
+    racine(2) et rend la marge presque trois fois plus grande, a SIGNAL
+    INCHANGE. C est la seule raison pour laquelle DAYS["1m"] est passe de
+    trente a soixante jours ; si la relation cessait d etre vraie, la
+    decision n aurait plus de fondement.
+    """
+    from hermes.backtest.metrics import expected_max_sharpe
+    from hermes.scalp.clock import DAYS
+    n_cells = 1296
+    b1 = expected_max_sharpe(n_cells, 290)
+    b2 = expected_max_sharpe(n_cells, 580)
+    assert 0.94 < (b1 / b2) / (2 ** 0.5) < 1.06, f"rapport {b1 / b2:.3f}"
+    # et la marge mesuree, refaite avec la barre abaissee
+    sr = 0.242
+    assert sr - b1 < 0.05 < sr - b2, (
+        f"marge {sr - b1:+.3f} -> {sr - b2:+.3f}")
+    assert DAYS["1m"] >= 60, "la profondeur qui justifie ce calcul a bouge"
+
+
+def test_the_training_sample_is_capped_but_the_holdout_never_is():
+    """Le panel passe a vingt jambes et la profondeur 1m double : le
+    produit fait 1,7 million de lignes pour le dernier pli. On echantillonne
+    l ENTRAINEMENT, jamais la mesure.
+
+    La distinction est tout le sujet. Deux etiquettes consecutives sur h
+    barres partagent h-1 barres : ce sont des quasi-doublons, et un pas
+    regulier garde la meme couverture calendaire. Retirer des instants du
+    HOLDOUT, en revanche, abaisserait la barre deflatee — la porte
+    deviendrait plus facile a franchir, ce qui est exactement l inverse du
+    but.
+    """
+    import inspect
+
+    from hermes.scalp import clock
+
+    src = inspect.getsource(clock.CandleModel._essai)
+    assert "BUDGET_TRAIN" in src, "aucun plafond sur lentrainement"
+    # le pas s applique a tr (entrainement), jamais a te (mesure)
+    ligne_tr = [l for l in src.splitlines() if "tr = idx[" in l]
+    ligne_te = [l for l in src.splitlines() if "te = idx[" in l]
+    assert ligne_tr and "saut" in ligne_tr[0], ligne_tr
+    assert ligne_te and "saut" not in ligne_te[0], ligne_te
+    assert clock.BUDGET_TRAIN >= 300_000, "un plafond trop bas affame le modele"
+
+
+def test_the_cap_does_not_bite_at_todays_panel_size():
+    """Le plafond doit etre un garde-fou, pas un changement de regime : au
+    panel mesure aujourd hui — six jambes, soixante jours de barres d une
+    minute, environ 240 000 lignes au dernier pli — il ne doit rien couper
+    du tout, sinon le comportement change sans qu on l ait voulu."""
+    from hermes.scalp.clock import BUDGET_TRAIN
+    aujourdhui = 6 * 86_400 * 0.55        # six actifs, dernier pli
+    assert aujourdhui < BUDGET_TRAIN, f"{aujourdhui:.0f} > {BUDGET_TRAIN}"
+    vingt = 20 * 86_400 * 0.55
+    assert vingt > BUDGET_TRAIN, "le plafond ne mordrait jamais"
+
+
+def test_the_retained_threshold_is_reported_in_sigmas_not_only_in_bps():
+    """Une grille tronquee juste au-dessus de l optimum coute exactement
+    ce que l optimum vaut, et le chiffre en points de base ne peut pas le
+    reveler : 13,5 bps ne dit pas si c est le dernier seuil cherche.
+
+    L horloge publie donc le seuil retenu EN SIGMAS. S il colle a la
+    derniere valeur de la grille refit apres refit, la grille est trop
+    courte — et on le verra au journal au lieu de le supposer.
+    """
+    from hermes.scalp.clock import THRESHOLDS, CandleModel
+    from hermes.data.store import Candles
+    import numpy as np
+
+    rng = np.random.default_rng(11)
+    n = 2600
+    z = rng.uniform(-1, 1, n)
+    r = rng.normal(0, 6e-4, n)
+    r[1:] += 9e-4 * z[:-1]
+    px = 100 * np.exp(np.cumsum(np.clip(r, -0.02, 0.02)))
+    o = np.concatenate([[100.0], px[:-1]])
+    w = np.abs(rng.normal(0, 4e-4, n)) * px
+    v = np.abs(rng.normal(1000, 100, n))
+    buy = v * (0.5 + 0.5 * z)
+    c = Candles("X", "5m", np.arange(n) * 300_000, o,
+                np.maximum(o, px) + w, np.minimum(o, px) - w, px, v,
+                taker_buy=buy, taker_sell=v - buy)
+    d = CandleModel("5m").fit(c)
+    assert "thr_k" in d
+    assert d["thr_k"] in THRESHOLDS or d["thr_k"] == 0.0, d["thr_k"]
+    assert max(THRESHOLDS) >= 3.0, "la grille des seuils a ete raccourcie"

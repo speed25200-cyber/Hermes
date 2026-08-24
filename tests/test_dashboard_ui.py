@@ -294,3 +294,36 @@ def test_the_compact_tables_survive_a_narrow_screen():
     i = s.index("@media (max-width:560px)")
     fin = s.index("}", s.index(".tab .poids,.tab .motif{display:none}", i))
     assert ".tab .poids,.tab .motif{display:none}" in s[i:fin + 200]
+
+
+def test_the_page_says_where_the_money_went(page):
+    """« Il fait n importe quoi » est une accusation sur l argent, et
+    l equite seule ne peut ni la confirmer ni la refuter — elle ne dit pas
+    si un recul vient du marche, des frais ou du financement.
+
+    La page principale porte donc la decomposition, et elle la lit dans le
+    livre du courtier plutot que de la recalculer a l ecran : deux
+    arithmetiques separees finiraient par diverger, et c est exactement ce
+    qui rendait le releve ininterpretable.
+    """
+    assert 'id="carte-livre"' in page, "pas de carte sur la page principale"
+    assert "Où part l'argent" in page
+    for cle in ("livre", "depart", "brut", "frais", "funding", "avant",
+                "notionnel"):
+        assert cle in page, f"le poste {cle} nest pas lu"
+    # La carte vit dans la vue MARCHE, avant le graphe : la reponse ne
+    # doit pas demander de naviguer.
+    marche = page.split('id="vue-marche"', 1)[1].split("</section>", 1)[0]
+    assert 'id="carte-livre"' in marche
+    assert marche.index('id="carte-livre"') < marche.index('class="carte marche"')
+
+
+def test_the_ledger_identity_is_closed_on_screen_not_approximated(page):
+    """Le latent se DEDUIT de l identite plutot que de se lire ailleurs :
+    equite moins depart, avant, brut, frais et financement. Si un poste
+    manquait, l ecart apparaitrait dans le latent au lieu de disparaitre
+    en silence — c est la propriete qui rend le bloc digne de confiance.
+    """
+    bloc = page.split("function rendreLivre", 1)[1].split("function rendrePositions", 1)[0]
+    assert "eq - (dep + avant + brut + frais + fund)" in bloc, \
+        "le latent nest plus le residu de lidentite"

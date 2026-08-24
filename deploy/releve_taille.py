@@ -114,7 +114,14 @@ def main() -> int:
     n_e = int(ent.get("n_entrees") or 0)
     if n_e:
         print(f"retard dentree mesure {float(ent.get('retard_s') or 0.0):.1f} s "
-              f"sur {n_e} ordres  (la porte suppose 0)")
+              f"sur {n_e} ordres")
+    n_g = int(ent.get("n_gliss") or 0)
+    if n_g:
+        gl = float(ent.get("glissement_bps") or 0.0)
+        facture = max(0.0, gl) if n_g >= 30 else 0.0
+        print(f"glissement dentree mesure {gl:+.2f} bps sur {n_g} ouvertures"
+              f"  -> facture a la porte {facture:+.2f} bps"
+              + ("" if n_g >= 30 else "  (moins de 30, pas encore facture)"))
     print(f"plafonds: par nom {lev.get('name_cap')}  brut {lev.get('gross_cap')}"
           f"  utilise {float(lev.get('used') or 0.0):.3f}")
     # Le plafond de ruine — 2,5 % de fonds propres par stop touche — borne

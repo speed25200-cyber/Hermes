@@ -383,6 +383,23 @@ button.ghost.icone{padding:8px;border-radius:50%;display:grid;place-items:center
   .tab .tr{grid-template-columns:56px 18px 66px 1fr 0 0}
   .tab .poids,.tab .motif{display:none}
 }
+/* Ou part l argent : une decomposition signee d un seul total. Une barre
+   par poste, proportionnelle a sa VALEUR ABSOLUE, coloree par son signe,
+   avec le chiffre en clair a droite. Pas de legende — chaque ligne porte
+   son nom ; pas d axe — l oeil compare des longueurs, pas des positions. */
+.liv{display:flex;flex-direction:column;gap:2px}
+.liv .lr{display:grid;align-items:center;gap:10px;padding:5px 0;
+  grid-template-columns:104px 1fr 96px}
+.liv .ln{color:var(--encre-2);font-size:12px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.liv .lb{height:9px;border-radius:3px;background:var(--filet);
+  position:relative;overflow:hidden}
+.liv .lb i{position:absolute;top:0;bottom:0;display:block;border-radius:3px}
+.liv .lv{text-align:right;font-weight:620}
+.liv .lr.tot{border-top:1px solid var(--filet);margin-top:4px;padding-top:8px}
+.liv .lr.tot .ln{color:var(--encre);font-weight:620}
+.liv .lnote{color:var(--encre-3);font-size:11.5px;margin-top:8px}
+@media (max-width:560px){ .liv .lr{grid-template-columns:88px 1fr 84px} }
 .bandeau{display:grid;gap:var(--e3);margin-bottom:var(--e4);
   grid-template-columns:repeat(auto-fit,minmax(148px,1fr))}
 .tuile{background:var(--surface-2);border:1px solid var(--filet);
@@ -651,6 +668,14 @@ footer{padding-bottom:96px}
       <div class="carte" id="carte-closes">
         <h2>Dernières fermetures <span class="aide" id="clo-aide"></span></h2>
         <div id="closes"><div class="vide">Aucune fermeture mesurée.</div></div>
+      </div>
+      <!-- « Il fait n importe quoi » est une accusation sur l argent, et
+           l equite seule ne peut ni la confirmer ni la refuter : elle ne
+           dit pas si un recul vient du marche, des frais ou du
+           financement. Cette carte le dit, et la somme boucle. -->
+      <div class="carte" id="carte-livre">
+        <h2>Où part l'argent <span class="aide" id="liv-aide"></span></h2>
+        <div id="livre"><div class="vide">En attente du moteur.</div></div>
       </div>
       <div class="carte marche">
         <div class="mtete">
@@ -1137,6 +1162,61 @@ function rendreClotures(d){
       <span></span>
     </div>`;
   }).join("") + `</div>`;
+}
+
+/* ── Ou part l argent ─────────────────────────────────────────────
+   Deux chiffres du releve ne pouvaient pas etre vrais ensemble : le compte
+   a -6,4 % et la regle mesuree a -0,5 bps sur 54 trades. A quelques
+   centaines de dollars de notionnel, -0,5 bps font des cents. Il manquait
+   une colonne. La voici, et elle boucle :
+
+     depart + avant + brut - frais - financement + latent = equite   */
+function rendreLivre(d){
+  const el = $("livre"); if (!el) return;
+  const lv = ((d.scalp || {}).livre) || {};
+  const dep = Number(lv.depart || 0);
+  if (!(dep > 0)) {
+    $("liv-aide").textContent = "";
+    el.innerHTML = '<div class="vide">En attente du moteur.</div>'; return;
+  }
+  const eq    = Number(lv.equite || d.equity_live || 0);
+  const brut  = Number(lv.brut || 0);
+  const frais = -Number(lv.frais || 0);
+  const fund  = -Number(lv.funding || 0);
+  const avant = Number(lv.avant || 0);
+  const latent = eq - (dep + avant + brut + frais + fund);
+  const notion = Number(lv.notionnel || 0);
+  const nfill = Number(lv.n || 0);
+
+  const postes = [["Avant le livre", avant, "non décomposé"]];
+  postes.push(["Brut réalisé", brut, nfill ? nfill + " fills" : ""]);
+  postes.push(["Frais", frais,
+    notion > 0 ? nf(Math.abs(frais) / notion * 1e4, 2) + " bps du notionnel" : ""]);
+  postes.push(["Financement", fund, ""]);
+  postes.push(["Latent", latent, "positions ouvertes"]);
+  const vus = postes.filter(x => Math.abs(x[1]) > 0.005);
+  const max = Math.max(1e-9, ...vus.map(x => Math.abs(x[1])));
+
+  const ligne = (nom, v, sous, cls) => {
+    const l = Math.max(2, Math.abs(v) / max * 100);
+    const pos = v >= 0;
+    return `<div class="lr ${cls || ""}" role="row">
+      <span class="ln">${esc(nom)}${sous ? ` <span style="color:var(--encre-3)">· ${esc(sous)}</span>` : ""}</span>
+      <span class="lb"><i class="${pos ? "hausse" : "baisse"}" style="width:${l/2}%;${
+        pos ? "left:50%" : "right:50%"};background:currentColor"></i></span>
+      <span class="lv num ${pos ? "hausse" : "baisse"}">${sgn(v)}</span></div>`;
+  };
+  const total = eq - dep;
+  $("liv-aide").textContent = nfill
+    ? `${nfill} fills · ${nf(eq / dep * 100 - 100, 2)} % depuis le départ` : "";
+  el.innerHTML = `<div class="liv" role="table">`
+    + vus.map(x => ligne(x[0], x[1], x[2])).join("")
+    + ligne("Total", total, usdt(eq), "tot")
+    + `</div>`
+    + (Math.abs(frais) > Math.abs(brut) && Math.abs(frais) > 1
+        ? `<div class="lnote">Les frais dépassent le brut : c'est le nombre de trades qui coûte, pas le signal.</div>`
+        : (Number(lv.liq || 0)
+            ? `<div class="lnote">${Number(lv.liq)} liquidation(s) dans l'historique.</div>` : ""));
 }
 
 function rendrePositions(d){
@@ -1884,7 +1964,7 @@ function rendre(d){
     el.textContent = sgn(dp) + " USDT (" + pct(dep?dp/dep:0,2) + ")";
     el.className = dp >= 0 ? "hausse" : "baisse";
   }
-  rendreBandeau(d); rendrePanel(d); rendreClotures(d);
+  rendreBandeau(d); rendrePanel(d); rendreClotures(d); rendreLivre(d);
   rendreVerdict(d); rendreDecisions(d); rendrePreuve(d); rendrePositions(d);
   Marche.maj(d);
   rendreRisque(d); rendreLevier(d); rendreTrades(d);

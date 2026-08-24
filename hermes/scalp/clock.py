@@ -61,7 +61,18 @@ class _Ensemble:
 # Seuils de déclenchement, en écarts-types de la prédiction elle-même.
 # Une horloge ne trade pas toutes les barres : elle trade celles où elle
 # parle fort. Le seuil est cherché sur le holdout et facturé comme tel.
-THRESHOLDS = (0.0, 0.5, 1.0, 1.5, 2.0, 2.5)
+# Seuils de declenchement, en ecarts-types de la prediction.
+#
+# Le 3,0 a ete ajoute apres avoir constate que la cellule retenue sortait
+# regulierement avec un seuil eleve — 13,5 puis 15,2 bps en direct. Une
+# grille tronquee juste au-dessus de l optimum coute exactement ce que
+# l optimum vaut, et on ne pouvait pas le savoir sans le chercher : le
+# balayage des seuils s applique a des predictions DEJA calculees, il ne
+# reajuste aucun modele. Le seul prix est la barre deflatee : sur le panel,
+# 2 592 cellules deviennent 3 024 et la barre passe de 0,2069 a 0,2093 a
+# 290 instants, soit 1,2 % — a comparer a une marge mesuree de 0,035, que
+# la cellule voisine de la grille pourrait tout aussi bien doubler.
+THRESHOLDS = (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0)
 MIN_TRADES = 40   # sous ce nombre, une moyenne n'est pas une mesure
 
 # Horizons de détention, en barres. Le modèle était validé sur la barre
@@ -107,6 +118,23 @@ VARIANTS = ("abs", "neu")
 STOPS = (("fixe", 2.0), ("fixe", 3.0), ("fixe", 4.0),
          ("suiv", 2.0), ("suiv", 3.0), ("suiv", 4.0))
 LARGEURS = (2.0, 3.0, 4.0)
+# Plafond de lignes d entrainement par pli.
+#
+# Le panel passe de six a vingt jambes et la profondeur 1m de trente a
+# soixante jours : le produit fait x6,5, soit 1,7 million de lignes pour
+# le dernier pli. Ni la memoire ni le temps d ajustement ne suivent, et
+# un moteur qui met un quart d heure a se reajuster n est plus en direct.
+#
+# Ce qu on echantillonne coute peu : sur h barres, deux etiquettes
+# consecutives partagent h-1 barres — ce sont des quasi-doublons, c est
+# d ailleurs la raison pour laquelle la MESURE, elle, est amincie a des
+# etiquettes non chevauchantes. Un pas regulier dans le temps garde la
+# meme couverture calendaire avec moins de redondance.
+#
+# Ce qu on n echantillonne JAMAIS, c est le holdout : la barre deflatee
+# se lit sur le nombre d instants mesures, et en retirer reviendrait a
+# se rendre la porte plus facile.
+BUDGET_TRAIN = 400_000
 
 # Validation glissante. Un découpage unique 80/20 ne rend que 20 % de
 # l'histoire en hors-échantillon, et la barre du hasard décroît en
@@ -152,7 +180,24 @@ HOLD = {"1m": 3, "3m": 3, "5m": 3, "15m": 3}
 # produit des centaines et la barre tombe vers 0,10. Ce n'est pas une
 # porte plus douce : c'est la même porte avec assez de preuves pour
 # distinguer un avantage d'une chance.
-DAYS = {"1m": 30, "3m": 60, "5m": 120, "15m": 365}
+# La barre de selection deflatee vaut ~3,63 / racine(instants) : elle ne
+# depend QUE du nombre d instants non chevauchants du holdout. Mesure en
+# production le 24 aout, horloge 1m : sr=+0,242 contre barre=0,207 sur
+# 290 instants — une marge de 0,035, dont la taille jouee se deduit
+# directement (net deflate = mu x marge/sr, soit +1,9 bps sur +13,0
+# annonces). Ce n est pas le modele qui manque, c est le denominateur.
+#
+# Trente jours de barres d une minute donnent 26 752 instants de holdout,
+# dont 411 declenchent et 290 survivent au deschevauchement. Soixante en
+# donnent deux fois plus, et la barre tombe d un facteur racine(2) : 0,207
+# -> 0,147, marge 0,035 -> 0,095, soit pres de trois fois le net deflate a
+# signal INCHANGE. Aucun autre levier disponible ne rend cela.
+#
+# Le prix est le temps d ajustement, qui double lui aussi : un balayage
+# complet passe de deux a environ quatre minutes toutes les seize. Et si
+# l avantage n existait que dans le dernier mois, le sr baissera — c est
+# un resultat honnete, pas un echec du dispositif.
+DAYS = {"1m": 60, "3m": 60, "5m": 120, "15m": 365}
 # Le panel : six perpétuels parmi les plus liquides d'OKX. Élargir la
 # coupe transversale ne fait pas baisser la barre par magie — elle se lit
 # sur le nombre d'INSTANTS mesurés, et deux actifs qui déclenchent en même
@@ -527,6 +572,7 @@ class CandleModel:
         # maker ; la jambe perdante traverse et paie self.fee.
         self.cost_win = 4.0
         self.thr_bps = 0.0      # sous ce mouvement prévu, l'horloge se tait
+        self.thr_k = 0.0        # le même seuil, en sigmas de la prédiction
         self.n_trades = 0       # combien de déclenchements sur le holdout
         self.horizon_bars = 1   # combien de barres la position doit vivre
         self.up = RidgeRegressor(l2=14.0)
@@ -563,7 +609,8 @@ class CandleModel:
             "n_holdout": self.n_hold, "net_sd": self.hold_sd,
             "net_defl": self.net_defl,
             "family": self.family,
-            "thr_bps": self.thr_bps, "n_trades": self.n_trades,
+            "thr_bps": self.thr_bps, "thr_k": self.thr_k,
+            "n_trades": self.n_trades,
             "horizon_bars": self.horizon_bars,
             "n_assets": self.n_assets, "n_periods": self.n_periods,
             "variant": self.variant, "pente": self.pente,
@@ -731,11 +778,17 @@ class CandleModel:
                 continue
             Xtr, ytr, Xte, yte, sgte, tste = [], [], [], [], [], []
             upte, dnte, stte, sgte2 = [], [], [], []
+            # Le pas d echantillonnage se calcule sur le pli entier, pour
+            # que chaque actif soit reduit dans la MEME proportion : un pas
+            # par actif donnerait plus de poids aux historiques courts.
+            brut = sum(int((p["ts"][p["idx"]] < t0 - h * pas).sum())
+                       for p in parts)
+            saut = max(1, -(-brut // BUDGET_TRAIN))
             for p in parts:
                 ts, idx, sg = p["ts"], p["idx"], p["sg"]
                 # embargo : une étiquette d'entraînement dont la fenêtre de
                 # h barres traverse la frontière a vu le pli de test.
-                tr = idx[ts[idx] < t0 - h * pas]
+                tr = idx[ts[idx] < t0 - h * pas][::saut]
                 te = idx[(ts[idx] >= t0) & (ts[idx] < t1)]
                 # Étiquettes NON CHEVAUCHANTES pour la mesure : sur h
                 # barres, deux étiquettes consécutives partagent h-1
@@ -881,7 +934,7 @@ class CandleModel:
                                 "fam": fam, "rr": rr, "nn": nn, "up": up,
                                 "dn": dn, "h": h, "pred": pv[m], "y": yho[m],
                                 "ic": ic, "thr": thr, "n_tr": n_tr,
-                                "n_per": n_per, "var": var, "ident": ident,
+                                "n_per": n_per, "var": var, "ident": ident, "k": float(k),
                                 "stop": float(ks), "mode": mode,
                                 "n_hold": len(yho), "n_train": n_train,
                                 "bps": mu, "sr": sr, "cle": cle, "sd": sd,
@@ -956,7 +1009,7 @@ class CandleModel:
                             "fam": fam, "rr": rr, "nn": nn, "up": up, "dn": dn,
                             "h": h, "pred": pv[m], "y": yho[m], "ic": ic,
                             "thr": thr, "n_tr": n_tr, "n_per": n_per,
-                            "var": var, "ident": ident, "stop": float(ks),
+                            "var": var, "ident": ident, "stop": float(ks), "k": float(k),
                             "mode": mode,
                             "n_hold": len(yho), "n_train": n_train,
                             "bps": mu, "sr": sr, "cle": cle, "sd": sd,
@@ -991,6 +1044,11 @@ class CandleModel:
         self.rr, self.nn, self.up, self.dn = b["rr"], b["nn"], b["up"], b["dn"]
         self.ic = b["ic"]
         self.thr_bps = float(b["thr"])
+        # Le seuil EN SIGMAS, pas seulement en bps : c est lui qui dit si
+        # la grille est tronquee au bon endroit. Un optimum qui colle a la
+        # derniere valeur cherchee signale une grille trop courte, et le
+        # chiffre en points de base ne peut pas le reveler.
+        self.thr_k = float(b.get("k") or 0.0)
         self.n_trades, self.n_hold = b["n_tr"], int(b["n_hold"])
         self.n_periods = int(b["n_per"])
         self.n_train = int(b["n_train"])
@@ -1220,7 +1278,7 @@ class ScaleDesk:
                      f"ic={d['ic']:.3f} "
                      f"net={d['holdout_bps']:+.2f}bps/trade "
                      f"sr={d['holdout_sr']:+.3f} vs bar={d['sel_bar']:.3f} "
-                     f"seuil={d['thr_bps']:.1f}bps "
+                     f"seuil={d['thr_bps']:.1f}bps/{d.get('thr_k', 0.0):.1f}sig "
                      f"stop={d['stop_sig']:.0f}sig/{d.get('stop_mode', 'fixe')} "
                      f"pente={d['pente']:.2f} "
                      f"{'gardee ' if d.get('garde') else ''}"

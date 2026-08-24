@@ -46,6 +46,12 @@ class ScalpEngine:
         # tokenisees, dont le volume les remettrait sinon en tete a chaque
         # classement.
         self.recales: set[str] = set()
+        # Et ceux qui ont deja passe l examen : un incumbent etait garde
+        # sur son seul volume, sans jamais etre rejuge. Les six noms ecrits
+        # dans la configuration entraient donc au panel sans avoir montre
+        # patte blanche une seule fois. On les juge une fois, on retient le
+        # verdict — la nature d un actif ne change pas.
+        self.admis: set[str] = set()
         # Le panel vise les N perpétuels USDT les plus échangés sur OKX ;
         # la liste écrite en dur ne sert que de point de départ avant le
         # premier classement par volume.
@@ -135,7 +141,15 @@ class ScalpEngine:
         # et l'ordre qui la joue. La porte mesure une entree AU PRIX DE
         # CLOTURE ; tant que ce chiffre n'est pas au releve, l'ecart entre
         # la regle mesuree et la regle jouee reste une supposition.
-        self.exec_stats = {"n_entrees": 0, "retard_s": 0.0}
+        # Le retard d entree etait MESURE (1,3 s sur 252 ordres) et la
+        # porte continuait de supposer zero. Ce que ce retard coute ne se
+        # deduit pas : entre la cloture de la barre qui a decide et le
+        # remplissage, le prix a bouge, et il a bouge dans le sens du
+        # signal aussi souvent qu il faut pour manger l avantage. On le
+        # mesure donc directement — prix paye contre prix du signal, signe
+        # par le sens — et on le FACTURE.
+        self.exec_stats = {"n_entrees": 0, "retard_s": 0.0,
+                           "glissement_bps": 0.0, "n_gliss": 0}
         self._dernier_net: float | None = None
         self._pending_ts = 0.0
         self.explore_stats = {"trades": 0, "tp_maker": 0, "tp_taker": 0,
@@ -334,7 +348,9 @@ class ScalpEngine:
             self.universe_at = time.time()
             return self.instruments
         garde = set(classe[: int(n * 1.5)])
-        retenus = [i for i in self.instruments if i in garde][:n]
+        retenus = [i for i in self.instruments
+                   if i in garde and (i in self.admis
+                                      or self._assez_dhistoire(i))][:n]
         for inst in classe:
             if len(retenus) >= n:
                 break
@@ -349,8 +365,21 @@ class ScalpEngine:
         # `classe` a ete capture AVANT que _assez_dhistoire ne recale les
         # series a trous : on refiltre, sinon le nom recale du tour meme
         # serait quand meme mis en file de rattrapage.
-        self.attendus = [i for i in classe[:n]
-                         if i not in retenus and i not in self.recales]
+        # Et elle descend AUSSI PROFOND qu il le faut. Mesure en
+        # production : le top 20 par volume d OKX contenait SNDK, XAU et
+        # SKHYNIX — des actions et des matieres premieres tokenisees. La
+        # boucle de remplissage ci-dessus, elle, parcourt TOUT le
+        # classement ; la file de rattrapage s arretait au rang 20. Les
+        # noms eligibles au-dela du rang 20 n etaient donc jamais
+        # rattrapes, donc jamais eligibles : le panel restait bloque a six
+        # pendant que le journal affichait « desk panel vise 1 ».
+        #
+        # On veut les vingt premiers ELIGIBLES, pas les eligibles parmi
+        # les vingt premiers. La file porte exactement le nombre de
+        # places manquantes.
+        manque = max(0, n - len(retenus))
+        self.attendus = [i for i in classe
+                         if i not in retenus and i not in self.recales][:manque]
         self.flatten_foreign()
         return self.instruments
 
@@ -407,7 +436,8 @@ class ScalpEngine:
         if duree <= 0:
             return False
         attendues = duree / 60_000.0 + 1.0
-        if (len(c) / attendues) >= self.couverture_min:
+        if (len(c) / attendues) >= self.couverture_min and self._vit_le_weekend(c):
+            self.admis.add(inst)
             return True
         # Assez de barres, mais une serie a trous : ce n est pas une crypto.
         # Le verdict est DEFINITIF, sinon le nom resterait eternellement
@@ -415,6 +445,52 @@ class ScalpEngine:
         # a chaque tour — un puits sans fond pour le quota d appels, sur un
         # actif qui n entrera jamais.
         self.recales.add(inst)
+        return False
+
+    def _vit_le_weekend(self, c) -> bool:
+        """Un actif 24/7 bouge le samedi comme le mercredi.
+
+        Le premier critere de continuite comptait les BARRES PRESENTES,
+        et il a laisse passer SNDK, XAU et SKHYNIX : ces perpetuels
+        publient une bougie d une minute meme quand leur sous-jacent est
+        ferme. La bougie existe, elle est simplement PLATE — et un compte
+        de barres ne distingue pas les deux.
+
+        Ce qui distingue vraiment une crypto d une action tokenisee, c est
+        que son prix vit le week-end. On compare donc l amplitude moyenne
+        des barres du samedi et du dimanche a celle des jours ouvres. Une
+        crypto donne un rapport voisin de 1 — le week-end est un peu plus
+        calme, jamais mort. Une action tokenisee donne un rapport proche
+        de zero.
+
+        Le seuil est a la moitie, loin des deux populations : il n y a pas
+        de reglage fin a trouver entre 0,9 et 0,05. Et le critere se
+        maintient tout seul au prochain listing, contrairement a une liste
+        noire ecrite a la main.
+
+        Sans assez de barres de week-end pour trancher, on ne tranche pas :
+        le nom reste candidat et sera rejuge quand il aura plus d histoire.
+        """
+        ts = np.asarray(c.ts, dtype=np.int64)
+        px = np.asarray(c.c, dtype=np.float64)
+        if len(px) < 2:
+            return True
+        amp = np.abs(np.diff(px) / np.where(px[:-1] > 0, px[:-1], np.nan))
+        amp = np.nan_to_num(amp, nan=0.0)
+        # 1970-01-01 etait un jeudi : (jours + 4) % 7 donne 5 = samedi,
+        # 6 = dimanche.
+        jour = ((ts[1:] // 86_400_000) + 4) % 7
+        we = jour >= 5
+        if int(we.sum()) < 500 or int((~we).sum()) < 500:
+            return True
+        ouvre = float(amp[~we].mean())
+        if ouvre <= 0.0:
+            return True
+        rapport = float(amp[we].mean()) / ouvre
+        if rapport >= 0.5:
+            return True
+        self.log(f"scalp recale {c.inst} : week-end a {rapport:.2f} "
+                 f"de l amplitude des jours ouvres — pas 24/7")
         return False
 
     def flatten_foreign(self) -> None:
@@ -581,7 +657,7 @@ class ScalpEngine:
             temoin = cinf if any(n == "candle" for *_, n in sources) else {}
             # The losing exit is taken: fees plus half the spread. The
             # winning exit rests at the take and pays maker, no spread.
-            cost_bps = self.round_trip_bps + 0.5 * spread
+            cost_bps = self.round_trip_bps + 0.5 * spread + self._glissement()
             bracket = None
             if inf["veto"]:
                 direction, reason = "flat", inf.get("status") or "veto"
@@ -908,6 +984,19 @@ class ScalpEngine:
         # stop ne se distinguait pas d'une sortie a l'horizon. On attache
         # donc le resultat au fill qui le realise ; _record le ramasse.
         self._dernier_net = net
+
+    def _glissement(self) -> float:
+        """Le cout mesure du retard d entree, facture a la porte.
+
+        Asymetrique, et c est delibere : un glissement mesure DEFAVORABLE
+        est ajoute au cout, un glissement favorable est ignore. Une mesure
+        bruitee ne doit jamais pouvoir abaisser la barre — elle ne peut
+        que la relever. Trente ouvertures avant de facturer quoi que ce
+        soit, pour la meme raison.
+        """
+        if int(self.exec_stats.get("n_gliss") or 0) < 30:
+            return 0.0
+        return max(0.0, float(self.exec_stats.get("glissement_bps") or 0.0))
 
     def _confiance(self) -> float:
         """Une règle prouvée sur l'histoire doit gagner sa taille au présent.
@@ -1427,7 +1516,16 @@ class ScalpEngine:
                     and abs(tgt_qty) < 1e-12:
                 continue
             delta = tgt_qty - cur
-            if abs(delta) * last < max(10.0, 0.002 * equity):
+            # Le plancher d ordre economise les frais d un ajustement qui
+            # ne vaut pas son aller-retour. Mais il s appliquait AUSSI aux
+            # fermetures, et une position devenue poussiere ne pouvait donc
+            # plus jamais etre refermee : mesure en production, un reliquat
+            # de -10 DOGE — 89 centimes — laisse par l arrondi de lot,
+            # affiche a l ecran des heures durant comme une position
+            # ouverte. Fermer coute un demi-millieme de dollar et ne se
+            # produit qu une fois ; le laisser vivre coute une ligne de
+            # « micro position » a l ecran pour toujours.
+            if abs(tgt_qty) > 1e-9 and abs(delta) * last < max(10.0, 0.002 * equity):
                 continue
             # « Ouvrir » se juge en ARGENT, comme partout ailleurs. Avec un
             # test a 1e-9, un reliquat de poussiere — 10 DOGE, 92 centimes,
@@ -1459,6 +1557,18 @@ class ScalpEngine:
                 continue
             why = ("close" if flatten
                    else ("open" if (opening or retourne) else "resize"))
+            # Ce que le retard coute VRAIMENT, en points de base, sur
+            # chaque ouverture de regle : le prix paye contre le prix sur
+            # lequel la decision a ete prise. Positif = paye plus cher que
+            # le signal, donc un cout.
+            sig_px = float(plan.get("px") or 0.0)
+            if why == "open" and sig_px > 0 and fill.price > 0:
+                gl = (float(np.sign(delta)) * (float(fill.price) - sig_px)
+                      / sig_px * 1e4)
+                ng = int(self.exec_stats.get("n_gliss") or 0)
+                mg = float(self.exec_stats.get("glissement_bps") or 0.0)
+                self.exec_stats["glissement_bps"] = (mg * ng + gl) / (ng + 1)
+                self.exec_stats["n_gliss"] = ng + 1
             if flatten or retourne:
                 self._compter_realise(inst, fill, cur, None)
             self._record(fill, delta, why, lev)

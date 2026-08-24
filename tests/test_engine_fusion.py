@@ -1356,3 +1356,247 @@ def test_the_ledger_names_the_past_it_did_not_see():
     d = PaperBroker(cash=10_000.0)
     d.restore(c.to_dict())
     assert abs(d.livre["avant"] - b.livre["avant"]) < 1e-9
+
+
+def test_a_stock_that_prints_flat_candles_is_still_not_a_crypto(tmp_path):
+    """Le premier critere comptait les BARRES PRESENTES, et il a laisse
+    passer SNDK, XAU et SKHYNIX — mesure en production, journal du
+    24 aout : « scalp universe 20: BTC,ETH,SOL,XRP,DOGE,BNB,SNDK,ZEC,
+    TRUMP,HYPE,XAU,SKHYNIX… ».
+
+    Ces perpetuels publient bien une bougie d une minute la nuit et le
+    week-end ; elle est simplement PLATE. Un compte de barres ne
+    distingue pas une bougie vide d une bougie vivante. L amplitude du
+    week-end rapportee a celle des jours ouvres, elle, les separe de
+    deux ordres de grandeur.
+    """
+    import numpy as np
+    from hermes.data.store import Candles
+
+    def serie(nom, vivant_le_weekend):
+        n = 20_000                      # ~14 jours : deux week-ends
+        ts = np.arange(n, dtype=np.int64) * 60_000
+        jour = ((ts // 86_400_000) + 4) % 7      # 1970-01-01 = jeudi
+        we = jour >= 5
+        rng = np.random.default_rng(4)
+        r = rng.normal(0, 4e-4, n)
+        if not vivant_le_weekend:
+            r[we] = 0.0                 # la bougie existe, le prix dort
+        px = 100 * np.exp(np.cumsum(r))
+        return Candles(nom, "1m", ts, px, px, px, px, np.ones(n))
+
+    eng, _ = _moteur_pos(tmp_path)
+    eng.store = type("M", (), {
+        "load": lambda self, i, b, **k: serie(i, not i.startswith("SNDK"))})()
+    assert eng._assez_dhistoire("SOL-USDT-SWAP") is True
+    assert eng._assez_dhistoire("SNDK-USDT-SWAP") is False, \
+        "une action tokenisee aux bougies plates est entree au panel"
+    assert "SNDK-USDT-SWAP" in eng.recales
+
+    # Contre-epreuve : le critere ne doit pas se declencher sur un
+    # week-end simplement plus CALME, ce qui est le cas de toutes les
+    # cryptos. A 70 % de l amplitude des jours ouvres, le nom passe.
+    def calme(nom):
+        n = 20_000
+        ts = np.arange(n, dtype=np.int64) * 60_000
+        jour = ((ts // 86_400_000) + 4) % 7
+        rng = np.random.default_rng(5)
+        r = rng.normal(0, 4e-4, n)
+        r[jour >= 5] *= 0.7
+        px = 100 * np.exp(np.cumsum(r))
+        return Candles(nom, "1m", ts, px, px, px, px, np.ones(n))
+
+    eng.store = type("M", (), {"load": lambda self, i, b, **k: calme(i)})()
+    assert eng._assez_dhistoire("DOGE-USDT-SWAP") is True, \
+        "un week-end plus calme n est pas un week-end mort"
+
+
+def test_the_backfill_queue_goes_as_deep_as_the_ranking_needs(tmp_path):
+    """Les vingt premiers ELIGIBLES, pas les eligibles parmi les vingt
+    premiers.
+
+    La boucle de remplissage parcourt tout le classement ; la file de
+    rattrapage s arretait au rang N. Quand les premiers rangs sont pris
+    par des noms recales, les eligibles suivants n etaient donc jamais
+    rattrapes, donc jamais eligibles — mesure en production, le panel
+    restait a six pendant que le journal affichait « desk panel vise 1 ».
+    """
+    import numpy as np
+    from hermes.data.store import Candles
+
+    def serie(nom, couv):
+        n = 6000
+        ts = np.arange(n, dtype=np.int64) * int(round(60_000 / couv))
+        px = 100 + np.zeros(n)
+        return Candles(nom, "1m", ts, px, px, px, px, np.ones(n))
+
+    eng, _ = _moteur_pos(tmp_path)
+    eng.universe_n = 4
+    eng.min_vol = 1_000.0
+    eng.instruments = []
+    # Les quatre premiers par volume sont des actions tokenisees ; les
+    # quatre suivants sont de vraies cryptos, sans histoire stockee.
+    faux = {"SNDK", "XAU", "SKHYNIX", "SPACEX"}
+    eng.store = type("M", (), {
+        "load": lambda self, i, b, **k: (
+            serie(i, 5 / 7) if i.split("-")[0] in faux else None)})()
+    vols = (("SNDK", 9e9), ("XAU", 8e9), ("SKHYNIX", 7e9), ("SPACEX", 6e9),
+            ("AAA", 5e9), ("BBB", 4e9), ("CCC", 3e9), ("DDD", 2e9))
+    t = {f"{c}-USDT-SWAP": {"vol_usd": v, "spread_bps": 1.0, "last": 1.0}
+         for c, v in vols}
+
+    uni = eng.refresh_universe(t)
+    assert uni == [], "aucun nom n a encore d histoire"
+    attendus = [i.split("-")[0] for i in eng.attendus]
+    assert attendus == ["AAA", "BBB", "CCC", "DDD"], attendus
+    assert not (set(attendus) & faux), "un nom recale serait rattrape"
+
+
+def test_an_incumbent_is_judged_too_not_kept_on_volume_alone(tmp_path):
+    """Un nom deja au panel y restait tant que son volume le tenait dans
+    les 1,5 N premiers — sans repasser une seule fois par la continuite.
+
+    Les six noms ecrits dans la configuration entraient donc au panel
+    sans examen, et un nom admis avant que le critere existe n aurait
+    jamais ete rejuge. On juge tout le monde une fois ; le verdict est
+    ensuite en cache, parce que la nature d un actif ne change pas.
+    """
+    import numpy as np
+    from hermes.data.store import Candles
+
+    def serie(nom, couv):
+        n = 6000
+        ts = np.arange(n, dtype=np.int64) * int(round(60_000 / couv))
+        px = 100 + np.zeros(n)
+        return Candles(nom, "1m", ts, px, px, px, px, np.ones(n))
+
+    eng, _ = _moteur_pos(tmp_path)
+    eng.universe_n = 3
+    eng.min_vol = 1_000.0
+    # XAU siege deja au panel, comme en production
+    eng.instruments = ["XAU-USDT-SWAP", "AAA-USDT-SWAP"]
+    lectures = []
+
+    def load(self, i, b, **k):
+        lectures.append(i)
+        return serie(i, 5 / 7 if i.startswith("XAU") else 0.995)
+
+    eng.store = type("M", (), {"load": load})()
+    t = {f"{c}-USDT-SWAP": {"vol_usd": v, "spread_bps": 1.0, "last": 1.0}
+         for c, v in (("XAU", 9e9), ("AAA", 8e9), ("BBB", 7e9))}
+
+    uni = eng.refresh_universe(t)
+    assert "XAU-USDT-SWAP" not in uni, "un incumbent echappe a l examen"
+    assert "AAA-USDT-SWAP" in uni
+
+    # Deuxieme tour : le verdict est en cache, on ne relit pas la base
+    # pour un nom deja admis.
+    lectures.clear()
+    eng.refresh_universe(t)
+    assert "AAA-USDT-SWAP" not in lectures, \
+        "l incumbent admis est relu a chaque tour"
+
+
+def test_the_measured_entry_slippage_is_charged_never_credited(tmp_path):
+    """Le retard d entree etait mesure — 1,3 s sur 252 ordres — et la
+    porte continuait de supposer zero.
+
+    Ce que ce retard coute ne se deduit pas d une formule : entre la
+    cloture de la barre qui decide et le remplissage, le prix bouge, et
+    il bouge dans le sens du signal assez souvent pour manger l avantage.
+    On mesure donc le prix paye contre le prix du signal, signe par le
+    sens, et on le facture au cout.
+
+    Asymetrique et delibere : un glissement defavorable monte le cout, un
+    glissement favorable est ignore. Une mesure bruitee ne doit jamais
+    pouvoir ABAISSER la barre.
+    """
+    eng, _ = _moteur_pos(tmp_path)
+    assert eng._glissement() == 0.0, "rien n est facture sans mesure"
+
+    # Vingt-neuf ouvertures defavorables : sous le seuil, rien n est
+    # facture — une moyenne sur si peu ne merite pas de decider.
+    eng.exec_stats["glissement_bps"] = 3.0
+    eng.exec_stats["n_gliss"] = 29
+    assert eng._glissement() == 0.0
+    eng.exec_stats["n_gliss"] = 30
+    assert eng._glissement() == 3.0, "le cout mesure n est pas facture"
+
+    # Et un glissement FAVORABLE, aussi bien mesure soit-il, ne rend rien.
+    eng.exec_stats["glissement_bps"] = -4.0
+    eng.exec_stats["n_gliss"] = 500
+    assert eng._glissement() == 0.0, "une mesure favorable abaisse la barre"
+
+
+def test_the_slippage_measured_is_the_signal_price_against_the_fill(tmp_path):
+    """Ce qui est mesure doit etre la bonne quantite : le prix paye contre
+    le prix SUR LEQUEL LA DECISION A ETE PRISE, pas contre le mid courant.
+
+    Un long rempli au-dessus du prix du signal paie ; un court rempli
+    au-dessus encaisse. Le signe compte, et il se trompe facilement.
+    """
+    inst = "BTC-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path)
+    # Le signal a ete calcule a 100 ; le carnet est deja monte a 100,10.
+    eng.ticks[inst] = {"last": 100.1, "bid": 100.0, "ask": 100.2,
+                       "spread_bps": 2.0}
+    eng.last_preds = [{"inst": inst, "policy": "candle", "bar": "1m",
+                       "dir": "long", "ml": "live", "conf": 1.0, "px": 100.0,
+                       "h_bars": 6, "edge_bps": 12.0, "lev": 1.0,
+                       "vol_bps": 25.0, "tp_bps": 30.0, "sl_bps": 40.0,
+                       "sortie_temps": True}]
+    eng._vol = {inst: 25.0}
+    eng.pending = {inst: 1.0}
+    eng.execute_pending()
+    assert eng.exec_stats["n_gliss"] == 1
+    assert eng.exec_stats["glissement_bps"] > 0.0, \
+        "un long rempli au-dessus du prix du signal a PAYE"
+
+    # Meme ecart de prix, sens oppose : le court a encaisse. Repertoire
+    # d etat separe : execute_pending ecrit un instantane, et un second
+    # moteur sur le meme repertoire reprendrait le compteur du premier.
+    autre = tmp_path / "second"
+    autre.mkdir()
+    eng2, _ = _moteur_pos(autre)
+    eng2.ticks[inst] = {"last": 100.1, "bid": 100.0, "ask": 100.2,
+                        "spread_bps": 2.0}
+    eng2.last_preds = [dict(eng.last_preds[0], dir="short", edge_bps=-12.0)]
+    eng2._vol = {inst: 25.0}
+    eng2.pending = {inst: -1.0}
+    eng2.execute_pending()
+    assert eng2.exec_stats["n_gliss"] == 1
+    assert eng2.exec_stats["glissement_bps"] < 0.0, \
+        "le signe du glissement suit le sens de la position"
+
+
+def test_a_dust_position_can_still_be_closed(tmp_path):
+    """Le plancher d ordre economisait les frais d un ajustement qui ne
+    valait pas son aller-retour — et il s appliquait aussi aux
+    FERMETURES. Une position tombee sous le plancher ne pouvait donc plus
+    jamais etre refermee.
+
+    Mesure en production : un reliquat de -10 DOGE, 89 centimes, laisse
+    par l arrondi de lot, affiche a l ecran comme une position ouverte
+    des heures durant. Exactement la « micro position » qu on reproche au
+    moteur, et elle etait immortelle.
+    """
+    inst = "DOGE-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path, {inst: -10.0})
+    eng.ticks[inst] = {"last": 0.0888, "bid": 0.0887, "ask": 0.0889,
+                       "spread_bps": 2.0}
+    eng.last_preds = []
+    eng.pending = {inst: 0.0}
+    eng.execute_pending()
+    assert abs(b.pos.get(inst, 0.0)) < 1e-9, \
+        f"la poussiere survit : {b.pos.get(inst)}"
+
+    # Et le plancher tient toujours pour ce a quoi il sert : un
+    # AJUSTEMENT minuscule ne paie pas son aller-retour.
+    autre = tmp_path / "b"
+    autre.mkdir()
+    eng2, b2 = _moteur_pos(autre, {inst: -10_000.0})
+    eng2.ticks[inst] = dict(eng.ticks[inst])
+    eng2.last_preds = []
+    eng2.pending = {inst: -9_990.0}
+    eng2.execute_pending()
+    assert abs(b2.pos[inst] + 10_000.0) < 1e-6, "l ajustement de 89 cents est passe"
