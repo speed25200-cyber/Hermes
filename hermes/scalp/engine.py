@@ -870,6 +870,17 @@ class ScalpEngine:
                 continue
             why = "close" if flatten else ("open" if opening else "resize")
             self._record(fill, delta, why, lev)
+            # Une position ouverte sur signal validé ne doit pas être plus
+            # discrète qu'un éclaireur : sans cette ligne, le seul indice
+            # qu'une horloge passée live a réellement travaillé était une
+            # variation de trésorerie, et rien ne disait quelle source
+            # avait décidé ni à quel levier.
+            if why in ("open", "close"):
+                self.log(f"{'ouverture' if why == 'open' else 'fermeture'} "
+                         f"{inst} {delta:+.6f} @ {fill.price:.6f} x{lev:.0f} "
+                         f"({plan.get('policy') or '?'} "
+                         f"{float(plan.get('edge_bps') or 0.0):+.1f}bps "
+                         f"h={int(plan.get('h_bars') or 0)})")
             if abs(tgt_qty) < 1e-9:
                 self.opened_bar.pop(inst, None)
                 self.brackets.pop(inst, None)
