@@ -267,3 +267,30 @@ def test_a_trailing_position_shows_the_trail_and_not_a_dead_stop():
     assert ".rail .marq.trail{" in s
     # l'échelle du rail suit le niveau ACTIF, pas un stop inerte
     assert "const bas = suiveur && isFinite(trail)" in s
+
+
+def test_the_main_page_tells_the_whole_chain():
+    """Une position seule ne dit pas si le desk voit dix occasions ou une,
+    ni ce que les fermetures précédentes ont rapporté. La page principale
+    montre désormais la chaîne entière : ce qu'il PRÉDIT, ce qu'il TIENT,
+    ce qu'il a FERMÉ et gagné."""
+    s = _html()
+    for i in ("panel", "positions", "closes"):
+        assert f'id="{i}"' in s, f"la page principale ignore {i}"
+    # dans cet ordre, et tous avant le graphe
+    assert s.index('id="panel"') < s.index('id="positions"') < \
+           s.index('id="closes"') < s.index('id="gzone"')
+    assert "function rendrePanel" in s and "function rendreClotures" in s
+    assert "rendrePanel(d)" in s and "rendreClotures(d)" in s
+    # les fermetures affichent leur RESULTAT, pas seulement un prix
+    assert "x.net_bps" in s, "les fermetures n'affichent pas leur net"
+
+
+def test_the_compact_tables_survive_a_narrow_screen():
+    """Six colonnes sur un téléphone donnent une bouillie. Les colonnes
+    accessoires disparaissent au lieu de comprimer les chiffres."""
+    s = _html()
+    assert "@media (max-width:560px)" in s
+    i = s.index("@media (max-width:560px)")
+    fin = s.index("}", s.index(".tab .poids,.tab .motif{display:none}", i))
+    assert ".tab .poids,.tab .motif{display:none}" in s[i:fin + 200]

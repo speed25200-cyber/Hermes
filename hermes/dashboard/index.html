@@ -365,6 +365,24 @@ button.ghost.icone{padding:8px;border-radius:50%;display:grid;place-items:center
 /* Bandeau de pilotage : les etages qui multiplient la taille, dans l ordre
    ou ils s appliquent. Grille fluide pour qu il tienne du telephone au
    grand ecran sans point de rupture ecrit a la main. */
+/* Tables compactes : une ligne par actif, colonnes alignees pour que
+   l oeil compare des chiffres et non des mots. */
+.tab{display:flex;flex-direction:column}
+.tab .tr{display:grid;align-items:center;gap:8px;padding:7px 0;
+  border-top:1px solid var(--filet);
+  grid-template-columns:64px 20px 74px 1fr 84px 78px}
+.tab .tr:first-child{border-top:0}
+.tab .edge{font-weight:620;text-align:right}
+.tab .poids{text-align:right;color:var(--encre-2)}
+.tab .tf{color:var(--encre-3);font-size:11.5px;overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap}
+.tab .motif{color:var(--encre-3);font-size:11.5px;text-align:right;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sens.mini{font-size:12px;padding:0;background:none;border:0}
+@media (max-width:560px){
+  .tab .tr{grid-template-columns:56px 18px 66px 1fr 0 0}
+  .tab .poids,.tab .motif{display:none}
+}
 .bandeau{display:grid;gap:var(--e3);margin-bottom:var(--e4);
   grid-template-columns:repeat(auto-fit,minmax(148px,1fr))}
 .tuile{background:var(--surface-2);border:1px solid var(--filet);
@@ -618,9 +636,21 @@ footer{padding-bottom:96px}
           <div class="heqd num" id="hero-eq-d"></div>
         </div>
       </div>
+      <!-- La chaine complete sur une seule page : ce qu il PREDIT, ce
+           qu il TIENT, ce qu il a FERME et gagne. Les predictions vivaient
+           sur un autre onglet, si bien qu on voyait une position sans
+           savoir ce que le desk annonce pour les dix-neuf autres. -->
+      <div class="carte" id="carte-panel">
+        <h2>Prédiction en cours <span class="aide" id="panel-aide"></span></h2>
+        <div id="panel"><div class="vide">En attente du desk.</div></div>
+      </div>
       <div class="carte" id="carte-positions">
         <h2>Positions ouvertes <span class="aide" id="pos-aide"></span></h2>
         <div id="positions"><div class="vide">Aucune position ouverte.</div></div>
+      </div>
+      <div class="carte" id="carte-closes">
+        <h2>Dernières fermetures <span class="aide" id="clo-aide"></span></h2>
+        <div id="closes"><div class="vide">Aucune fermeture mesurée.</div></div>
       </div>
       <div class="carte marche">
         <div class="mtete">
@@ -1043,6 +1073,70 @@ function rendreBandeau(d){
     t.push(tuile("Retard d'entrée", nf(retard,2) + " s",
       "la porte suppose 0", retard > 3 ? "att" : ""));
   el.innerHTML = t.join("");
+}
+
+/* ── Le panel : ce que le desk annonce, actif par actif ───────────
+   Une position seule ne dit pas si le desk voit dix occasions ou une. La
+   table montre les vingt jambes du panel a la fois, triees par conviction,
+   avec ce qui les separe d une entree : le mouvement prevu, l horizon, et
+   le motif du refus quand il y a refus. */
+function rendrePanel(d){
+  const el = $("panel"); if (!el) return;
+  const s = d.scalp || {};
+  const preds = (s.preds || []).slice()
+    .sort((a, b) => Math.abs(b.edge_bps || 0) - Math.abs(a.edge_bps || 0));
+  const vifs = preds.filter(p => p.dir && p.dir !== "flat").length;
+  $("panel-aide").textContent = preds.length
+    ? `${vifs} signal${vifs > 1 ? "s" : ""} sur ${preds.length} actifs`
+    : "";
+  if (!preds.length) {
+    el.innerHTML = '<div class="vide">En attente du desk.</div>'; return;
+  }
+  el.innerHTML = `<div class="tab" role="table">` + preds.map(p => {
+    const d3 = p.dir === "long" ? ["long", "▲"] :
+               p.dir === "short" ? ["short", "▼"] : ["plat", "—"];
+    const e = Number(p.edge_bps) || 0;
+    const w = Number(p.lev) || 0;                     // poids notionnel
+    const [nom] = motif(p.reason || "");
+    return `<div class="tr" role="row">
+      <span class="dsym">${esc(court(p.inst))}</span>
+      <span class="sens ${d3[0]} mini">${d3[1]}</span>
+      <span class="num edge ${e >= 0 ? "hausse" : "baisse"}">${bps(e)}</span>
+      <span class="num tf">${p.h_bars ? "h=" + p.h_bars : ""}${
+        p.bar ? " · " + esc(String(p.bar)) : ""}</span>
+      <span class="num poids">${w ? usdt(Math.abs(w) * Number(d.equity_live || s.equity || 0)) : ""}</span>
+      <span class="motif">${p.dir === "flat" ? esc(nom) : (p.ml === "live" ? "validé" : "")}</span>
+    </div>`;
+  }).join("") + `</div>`;
+}
+
+/* ── Les dernieres fermetures, avec leur resultat ─────────────────
+   Le journal ne portait que des prix : savoir ce qu une fermeture avait
+   rapporte demandait de reapparier entrees et sorties a la main. Chaque
+   fermeture porte desormais son net, et l ecran le montre. */
+function rendreClotures(d){
+  const el = $("closes"); if (!el) return;
+  const t = ((d.scalp || {}).trades || [])
+    .filter(x => x && x.net_bps !== null && x.net_bps !== undefined)
+    .slice(-12).reverse();
+  if (!t.length) {
+    $("clo-aide").textContent = "";
+    el.innerHTML = '<div class="vide">Aucune fermeture mesurée.</div>'; return;
+  }
+  const moy = t.reduce((a, x) => a + Number(x.net_bps || 0), 0) / t.length;
+  $("clo-aide").textContent = `${t.length} dernières · ${sgn(moy,1)} bps en moyenne`;
+  el.innerHTML = `<div class="tab" role="table">` + t.map(x => {
+    const n = Number(x.net_bps) || 0;
+    const usd = n * 1e-4 * Math.abs(Number(x.notional) || 0);
+    return `<div class="tr" role="row">
+      <span class="dsym">${esc(court(x.inst || ""))}</span>
+      <span class="motif">${esc(String(x.reason || "").slice(0, 18))}</span>
+      <span class="num edge ${n >= 0 ? "hausse" : "baisse"}">${sgn(n,1)} bps</span>
+      <span class="num poids ${usd >= 0 ? "hausse" : "baisse"}">${sgn(usd,2)}</span>
+      <span class="num tf">${usdt(Math.abs(Number(x.notional) || 0))}</span>
+      <span></span>
+    </div>`;
+  }).join("") + `</div>`;
 }
 
 function rendrePositions(d){
@@ -1790,7 +1884,7 @@ function rendre(d){
     el.textContent = sgn(dp) + " USDT (" + pct(dep?dp/dep:0,2) + ")";
     el.className = dp >= 0 ? "hausse" : "baisse";
   }
-  rendreBandeau(d);
+  rendreBandeau(d); rendrePanel(d); rendreClotures(d);
   rendreVerdict(d); rendreDecisions(d); rendrePreuve(d); rendrePositions(d);
   Marche.maj(d);
   rendreRisque(d); rendreLevier(d); rendreTrades(d);
