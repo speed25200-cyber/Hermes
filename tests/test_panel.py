@@ -673,10 +673,16 @@ def test_the_stop_is_measured_with_the_rule_not_bolted_on_after():
 
     Le stop est donc cherché AVEC la règle, facturé comme les autres
     dimensions, et le moteur joue exactement celui qui a été mesuré."""
-    from hermes.scalp.clock import STOPS
+    from hermes.scalp.clock import LARGEURS, STOPS
     m = CandleModel("5m")
     d = m.fit_panel([(_bruit(120 + i, n=3000), None) for i in range(3)])
-    assert d["stop_sig"] in STOPS
+    assert d["stop_sig"] in LARGEURS
+    # Le MODE fait partie de la règle au même titre que la largeur : un
+    # suiveur validé puis joué en stop fixe serait une AUTRE règle que
+    # celle qui a été prouvée.
+    assert d["stop_mode"] in {"fixe", "suiv"}
+    assert (d["stop_mode"], d["stop_sig"]) in STOPS
+    # et la grille doublée est facturée à la barre, pas offerte
     assert m.n_cells % len(STOPS) == 0
 
 

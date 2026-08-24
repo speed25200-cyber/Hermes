@@ -1109,3 +1109,55 @@ def test_the_panel_does_not_change_identity_every_quarter_hour(tmp_path):
     apres = eng.refresh_universe(base)
     assert "CCC-USDT-SWAP" not in apres, apres
     assert "DDD-USDT-SWAP" in apres
+
+
+def test_a_validated_trailing_stop_is_actually_played(tmp_path):
+    """Un suiveur mesuré par la porte puis joué en stop fixe serait une
+    AUTRE règle que celle qui a été prouvée — exactement le défaut corrigé
+    ce matin sur la LARGEUR du stop, ici sur son MODE."""
+    inst = "BTC-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path, {inst: 1.0})
+    eng.brackets[inst] = {"side": "long", "entry": 100.0,
+                          "sl": 90.0, "tp": 1e9,
+                          "sl_bps": 200.0, "tp_bps": 400.0,
+                          "sortie_temps": True, "stop_mode": "suiv",
+                          "sommet": 100.0, "trail": 98.0, "t0": 1}
+    eng.opened_bar[inst] = int(time.time() * 1000)
+    eng.hold_ms[inst] = 3_600_000
+
+    # le prix monte : le sommet suit, le niveau monte avec lui
+    eng.ticks[inst] = {"last": 110.0, "bid": 110.0, "ask": 110.1,
+                       "spread_bps": 2.0}
+    assert eng.check_exits() == []
+    assert eng.brackets[inst]["sommet"] == 110.0
+    assert abs(eng.brackets[inst]["trail"] - 107.8) < 1e-9
+
+    # il redescend de 2 % sous le sommet : le suiveur sort, et le stop
+    # FIXE à 90 n'aurait rien fait
+    eng.ticks[inst] = {"last": 107.0, "bid": 107.0, "ask": 107.1,
+                       "spread_bps": 2.0}
+    touches = eng.check_exits()
+    assert inst in touches
+    assert eng.trades[-1]["reason"].startswith("TRAIL")
+    assert eng.live_stats["n"] == 1
+    assert eng.live_stats["bps"] > 0, "le suiveur doit verrouiller le gain"
+
+
+def test_the_trailing_summit_never_falls_back(tmp_path):
+    """Le sommet ne redescend jamais : un suiveur qui se relâcherait quand
+    le prix recule ne serait plus un suiveur."""
+    inst = "BTC-USDT-SWAP"
+    eng, _ = _moteur_pos(tmp_path, {inst: -1.0})
+    eng.brackets[inst] = {"side": "short", "entry": 100.0,
+                          "sl": 110.0, "tp": 0.0,
+                          "sl_bps": 300.0, "tp_bps": 400.0,
+                          "sortie_temps": True, "stop_mode": "suiv",
+                          "sommet": 100.0, "trail": 103.0, "t0": 1}
+    eng.opened_bar[inst] = int(time.time() * 1000)
+    eng.hold_ms[inst] = 3_600_000
+    for px in (95.0, 92.0, 94.0):
+        eng.ticks[inst] = {"last": px, "bid": px - 0.05, "ask": px,
+                           "spread_bps": 2.0}
+        eng.check_exits()
+    assert eng.brackets[inst]["sommet"] == 92.0, "le sommet a reculé"
+    assert abs(eng.brackets[inst]["trail"] - 92.0 * 1.03) < 1e-9

@@ -529,6 +529,7 @@ class ScalpEngine:
             hurdle = max(self.min_edge, self.cost_tp_bps, spread + 1.5)
             reason = ""
             sortie_temps = False
+            mode_stop = "fixe"
             # la source dont l'économie a été mesurée sur données réelles
             temoin = cinf if any(n == "candle" for *_, n in sources) else {}
             # The losing exit is taken: fees plus half the spread. The
@@ -570,6 +571,7 @@ class ScalpEngine:
                     # avantage en saignée. La porte cherche maintenant sa
                     # largeur et la fait voyager jusqu'ici.
                     garde = float(temoin.get("stop_mesure") or 0.0)
+                    mode_stop = str(temoin.get("stop_mode") or "fixe")
                     if garde <= 0.0:
                         garde = max(3.0 * abs(edge),
                                     2.0 * max(pred["vol_bps"], 1.0))
@@ -613,6 +615,10 @@ class ScalpEngine:
                 # sortie au temps : le take est hors d'atteinte, c'est la
                 # durée validée qui referme la position
                 "sortie_temps": sortie_temps,
+                # Le MODE du garde-fou validé voyage avec lui : un suiveur
+                # mesuré par la porte puis joué en stop fixe serait une
+                # AUTRE règle que celle qui a été prouvée.
+                "stop_mode": mode_stop if sortie_temps else "fixe",
                 "net_bps": float(temoin.get("net_bps") or 0.0),
                 "net_sd": float(temoin.get("net_sd") or 0.0),
                 "net_defl": float(temoin.get("net_defl") or 0.0),
@@ -947,6 +953,15 @@ class ScalpEngine:
             "notional": notion,
             "margin": (notion / lev) if lev > 0 else notion,
             "hold_ms": int(self.hold_ms.get(inst) or 0),
+            "stop_mode": str(plan.get("stop_mode") or "fixe"),
+            # Le sommet du suiveur, en PRIX. Il ne monte que sur les
+            # cloture de barre du moteur : un pic intra-tick n est pas
+            # verrouillable, et en donner credit inventerait un gain que
+            # l execution n a jamais pu prendre — c est exactement la
+            # convention sous laquelle la porte l a mesure.
+            "sommet": entry,
+            "trail": (entry * (1.0 - sl_bps * 1e-4) if qty > 0
+                      else entry * (1.0 + sl_bps * 1e-4)),
             "policy": plan.get("policy"),
             "edge_bps": float(plan.get("edge_bps") or 0.0),
             "h_bars": int(plan.get("h_bars") or 0),
@@ -1034,7 +1049,25 @@ class ScalpEngine:
             reason = None
             maker_at = None
             br = self.brackets.get(inst)
-            if br:
+            if br and br.get("stop_mode") == "suiv":
+                # Le suiveur : le sommet ne monte que sur les cloture du
+                # moteur, jamais sur un pic intra-tick — un pic n est pas
+                # verrouillable, et lui donner credit inventerait un gain
+                # que l execution n a jamais pu prendre. C est la
+                # convention exacte sous laquelle la porte l a mesure.
+                lar = float(br.get("sl_bps") or 0.0) * 1e-4
+                if lar > 0:
+                    if qty > 0:
+                        br["sommet"] = max(float(br.get("sommet") or br["entry"]), last)
+                        br["trail"] = br["sommet"] * (1.0 - lar)
+                        if bid <= br["trail"]:
+                            reason = f"TRAIL {br['sl_bps']:.0f}bps"
+                    else:
+                        br["sommet"] = min(float(br.get("sommet") or br["entry"]), last)
+                        br["trail"] = br["sommet"] * (1.0 + lar)
+                        if ask >= br["trail"]:
+                            reason = f"TRAIL {br['sl_bps']:.0f}bps"
+            if br and reason is None and br.get("stop_mode") != "suiv":
                 if qty > 0:
                     if bid <= br["sl"]:
                         reason = f"SL {br['sl_bps']:.0f}bps"
