@@ -786,7 +786,7 @@ def test_a_position_keeps_its_rule_across_a_restart(tmp_path):
     n'avait rien validé, et n'entrait dans aucune mesure. Le direct était
     donc amputé exactement des trades traversant une mise en ligne."""
     inst = "BTC-USDT-SWAP"
-    eng, _ = _moteur_pos(tmp_path, {inst: 0.01})
+    eng, _ = _moteur_pos(tmp_path, {inst: 1.0})
     eng.brackets[inst] = {"side": "long", "entry": 100.0, "sl": 99.0,
                           "tp": 101.0, "sl_bps": 100.0, "tp_bps": 100.0,
                           "sortie_temps": True, "t0": 1}
@@ -795,7 +795,7 @@ def test_a_position_keeps_its_rule_across_a_restart(tmp_path):
     eng.opened_h[inst] = "1m"
     eng._snapshot({"equity": 10_000.0})
 
-    repris, _ = _moteur_pos(tmp_path, {inst: 0.01})
+    repris, _ = _moteur_pos(tmp_path, {inst: 1.0})
     assert repris.brackets[inst]["entry"] == 100.0
     assert repris.brackets[inst]["sortie_temps"] is True
     assert repris.opened_bar[inst] == 1_700_000_000_000
@@ -806,7 +806,7 @@ def test_a_position_keeps_its_rule_across_a_restart(tmp_path):
 def test_a_restarted_position_still_answers_to_its_stop(tmp_path):
     """Le test qui compte : après reprise, le stop doit encore sortir."""
     inst = "BTC-USDT-SWAP"
-    eng, _ = _moteur_pos(tmp_path, {inst: 0.01})
+    eng, _ = _moteur_pos(tmp_path, {inst: 1.0})
     eng.brackets[inst] = {"side": "long", "entry": 100.0, "sl": 99.0,
                           "tp": 101.0, "sl_bps": 100.0, "tp_bps": 100.0,
                           "sortie_temps": True, "t0": 1}
@@ -814,7 +814,7 @@ def test_a_restarted_position_still_answers_to_its_stop(tmp_path):
     eng.hold_ms[inst] = 360_000
     eng._snapshot({"equity": 10_000.0})
 
-    repris, b = _moteur_pos(tmp_path, {inst: 0.01})
+    repris, b = _moteur_pos(tmp_path, {inst: 1.0})
     repris.ticks[inst] = {"last": 98.5, "bid": 98.5, "ask": 98.6,
                           "spread_bps": 2.0}
     touches = repris.check_exits()
@@ -849,7 +849,7 @@ def test_a_truncated_position_read_never_flattens_a_held_position(tmp_path):
     ne doit ni effacer le suivi d'une position ni provoquer sa sortie : le
     tour suivant la reverra, et le compteur repart."""
     inst = "BTC-USDT-SWAP"
-    eng, b = _moteur_pos(tmp_path, {inst: 0.01})
+    eng, b = _moteur_pos(tmp_path, {inst: 1.0})
     eng.brackets[inst] = {"side": "long", "entry": 100.0, "sl": 1.0,
                           "tp": 1e9, "sl_bps": 100.0, "tp_bps": 100.0,
                           "sortie_temps": True, "t0": 1}
@@ -858,10 +858,10 @@ def test_a_truncated_position_read_never_flattens_a_held_position(tmp_path):
     eng.ticks[inst] = {"last": 100.0, "bid": 100.0, "ask": 100.1,
                        "spread_bps": 2.0}
     eng._orphelines({})           # lecture tronquée
-    eng._orphelines({inst: 0.01})  # l'échange répond de nouveau
+    eng._orphelines({inst: 1.0})  # l'échange répond de nouveau
     assert eng.brackets.get(inst), "le bracket a été effacé sur un hoquet"
     assert eng.check_exits() == []
-    assert b.pos[inst] == 0.01
+    assert b.pos[inst] == 1.0
 
 
 def test_a_reversal_closes_one_trade_and_opens_another(tmp_path):
@@ -953,3 +953,27 @@ def test_the_size_the_edge_alone_would_justify_is_published(tmp_path):
     wq = abs(eng._targets([q])["XRP-USDT-SWAP"])
     assert float(q["poids_plein"]) > wq / eng._confiance() + 1e-9, \
         "plafond non mordant : le frein doit compter en plus du rodage"
+
+
+def test_dust_is_not_a_position(tmp_path):
+    """Un reliquat de 1,2e-10 DOGE — un dix-milliardième de cent — passait
+    le seuil de QUANTITÉ, se faisait déclarer orpheline à chaque cycle, et
+    recevait un ordre de sortie que l'arrondi de l'échange ramenait à zéro.
+    Le reliquat restait, le journal se remplissait, la sortie ne sortait
+    rien. Le seuil doit être en argent, pas en quantité."""
+    inst = "DOGE-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path, {inst: 1.1641532182693481e-10})
+    dits = []
+    eng.log = dits.append
+    eng.ticks[inst] = {"last": 0.0916, "bid": 0.0915, "ask": 0.0917,
+                       "spread_bps": 2.0}
+    for _ in range(3):
+        assert eng.check_exits() == []
+    assert not any("orpheline" in m for m in dits), dits
+    assert not b.ordres, "un ordre a été envoyé pour de la poussière"
+
+    # une vraie position, elle, reste vue
+    b.pos[inst] = -3320.0
+    assert eng.check_exits() == []          # premier constat
+    assert inst in eng.check_exits()        # second : sortie
+    assert any("orpheline" in m for m in dits), dits

@@ -129,7 +129,7 @@ def test_sl_stops_long(tmp_path):
     from hermes.risk import RiskEngine
     from hermes.scalp.engine import ScalpEngine
     b = PaperBroker(cash=10_000, fee_bps=5.0)
-    b.pos["BTC-USDT-SWAP"] = 0.01
+    b.pos["BTC-USDT-SWAP"] = 1.0
     b.prices["BTC-USDT-SWAP"] = 100.0
     b.entry["BTC-USDT-SWAP"] = 100.0
     b.mark_ticks({"BTC-USDT-SWAP": {"last": 99.7, "bid": 99.6, "ask": 99.8}})
@@ -137,8 +137,8 @@ def test_sl_stops_long(tmp_path):
     eng = ScalpEngine({"scalp": {"instruments": ["BTC-USDT-SWAP"], "stop_bps": 15,
                                  "take_bps": 10}, "costs": {"taker_fee_bps": 5}},
                       b, None, risk, log=lambda m: None, state_dir=str(tmp_path))
-    fill = Fill("BTC-USDT-SWAP", "buy", 0.01, 100.0, 0.0, 0.0)
-    eng._arm("BTC-USDT-SWAP", 0.01, fill, vol_bps=5.0)
+    fill = Fill("BTC-USDT-SWAP", "buy", 1.0, 100.0, 0.0, 0.0)
+    eng._arm("BTC-USDT-SWAP", 1.0, fill, vol_bps=5.0)
     hit = eng.check_exits()
     assert "BTC-USDT-SWAP" in hit
     assert "BTC-USDT-SWAP" not in b.positions()
@@ -149,15 +149,15 @@ def test_tp_takes_long(tmp_path):
     from hermes.risk import RiskEngine
     from hermes.scalp.engine import ScalpEngine
     b = PaperBroker(cash=10_000, fee_bps=5.0)
-    b.pos["BTC-USDT-SWAP"] = 0.01
+    b.pos["BTC-USDT-SWAP"] = 1.0
     b.prices["BTC-USDT-SWAP"] = 100.2
     b.mark_ticks({"BTC-USDT-SWAP": {"last": 100.2, "bid": 100.15, "ask": 100.25}})
     risk = RiskEngine(daily_loss_limit_pct=50, max_drawdown_pct=90)
     eng = ScalpEngine({"scalp": {"instruments": ["BTC-USDT-SWAP"], "stop_bps": 15,
                                  "take_bps": 10}, "costs": {"taker_fee_bps": 5}},
                       b, None, risk, log=lambda m: None, state_dir=str(tmp_path))
-    fill = Fill("BTC-USDT-SWAP", "buy", 0.01, 100.0, 0.0, 0.0)
-    eng._arm("BTC-USDT-SWAP", 0.01, fill, vol_bps=1.0)
+    fill = Fill("BTC-USDT-SWAP", "buy", 1.0, 100.0, 0.0, 0.0)
+    eng._arm("BTC-USDT-SWAP", 1.0, fill, vol_bps=1.0)
     hit = eng.check_exits()
     assert "BTC-USDT-SWAP" in hit
 

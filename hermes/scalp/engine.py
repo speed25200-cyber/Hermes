@@ -91,6 +91,7 @@ class ScalpEngine:
         self.hold_ms: dict[str, int] = {}
         self.opened_h: dict[str, str] = {}
         self.sans_regle: set[str] = set()
+        self.poussiere_usd = 1.0
         self.desync: dict[str, int] = {}
         self.trades: list[dict] = []
         # Mode éclaireur : des trades réels à la taille MINIMALE de
@@ -812,6 +813,25 @@ class ScalpEngine:
             "t0": int(time.time() * 1000),   # l'écran affiche la tenue
         }
 
+    def _tient(self, inst: str, qty) -> bool:
+        """Une poussière n'est pas une position.
+
+        Mesuré en direct : un reliquat de 1,2e-10 DOGE — un dix-milliardième
+        de cent — passait le seuil de QUANTITÉ, se faisait déclarer orpheline
+        à chaque cycle, et recevait un ordre de sortie que l'arrondi de
+        l'échange ramenait à zéro. Le reliquat restait, le journal se
+        remplissait, et la sortie ne sortait rien. Le seuil doit donc être
+        en ARGENT : sous un dollar de notionnel il n'y a rien à fermer, rien
+        à surveiller, et rien à signaler.
+        """
+        q = abs(float(qty))
+        if q < 1e-12:
+            return False
+        last, _, _ = self._px(inst)
+        if last <= 0:
+            return True          # prix inconnu : on ne déclare rien mort
+        return q * last >= self.poussiere_usd
+
     def _orphelines(self, pos: dict) -> None:
         """Toute position doit appartenir à une règle ; sinon elle sort.
 
@@ -832,7 +852,7 @@ class ScalpEngine:
         renvoie une liste tronquée — ne doit ni effacer un suivi valide ni
         déclencher une sortie sur une position parfaitement tenue.
         """
-        tenus = {i for i, q in pos.items() if abs(float(q)) >= 1e-12}
+        tenus = {i for i, q in pos.items() if self._tient(i, q)}
         suivis = set(self.brackets) | set(self.opened_bar)
         ecart = (suivis - tenus) | (tenus - suivis)
         for inst in [i for i in self.desync if i not in ecart]:
@@ -869,7 +889,7 @@ class ScalpEngine:
         self._orphelines(pos)
         for inst, qty in list(pos.items()):
             last, bid, ask = self._px(inst)
-            if last <= 0 or abs(qty) < 1e-12:
+            if last <= 0 or not self._tient(inst, qty):
                 continue
             reason = None
             maker_at = None
