@@ -1163,6 +1163,15 @@ class ScalpEngine:
                 continue
             opening = abs(cur) < 1e-9 and abs(tgt_qty) > 1e-9
             flatten = abs(tgt_qty) < 1e-9
+            # Passer long -> court en un ordre, c'est fermer un trade et en
+            # ouvrir un autre, pas « ajuster ». Traite en resize, la jambe
+            # fermee n'entrait dans aucune mesure et le bracket restait
+            # celui du SENS OPPOSE : pour la position retournee, son stop
+            # se retrouvait du mauvais cote du prix et sortait au tour
+            # suivant sous l'etiquette « SL », un stop qui n'a jamais ete
+            # arme. Le gel de cible d'une regle mesuree rend ce cas rare,
+            # il ne le rend pas impossible.
+            retourne = cur * tgt_qty < 0
             plan = next((p for p in self.last_preds if p.get("inst") == inst), {})
             lev = float(plan.get("lev") or 0.0) if self.max_name > 1 else 0.0
             fill = self.broker.market_order(
@@ -1171,8 +1180,9 @@ class ScalpEngine:
             )
             if not fill:
                 continue
-            why = "close" if flatten else ("open" if opening else "resize")
-            if why == "close":
+            why = ("close" if flatten
+                   else ("open" if (opening or retourne) else "resize"))
+            if flatten or retourne:
                 self._compter_realise(inst, fill, cur, None)
             self._record(fill, delta, why, lev)
             # Une position ouverte sur signal validé ne doit pas être plus
@@ -1201,7 +1211,7 @@ class ScalpEngine:
                 self.brackets.pop(inst, None)
                 self.hold_ms.pop(inst, None)
                 self.opened_h.pop(inst, None)
-            elif opening:
+            elif opening or retourne:
                 self.opened_bar[inst] = int(time.time() * 1000)
                 plan = next((p for p in self.last_preds if p.get("inst") == inst), {})
                 hb = plan.get("bar") or "90s"

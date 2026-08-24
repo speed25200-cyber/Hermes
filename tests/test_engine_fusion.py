@@ -744,7 +744,8 @@ class _BrokerPos:
     def mark_prices(self, prices):
         pass
 
-    def market_order(self, inst, qty, px, force_taker=False, maker_at=None):
+    def market_order(self, inst, qty, px, force_taker=False,
+                     maker_at=None, leverage=None):
         self.ordres.append((inst, qty, px))
         self.pos[inst] = self.pos.get(inst, 0.0) + qty
         if abs(self.pos[inst]) < 1e-12:
@@ -765,9 +766,13 @@ def _moteur_pos(tmp_path, pos=None):
 
     class _R:
         trading_allowed = True
+        must_flatten = False
         daily_loss_limit_pct = 8.0
         max_drawdown_pct = 25.0
         state = _E()
+
+        def update_equity(self, *a):
+            pass
     b = _BrokerPos(pos)
     eng = ScalpEngine({"scalp": {}, "costs": {}}, b, None, _R(),
                       lambda m: None, str(tmp_path))
@@ -857,3 +862,36 @@ def test_a_truncated_position_read_never_flattens_a_held_position(tmp_path):
     assert eng.brackets.get(inst), "le bracket a été effacé sur un hoquet"
     assert eng.check_exits() == []
     assert b.pos[inst] == 0.01
+
+
+def test_a_reversal_closes_one_trade_and_opens_another(tmp_path):
+    """Passer long -> court en un ordre, c'est fermer un trade et en ouvrir
+    un autre. Traité en « resize », la jambe fermée n'entrait dans aucune
+    mesure et le bracket restait celui du sens opposé : le stop de la
+    position retournée se retrouvait du mauvais côté du prix et sortait au
+    tour suivant sous l'étiquette « SL », un stop jamais armé."""
+    inst = "BTC-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path, {inst: 1.0})
+    eng.brackets[inst] = {"side": "long", "entry": 100.0, "sl": 99.0,
+                          "tp": 101.0, "sl_bps": 100.0, "tp_bps": 100.0,
+                          "sortie_temps": True, "t0": 1}
+    eng.opened_bar[inst] = int(time.time() * 1000)
+    eng.hold_ms[inst] = 360_000
+    eng.ticks[inst] = {"last": 101.0, "bid": 100.9, "ask": 101.1,
+                       "spread_bps": 2.0}
+    eng.last_preds = [{"inst": inst, "policy": "candle", "bar": "1m",
+                       "dir": "short", "ml": "live", "conf": 1.0,
+                       "h_bars": 6, "edge_bps": -12.0, "lev": 1.0,
+                       "vol_bps": 25.0, "tp_bps": 30.0, "sl_bps": 40.0,
+                       "sortie_temps": True}]
+    eng._vol = {inst: 25.0}
+    eng.pending = {inst: -1.0}
+    eng.execute_pending()
+
+    assert b.pos[inst] == -1.0, "le retournement n'a pas eu lieu"
+    assert eng.live_stats["n"] == 1, "la jambe fermée n'a pas été mesurée"
+    assert eng.brackets[inst]["side"] == "short", eng.brackets[inst]
+    assert eng.brackets[inst]["sl"] > 101.0, \
+        "le stop du court est resté sous le prix : il sortirait aussitôt"
+    touches = eng.check_exits()
+    assert touches == [], f"sortie immédiate sur un stop jamais armé: {touches}"
