@@ -524,6 +524,7 @@ class ScalpEngine:
                 "sortie_temps": sortie_temps,
                 "net_bps": float(temoin.get("net_bps") or 0.0),
                 "net_sd": float(temoin.get("net_sd") or 0.0),
+                "net_defl": float(temoin.get("net_defl") or 0.0),
                 "net_n": int(temoin.get("net_n") or 0),
                 "cost_bps": cost_bps,
                 "cost_tp_bps": self.cost_tp_bps,
@@ -612,13 +613,34 @@ class ScalpEngine:
             # quand les preuves s'accumulent, et mord quand elles manquent.
             mu = float(p.get("net_bps") or 0.0) * 1e-4
             sd = float(p.get("net_sd") or 0.0) * 1e-4
+            # Le net DÉFLATÉ quand la porte le fournit : le net brut est le
+            # maximum d'une recherche sur ~1300 cellules, et Kelly est
+            # proportionnel a mu. Mesuré sur douze ajustements de l'horloge
+            # 1m : brut +14,66 bps/trade, déflaté +2,97, direct +3,74. La
+            # porte déduisait déjà cette prime pour DÉCIDER ; ne pas la
+            # déduire pour DIMENSIONNER faisait prendre cinq fois trop de
+            # risque par unité de preuve.
+            #
+            # La déflation REMPLACE la borne basse a une erreur type : la
+            # barre vaut deja ~3,3 erreurs types et decroit comme 1/racine(n)
+            # exactement comme elle. Sans champ deflate — une porte d'une
+            # version anterieure — on retombe sur l'ancienne borne basse
+            # plutot que de dimensionner sur le brut nu.
+            defl = float(p.get("net_defl") or 0.0) * 1e-4
             # À défaut d'un compte transmis, on suppose le MINIMUM que la
             # porte accepte (40 instants) : une mesure existe forcément
             # derrière, mais la plus maigre possible. Supposer 1 ferait
             # retrancher un écart-type entier et annulerait toute taille
             # sur un simple oubli de câblage.
             n = max(int(p.get("net_n") or 40), 1)
-            mu = max(0.0, mu - sd / float(np.sqrt(n)))
+            # La borne basse reste calculée dans tous les cas et sert de
+            # PLAFOND au déflaté. Par construction marge < sr, donc le
+            # déflaté est déjà plus petit que le brut ; mais un champ
+            # aberrant venant d'une porte future ne doit pas pouvoir
+            # agrandir une position — la nouvelle règle ne peut jamais
+            # dimensionner plus haut que l'ancienne.
+            borne = max(0.0, mu - sd / float(np.sqrt(n)))
+            mu = min(borne, defl) if defl > 0.0 else borne
             m2 = mu * mu + sd * sd
             kelly = 0.25 * mu / m2 if (m2 > 1e-18 and mu > 0) else 0.0
         else:

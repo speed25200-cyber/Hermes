@@ -73,6 +73,8 @@ def main() -> int:
     # Le plafond de ruine — 2,5 % de fonds propres par stop touche — borne
     # le levier AVANT le frein et le rodage. Quand il mord, baisser le
     # frein ne change plus rien a la taille : c est lui qui decide.
+    print("colonne « defl » = le net une fois otee la prime de selection"
+          " (max sur ~1300 cellules) ; cest LUI qui dimensionne")
     print("colonne « USD plein » = la taille que l avantage seul justifie,"
           " frein et rodage retires, plafond de ruine compris")
     print()
@@ -82,7 +84,7 @@ def main() -> int:
     # « la regle est faible » et « la regle est bridee » se ressemblent.
     _attribution(d.get("trades") or [])
     print(f"{'inst':<6} {'pol':<7} {'dir':<5} {'h':>2} {'edge':>7} "
-          f"{'net':>7} {'sd':>6} {'n':>5} {'lcb':>7} {'poids':>8} "
+          f"{'net':>7} {'sd':>6} {'n':>5} {'defl':>7} {'poids':>8} "
           f"{'USD':>9} {'USD plein':>10}")
     for p in (d.get("preds") or []):
         if (p.get("dir") or "flat") == "flat":
@@ -90,14 +92,16 @@ def main() -> int:
         net = float(p.get("net_bps") or 0.0)
         sd = float(p.get("net_sd") or 0.0)
         n = int(p.get("net_n") or 0)
-        lcb = net - (sd / (n ** 0.5)) if (sd > 0 and n > 0) else net
+        defl = float(p.get("net_defl") or 0.0)
+        if defl <= 0.0:
+            defl = net - (sd / (n ** 0.5)) if (sd > 0 and n > 0) else net
         w = float(p.get("lev") or 0.0)
         plein = float(p.get("poids_plein") or 0.0)
         print(f"{(p.get('inst') or '').split('-')[0]:<6} "
               f"{str(p.get('policy'))[:7]:<7} {str(p.get('dir'))[:5]:<5} "
               f"{int(p.get('h_bars') or 0):>2} "
               f"{float(p.get('edge_bps') or 0.0):>+7.1f} "
-              f"{net:>+7.1f} {sd:>6.1f} {n:>5} {lcb:>+7.1f} "
+              f"{net:>+7.1f} {sd:>6.1f} {n:>5} {defl:>+7.1f} "
               f"{w:>+8.4f} {w * eq:>+9.0f} {plein * eq:>+10.0f}")
     return 0
 

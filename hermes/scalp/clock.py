@@ -434,6 +434,7 @@ class CandleModel:
         self.n_assets = 1      # combien d'actifs nourrissent cette horloge
         self.n_periods = 0     # instants mesurés (trades simultanés agrégés)
         self.hold_sd = 0.0     # écart-type du net par trade, mesuré
+        self.net_defl = 0.0    # le net une fois la prime de sélection ôtée
         self.n_cells = (len(ASSETS) * len(BARS) * len(FAMILIES)
                         * len(THRESHOLDS) * len(HORIZONS) * len(STOPS))
         self.variant = "abs"   # brut, ou net de la moyenne du panel
@@ -450,6 +451,7 @@ class CandleModel:
             "n_train": self.n_train, "holdout_bps": self.holdout_bps,
             "holdout_sr": self.hold_sr, "sel_bar": self.sel_bar,
             "n_holdout": self.n_hold, "net_sd": self.hold_sd,
+            "net_defl": self.net_defl,
             "family": self.family,
             "thr_bps": self.thr_bps, "n_trades": self.n_trades,
             "horizon_bars": self.horizon_bars,
@@ -837,6 +839,31 @@ class CandleModel:
         # c'est lui qui gouverne la précision d'une moyenne quand les
         # trades sont corrélés entre eux.
         self.sel_bar = b["barre"]
+        # Le net DÉFLATÉ : ce que la cellule rapporte une fois ôtée la part
+        # que la seule sélection aurait produite.
+        #
+        # La barre était déduite pour DÉCIDER (sr > barre) et jamais pour
+        # DIMENSIONNER : la taille partait du net brut, c'est-à-dire du
+        # maximum d'une recherche sur ~1300 cellules. Or Kelly est
+        # proportionnel à mu. Mesuré sur douze ajustements de l'horloge 1m :
+        # net brut moyen +14,66 bps/trade, net déflaté +2,97 — et le direct,
+        # sur 22 trades, +3,74. Le déflaté prédit le direct à moins d'un bps
+        # près, le brut le surestime d'un facteur cinq. C'est tout l'écart
+        # entre la porte et le réel, et il valait cinq fois trop de risque.
+        #
+        # Le Sharpe étant invariant d'échelle, retrancher la barre en Sharpe
+        # revient à multiplier le net par marge/sr.
+        #
+        # Cette déflation remplace la borne basse à une erreur type, elle ne
+        # s'y ajoute pas : `barre` vaut déjà ~3,3 erreurs types (elle est
+        # l'espérance du MAXIMUM de n_cells tirages de bruit, et décroît
+        # comme 1/racine(n) exactement comme l'erreur type). Les cumuler
+        # retrancherait quatre fois le même bruit et rendrait un mu négatif
+        # sur dix ajustements sur douze — la règle cesserait de trader, donc
+        # de se mesurer.
+        sr_, marge_ = float(b["sr"]), float(b["marge"])
+        self.net_defl = (float(self.holdout_bps) * marge_ / sr_
+                         if sr_ > 1e-12 and marge_ > 0.0 else 0.0)
         ic_floor = 2.0 / math.sqrt(max(b["n_hold"], 4))
         if self.holdout_bps > 0 and self.hold_sr > self.sel_bar \
                 and self.ic > ic_floor:
@@ -893,6 +920,7 @@ class CandleModel:
             "r_bps": r_bps, "up_bps": up, "dn_bps": dn, "raw_bps": raw,
             "stop_bps": self.stop_sig * s * 1e4,
             "net_bps": self.holdout_bps, "net_sd": self.hold_sd,
+            "net_defl": self.net_defl,
             "net_n": self.n_periods,
             "q_bps": self.q * 1e4, "veto": veto, "bar": self.bar,
             "horizon_bars": self.horizon_bars, "variant": self.variant,
@@ -1090,6 +1118,7 @@ class ScaleDesk:
             # dispersion : de quoi dimensionner sans modèle
             "net_bps": float(dom.get("net_bps") or 0.0),
             "net_sd": float(dom.get("net_sd") or 0.0),
+            "net_defl": float(dom.get("net_defl") or 0.0),
             "net_n": int(dom.get("net_n") or 0),
             # le garde-fou EST celui qui a été mesuré, pas un autre
             "stop_mesure": float(dom.get("stop_bps") or 0.0),

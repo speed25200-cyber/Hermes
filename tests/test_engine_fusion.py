@@ -1004,3 +1004,49 @@ def test_a_close_carries_its_own_result(tmp_path):
     # une ouverture n'a pas de résultat : la colonne doit rester vide
     eng._record(b.market_order(inst, 1.0, 100.0), 1.0, "open", 1.0)
     assert eng.trades[-1]["net_bps"] is None
+
+
+def test_sizing_uses_the_deflated_net_not_the_raw_winner(tmp_path):
+    """Le net publié est le maximum d'une recherche sur ~1300 cellules, et
+    Kelly est proportionnel à mu. La porte déduisait la prime de sélection
+    pour DÉCIDER (sr > barre) et jamais pour DIMENSIONNER. Mesuré sur douze
+    ajustements de l'horloge 1m : brut +14,66 bps/trade, déflaté +2,97, et
+    le direct sur 22 trades +3,74 — le déflaté prédit le direct à moins
+    d'un bps, le brut le surestime d'un facteur cinq."""
+    eng, _ = _moteur_pos(tmp_path)
+    eng._risk_scale = lambda: 1.0
+    base = {"inst": "XRP-USDT-SWAP", "dir": "short", "policy": "candle",
+            "bar": "1m", "ml": "live", "conf": 1.0, "h_bars": 6,
+            "edge_bps": -12.0, "vol_bps": 30.0, "tp_bps": 40.0,
+            "sl_bps": 8.0, "cost_bps": 9.0, "cost_tp_bps": 4.0,
+            "net_bps": 20.54, "net_sd": 82.5, "net_n": 309,
+            "sortie_temps": True}
+    brut = eng._pick_lev(dict(base))
+    defl = eng._pick_lev(dict(base, net_defl=4.87))
+    assert 0 < defl < brut
+    assert brut / defl > 3.0, f"brut {brut:.3f} vs deflate {defl:.3f}"
+
+    # sans champ déflaté — une porte d'une version antérieure — on retombe
+    # sur l'ancienne borne basse, jamais sur le brut nu
+    mu = (20.54 - 82.5 / 309 ** 0.5) * 1e-4
+    sd = 82.5e-4
+    attendu = 0.25 * mu / (mu * mu + sd * sd)
+    assert abs(brut - attendu) < 1e-6, (brut, attendu)
+
+    # un déflaté plus GÉNÉREUX que le brut ne peut pas agrandir la position
+    assert eng._pick_lev(dict(base, net_defl=99.0)) <= brut + 1e-9
+
+
+def test_the_gate_publishes_its_deflated_net(tmp_path):
+    """La déflation doit voyager depuis la cellule retenue jusquau moteur."""
+    rng = np.random.default_rng(5)
+    m = CandleModel("5m")
+    series = [(_marche(np.random.default_rng(100 + k)), None) for k in range(3)]
+    d = m.fit_panel(series)
+    assert "net_defl" in d
+    assert d["net_defl"] >= 0.0
+    if d["status"] == "live":
+        assert 0.0 < d["net_defl"] <= d["holdout_bps"] + 1e-9
+        v = m.predict_row(np.zeros(m.n_features) if hasattr(m, "n_features")
+                          else np.zeros(27), 1e-3)
+        assert "net_defl" in v
