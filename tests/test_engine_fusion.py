@@ -150,7 +150,12 @@ def test_an_aux_only_signal_is_now_catchable():
     for seed in range(4):
         rng = np.random.default_rng(300 + seed)
         n, vol = 2000, 0.004
-        drive = rng.choice([-1.0, 1.0], n)
+        # Le déséquilibre taker PERSISTE sur quelques barres. Un flux qui
+        # change de signe à chaque barre ne prédit que la barre suivante,
+        # celle que le moteur ne peut pas atteindre : la fixture testerait
+        # alors une capture impossible.
+        base = rng.choice([-1.0, 1.0], n // 3 + 2)
+        drive = np.repeat(base, 3)[:n]
         r = np.zeros(n)
         for t in range(1, n):
             r[t] = 0.0016 * drive[t - 1] + rng.normal(0, vol * 0.35)

@@ -595,3 +595,45 @@ def test_a_clearly_better_cell_still_wins():
     ancre.fit_panel(panel, ("ridge", 6, 2.5, "neu"))
     # une identité absente de la grille retenue ne peut rien ancrer
     assert ancre.ident == libre.ident
+
+
+# --------------------------------------------------- décalage d'entrée
+
+def test_the_label_starts_where_the_engine_can_actually_enter():
+    """L'étiquette partait du cours de clôture de la barre qui PRODUIT le
+    signal, comme si l'ordre partait à l'instant même. Le moteur voit
+    cette clôture puis agit au tic suivant — mesuré : « desk 1m @ barre »
+    journalisé 66 secondes après la fermeture de cette barre, et
+    execute_pending consomme les cibles du tic PRÉCÉDENT. Le décalage est
+    d'une barre par horloge, par construction."""
+    from hermes.scalp.clock import ENTREE_DECALEE, _targets
+    assert ENTREE_DECALEE == 1
+    n = 30
+    px = np.arange(100.0, 100.0 + n)
+    c = Candles("X", "1m", np.arange(n) * 60_000, px, px + 0.5, px - 0.5,
+                px, np.ones(n))
+    y, _, _ = _targets(c, h=3)
+    # entrée à px[i+1], sortie à px[i+1+3]
+    assert abs(y[0] - (px[4] / px[1] - 1.0)) < 1e-12
+    sans = _targets(c, h=3, lag=0)[0]
+    assert abs(sans[0] - (px[3] / px[0] - 1.0)) < 1e-12
+
+
+def test_a_one_bar_ahead_signal_is_no_longer_measurable():
+    """Le cas qui explique le direct. Un marché dont le mouvement n'est
+    prévisible QU'UNE barre à l'avance est intradable : la porte doit le
+    refuser, alors qu'elle l'acceptait avant le décalage."""
+    rng = np.random.default_rng(77)
+    n = 3000
+    drive = rng.choice([-1.0, 1.0], n)          # tiré à chaque barre
+    r = np.zeros(n)
+    r[1:] = 0.0020 * drive[:-1] + rng.normal(0, 0.0012, n - 1)
+    px = 100 * np.exp(np.cumsum(r))
+    o = np.concatenate([[100.0], px[:-1]])
+    w = np.abs(rng.normal(0, 2e-4, n)) * px
+    vtot = np.abs(rng.normal(1000, 100, n))
+    c = Candles("X", "5m", np.arange(n) * 300_000, o,
+                np.maximum(o, px) + w, np.minimum(o, px) - w, px, vtot,
+                taker_buy=vtot * (0.5 + 0.45 * drive),
+                taker_sell=vtot * (0.5 - 0.45 * drive))
+    assert CandleModel("5m").fit(c)["status"] != "live"

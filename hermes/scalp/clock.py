@@ -100,6 +100,10 @@ VARIANTS = ("abs", "neu")
 FOLDS = 6
 DEBUT_TEST = 0.40
 
+# Décalage d'entrée, en barres. Le moteur ne peut pas entrer au cours de
+# clôture qui produit le signal : il le voit, puis agit au tic suivant.
+ENTREE_DECALEE = 1
+
 BARS = ("1m", "3m", "5m", "15m")
 HOLD = {"1m": 3, "3m": 3, "5m": 3, "15m": 3}
 # Profondeur d'historique par horloge. La barre du hasard décroît en
@@ -280,35 +284,54 @@ def feat_matrix(c: Candles) -> np.ndarray:
     ])
 
 
-def _targets(c: Candles, h: int = 1) -> tuple[np.ndarray, np.ndarray,
-                                              np.ndarray]:
-    """Rendement et excursions sur les h prochaines barres.
+def _targets(c: Candles, h: int = 1,
+             lag: int = ENTREE_DECALEE) -> tuple[np.ndarray, np.ndarray,
+                                                 np.ndarray]:
+    """Rendement et excursions du trade RÉELLEMENT jouable.
 
     Le modèle était validé sur la barre SUIVANTE pendant que le moteur
     tenait la position trois barres : la preuve ne portait pas sur le
     trade joué. Et l'horizon n'est pas neutre — le mouvement disponible
     croît comme racine(h) quand le coût, lui, reste plat. Un horizon est
     donc un paramètre, cherché et facturé comme les autres.
+
+    Reste le décalage d'entrée, et il n'est pas cosmétique. L'étiquette
+    partait du cours de clôture de la barre qui PRODUIT le signal, comme
+    si l'ordre partait à l'instant même. Le moteur, lui, voit cette
+    clôture puis agit au tic suivant — une soixantaine de secondes plus
+    tard, soit à la clôture de la barre d'après (mesuré : « desk 1m @
+    <barre> » journalisé 66 secondes après la fermeture de cette barre).
+    Sur une horloge d'une minute, la première barre contient souvent
+    l'essentiel du mouvement prévu, et l'offrir gratuitement à la mesure
+    produit exactement ce qu'on observe : une règle mesurée à +10 bps par
+    trade qui en rend -6 en direct.
+
+    L'entrée est donc décalée d'une barre, et la sortie avec elle. C'est
+    plus sévère, et c'est le but : ce qu'on mesure doit être ce qu'on
+    peut jouer.
     """
     n = len(c)
     h = max(int(h), 1)
+    lag = max(int(lag), 0)
     y_r = np.full(n, np.nan)
     y_up = np.full(n, np.nan)
     y_dn = np.full(n, np.nan)
     px = c.c
-    if n < h + 2:
+    m = n - h - lag
+    if m < 2:
         return y_r, y_up, y_dn
-    base = px[:-h]
+    base = px[lag:lag + m]
+    fut = px[lag + h:lag + h + m]
     ok = base > 0
-    y_r[:-h][ok] = px[h:][ok] / base[ok] - 1.0
-    # excursions extrêmes sur la fenêtre i+1 .. i+h
-    hi = np.copy(c.h[1:])
-    lo = np.copy(c.l[1:])
+    y_r[:m][ok] = fut[ok] / base[ok] - 1.0
+    # excursions extrêmes sur la fenêtre i+lag+1 .. i+lag+h
+    hi = np.copy(c.h[lag + 1:lag + 1 + m])
+    lo = np.copy(c.l[lag + 1:lag + 1 + m])
     for k in range(1, h):
-        hi[:len(hi) - k] = np.maximum(hi[:len(hi) - k], c.h[1 + k:])
-        lo[:len(lo) - k] = np.minimum(lo[:len(lo) - k], c.l[1 + k:])
-    y_up[:-h][ok] = hi[:len(base)][ok] / base[ok] - 1.0
-    y_dn[:-h][ok] = 1.0 - lo[:len(base)][ok] / base[ok]
+        hi = np.maximum(hi, c.h[lag + 1 + k:lag + 1 + k + m])
+        lo = np.minimum(lo, c.l[lag + 1 + k:lag + 1 + k + m])
+    y_up[:m][ok] = hi[ok] / base[ok] - 1.0
+    y_dn[:m][ok] = 1.0 - lo[ok] / base[ok]
     y_up = np.maximum(y_up, 0.0)
     y_dn = np.maximum(y_dn, 0.0)
     return y_r, y_up, y_dn

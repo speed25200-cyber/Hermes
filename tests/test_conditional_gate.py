@@ -32,8 +32,16 @@ def _marche_concentre(seed, n=4000, part=0.10, force=120e-4, bruit=9e-4):
     r = rng.normal(0, bruit, n)
     actif = rng.random(n) < part
     for t in range(1, n):
-        if actif[t - 1]:
-            r[t] = math.copysign(force, r[t - 1]) + rng.normal(0, bruit)
+        # La salve dure DEUX barres. Un mouvement prévisible une seule
+        # barre à l avance n est pas un avantage : le moteur voit la
+        # clôture qui produit le signal, puis agit au tic suivant, et
+        # cette barre-là est déjà passée. Une fixture qui plante son
+        # signal dans la barre suivante teste une machine qui ne peut pas
+        # exister.
+        src = (t - 1 if actif[t - 1]
+               else (t - 2 if t >= 2 and actif[t - 2] else None))
+        if src is not None:
+            r[t] = math.copysign(force, r[src]) + rng.normal(0, bruit)
     px = 100 * np.exp(np.cumsum(np.clip(r, -0.05, 0.05)))
     o = np.concatenate([[100.0], px[:-1]])
     w = np.abs(rng.normal(0, 3e-4, n)) * px

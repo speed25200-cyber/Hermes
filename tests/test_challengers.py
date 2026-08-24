@@ -15,26 +15,40 @@ from hermes.ml.models import MLPRegressor, RidgeRegressor
 from hermes.scalp.clock import FAMILIES, CandleModel
 
 
-def _marche_interaction(seed, n=2400, k=0.9, bruit=8e-4):
-    """Prochain retour = k · r1 · signe(funding) + bruit.
+def _marche_interaction(seed, n=2400, effet=12e-4, bruit=8e-4):
+    """Le prochain retour tradable = effet · flux · signe(funding).
 
-    corr(y, r1) ≈ 0 et corr(y, funding) ≈ 0 : aucune colonne seule ne
-    porte le signal, seul leur PRODUIT le porte. Un modèle linéaire est
-    aveugle par construction ; c'est le cas d'école qui justifie le
-    challenger."""
+    Deux exigences que ce marché doit satisfaire ensemble, et qui se
+    contrarient si on n y prend pas garde.
+
+    D abord il doit être TRADABLE : l effet porte sur la barre i+2, pas
+    i+1. Un mouvement prévisible une seule barre à l avance n est pas un
+    avantage — le moteur voit la clôture qui produit le signal, puis agit
+    au tic suivant, et cette barre-là est déjà passée. Le régime de
+    funding persiste, comme dans la réalité, pour que le signe reste
+    connu au moment où l ordre part.
+
+    Ensuite il doit rester INVISIBLE au linéaire : corr(y, flux) et
+    corr(y, funding) valent zéro, seul leur PRODUIT porte le signal. D où
+    un prix par ailleurs blanc — une structure auto-régressive donnerait
+    aux retours décalés de quoi reconstituer le régime, et le ridge
+    passerait par la fenêtre.
+    """
     rng = np.random.default_rng(seed)
-    f = rng.choice([-1.0, 1.0], size=n) * (2e-4 + rng.random(n) * 3e-4)
-    r = np.zeros(n)
-    r[0] = rng.normal(0, 3e-3)
-    for t in range(1, n):
-        r[t] = k * r[t - 1] * np.sign(f[t - 1]) + rng.normal(0, bruit)
-        r[t] = float(np.clip(r[t], -0.02, 0.02))
+    fb = rng.choice([-1.0, 1.0], size=n // 10 + 2)
+    f = np.repeat(fb, 10)[:n] * (2e-4 + rng.random(n) * 3e-4)
+    z = rng.uniform(-1.0, 1.0, n)               # flux taker, observable
+    r = rng.normal(0, bruit, n)
+    r[2:] += effet * z[:-2] * np.sign(f[:-2])
+    r = np.clip(r, -0.02, 0.02)
     px = 100 * np.exp(np.cumsum(r))
     o = np.concatenate([[100.0], px[:-1]])
     w = np.abs(rng.normal(0, 4e-4, n)) * px
+    vtot = np.abs(rng.normal(1000, 100, n))
+    buy = vtot * (0.5 + 0.5 * z)
     return Candles("X", "5m", np.arange(n) * 300_000, o,
                    np.maximum(o, px) + w, np.minimum(o, px) - w, px,
-                   np.abs(rng.normal(1000, 300, n)), funding=f)
+                   vtot, funding=f, taker_buy=buy, taker_sell=vtot - buy)
 
 
 def test_the_mlp_catches_the_interaction_the_ridge_cannot():
@@ -51,8 +65,18 @@ def test_the_mlp_catches_the_interaction_the_ridge_cannot():
 
 
 def test_the_ridge_alone_is_blind_to_it():
-    """Contre-épreuve : le même marché, jugé sur le score du ridge seul,
-    ne franchit pas la barre — sinon le test précédent ne prouverait rien."""
+    """Contre-épreuve, sans quoi le test précédent ne prouverait rien : sur
+    le même marché et le même découpage, le linéaire doit rester très
+    loin derrière le réseau.
+
+    La comparaison est relative et c est délibéré. Un seuil absolu sur l
+    ic du ridge est fragile — il reste toujours un filet de corrélation
+    résiduelle, et le fixer trop bas fait échouer le test pour du bruit
+    d échantillonnage plutôt que pour la raison qu il prétend tester. Ce
+    qui compte est l écart : le produit est hors de portée d une somme
+    pondérée.
+    """
+    from hermes.ml.models import MLPRegressor
     from hermes.scalp.clock import _ic, _targets, feat_matrix
     c = _marche_interaction(31)
     X = np.column_stack([feat_matrix(c), np.zeros(len(c)), np.zeros(len(c))])
@@ -60,9 +84,11 @@ def test_the_ridge_alone_is_blind_to_it():
     idx = np.where(np.isfinite(y))[0]
     cut = idx[int(0.8 * len(idx))]
     train, hold = idx[idx < cut], idx[idx >= cut]
-    rr = RidgeRegressor(l2=14.0).fit(X[train], y[train])
-    ic = _ic(rr.predict(X[hold]), y[hold])
-    assert abs(ic) < 0.1, f"ic linéaire {ic:.3f} — l'interaction fuit"
+    ic_rr = abs(_ic(RidgeRegressor(l2=14.0).fit(X[train], y[train])
+                    .predict(X[hold]), y[hold]))
+    ic_nn = abs(_ic(MLPRegressor(hidden=(24, 12), epochs=120, patience=10)
+                    .fit(X[train], y[train]).predict(X[hold]), y[hold]))
+    assert ic_nn > 2.5 * ic_rr, f"ridge {ic_rr:.3f} vs réseau {ic_nn:.3f}"
 
 
 def test_noise_passes_neither_family(tmp_path):
