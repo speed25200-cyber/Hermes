@@ -1229,3 +1229,33 @@ def test_a_tokenised_stock_never_enters_the_crypto_panel(tmp_path):
                 if hasattr(serie(inst, 0.99), "_replace") else None
     eng.store = type("V", (), {"load": lambda self, i, b, **k: None})()
     assert eng._assez_dhistoire("NEUF-USDT-SWAP") is False
+
+
+def test_a_rejected_name_is_never_chased_again(tmp_path):
+    """Un nom écarté par la continuité restait « réclamé par le volume,
+    pas encore prêt » et se faisait rattraper à chaque tour — un puits
+    sans fond pour le quota d'appels, sur un actif qui n'entrera jamais."""
+    import numpy as np
+    from hermes.data.store import Candles
+
+    def serie(nom, couv):
+        n = 6000
+        ts = np.arange(n, dtype=np.int64) * int(round(60_000 / couv))
+        px = 100 + np.zeros(n)
+        return Candles(nom, "1m", ts, px, px, px, px, np.ones(n))
+
+    eng, _ = _moteur_pos(tmp_path)
+    eng.universe_n = 3
+    eng.min_vol = 1_000.0
+    eng.store = type("M", (), {
+        "load": lambda self, i, b, **k: serie(i, 5 / 7 if i.startswith("XAU")
+                                              else 0.995)})()
+    t = {f"{c}-USDT-SWAP": {"vol_usd": v, "spread_bps": 1.0, "last": 1.0}
+         for c, v in (("XAU", 9e9), ("AAA", 8e9), ("BBB", 7e9), ("CCC", 6e9))}
+    uni = eng.refresh_universe(t)
+    assert "XAU-USDT-SWAP" not in uni
+    assert "XAU-USDT-SWAP" in eng.recales, "le verdict n'est pas retenu"
+    # ...et il ne revient plus au classement, malgré le plus gros volume
+    assert "XAU-USDT-SWAP" not in eng.classement(t)
+    assert "XAU-USDT-SWAP" not in eng.attendus, \
+        "l'actif recalé serait rattrapé à chaque tour"

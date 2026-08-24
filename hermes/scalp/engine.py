@@ -41,6 +41,11 @@ class ScalpEngine:
         # à une action en remplit cinq septièmes. Le seuil sépare les deux
         # sans liste noire à tenir à jour.
         self.couverture_min = 0.90
+        # Noms deja rattrapes et recales par la continuite : on ne les
+        # reclasse plus. Ce sont les actions et matieres premieres
+        # tokenisees, dont le volume les remettrait sinon en tete a chaque
+        # classement.
+        self.recales: set[str] = set()
         # Le panel vise les N perpétuels USDT les plus échangés sur OKX ;
         # la liste écrite en dur ne sert que de point de départ avant le
         # premier classement par volume.
@@ -335,7 +340,11 @@ class ScalpEngine:
         # Ce que le volume reclame mais que l histoire ne permet pas encore :
         # la boucle live va le rattraper en tache de fond, et le nom entrera
         # au panel des qu il aura de quoi etre juge.
-        self.attendus = [i for i in classe[:n] if i not in retenus]
+        # `classe` a ete capture AVANT que _assez_dhistoire ne recale les
+        # series a trous : on refiltre, sinon le nom recale du tour meme
+        # serait quand meme mis en file de rattrapage.
+        self.attendus = [i for i in classe[:n]
+                         if i not in retenus and i not in self.recales]
         self.flatten_foreign()
         return self.instruments
 
@@ -349,7 +358,7 @@ class ScalpEngine:
         """
         cands = []
         for inst, t in (tickers or {}).items():
-            if not inst.endswith("-USDT-SWAP"):
+            if not inst.endswith("-USDT-SWAP") or inst in self.recales:
                 continue
             v = float((t or {}).get("vol_usd") or 0.0)
             sp = float((t or {}).get("spread_bps") or 999.0)
@@ -392,7 +401,15 @@ class ScalpEngine:
         if duree <= 0:
             return False
         attendues = duree / 60_000.0 + 1.0
-        return (len(c) / attendues) >= self.couverture_min
+        if (len(c) / attendues) >= self.couverture_min:
+            return True
+        # Assez de barres, mais une serie a trous : ce n est pas une crypto.
+        # Le verdict est DEFINITIF, sinon le nom resterait eternellement
+        # « reclame par le volume, pas encore pret » et se ferait rattraper
+        # a chaque tour — un puits sans fond pour le quota d appels, sur un
+        # actif qui n entrera jamais.
+        self.recales.add(inst)
+        return False
 
     def flatten_foreign(self) -> None:
         """Close leftover names that are not in the live scalp universe
