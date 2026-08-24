@@ -47,12 +47,14 @@ jobs:
             echo "===== research / engine journal (last 50 lines) ====="
             journalctl -u hermes-research -u hermes -n 50 --no-pager || true
             echo
-            # Trois fenêtres séparées, et c'est délibéré : mélangées, le
-            # bavardage des éclaireurs (un trade toutes les deux minutes)
-            # chassait les verdicts d'horloge (un toutes les heures) et
-            # les ouvertures sur règle validée hors de la fenêtre. On ne
-            # peut pas répondre « l horloge est-elle encore vivante » et
-            # « la règle trade-t-elle » avec un seul tail partagé.
+            # Trois fenetres separees, et le choix est delibere. Melangees,
+            # le bavardage des eclaireurs (un trade toutes les deux minutes)
+            # chassait les verdicts des horloges (un par heure) et les
+            # ouvertures sur regle validee hors de la fenetre. On ne peut
+            # pas repondre « cette horloge est-elle encore vivante » et
+            # « la regle trade-t-elle » avec un seul tail partage.
+            # NB: aucune apostrophe ici — la commande ssh en est deja
+            # entouree, et une seule casse tout le releve.
             echo "===== verdicts des horloges et des têtes (12 h) ====="
             journalctl -u hermes --since "-12 hours" --no-pager 2>/dev/null \
               | grep -E "flow (90s|300s|900s) (live|veto)|clock .* (live|veto) \[" \
