@@ -47,12 +47,26 @@ jobs:
             echo "===== research / engine journal (last 50 lines) ====="
             journalctl -u hermes-research -u hermes -n 50 --no-pager || true
             echo
-            # Les verdicts rares (flow 5m/15m ~1x/h, horloges ~1x/4h) sortent
-            # de la fenêtre de 50 lignes : on les repêche sur 6 h.
-            echo "===== verdicts des 6 dernières heures (gates + trades) ====="
-            journalctl -u hermes --since "-6 hours" --no-pager 2>/dev/null \
-              | grep -E "flow (90s|300s|900s|5m|15m) (live|veto)|clock .* (live|veto) \[|TP .*maker|scalp SL|explore |ouverture |fermeture " \
-              | tail -40 || true
+            # Trois fenêtres séparées, et c'est délibéré : mélangées, le
+            # bavardage des éclaireurs (un trade toutes les deux minutes)
+            # chassait les verdicts d'horloge (un toutes les heures) et
+            # les ouvertures sur règle validée hors de la fenêtre. On ne
+            # peut pas répondre « l horloge est-elle encore vivante » et
+            # « la règle trade-t-elle » avec un seul tail partagé.
+            echo "===== verdicts des horloges et des têtes (12 h) ====="
+            journalctl -u hermes --since "-12 hours" --no-pager 2>/dev/null \
+              | grep -E "flow (90s|300s|900s) (live|veto)|clock .* (live|veto) \[" \
+              | tail -14 || true
+            echo
+            echo "===== règle validée : ouvertures et fermetures (12 h) ====="
+            journalctl -u hermes --since "-12 hours" --no-pager 2>/dev/null \
+              | grep -E "ouverture |fermeture " | tail -20 \
+              || echo "aucune position sur règle validée"
+            echo
+            echo "===== éclaireurs et sorties (2 h) ====="
+            journalctl -u hermes --since "-2 hours" --no-pager 2>/dev/null \
+              | grep -E "TP .*maker|scalp SL|scalp time-stop|explore " \
+              | tail -12 || true
             echo
             echo "===== exécution mesurée (éclaireurs) ====="
             # NB: toute cette commande ssh est déjà entre apostrophes —
