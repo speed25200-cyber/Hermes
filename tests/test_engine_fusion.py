@@ -1161,3 +1161,33 @@ def test_the_trailing_summit_never_falls_back(tmp_path):
         eng.check_exits()
     assert eng.brackets[inst]["sommet"] == 92.0, "le sommet a reculé"
     assert abs(eng.brackets[inst]["trail"] - 92.0 * 1.03) < 1e-9
+
+
+def test_dust_does_not_turn_the_next_entry_into_a_resize(tmp_path):
+    """Un reliquat de poussière faisait passer la vraie entrée suivante
+    pour un redimensionnement. Or seul un redimensionnement n'arme AUCUN
+    bracket : la position naissait sans propriétaire, le balayage la
+    déclarait orpheline au tour suivant et la refermait, le desk la
+    rouvrait. Mesuré : DOGE ouvert et déclaré orphelin quatre fois en huit
+    minutes, en payant l'aller-retour à chaque tour."""
+    inst = "DOGE-USDT-SWAP"
+    # 10 DOGE a 0,092 = 92 centimes : de la poussiere, pas une position
+    eng, b = _moteur_pos(tmp_path, {inst: -10.0})
+    eng.ticks[inst] = {"last": 0.092, "bid": 0.0919, "ask": 0.0921,
+                       "spread_bps": 2.0}
+    eng.last_preds = [{"inst": inst, "policy": "candle", "bar": "1m",
+                       "dir": "short", "ml": "live", "conf": 1.0,
+                       "edge_bps": -12.0, "h_bars": 6, "lev": 1.0,
+                       "vol_bps": 25.0, "tp_bps": 400.0, "sl_bps": 300.0,
+                       "sortie_temps": True}]
+    eng._vol = {inst: 25.0}
+    eng.pending = {inst: -3200.0}
+    eng.execute_pending()
+
+    assert eng.brackets.get(inst), "l'entrée n'a armé aucun bracket"
+    assert eng.opened_bar.get(inst), "aucune horloge de tenue"
+    # et donc le balayage ne la prend pas pour une orpheline
+    dits = []
+    eng.log = dits.append
+    eng.check_exits(); eng.check_exits()
+    assert not any("orpheline" in m for m in dits), dits

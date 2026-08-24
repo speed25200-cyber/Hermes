@@ -1382,7 +1382,16 @@ class ScalpEngine:
             delta = tgt_qty - cur
             if abs(delta) * last < max(10.0, 0.002 * equity):
                 continue
-            opening = abs(cur) < 1e-9 and abs(tgt_qty) > 1e-9
+            # « Ouvrir » se juge en ARGENT, comme partout ailleurs. Avec un
+            # test a 1e-9, un reliquat de poussiere — 10 DOGE, 92 centimes,
+            # laisse par l arrondi de lot — faisait passer la vraie entree
+            # suivante pour un simple redimensionnement. Or seul un
+            # redimensionnement n arme AUCUN bracket : la position naissait
+            # donc sans proprietaire, le balayage la declarait orpheline au
+            # tour suivant et la refermait, le desk la rouvrait... Mesure au
+            # journal : DOGE ouvert et declare orphelin quatre fois en huit
+            # minutes, en payant l aller-retour a chaque tour.
+            opening = (not self._tient(inst, cur)) and abs(tgt_qty) > 1e-9
             flatten = abs(tgt_qty) < 1e-9
             # Passer long -> court en un ordre, c'est fermer un trade et en
             # ouvrir un autre, pas « ajuster ». Traite en resize, la jambe
