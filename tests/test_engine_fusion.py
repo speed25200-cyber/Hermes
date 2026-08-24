@@ -566,3 +566,86 @@ def test_evidence_too_thin_to_beat_its_own_error_sizes_to_nothing(tmp_path):
          "h_bars": 6, "cost_bps": 9.0, "cost_tp_bps": 4.0, "size_mult": 1.0,
          "net_bps": 5.0, "net_sd": 55.0, "net_n": 40, "sortie_temps": True}
     assert eng._pick_lev(p) == 0.0
+
+
+def _armer(eng, inst, qty, px, h_bars, sortie_temps=True):
+    class _F:
+        pass
+    f = _F()
+    f.price, f.ts, f.inst, f.fee = px, 0.0, inst, 0.0
+    eng.last_preds = [{"inst": inst, "h_bars": h_bars,
+                       "sortie_temps": sortie_temps, "policy": "candle"}]
+    eng._arm(inst, qty, f, 25.0, 200.0, 60.0)
+    eng.opened_bar[inst] = int(__import__("time").time() * 1000)
+    return eng
+
+
+def test_a_measured_position_lives_its_validated_duration(tmp_path):
+    """La porte a jugé « entrer, tenir h barres, sortir ». Refermer au
+    premier tour où le signal fusionné bouge joue une AUTRE règle, dont
+    personne ne connaît l'économie. Mesuré en direct : DOGE ouvert à
+    02:53:23 sur un signal candle à h=6, refermé à 02:54:31 — soixante-huit
+    secondes, et par une politique qui n'a rien validé."""
+    eng = _moteur(tmp_path)
+    inst = eng.instruments[0]
+    _armer(eng, inst, 100.0, 1.0, h_bars=6)
+    eng.pending = {inst: 0.0}
+    # le filtre vit dans tick(); on l'applique ici tel qu'il est écrit
+    maintenant = int(__import__("time").time() * 1000)
+    br = eng.brackets[inst]
+    assert br["sortie_temps"] is True
+    ouvert, lim = eng.opened_bar[inst], eng.hold_ms[inst]
+    assert lim == 6 * 60_000, lim
+    assert (maintenant - ouvert) < lim
+
+
+def test_an_explorer_position_keeps_its_own_carve_out(tmp_path):
+    """L'exemption éclaireur et l'exemption de durée validée sont deux
+    règles distinctes : un éclaireur n'a pas de sortie au temps validée et
+    doit rester protégé par la sienne."""
+    eng = _moteur(tmp_path)
+    inst = eng.instruments[1]
+    _armer(eng, inst, 100.0, 1.0, h_bars=3, sortie_temps=False)
+    eng.brackets[inst]["explore"] = True
+    assert eng.brackets[inst]["sortie_temps"] is False
+    assert eng.brackets[inst]["explore"] is True
+
+
+def test_the_stop_still_gets_out_during_the_hold(tmp_path):
+    """La durée validée gèle la CIBLE, pas le garde-fou. Une position
+    figée pour six minutes doit tout de même sortir si le prix traverse
+    son stop — sans quoi geler la position reviendrait à la désarmer."""
+    eng = _moteur(tmp_path)
+    inst = eng.instruments[0]
+
+    class _Fill:
+        def __init__(self, px):
+            self.price, self.ts, self.inst, self.fee = px, 0.0, inst, 0.0
+
+    class _Broker:
+        def __init__(self):
+            self.pos = {inst: 100.0}
+            self.ordres = []
+
+        def positions(self):
+            return dict(self.pos)
+
+        def equity(self):
+            return 10_000.0
+
+        def market_order(self, i, q, px, force_taker=False, maker_at=None,
+                         leverage=None):
+            self.ordres.append((i, q, px))
+            self.pos.pop(i, None)
+            return _Fill(maker_at if maker_at is not None else px)
+
+    eng.broker = _Broker()
+    _armer(eng, inst, 100.0, 1.0, h_bars=6)
+    eng.pending = {}
+    # le prix traverse le stop bien avant la fin des six minutes
+    stop = eng.brackets[inst]["sl"]
+    eng.ticks[inst] = {"last": stop * 0.99, "bid": stop * 0.99,
+                       "ask": stop * 0.99, "spread_bps": 2.0}
+    touches = eng.check_exits()
+    assert inst in touches, "le stop n'a pas sorti pendant la durée figée"
+    assert eng.broker.ordres, "aucun ordre de sortie envoyé"

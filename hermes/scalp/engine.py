@@ -632,6 +632,8 @@ class ScalpEngine:
         self.brackets[inst] = {
             "side": side, "entry": entry, "sl": sl, "tp": tp,
             "sl_bps": sl_bps, "tp_bps": tp_bps,
+            # une position ouverte sur règle mesurée doit vivre sa durée
+            "sortie_temps": bool(plan.get("sortie_temps")),
             "t0": int(time.time() * 1000),   # l'écran affiche la tenue
         }
 
@@ -854,6 +856,28 @@ class ScalpEngine:
         for inst in list(pending):
             if (self.brackets.get(inst) or {}).get("explore") \
                     and abs(pending[inst]) < 1e-12:
+                pending.pop(inst)
+        # Et une position ouverte sur règle MESURÉE vit sa durée validée.
+        # Ce que la porte a jugé est « entrer sur le signal, tenir h
+        # barres, sortir » : la refermer au premier tour où le signal
+        # fusionné bouge joue une AUTRE règle, dont personne ne connaît
+        # l'économie. Mesuré en direct : DOGE ouvert à 02:53:23 sur un
+        # signal candle à h=6, refermé à 02:54:31 — soixante-huit secondes,
+        # et par la politique « prior » qui n'a rien validé. Chaque
+        # aller-retour de ce genre paie les frais complets pour une
+        # fraction du mouvement mesuré ; c'est ainsi qu'une règle mesurée
+        # à +9 bps par trade perd de l'argent en direct.
+        #
+        # Le stop et la sortie au temps continuent de s'appliquer : ils
+        # passent par check_exits, qui ne consulte pas les cibles.
+        maintenant = int(time.time() * 1000)
+        for inst in list(pending):
+            br = self.brackets.get(inst) or {}
+            if not br.get("sortie_temps") or br.get("explore"):
+                continue
+            ouvert = int(self.opened_bar.get(inst) or 0)
+            lim = int(self.hold_ms.get(inst) or 0)
+            if ouvert and lim and (maintenant - ouvert) < lim:
                 pending.pop(inst)
         self.pending = pending
         self._explore(preds, equity, targets)
