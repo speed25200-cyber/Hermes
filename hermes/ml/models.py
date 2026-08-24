@@ -152,6 +152,7 @@ class MLPRegressor:
         self.bs: list[np.ndarray] | None = None
         self._mu = None
         self._sd = None
+        self._mort = None
         self._ymu = 0.0
         self._ysd = 1.0
 
@@ -184,10 +185,23 @@ class MLPRegressor:
         # jamais vue à l'entraînement ne peut plus faire dérailler le
         # réseau, elle est simplement extrême.
         ech = np.abs(X[tr]).mean(axis=0) + 1e-12
-        self._sd = np.maximum(X[tr].std(axis=0), 1e-6 * ech) + 1e-12
+        brut = X[tr].std(axis=0)
+        # Une colonne strictement CONSTANTE ne porte aucune information et
+        # ne fait qu'ajouter des poids que le réseau doit apprendre à
+        # ignorer. Elle arrive naturellement — une série croisée vaut zéro
+        # partout quand l'actif de référence est absent, ou pour l'actif de
+        # référence lui-même. Mesuré sur le marché à interaction plantée :
+        # sept colonnes nulles de plus faisaient passer la famille retenue
+        # de 5 succès sur 6 à 4. On les neutralise donc explicitement au
+        # lieu de les laisser consommer de la capacité : centrées, elles
+        # valent zéro pour toujours, et le plancher relatif ci-dessus ne
+        # peut plus les transformer en entrée extrême.
+        self._mort = brut <= 0.0
+        self._sd = np.maximum(brut, 1e-6 * ech) + 1e-12
         self._ymu = float(y[tr].mean())
         self._ysd = float(y[tr].std() + 1e-12)
         Xs = np.clip((X - self._mu) / self._sd, -CLIP_STD, CLIP_STD)
+        Xs[:, self._mort] = 0.0
         ys = (y - self._ymu) / self._ysd
         rng = np.random.default_rng(self.seed)
         sizes = [d, *self.hidden, 1]
@@ -246,6 +260,8 @@ class MLPRegressor:
             return np.zeros(len(X))
         Xs = np.clip((np.asarray(X, dtype=np.float64) - self._mu) / self._sd,
                      -CLIP_STD, CLIP_STD)
+        if getattr(self, "_mort", None) is not None:
+            Xs[..., self._mort] = 0.0
         return self._forward(Xs)[:, 0] * self._ysd + self._ymu
 
 

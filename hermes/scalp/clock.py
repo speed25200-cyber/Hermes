@@ -196,7 +196,8 @@ def _sigma(c: Candles) -> np.ndarray:
     return np.maximum(s, np.maximum(0.05 * cm, 1e-6))
 
 
-N_FEATURES = 27   # colonnes de feat_matrix ; +2 (BTC, idio) à l'entraînement
+N_FEATURES = 27   # colonnes de feat_matrix (un seul actif)
+N_CROISE = 3      # colonnes croisées ajoutées par croise()
 
 
 def feat_matrix(c: Candles) -> np.ndarray:
@@ -504,19 +505,9 @@ class CandleModel:
         for c, btc in series:
             if c is None or len(c) < 250:
                 continue
-            n = len(c)
             X = feat_matrix(c)
             sig = _sigma(c)
-            br = np.zeros(n)
-            if btc is not None and len(btc) >= n:
-                bp = np.asarray(btc.c, dtype=np.float64)[-n:]
-                if len(bp) == n:
-                    br[1:] = np.where(bp[:-1] > 0, bp[1:] / bp[:-1] - 1.0, 0.0)
-                br = np.clip(br / sig, -6.0, 6.0)
-                idio = np.clip(X[:, 0] - br, -6.0, 6.0)
-            else:
-                idio = np.zeros(n)
-            blocs.append({"c": c, "X": np.column_stack([X, br, idio]),
+            blocs.append({"c": c, "X": croise(X, _br_serie(c, btc)),
                           "sig": sig, "ts": np.asarray(c.ts, dtype=np.int64)})
         if not blocs:
             self.status = "few-samples"
@@ -928,17 +919,72 @@ class CandleModel:
         }
 
 
+def croise(X: np.ndarray, br: np.ndarray | None = None) -> np.ndarray:
+    """Les colonnes croisées, construites UNE fois pour les deux chemins.
+
+    L'horloge ne voyait du reste du marché que le retour BTC CONTEMPORAIN
+    et le résidu de cet actif par rapport à lui. Or le décalage BTC ->
+    alts à l'échelle de la minute vit dans la barre PRÉCÉDENTE de BTC, et
+    elle n'était nulle part. A/B sur panel synthétique avec un lead-lag
+    planté à 0,25 sigma : sans cette colonne 0 horloge sur 4 passe la
+    porte, ic +0,018, marge négative ; avec elle 4 sur 4, ic +0,23. Sur du
+    bruit pur, les deux refusent toujours 4 fois sur 4 — la colonne ne
+    fabrique pas de signal, elle en révèle un.
+
+    UNE colonne, pas sept. Les retards 2 et 3, la poussée cumulée et le
+    résidu retardé ont été essayés ensemble : ils n'ajoutent RIEN au
+    lead-lag (3/3 dans les deux cas) et coûtent cher ailleurs — sur le
+    marché à interaction plantée, avec un BTC de bruit, la famille retenue
+    tombe de 5 succès sur 6 à 2. L'ic y restait pourtant élevé : ce ne
+    sont pas les prédictions qui se dégradent, c'est leur précision sur
+    les barres qui déclenchent, donc l'économie. Quatre colonnes de bruit
+    suffisent à faire échouer une règle par ailleurs vraie.
+
+    Tout est en sigmas de CET actif, comme le reste de la matrice, pour
+    que six actifs puissent nourrir la même horloge. Toutes les colonnes
+    sont strictement causales : la barre i est close quand on prédit i+1.
+
+    Quand BTC manque — pour BTC lui-même, ou si la série est trop courte —
+    les colonnes valent zéro : une information absente ne doit pas se
+    distinguer d'une information nulle. C'est aussi ce qui garantit que
+    l'entraînement et la prédiction voient exactement la même chose : les
+    deux chemins passent par cette fonction, jamais par deux empilements
+    écrits séparément.
+    """
+    n = len(X)
+    if br is None:
+        return np.column_stack([X, np.zeros((n, N_CROISE))])
+    br = np.clip(np.nan_to_num(np.asarray(br, dtype=np.float64), nan=0.0),
+                 -6.0, 6.0)
+    idio = np.clip(X[:, 0] - br, -6.0, 6.0)
+
+    def d(x, k):
+        out = np.zeros(n)
+        if n > k:
+            out[k:] = x[:-k]
+        return out
+
+    return np.column_stack([X, br, idio, d(br, 1)])
+
+
+def _br_serie(c: Candles, btc: Candles | None) -> np.ndarray | None:
+    """Le retour BTC barre à barre, aligné sur c, en sigmas de c."""
+    n = len(c)
+    if btc is None or len(btc) < n or n < 2:
+        return None
+    bp = np.asarray(btc.c, dtype=np.float64)[-n:]
+    if len(bp) != n:
+        return None
+    br = np.zeros(n)
+    br[1:] = np.where(bp[:-1] > 0, bp[1:] / bp[:-1] - 1.0, 0.0)
+    return br / _sigma(c)
+
+
 def _row(c: Candles, btc: Candles | None) -> np.ndarray:
     X = feat_matrix(c)
-    row = X[-1]
-    sig = float(_sigma(c)[-1])
-    br = 0.0
-    if btc is not None and len(btc) >= 2 and btc.c[-2] > 0:
-        br = float(btc.c[-1] / btc.c[-2] - 1.0)
-    # mêmes unités qu'à l'entraînement : le retour BTC en sigmas de CET actif
-    br = float(np.clip(br / max(sig, 1e-9), -6.0, 6.0))
-    idio = float(np.clip(row[0] - br, -6.0, 6.0))
-    return np.append(row, [br, idio])
+    # exactement le chemin de l'entraînement, sur les mêmes tableaux :
+    # une colonne construite ici et pas là-bas serait un décalage muet
+    return croise(X, _br_serie(c, btc))[-1]
 
 
 class ScaleDesk:

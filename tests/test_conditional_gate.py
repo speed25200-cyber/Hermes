@@ -16,7 +16,7 @@ import numpy as np
 from hermes.data.store import Candles
 from hermes.ml.models import RidgeRegressor
 from hermes.scalp.clock import (FAMILIES, MIN_TRADES, THRESHOLDS, CandleModel,
-                                _targets, feat_matrix)
+                                _targets, croise, feat_matrix)
 from hermes.scalp.flow import FlowBrain, HORIZONS_S
 
 
@@ -63,7 +63,7 @@ def _deux_lectures(c):
     Une comparaison isolée du découpage : c'est le mécanisme qui est en
     cause, pas l'échantillonnage de la porte.
     """
-    X = np.column_stack([feat_matrix(c), np.zeros(len(c)), np.zeros(len(c))])
+    X = croise(feat_matrix(c))
     y, _, _ = _targets(c)
     idx = np.where(np.isfinite(y))[0]
     cut = idx[int(0.8 * len(idx))]
@@ -175,7 +175,7 @@ def test_a_live_clock_stays_silent_below_its_own_threshold():
     if d["status"] != "live":
         return                      # le marché n'a pas produit de porte vive
     c = _marche_concentre(303)
-    X = np.column_stack([feat_matrix(c), np.zeros(len(c)), np.zeros(len(c))])
+    X = croise(feat_matrix(c))
     p = m._model().predict(X)
     faible = X[int(np.argmin(np.abs(p)))]
     fort = X[int(np.argmax(np.abs(p)))]

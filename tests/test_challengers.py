@@ -75,9 +75,9 @@ def test_the_ridge_alone_is_blind_to_it():
     pondérée.
     """
     from hermes.ml.models import MLPRegressor
-    from hermes.scalp.clock import _ic, _targets, feat_matrix
+    from hermes.scalp.clock import _ic, _targets, croise, feat_matrix
     c = _marche_interaction(31)
-    X = np.column_stack([feat_matrix(c), np.zeros(len(c)), np.zeros(len(c))])
+    X = croise(feat_matrix(c))
     y, _, _ = _targets(c)
     idx = np.where(np.isfinite(y))[0]
     cut = idx[int(0.8 * len(idx))]
