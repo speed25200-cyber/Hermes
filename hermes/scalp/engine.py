@@ -612,7 +612,13 @@ class ScalpEngine:
         celle de la porte — pour que les deux chiffres soient comparables.
         """
         br = self.brackets.get(inst) or {}
-        if br.get("explore") or not br.get("entry"):
+        if not br.get("entry"):
+            return
+        # Un éclaireur ordinaire ne dit rien de la règle et ne doit pas
+        # entrer dans sa mesure. Un éclaireur qui a JOUÉ la règle — même
+        # direction, même horizon, même garde-fou — en dit tout : la
+        # taille ne change pas un rendement en points de base.
+        if br.get("explore") and not br.get("mesure"):
             return
         entree = float(br["entry"])
         if entree <= 0 or not fill:
@@ -837,7 +843,25 @@ class ScalpEngine:
             last = float(p.get("px") or 0.0)
             if edge == 0.0 or last <= 0:
                 continue
-            sens = 1.0 if edge > 0 else -1.0
+            # Quand la règle validée a PARLÉ pour cet instrument mais que
+            # sa taille a été ramenée à zéro — par le frein du gouverneur
+            # ou par le plancher de levier entier — l'éclaireur joue
+            # exactement cette règle-là, à taille minimale : sa direction,
+            # son horizon, son garde-fou. Le trade compte alors dans la
+            # mesure en direct.
+            #
+            # Sans cela, une règle bloquée n'accumule aucune preuve : elle
+            # attend la levée du frein pour commencer seulement à se faire
+            # juger, et pendant ce temps le seul chiffre disponible reste
+            # celui du holdout. Payer une taille minimale pour continuer à
+            # mesurer est exactement ce que les éclaireurs font déjà pour
+            # l'exécution ; ils le font désormais aussi pour la règle.
+            regle = bool(p.get("sortie_temps")) and p.get("dir") in ("long",
+                                                                    "short")
+            if regle:
+                sens = 1.0 if p["dir"] == "long" else -1.0
+            else:
+                sens = 1.0 if edge > 0 else -1.0
             qty = sens * self.explore_notional / last
             if hasattr(self.broker, "_round_qty"):
                 arrondi = self.broker._round_qty(inst, qty)
@@ -870,6 +894,7 @@ class ScalpEngine:
             self._arm(inst, qty, fill, float(p.get("vol_bps") or 0.0),
                       p.get("tp_bps"), p.get("sl_bps"))
             self.brackets[inst]["explore"] = True
+            self.brackets[inst]["mesure"] = regle
             self.brackets[inst]["entry_fee"] = float(fill.fee)
             self._record(fill, qty, "explore", 0.0)
             self.log(f"explore {inst} {qty:+.6f} @ {fill.price:.6f} "

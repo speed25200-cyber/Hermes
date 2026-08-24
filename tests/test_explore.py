@@ -332,3 +332,47 @@ def test_the_risk_brake_is_published_not_inferred(tmp_path):
          "net_bps": 10.81, "net_sd": 54.3, "net_n": 402,
          "sortie_temps": True}
     assert eng._pick_lev(p) == 0.0
+
+
+def test_a_blocked_rule_still_gets_measured_at_minimum_size(tmp_path):
+    """Une règle dont la taille est ramenée à zéro — par le frein du
+    gouverneur ou par le plancher de levier entier — n'accumule aucune
+    preuve. Elle attend la levée du frein pour commencer seulement à se
+    faire juger, et pendant ce temps le seul chiffre disponible reste
+    celui du holdout. Mesuré : quatorze heures avec une horloge live sur
+    huit refits sur neuf, et live_rule.n toujours à zéro.
+
+    L'éclaireur joue donc cette règle-là à taille minimale — sa direction,
+    son horizon, son garde-fou — et le trade compte dans la mesure. C'est
+    ce que les éclaireurs font déjà pour l'exécution ; ils le font
+    maintenant aussi pour la règle.
+    """
+    import inspect
+    from hermes.scalp.engine import ScalpEngine
+    src = inspect.getsource(ScalpEngine._explore)
+    assert 'p.get("sortie_temps")' in src
+    assert 'p["dir"] == "long"' in src
+    assert '"mesure"' in src
+
+
+def test_an_ordinary_explorer_trade_stays_out_of_the_rule_measure(tmp_path):
+    """Un éclaireur ordinaire ne dit rien de la règle : le compter
+    diluerait le seul chiffre qui décide."""
+    eng = _moteur_nu(tmp_path)
+    inst = "SOL-USDT-SWAP"
+
+    class _F:
+        price, ts, fee = 101.0, 0.0, 0.0
+        inst = "SOL-USDT-SWAP"
+
+    eng.brackets[inst] = {"entry": 100.0, "side": "long", "explore": True,
+                          "mesure": False}
+    eng._compter_realise(inst, _F(), +1.0, None)
+    assert eng.live_stats["n"] == 0
+
+    # le même trade, mais qui a JOUÉ la règle : il compte
+    eng.brackets[inst] = {"entry": 100.0, "side": "long", "explore": True,
+                          "mesure": True}
+    eng._compter_realise(inst, _F(), +1.0, None)
+    assert eng.live_stats["n"] == 1
+    assert abs(eng.live_stats["bps"] - (100.0 - eng.round_trip_bps)) < 1e-9
