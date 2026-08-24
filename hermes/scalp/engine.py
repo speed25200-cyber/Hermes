@@ -49,7 +49,15 @@ class ScalpEngine:
         self.max_name = float(s.get("max_name_lev", 20.0))
         self.gross_cap = float(s.get("gross_cap", 20.0))
         self.trade_top = int(s.get("trade_top", len(self.instruments)))
-        self.lev_min = 2
+        # Un levier de 1 est MOINS risqué qu'un levier de 2 : plancher à
+        # deux, le frein du gouverneur et le rodage ne réduisaient pas la
+        # taille, ils l'annulaient. Une règle validée à quart de frein
+        # sortait à 0,84 de levier et ne tradait donc pas du tout —
+        # quatorze heures sans une seule position sur signal prouvé. Le
+        # plancher existe contre les trades de poussière ; c'est le poids
+        # notionnel minimal, déjà appliqué à la consommation des ordres,
+        # qui s'en charge.
+        self.lev_min = 1
         self.lev_max = 20
         self.opened_bar: dict[str, int] = {}
         self.last_bar: dict[str, int] = {}
@@ -541,11 +549,14 @@ class ScalpEngine:
         kelly *= float(p.get("size_mult") or 1.0)
         lev = kelly * self._risk_scale()
         lev = min(lev, 0.025 / (sl * 1e-4), self.lev_max, self.max_name)
-        if lev < self.lev_min:
-            return 0.0
-        # arrondi vers le bas : round() ferait franchir le plafond de ruine
-        # d'un demi-cran (13,89x -> 14x)
-        return float(int(lev))
+        # Rendu SANS troncature. Le levier que l'échange accepte est un
+        # entier, mais la TAILLE d'une position ne l'est pas : elle se
+        # règle par le poids notionnel. Tronquer ici confondait les deux
+        # et transformait « réduire » en « arrêter » — un optimum de 0,88
+        # devenait zéro, et une règle validée sous frein ne tradait pas du
+        # tout. La séparation se fait chez l'appelant : entier ≥ 1 pour
+        # l'échange, réel pour le poids.
+        return max(lev, 0.0)
 
     def _targets(self, preds: list[dict]) -> dict[str, float]:
         """Weights are notional/equity. Margin = |w|/lev ≤ 0.92 of equity total."""
@@ -561,20 +572,26 @@ class ScalpEngine:
                 p["lev"] = 0.0
                 p["margin"] = 0.0
                 continue
-            lev = self._pick_lev(p)
-            p["lev"] = float(lev)
+            lev = self._pick_lev(p)          # réel, non tronqué
+            # Le levier envoyé à l'échange est un entier ; il ne descend
+            # pas sous 1 et ne franchit jamais le plafond de ruine par le
+            # haut, d'où la troncature vers le bas.
+            p["lev"] = float(max(1, int(lev))) if lev > 0 else 0.0
             if margin_each is None:
                 w = float(lev)
             else:
                 w = float(margin_each * lev)
             # La confiance de rodage agit sur le NOTIONNEL, pas sur le
-            # levier : celui-ci est entier et plancherré à 2, si bien
-            # qu'un dixième de taille appliqué là donnait zéro — la règle
-            # n'aurait jamais pu accumuler les trades qui lui font gagner
-            # sa taille. Un dixième de poids, lui, est un dixième de poids.
+            # levier — un dixième de poids est un dixième de poids, alors
+            # qu'un dixième de levier entier est zéro.
             if p.get("sortie_temps"):
                 w *= self._confiance()
-            p["margin"] = (abs(w) / lev) if lev else 0.0
+            # Sous ce poids, l'ordre ne survivrait pas au minimum notionnel
+            # de la consommation : autant ne pas le compter comme vivant.
+            if abs(w) < 1e-4:
+                w = 0.0
+                p["lev"] = 0.0
+            p["margin"] = (abs(w) / p["lev"]) if p["lev"] else 0.0
             raw[p["inst"]] = w if p["dir"] == "long" else -w
         gross = sum(abs(v) for v in raw.values())
         cap = min(self.gross_cap, float(self.lev_max)) if self.max_name > 1 else self.gross_cap
@@ -858,10 +875,26 @@ class ScalpEngine:
             # l'exécution ; ils le font désormais aussi pour la règle.
             regle = bool(p.get("sortie_temps")) and p.get("dir") in ("long",
                                                                     "short")
-            if regle:
-                sens = 1.0 if p["dir"] == "long" else -1.0
-            else:
-                sens = 1.0 if edge > 0 else -1.0
+            if not regle:
+                # Plus une seule position ouverte sur autre chose qu'une
+                # règle validée. Les éclaireurs avaient une mission
+                # précise — mesurer ce que le modèle de coût suppose : le
+                # taux de manqué en file d'attente, l'écart d'entrée,
+                # l'écart de sortie posée contre traversée. Cette mission
+                # est FINIE, les chiffres sont acquis (entrée +0,15 bps,
+                # sortie posée -3,4, treize prises au carnet sur trente et
+                # une). Continuer à deviner le signe du flux toutes les
+                # deux minutes ne mesure plus rien : ça paie des frais
+                # pour du bruit, et ça donne à voir un système qui ouvre
+                # des micro-positions sans rapport avec ce qu'il a prouvé.
+                #
+                # Ce qui reste, et c'est tout ce qui doit rester : jouer à
+                # taille minimale une règle VALIDÉE dont la taille a été
+                # ramenée à zéro par le frein ou par le plancher de
+                # levier. Là, chaque trade mesure la seule chose qui
+                # compte encore.
+                continue
+            sens = 1.0 if p["dir"] == "long" else -1.0
             qty = sens * self.explore_notional / last
             if hasattr(self.broker, "_round_qty"):
                 arrondi = self.broker._round_qty(inst, qty)

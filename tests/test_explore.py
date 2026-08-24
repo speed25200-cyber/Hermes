@@ -1,11 +1,21 @@
 """Le mode éclaireur : des trades réels, minuscules, sous budget dur.
 
-Le carnet validé peut rester vide des heures — c'est honnête — mais un
-moteur qui n'exécute jamais rien ne mesure jamais son exécution. Les
-éclaireurs paient un petit prix connu et plafonné pour exercer la chaîne
-entrée→bracket→sortie en vrai et mesurer le remplissage maker au TP. Ce
-qu'ils ne doivent JAMAIS faire : grossir avec la conviction, contourner
-une gate, ou dépasser leur budget du jour.
+Sa mission d'origine était de mesurer ce que le modèle de coût suppose —
+taux de manqué en file d'attente, écart d'entrée, écart d'une sortie
+posée contre une sortie qui traverse. Cette mission est terminée : les
+chiffres sont acquis. Ce qui reste est plus étroit et plus utile.
+
+Un éclaireur n'ouvre plus QUE sur une règle validée dont la taille a été
+ramenée à zéro par le frein du gouverneur ou par le plancher de levier.
+Il joue alors exactement cette règle — même direction, même horizon, même
+garde-fou — à taille minimale, et le trade compte dans la mesure en
+direct de la règle. Deviner le signe du flux toutes les deux minutes ne
+mesurait plus rien : ça payait des frais pour du bruit, et ça donnait à
+voir un moteur qui ouvre des micro-positions sans rapport avec ce qu'il a
+prouvé.
+
+Ce qu'un éclaireur ne doit JAMAIS faire : grossir avec la conviction,
+contourner une gate, ou dépasser son budget du jour.
 """
 
 import numpy as np
@@ -35,10 +45,36 @@ def _moteur(tmp_path, **explore):
     return eng, b, _R
 
 
-def _pred(inst="SOL-USDT-SWAP", px=180.0, edge=9.0, spread=1.2):
-    return {"inst": inst, "px": px, "edge_bps": edge, "spread_bps": spread,
-            "l2": True, "vol_bps": 9.0, "tp_bps": 12.0, "sl_bps": 15.0,
-            "bar": "90s"}
+def _pred(inst="SOL-USDT-SWAP", px=180.0, edge=9.0, spread=1.2,
+          regle=True):
+    """Une prédiction de règle VALIDÉE dont la taille est tombée à zéro.
+
+    C'est le seul cas où un éclaireur ouvre désormais : sortie_temps
+    marque une économie mesurée, et dir la direction que la règle a
+    choisie. Passer regle=False rend une prédiction ordinaire, sur
+    laquelle plus rien ne doit s'ouvrir.
+    """
+    p = {"inst": inst, "px": px, "edge_bps": edge, "spread_bps": spread,
+         "l2": True, "vol_bps": 9.0, "tp_bps": 12.0, "sl_bps": 15.0,
+         "bar": "90s"}
+    if regle:
+        p.update(sortie_temps=True, h_bars=6,
+                 dir="long" if edge > 0 else "short",
+                 net_bps=11.0, net_sd=55.0, net_n=600)
+    else:
+        p.update(dir="flat")
+    return p
+
+
+def test_nothing_opens_without_a_validated_rule(tmp_path):
+    """Le coeur du changement : plus une seule position sur autre chose
+    qu'une règle validée. C'est ce que l'utilisateur voyait — des
+    micro-positions ouvertes sur une devinette de signe de flux, sans
+    rapport avec la moindre prédiction prouvée."""
+    eng, b, _ = _moteur(tmp_path)
+    _tick(b, "SOL-USDT-SWAP", 180.0)
+    eng._explore([_pred(regle=False)], 10_000.0, {})
+    assert not b.positions(), "un éclaireur a ouvert sans règle validée"
 
 
 def _tick(b, inst, px):
@@ -56,6 +92,7 @@ def test_an_explorer_opens_tiny_tagged_and_bracketed(tmp_path):
     assert notionnel <= 0.03 * 10_000.0 + 1e-6, "jamais au-dessus du plafond"
     br = eng.brackets["SOL-USDT-SWAP"]
     assert br.get("explore") is True
+    assert br.get("mesure") is True, "ce trade doit compter dans la mesure"
     assert br["tp"] > 180.0 > br["sl"], "le bracket est armé"
     assert eng.trades[-1]["reason"] == "explore"
 
@@ -326,12 +363,19 @@ def test_the_risk_brake_is_published_not_inferred(tmp_path):
     eng.broker = _B()
     frein = eng._risk_scale()
     assert abs(frein - 0.25) < 1e-9, frein
-    # et à ce frein-là, un Kelly de 3,4 tombe sous le plancher de levier
+    # À ce frein-là, la règle doit trader PLUS PETIT, pas s'arrêter. La
+    # version précédente tronquait le levier à l'entier et un optimum de
+    # 0,84 devenait zéro : quatorze heures sans une seule position sur
+    # signal prouvé, pendant que des éclaireurs ouvraient des
+    # micro-positions sur une devinette de signe de flux.
     p = {"tp_bps": 40.0, "sl_bps": 50.0, "edge_bps": 9.0, "vol_bps": 25.0,
          "h_bars": 6, "cost_bps": 9.0, "cost_tp_bps": 4.0, "size_mult": 0.5,
          "net_bps": 10.81, "net_sd": 54.3, "net_n": 402,
          "sortie_temps": True}
-    assert eng._pick_lev(p) == 0.0
+    freine = eng._pick_lev(p)
+    assert 0.0 < freine < 1.5, freine
+    eng._risk_scale = lambda: 1.0
+    assert eng._pick_lev(p) > 3.0 * freine, "le frein doit vraiment freiner"
 
 
 def test_a_blocked_rule_still_gets_measured_at_minimum_size(tmp_path):

@@ -516,10 +516,11 @@ def test_a_measured_rule_sizes_itself_from_its_own_moments(tmp_path):
     mesure = eng._pick_lev(p)
     # f* = 0.25 x mu/(mu^2+sd^2) sur les moments mesurés, mu pris à sa
     # BORNE BASSE à une erreur-type, puis demi-taille pour la solitude,
-    # puis plafond de ruine (2,5 % par stop)
+    # puis plafond de ruine (2,5 % par stop). Rendu SANS troncature : le
+    # levier d'échange est entier, la taille de position ne l'est pas.
     mu = 9.29e-4 - 61.9e-4 / 589 ** 0.5
     attendu = 0.25 * mu / (mu * mu + (61.9e-4) ** 2) * 0.5
-    assert abs(mesure - float(int(min(attendu, 0.025 / 50e-4)))) < 1e-9
+    assert abs(mesure - min(attendu, 0.025 / 50e-4)) < 1e-9
     # le plafond de ruine reste le dernier mot, quelle que soit la mesure
     genereux = eng._pick_lev({**p, "net_bps": 90.0, "net_sd": 20.0})
     assert genereux <= 0.025 / (50e-4) + 1e-9
@@ -560,6 +561,7 @@ def test_thin_evidence_sizes_smaller_than_thick_evidence(tmp_path):
     maigre = eng._pick_lev({**base, "net_n": 60})
     epais = eng._pick_lev({**base, "net_n": 5000})
     assert maigre < epais, f"maigre {maigre} vs épais {epais}"
+    assert maigre > 0.0, "des preuves minces réduisent, elles n'annulent pas"
 
 
 def test_evidence_too_thin_to_beat_its_own_error_sizes_to_nothing(tmp_path):
@@ -654,3 +656,24 @@ def test_the_stop_still_gets_out_during_the_hold(tmp_path):
     touches = eng.check_exits()
     assert inst in touches, "le stop n'a pas sorti pendant la durée figée"
     assert eng.broker.ordres, "aucun ordre de sortie envoyé"
+
+
+def test_a_braked_rule_trades_smaller_instead_of_not_at_all(tmp_path):
+    """Un levier de 1 est MOINS risqué qu'un levier de 2. Plancher à deux,
+    le frein du gouverneur et le rodage n'atténuaient pas la taille : ils
+    l'annulaient. Une règle validée à quart de frein sortait à 0,84 de
+    levier et ne tradait donc pas du tout — quatorze heures sans une seule
+    position sur signal prouvé, pendant que des éclaireurs ouvraient des
+    micro-positions sur une devinette."""
+    eng = _moteur(tmp_path)
+    assert eng.lev_min == 1
+    p = {"tp_bps": 40.0, "sl_bps": 60.0, "edge_bps": 12.0, "vol_bps": 25.0,
+         "h_bars": 6, "cost_bps": 9.0, "cost_tp_bps": 4.0,
+         "net_bps": 11.0, "net_sd": 55.0, "net_n": 600,
+         "sortie_temps": True, "size_mult": 0.5}
+    plein = eng._pick_lev(p)
+    assert plein >= 2, plein
+    # au quart de frein, la même règle doit encore prendre une position
+    eng._risk_scale = lambda: 0.25
+    freine = eng._pick_lev(p)
+    assert 0 < freine < plein, f"freiné {freine} contre plein {plein}"
