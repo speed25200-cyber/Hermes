@@ -195,3 +195,110 @@ def test_a_resting_exit_and_a_crossing_exit_are_measured_apart(tmp_path):
                 "exit_taker_bps", "n_exit_taker"):
         assert cle in src, cle
     assert "exit_edge_bps" not in src, "l'ancien chiffre mélangé subsiste"
+
+
+def _moteur_nu(tmp_path):
+    from hermes.scalp.engine import ScalpEngine
+
+    class _B:
+        def positions(self): return {}
+        def equity(self): return 10_000.0
+
+    class _E:
+        peak_equity = 10_000.0
+        day_start_equity = 10_000.0
+
+    class _R:
+        trading_allowed = True
+        daily_loss_limit_pct = 8.0
+        max_drawdown_pct = 25.0
+        state = _E()
+
+    return ScalpEngine({"scalp": {}, "costs": {}}, _B(), None, _R(),
+                       lambda m: None, str(tmp_path))
+
+
+def test_a_newly_validated_rule_starts_at_a_tenth_of_its_size(tmp_path):
+    """La porte établit un avantage sur l'HISTOIRE ; elle ne peut rien
+    dire de ce que l'exécution, la latence et le régime du jour lui feront
+    subir. Mesuré : une règle à +9 à +11 bps par trade hors échantillon a
+    rendu -609 USD en quatre heures de direct pendant que les éclaireurs
+    étaient à +3,53. Une règle nouvellement validée paie donc sa mesure au
+    tarif de la mesure, pas au tarif de la conviction."""
+    eng = _moteur_nu(tmp_path)
+    assert eng._confiance() == 0.1
+
+
+def test_size_grows_only_while_the_live_edge_holds(tmp_path):
+    """La montée en taille est conditionnelle : elle suit le nombre de
+    trades fermés ET le signe du net réalisé. Un avantage qui s'évapore en
+    direct renvoie la règle au dixième de taille, quel que soit son
+    holdout."""
+    eng = _moteur_nu(tmp_path)
+    eng.live_stats = {"n": 30, "bps": +4.0}
+    assert eng._confiance() == 0.1
+    eng.live_stats = {"n": 80, "bps": +4.0}
+    milieu = eng._confiance()
+    assert 0.1 < milieu < 1.0
+    eng.live_stats = {"n": 200, "bps": +4.0}
+    assert eng._confiance() == 1.0
+    # le même échantillon, mais perdant : retour au plancher
+    eng.live_stats = {"n": 200, "bps": -0.5}
+    assert eng._confiance() == 0.1
+
+
+def test_the_realised_return_is_counted_at_the_same_costs_as_the_gate(tmp_path):
+    """Pour que les deux mesures soient comparables, le direct se compte
+    avec l'arithmétique de la porte : maker sur la jambe posée, taker sur
+    celle qui traverse."""
+    eng = _moteur_nu(tmp_path)
+    inst = "BTC-USDT-SWAP"
+    eng.brackets[inst] = {"entry": 100.0, "side": "long"}
+
+    class _F:
+        price, ts, fee = 101.0, 0.0, 0.0
+        inst = "BTC-USDT-SWAP"
+
+    eng._compter_realise(inst, _F(), +1.0, maker_at=101.0)
+    assert eng.live_stats["n"] == 1
+    assert abs(eng.live_stats["bps"] - (100.0 - eng.cost_tp_bps)) < 1e-9
+    # une sortie qui traverse paie l'aller-retour complet
+    eng.live_stats = {"n": 0, "bps": 0.0}
+    eng._compter_realise(inst, _F(), +1.0, maker_at=None)
+    assert abs(eng.live_stats["bps"] - (100.0 - eng.round_trip_bps)) < 1e-9
+
+
+def test_an_explorer_close_is_not_counted_as_the_rule(tmp_path):
+    """Les éclaireurs ont leur propre comptabilité : les mélanger
+    masquerait le chiffre qu'on cherche."""
+    eng = _moteur_nu(tmp_path)
+    inst = "SOL-USDT-SWAP"
+    eng.brackets[inst] = {"entry": 100.0, "side": "long", "explore": True}
+
+    class _F:
+        price, ts, fee = 101.0, 0.0, 0.0
+        inst = "SOL-USDT-SWAP"
+
+    eng._compter_realise(inst, _F(), +1.0, maker_at=None)
+    assert eng.live_stats["n"] == 0
+
+
+def test_the_burn_in_scales_notional_not_leverage(tmp_path):
+    """Le levier est entier et plancherré à 2 : un dixième de taille
+    appliqué LÀ donne zéro, et la règle ne peut alors jamais accumuler les
+    trades qui lui feraient gagner sa taille — un blocage circulaire. Le
+    rodage agit donc sur le poids notionnel, qui est continu."""
+    eng = _moteur_nu(tmp_path)
+    eng.max_name = 20.0
+    p = {"inst": "BTC-USDT-SWAP", "dir": "long", "edge_bps": 12.0,
+         "vol_bps": 25.0, "h_bars": 6, "sl_bps": 60.0, "tp_bps": 200.0,
+         "cost_bps": 9.0, "cost_tp_bps": 4.0, "size_mult": 1.0,
+         "net_bps": 11.0, "net_sd": 55.0, "net_n": 600,
+         "sortie_temps": True}
+    eng.live_stats = {"n": 0, "bps": 0.0}
+    rodage = eng._targets([dict(p)])["BTC-USDT-SWAP"]
+    eng.live_stats = {"n": 500, "bps": +5.0}
+    plein = eng._targets([dict(p)])["BTC-USDT-SWAP"]
+    assert rodage > 0.0, "le rodage ne doit pas empêcher de trader du tout"
+    assert plein > rodage
+    assert abs(rodage / plein - 0.1) < 1e-6, f"{rodage} vs {plein}"

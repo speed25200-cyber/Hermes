@@ -51,14 +51,14 @@ jobs:
             # de la fenêtre de 50 lignes : on les repêche sur 6 h.
             echo "===== verdicts des 6 dernières heures (gates + trades) ====="
             journalctl -u hermes --since "-6 hours" --no-pager 2>/dev/null \
-              | grep -E "flow (90s|300s|900s|5m|15m) (live|veto)|clock .* (live|veto) \[|TP .*maker|scalp SL|explore |ouverture |fermeture |desk .* live=" \
+              | grep -E "flow (90s|300s|900s|5m|15m) (live|veto)|clock .* (live|veto) \[|TP .*maker|scalp SL|explore |ouverture |fermeture " \
               | tail -40 || true
             echo
             echo "===== exécution mesurée (éclaireurs) ====="
             # NB: toute cette commande ssh est déjà entre apostrophes —
             # aucun script inséré ici ne doit en contenir une seule.
             tr "," "\n" < /root/hermes/state/scalp.json 2>/dev/null \
-              | grep -E "tp_maker|tp_taker|entry_edge_bps|exit_maker_bps|exit_taker_bps|pnl_day_usd|budget_usd|\"sl\"|\"time\"|\"trades\"" \
+              | grep -E "tp_maker|tp_taker|entry_edge_bps|exit_maker_bps|exit_taker_bps|pnl_day_usd|confiance|\"bps\"|\"n\"|budget_usd|\"sl\"|\"time\"|\"trades\"" \
               | head -12 || echo "pas encore de scalp.json"
             echo
             echo "===== profondeur par instrument (panel des horloges) ====="

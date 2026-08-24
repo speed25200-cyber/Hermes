@@ -101,6 +101,10 @@ class ScalpEngine:
         self.explore_pnl_day = 0.0
         self._explore_day = ""
         self._explore_last: dict[str, float] = {}
+        # Ce que la règle validée rapporte EN DIRECT, par trade fermé. Le
+        # holdout est une mesure ; le direct en est une autre, et quand les
+        # deux se contredisent on ne choisit pas la plus flatteuse.
+        self.live_stats = {"n": 0, "bps": 0.0}
         self.explore_stats = {"trades": 0, "tp_maker": 0, "tp_taker": 0,
                               "sl": 0, "time": 0,
                               # mesures qui remplacent des hypothèses du
@@ -163,6 +167,8 @@ class ScalpEngine:
                 "scale": self._risk_scale(),
             },
             "trades": self.trades[-80:],
+            "live_rule": dict(self.live_stats,
+                              confiance=self._confiance()),
             "explore": {
                 "enabled": self.explore_on,
                 "pnl_day_usd": self.explore_pnl_day,
@@ -555,6 +561,13 @@ class ScalpEngine:
                 w = float(lev)
             else:
                 w = float(margin_each * lev)
+            # La confiance de rodage agit sur le NOTIONNEL, pas sur le
+            # levier : celui-ci est entier et plancherré à 2, si bien
+            # qu'un dixième de taille appliqué là donnait zéro — la règle
+            # n'aurait jamais pu accumuler les trades qui lui font gagner
+            # sa taille. Un dixième de poids, lui, est un dixième de poids.
+            if p.get("sortie_temps"):
+                w *= self._confiance()
             p["margin"] = (abs(w) / lev) if lev else 0.0
             raw[p["inst"]] = w if p["dir"] == "long" else -w
         gross = sum(abs(v) for v in raw.values())
@@ -583,6 +596,52 @@ class ScalpEngine:
         bid = float(t.get("bid") or 0.0) or last
         ask = float(t.get("ask") or 0.0) or last
         return last, bid, ask
+
+    def _compter_realise(self, inst: str, fill, qty: float,
+                         maker_at) -> None:
+        """Le rendement réellement encaissé par un trade sur règle mesurée.
+
+        Frais réels : l'entrée est postée (maker), la sortie paie maker si
+        elle a reposé au take, taker sinon. C'est la même arithmétique que
+        celle de la porte — pour que les deux chiffres soient comparables.
+        """
+        br = self.brackets.get(inst) or {}
+        if br.get("explore") or not br.get("entry"):
+            return
+        entree = float(br["entry"])
+        if entree <= 0 or not fill:
+            return
+        brut = float(np.sign(qty)) * (float(fill.price) - entree) / entree * 1e4
+        frais = self.cost_tp_bps if maker_at is not None else self.round_trip_bps
+        net = brut - float(frais)
+        n = int(self.live_stats.get("n") or 0)
+        moy = float(self.live_stats.get("bps") or 0.0)
+        self.live_stats["bps"] = (moy * n + net) / (n + 1)
+        self.live_stats["n"] = n + 1
+
+    def _confiance(self) -> float:
+        """Une règle prouvée sur l'histoire doit gagner sa taille au présent.
+
+        La porte établit qu'une règle a un avantage sur l'histoire ; elle
+        ne peut rien dire de ce que l'exécution, la latence et le régime du
+        jour lui feront subir. Mesuré : une règle à +9 à +11 bps par trade
+        hors échantillon a rendu -609 USD en quatre heures de direct, avec
+        les éclaireurs à +3,53. Deux mesures se contredisent, et on ne
+        choisit pas la plus flatteuse — on prend la taille de la pire tant
+        qu'elles ne se réconcilient pas.
+
+        Donc : dixième de taille jusqu'à trente trades fermés, puis montée
+        progressive vers la taille pleine à cent trente — et seulement
+        tant que le net réalisé reste positif. C'est le principe de
+        l'éclaireur appliqué à une règle nouvellement validée : on paie sa
+        mesure au tarif de la mesure, pas au tarif de la conviction.
+        """
+        n = int(self.live_stats.get("n") or 0)
+        if n < 30:
+            return 0.1
+        if float(self.live_stats.get("bps") or 0.0) <= 0.0:
+            return 0.1
+        return float(min(1.0, 0.1 + 0.9 * min(1.0, (n - 30) / 100.0)))
 
     def _record(self, fill, qty: float, reason: str, lev: float = 0.0) -> None:
         if not fill:
@@ -685,6 +744,8 @@ class ScalpEngine:
             fill = self.broker.market_order(inst, -qty, last,
                                             force_taker=maker_at is None,
                                             maker_at=maker_at)
+            if fill and br and not br.get("explore"):
+                self._compter_realise(inst, fill, qty, maker_at)
             if fill and br and br.get("explore"):
                 entree = float(br.get("entry") or fill.price)
                 # Ce que la sortie obtient par rapport au marché courant —
@@ -929,6 +990,8 @@ class ScalpEngine:
             if not fill:
                 continue
             why = "close" if flatten else ("open" if opening else "resize")
+            if why == "close":
+                self._compter_realise(inst, fill, cur, None)
             self._record(fill, delta, why, lev)
             # Une position ouverte sur signal validé ne doit pas être plus
             # discrète qu'un éclaireur : sans cette ligne, le seul indice
