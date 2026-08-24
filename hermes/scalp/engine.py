@@ -121,6 +121,7 @@ class ScalpEngine:
         # CLOTURE ; tant que ce chiffre n'est pas au releve, l'ecart entre
         # la regle mesuree et la regle jouee reste une supposition.
         self.exec_stats = {"n_entrees": 0, "retard_s": 0.0}
+        self._dernier_net: float | None = None
         self._pending_ts = 0.0
         self.explore_stats = {"trades": 0, "tp_maker": 0, "tp_taker": 0,
                               "sl": 0, "time": 0,
@@ -735,6 +736,12 @@ class ScalpEngine:
         moy = float(self.live_stats.get("bps") or 0.0)
         self.live_stats["bps"] = (moy * n + net) / (n + 1)
         self.live_stats["n"] = n + 1
+        # Le journal des fills ne portait que des prix. « Ou part
+        # l'argent » demandait alors de reapparier a la main les entrees
+        # et les sorties, instrument par instrument — et une sortie par
+        # stop ne se distinguait pas d'une sortie a l'horizon. On attache
+        # donc le resultat au fill qui le realise ; _record le ramasse.
+        self._dernier_net = net
 
     def _confiance(self) -> float:
         """Une règle prouvée sur l'histoire doit gagner sa taille au présent.
@@ -772,7 +779,10 @@ class ScalpEngine:
             "reason": reason,
             "notional": abs(float(qty)) * float(fill.price),
             "lev": float(lev or 0.0),
+            # rempli seulement sur les fermetures de regle mesuree
+            "net_bps": self._dernier_net,
         })
+        self._dernier_net = None
         self.trades = self.trades[-200:]
 
     def _arm(self, inst: str, qty: float, fill, vol_bps: float,

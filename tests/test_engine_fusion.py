@@ -977,3 +977,30 @@ def test_dust_is_not_a_position(tmp_path):
     assert eng.check_exits() == []          # premier constat
     assert inst in eng.check_exits()        # second : sortie
     assert any("orpheline" in m for m in dits), dits
+
+
+def test_a_close_carries_its_own_result(tmp_path):
+    """« Il fait n'importe quoi » est une accusation sur la façon dont les
+    positions se ferment, et le journal ne portait que des prix : il
+    fallait réapparier à la main entrées et sorties, et une sortie par
+    stop ne se distinguait pas d'une sortie à l'horizon mesuré."""
+    inst = "BTC-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path, {inst: 1.0})
+    eng.brackets[inst] = {"side": "long", "entry": 100.0, "sl": 99.0,
+                          "tp": 1e9, "sl_bps": 100.0, "tp_bps": 100.0,
+                          "sortie_temps": True, "t0": 1}
+    eng.opened_bar[inst] = int(time.time() * 1000)
+    eng.hold_ms[inst] = 360_000
+    eng.ticks[inst] = {"last": 98.5, "bid": 98.5, "ask": 98.6,
+                       "spread_bps": 2.0}
+    assert inst in eng.check_exits()
+
+    ferm = [t for t in eng.trades if t.get("net_bps") is not None]
+    assert len(ferm) == 1, eng.trades
+    assert ferm[0]["reason"].startswith("SL")
+    assert ferm[0]["net_bps"] == eng.live_stats["bps"]
+    assert ferm[0]["net_bps"] < 0
+
+    # une ouverture n'a pas de résultat : la colonne doit rester vide
+    eng._record(b.market_order(inst, 1.0, 100.0), 1.0, "open", 1.0)
+    assert eng.trades[-1]["net_bps"] is None
