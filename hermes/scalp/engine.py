@@ -169,6 +169,12 @@ class ScalpEngine:
             "trades": self.trades[-80:],
             "live_rule": dict(self.live_stats,
                               confiance=self._confiance()),
+            # Le frein du gouverneur : à -6,1 % dun budget de 8 %, il
+            # retombe à 0,25 et le levier passe sous son plancher entier —
+            # le moteur cesse alors de trader. Sans ce chiffre au relevé,
+            # « la règle ne trade plus » et « la règle est freinée » se
+            # ressemblent trop.
+            "frein_risque": self._risk_scale(),
             "explore": {
                 "enabled": self.explore_on,
                 "pnl_day_usd": self.explore_pnl_day,
@@ -999,11 +1005,21 @@ class ScalpEngine:
             # variation de trésorerie, et rien ne disait quelle source
             # avait décidé ni à quel levier.
             if why in ("open", "close"):
+                # La durée réellement tenue, en clair. Sans elle, savoir si
+                # une position a vécu les six minutes qu'on lui a mesurées
+                # demande de recouper deux lignes de journal à la main, et
+                # une fermeture par le temps ne se distingue pas d'une
+                # fermeture par la cible.
+                ouvert = int(self.opened_bar.get(inst) or 0)
+                tenue = ((int(time.time() * 1000) - ouvert) / 60_000.0
+                         if ouvert else 0.0)
                 self.log(f"{'ouverture' if why == 'open' else 'fermeture'} "
                          f"{inst} {delta:+.6f} @ {fill.price:.6f} x{lev:.0f} "
                          f"({plan.get('policy') or '?'} "
                          f"{float(plan.get('edge_bps') or 0.0):+.1f}bps "
-                         f"h={int(plan.get('h_bars') or 0)})")
+                         f"h={int(plan.get('h_bars') or 0)}"
+                         + (f" tenue={tenue:.1f}m" if why == "close" else "")
+                         + ")")
             if abs(tgt_qty) < 1e-9:
                 self.opened_bar.pop(inst, None)
                 self.brackets.pop(inst, None)

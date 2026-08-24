@@ -302,3 +302,33 @@ def test_the_burn_in_scales_notional_not_leverage(tmp_path):
     assert rodage > 0.0, "le rodage ne doit pas empêcher de trader du tout"
     assert plein > rodage
     assert abs(rodage / plein - 0.1) < 1e-6, f"{rodage} vs {plein}"
+
+
+def test_the_risk_brake_is_published_not_inferred(tmp_path):
+    """À -6,1 % dun budget journalier de 8 %, le gouverneur retombe à 0,25
+    et le levier passe sous son plancher entier : le moteur cesse alors de
+    trader tout seul. C'est le comportement voulu, mais sans ce chiffre au
+    relevé, « la règle ne trade plus » et « la règle est freinée » se
+    ressemblent trop — et j'ai d'abord attribué l'arrêt au rodage."""
+    eng = _moteur_nu(tmp_path)
+    assert abs(eng._risk_scale() - 1.0) < 1e-9
+
+    class _E:
+        peak_equity = 10_000.0
+        day_start_equity = 10_000.0
+
+    eng.risk.state = _E()
+
+    class _B:
+        def positions(self): return {}
+        def equity(self): return 9_390.0     # -6,1 % sur la journée
+
+    eng.broker = _B()
+    frein = eng._risk_scale()
+    assert abs(frein - 0.25) < 1e-9, frein
+    # et à ce frein-là, un Kelly de 3,4 tombe sous le plancher de levier
+    p = {"tp_bps": 40.0, "sl_bps": 50.0, "edge_bps": 9.0, "vol_bps": 25.0,
+         "h_bars": 6, "cost_bps": 9.0, "cost_tp_bps": 4.0, "size_mult": 0.5,
+         "net_bps": 10.81, "net_sd": 54.3, "net_n": 402,
+         "sortie_temps": True}
+    assert eng._pick_lev(p) == 0.0
