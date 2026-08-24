@@ -788,7 +788,16 @@ class LiveRunner:
             while True:
                 time.sleep(30)
         if self.scalp:
-            self._ensure_scalp_data()
+            # SECOND appel, celui qui compte vraiment : il precede la boucle
+            # et la bloque. Laisse sans argument, il visait les vingt plus
+            # echanges et rattrapait quatorze instruments sur quatre echelles
+            # A CHAQUE DEMARRAGE — donc a chaque deploiement. Le moteur
+            # passait son temps a remplir au lieu de trader, et la mesure du
+            # direct payait le remplissage cense l enrichir. Constate au
+            # journal : quatorze noms en rattrapage 3m juste apres un
+            # redemarrage. Comme celui de ensure_data, il ne vise que le
+            # panel courant ; le reste arrive en tache de fond.
+            self._ensure_scalp_data(list(self.scalp.instruments))
             try:
                 # Le panel appris est celui que le moteur trade : une
                 # seule définition, dans clock.ASSETS.

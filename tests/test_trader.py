@@ -213,6 +213,11 @@ def test_the_startup_backfill_does_not_block_on_the_new_names():
         "le démarrage vise autre chose que le panel courant"
 
     boucle = inspect.getsource(LiveRunner.run_forever)
+    # AUCUN appel sans argument ne doit subsister : il viserait les vingt
+    # plus échangés et bloquerait le démarrage sur quatorze instruments
+    assert "_ensure_scalp_data()" not in boucle, \
+        "un rattrapage bloquant vise encore tout le panel visé"
+    assert "_ensure_scalp_data(list(self.scalp.instruments))" in boucle
     assert "attendus" in boucle, "aucun rattrapage des noms réclamés"
     assert "_rattrapage" in boucle, "rien n'empêche deux rattrapages simultanés"
     # le rattrapage doit vivre HORS du bloc de rafraichissement d'univers,
