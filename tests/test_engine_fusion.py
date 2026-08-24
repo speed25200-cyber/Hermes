@@ -7,6 +7,8 @@ followed the flow model alone — whose warm-up prior could trade
 unvalidated. These tests pin the repaired wiring.
 """
 
+import time
+
 import numpy as np
 
 from hermes.data.store import Candles
@@ -724,3 +726,134 @@ def test_a_derived_or_corrupt_field_is_never_taken_back(tmp_path):
     assert repris._confiance() == 0.1, "net réalisé nul : pas de taille pleine"
     assert repris.explore_stats["trades"] == 0
     assert repris.explore_stats["tp_maker"] == 0, "un booléen n'est pas un compte"
+
+
+class _BrokerPos:
+    """Un broker qui tient vraiment une position, pour les redémarrages."""
+
+    def __init__(self, pos=None):
+        self.pos = dict(pos or {})
+        self.ordres = []
+
+    def positions(self):
+        return dict(self.pos)
+
+    def equity(self):
+        return 10_000.0
+
+    def mark_prices(self, prices):
+        pass
+
+    def market_order(self, inst, qty, px, force_taker=False, maker_at=None):
+        self.ordres.append((inst, qty, px))
+        self.pos[inst] = self.pos.get(inst, 0.0) + qty
+        if abs(self.pos[inst]) < 1e-12:
+            self.pos.pop(inst)
+
+        class _F:
+            ts = 1_700_000_000.0
+            price = float(maker_at or px)
+            fee = 0.0
+        _F.inst = inst
+        return _F()
+
+
+def _moteur_pos(tmp_path, pos=None):
+    class _E:
+        peak_equity = 10_000.0
+        day_start_equity = 10_000.0
+
+    class _R:
+        trading_allowed = True
+        daily_loss_limit_pct = 8.0
+        max_drawdown_pct = 25.0
+        state = _E()
+    b = _BrokerPos(pos)
+    eng = ScalpEngine({"scalp": {}, "costs": {}}, b, None, _R(),
+                      lambda m: None, str(tmp_path))
+    return eng, b
+
+
+def test_a_position_keeps_its_rule_across_a_restart(tmp_path):
+    """Une position appartient à une règle : prix d'entrée, stop, durée
+    validée. Rien de cela ne survivait au redémarrage, alors la position
+    échappait à check_exits, se faisait refermer par une politique qui
+    n'avait rien validé, et n'entrait dans aucune mesure. Le direct était
+    donc amputé exactement des trades traversant une mise en ligne."""
+    inst = "BTC-USDT-SWAP"
+    eng, _ = _moteur_pos(tmp_path, {inst: 0.01})
+    eng.brackets[inst] = {"side": "long", "entry": 100.0, "sl": 99.0,
+                          "tp": 101.0, "sl_bps": 100.0, "tp_bps": 100.0,
+                          "sortie_temps": True, "t0": 1}
+    eng.opened_bar[inst] = 1_700_000_000_000
+    eng.hold_ms[inst] = 360_000
+    eng.opened_h[inst] = "1m"
+    eng._snapshot({"equity": 10_000.0})
+
+    repris, _ = _moteur_pos(tmp_path, {inst: 0.01})
+    assert repris.brackets[inst]["entry"] == 100.0
+    assert repris.brackets[inst]["sortie_temps"] is True
+    assert repris.opened_bar[inst] == 1_700_000_000_000
+    assert repris.hold_ms[inst] == 360_000
+    assert repris.opened_h[inst] == "1m"
+
+
+def test_a_restarted_position_still_answers_to_its_stop(tmp_path):
+    """Le test qui compte : après reprise, le stop doit encore sortir."""
+    inst = "BTC-USDT-SWAP"
+    eng, _ = _moteur_pos(tmp_path, {inst: 0.01})
+    eng.brackets[inst] = {"side": "long", "entry": 100.0, "sl": 99.0,
+                          "tp": 101.0, "sl_bps": 100.0, "tp_bps": 100.0,
+                          "sortie_temps": True, "t0": 1}
+    eng.opened_bar[inst] = int(time.time() * 1000)
+    eng.hold_ms[inst] = 360_000
+    eng._snapshot({"equity": 10_000.0})
+
+    repris, b = _moteur_pos(tmp_path, {inst: 0.01})
+    repris.ticks[inst] = {"last": 98.5, "bid": 98.5, "ask": 98.6,
+                          "spread_bps": 2.0}
+    touches = repris.check_exits()
+    assert inst in touches, "le stop n'a pas survécu au redémarrage"
+    assert repris.live_stats["n"] == 1, \
+        "un trade traversant une mise en ligne doit encore se mesurer"
+
+
+def test_a_position_no_rule_owns_gets_closed(tmp_path):
+    """Sans propriétaire, une position n'a ni stop ni durée : elle ne peut
+    que dériver. Mesuré en direct : un DOGE -8050, sept cents dollars de
+    notionnel, immobile depuis des heures parce qu'aucune règle ne
+    répondait plus pour lui."""
+    inst = "DOGE-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path, {inst: -8050.0})
+    dits = []
+    eng.log = dits.append
+    eng.ticks[inst] = {"last": 0.092, "bid": 0.0919, "ask": 0.0921,
+                       "spread_bps": 2.0}
+    # un seul constat ne suffit pas : une lecture de positions tronquée ne
+    # doit pas pouvoir aplatir une position parfaitement tenue
+    assert eng.check_exits() == []
+    assert b.pos[inst] == -8050.0
+    touches = eng.check_exits()
+    assert inst in touches, "l'orpheline est restée au livre"
+    assert any("orpheline" in m for m in dits), dits
+    assert b.pos.get(inst) is None
+
+
+def test_a_truncated_position_read_never_flattens_a_held_position(tmp_path):
+    """Un échange qui hoquette et renvoie une liste de positions tronquée
+    ne doit ni effacer le suivi d'une position ni provoquer sa sortie : le
+    tour suivant la reverra, et le compteur repart."""
+    inst = "BTC-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path, {inst: 0.01})
+    eng.brackets[inst] = {"side": "long", "entry": 100.0, "sl": 1.0,
+                          "tp": 1e9, "sl_bps": 100.0, "tp_bps": 100.0,
+                          "sortie_temps": True, "t0": 1}
+    eng.opened_bar[inst] = int(time.time() * 1000)
+    eng.hold_ms[inst] = 360_000
+    eng.ticks[inst] = {"last": 100.0, "bid": 100.0, "ask": 100.1,
+                       "spread_bps": 2.0}
+    eng._orphelines({})           # lecture tronquée
+    eng._orphelines({inst: 0.01})  # l'échange répond de nouveau
+    assert eng.brackets.get(inst), "le bracket a été effacé sur un hoquet"
+    assert eng.check_exits() == []
+    assert b.pos[inst] == 0.01

@@ -90,6 +90,8 @@ class ScalpEngine:
         self.preds_h: dict[str, list] = {b: [] for b in BARS}
         self.hold_ms: dict[str, int] = {}
         self.opened_h: dict[str, str] = {}
+        self.sans_regle: set[str] = set()
+        self.desync: dict[str, int] = {}
         self.trades: list[dict] = []
         # Mode éclaireur : des trades réels à la taille MINIMALE de
         # l'échange, sous un budget de perte journalier plafonné en dur.
@@ -134,6 +136,28 @@ class ScalpEngine:
                             ("n", "bps"))
             self._reprendre(self.explore_stats, prev.get("explore"),
                             tuple(self.explore_stats))
+            # Une position ouverte appartient à une règle : prix d'entrée,
+            # stop, durée validée, politique qui l'a décidée. Rien de tout
+            # cela ne survivait au redémarrage — le moteur retrouvait la
+            # position à l'échange sans savoir à qui elle était. Elle
+            # échappait alors à check_exits (ni stop ni sortie au temps),
+            # se faisait refermer au hasard d'une cible par une politique
+            # qui n'avait rien validé, et n'entrait dans AUCUNE mesure :
+            # _compter_realise sort sans prix d'entrée. Mesuré au journal :
+            # « fermeture SOL (prior -3,4bps h=2 tenue=0.0m) » sept minutes
+            # après une ouverture candle à h=6, et un DOGE -8050 que plus
+            # personne ne tenait. La mesure du direct était donc amputée
+            # exactement des trades traversant une mise en ligne.
+            self.brackets = {k: dict(v) for k, v in
+                             (prev.get("brackets") or {}).items()
+                             if isinstance(v, dict)}
+            suivi = prev.get("suivi") or {}
+            self.opened_bar = {k: int(v) for k, v in
+                               (suivi.get("opened_bar") or {}).items()}
+            self.hold_ms = {k: int(v) for k, v in
+                            (suivi.get("hold_ms") or {}).items()}
+            self.opened_h = {k: str(v) for k, v in
+                             (suivi.get("opened_h") or {}).items()}
         except (OSError, ValueError):
             pass
 
@@ -204,6 +228,10 @@ class ScalpEngine:
                 "scale": self._risk_scale(),
             },
             "trades": self.trades[-80:],
+            # de quoi reprendre une position en cours après un redémarrage
+            "suivi": {"opened_bar": self.opened_bar,
+                      "hold_ms": self.hold_ms,
+                      "opened_h": self.opened_h},
             "live_rule": dict(self.live_stats,
                               confiance=self._confiance()),
             # Le frein du gouverneur : à -6,1 % dun budget de 8 %, il
@@ -764,6 +792,48 @@ class ScalpEngine:
             "t0": int(time.time() * 1000),   # l'écran affiche la tenue
         }
 
+    def _orphelines(self, pos: dict) -> None:
+        """Toute position doit appartenir à une règle ; sinon elle sort.
+
+        L'état repris couvre le cas normal, mais il reste les désyncs.
+        Dans un sens, une position sans propriétaire : un remplissage côté
+        échange qu'on n'a pas vu, un état effacé, une position ouverte à
+        la main. Sans règle, elle n'a ni stop ni durée — elle ne peut que
+        dériver. Mesuré en direct : un DOGE -8050, sept cents dollars de
+        notionnel, immobile depuis des heures parce qu'aucune règle ne
+        répondait plus pour lui. Dans l'autre, un suivi sans position :
+        l'état écrit juste avant un arrêt brutal garde le bracket d'un
+        trade déjà sorti, et comme une règle mesurée gèle la cible de son
+        instrument pendant sa durée, ce fantôme empêcherait le desk
+        d'ouvrir la position suivante.
+
+        Les deux demandent DEUX constats consécutifs avant qu'on agisse :
+        une lecture de positions incomplète — un échange qui hoquette et
+        renvoie une liste tronquée — ne doit ni effacer un suivi valide ni
+        déclencher une sortie sur une position parfaitement tenue.
+        """
+        tenus = {i for i, q in pos.items() if abs(float(q)) >= 1e-12}
+        suivis = set(self.brackets) | set(self.opened_bar)
+        ecart = (suivis - tenus) | (tenus - suivis)
+        for inst in [i for i in self.desync if i not in ecart]:
+            self.desync.pop(inst, None)
+        for inst in ecart:
+            self.desync[inst] = self.desync.get(inst, 0) + 1
+        for inst in [i for i, n in self.desync.items() if n >= 2]:
+            if inst in tenus:
+                if inst not in self.sans_regle:
+                    self.sans_regle.add(inst)
+                    self.log(f"scalp position orpheline {inst} "
+                             f"{float(pos[inst]):+.6f} — aucune règle ne la "
+                             f"tient, sortie demandée")
+            else:
+                for suivi in (self.brackets, self.opened_bar,
+                              self.hold_ms, self.opened_h):
+                    suivi.pop(inst, None)
+        for inst in list(self.sans_regle):
+            if inst not in tenus:
+                self.sans_regle.discard(inst)
+
     def check_exits(self, candles_1m: dict[str, Candles] | None = None) -> list[str]:
         """SL / TP / time-stop.
 
@@ -776,6 +846,7 @@ class ScalpEngine:
         """
         hit: list[str] = []
         pos = self.broker.positions()
+        self._orphelines(pos)
         for inst, qty in list(pos.items()):
             last, bid, ask = self._px(inst)
             if last <= 0 or abs(qty) < 1e-12:
@@ -800,6 +871,8 @@ class ScalpEngine:
                         maker_at = br["tp"]
                     elif ask <= br["tp"]:
                         reason = f"TP {br['tp_bps']:.0f}bps"
+            if reason is None and inst in self.sans_regle:
+                reason = "orpheline"
             if reason is None:
                 opened = self.opened_bar.get(inst)
                 if opened:
@@ -853,6 +926,7 @@ class ScalpEngine:
             self.opened_bar.pop(inst, None)
             self.hold_ms.pop(inst, None)
             self.opened_h.pop(inst, None)
+            self.sans_regle.discard(inst)
             if fill:
                 self._record(fill, -qty, reason, 0.0)
                 self.log(f"scalp {reason} {inst} {qty:+.6f} @ {fill.price:.6f}")
@@ -991,6 +1065,11 @@ class ScalpEngine:
                 if px > 0 and abs(qty) * px > 1:
                     self.broker.market_order(inst, -qty, px, force_taker=True)
             self.brackets.clear()
+            self.opened_bar.clear()
+            self.hold_ms.clear()
+            self.opened_h.clear()
+            self.sans_regle.clear()
+            self.desync.clear()
             self._snapshot({"halted": True})
             return {"preds": self.last_preds, "equity": self.broker.equity(), "halted": True}
 
