@@ -67,8 +67,8 @@ jobs:
             echo
             echo "===== éclaireurs et sorties (2 h) ====="
             journalctl -u hermes --since "-2 hours" --no-pager 2>/dev/null \
-              | grep -E "TP .*maker|scalp SL|scalp time-stop|explore " \
-              | tail -12 || true
+              | grep -E "TP .*maker|scalp SL|scalp time-stop|explore |orpheline" \
+              | tail -14 || true
             echo
             echo "===== exécution mesurée (éclaireurs) ====="
             # NB: toute cette commande ssh est déjà entre apostrophes —
