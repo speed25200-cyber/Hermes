@@ -426,6 +426,7 @@ class ScalpEngine:
                 "sortie_temps": sortie_temps,
                 "net_bps": float(temoin.get("net_bps") or 0.0),
                 "net_sd": float(temoin.get("net_sd") or 0.0),
+                "net_n": int(temoin.get("net_n") or 0),
                 "cost_bps": cost_bps,
                 "cost_tp_bps": self.cost_tp_bps,
                 "size_mult": float(inf.get("size_mult") or 1.0),
@@ -502,8 +503,24 @@ class ScalpEngine:
             # mesurés — f* = E[R]/E[R²] — au lieu d'être re-dérivé d'un
             # brownien qui n'a jamais vu ces données. Quart de Kelly comme
             # partout ailleurs, et le plafond de ruine s'applique ensuite.
+            #
+            # Mais f* est PROPORTIONNEL à mu, et mu est la quantité la plus
+            # mal estimée de toute la chaîne : sur 402 instants à
+            # écart-type 54 bps, son erreur-type vaut 2,7 bps pour une
+            # moyenne de 10,8. Prendre le point comme s'il était connu,
+            # c'est parier la taille sur le haut de l'intervalle. On
+            # dimensionne donc sur la borne basse à une erreur-type. La
+            # correction vaut mu(1 - 1/(sr·racine(n))) : elle s'efface
+            # quand les preuves s'accumulent, et mord quand elles manquent.
             mu = float(p.get("net_bps") or 0.0) * 1e-4
             sd = float(p.get("net_sd") or 0.0) * 1e-4
+            # À défaut d'un compte transmis, on suppose le MINIMUM que la
+            # porte accepte (40 instants) : une mesure existe forcément
+            # derrière, mais la plus maigre possible. Supposer 1 ferait
+            # retrancher un écart-type entier et annulerait toute taille
+            # sur un simple oubli de câblage.
+            n = max(int(p.get("net_n") or 40), 1)
+            mu = max(0.0, mu - sd / float(np.sqrt(n)))
             m2 = mu * mu + sd * sd
             kelly = 0.25 * mu / m2 if (m2 > 1e-18 and mu > 0) else 0.0
         else:

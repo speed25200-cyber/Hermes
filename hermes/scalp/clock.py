@@ -818,6 +818,7 @@ class CandleModel:
         return {
             "r_bps": r_bps, "up_bps": up, "dn_bps": dn, "raw_bps": raw,
             "net_bps": self.holdout_bps, "net_sd": self.hold_sd,
+            "net_n": self.n_periods,
             "q_bps": self.q * 1e4, "veto": veto, "bar": self.bar,
             "horizon_bars": self.horizon_bars, "variant": self.variant,
             "status": self.status, "ic": self.ic,
@@ -1013,6 +1014,7 @@ class ScaleDesk:
             # dispersion : de quoi dimensionner sans modèle
             "net_bps": float(dom.get("net_bps") or 0.0),
             "net_sd": float(dom.get("net_sd") or 0.0),
+            "net_n": int(dom.get("net_n") or 0),
             # la position doit vivre exactement l'horizon sur lequel
             # l'horloge dominante a été validée, pas une constante
             "horizon_bars": int(dom.get("horizon_bars") or 1),

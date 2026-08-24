@@ -488,11 +488,11 @@ def test_a_time_exit_is_sized_from_its_own_measured_moments(tmp_path):
     brownien. Une règle deux fois plus rentable à dispersion égale doit
     prendre plus de taille."""
     eng = _moteur(tmp_path)
-    base = {"sortie_temps": True, "net_sd": 45.0, "sl_bps": 40.0,
+    base = {"sortie_temps": True, "net_sd": 45.0, "sl_bps": 12.0,
             "tp_bps": 140.0, "edge_bps": 10.0, "vol_bps": 25.0,
-            "h_bars": 3, "cost_bps": 8.0, "size_mult": 1.0}
-    maigre = eng._pick_lev(dict(base, net_bps=3.0))
-    gras = eng._pick_lev(dict(base, net_bps=9.0))
+            "h_bars": 3, "cost_bps": 8.0, "size_mult": 1.0, "net_n": 2000}
+    maigre = eng._pick_lev(dict(base, net_bps=8.0))
+    gras = eng._pick_lev(dict(base, net_bps=20.0))
     assert gras > maigre >= 0.0
     # une règle qui perd ne prend aucune taille
     assert eng._pick_lev(dict(base, net_bps=-4.0)) == 0.0
@@ -507,11 +507,13 @@ def test_a_measured_rule_sizes_itself_from_its_own_moments(tmp_path):
     eng = _moteur(tmp_path)
     p = {"tp_bps": 40.0, "sl_bps": 50.0, "edge_bps": 9.0, "vol_bps": 25.0,
          "h_bars": 6, "cost_bps": 9.0, "cost_tp_bps": 4.0, "size_mult": 0.5,
-         "net_bps": 9.29, "net_sd": 61.9, "sortie_temps": True}
+         "net_bps": 9.29, "net_sd": 61.9, "net_n": 589, "sortie_temps": True}
     mesure = eng._pick_lev(p)
-    # f* = 0.25 x mu/(mu^2+sd^2) sur les moments mesurés, puis demi-taille
-    # pour la solitude, puis plafond de ruine (2,5 % par stop)
-    attendu = 0.25 * 9.29e-4 / ((9.29e-4) ** 2 + (61.9e-4) ** 2) * 0.5
+    # f* = 0.25 x mu/(mu^2+sd^2) sur les moments mesurés, mu pris à sa
+    # BORNE BASSE à une erreur-type, puis demi-taille pour la solitude,
+    # puis plafond de ruine (2,5 % par stop)
+    mu = 9.29e-4 - 61.9e-4 / 589 ** 0.5
+    attendu = 0.25 * mu / (mu * mu + (61.9e-4) ** 2) * 0.5
     assert abs(mesure - float(int(min(attendu, 0.025 / 50e-4)))) < 1e-9
     # le plafond de ruine reste le dernier mot, quelle que soit la mesure
     genereux = eng._pick_lev({**p, "net_bps": 90.0, "net_sd": 20.0})
@@ -537,3 +539,30 @@ def test_without_a_measurement_the_simulated_bracket_is_still_the_judge(tmp_path
         assert p["policy"] in ("flow", "flat")
         if p["dir"] == "flat":
             assert p["reason"] in ("no-ev", "cost", "veto", "incoherent")
+
+
+def test_thin_evidence_sizes_smaller_than_thick_evidence(tmp_path):
+    """f* est PROPORTIONNEL à mu, et mu est la quantité la plus mal
+    estimée de la chaîne. Deux règles de moments identiques mais mesurées
+    sur des échantillons différents ne doivent pas être jouées à la même
+    taille : celle qui repose sur cinquante instants est réduite, celle
+    qui en a des milliers ne l'est presque pas."""
+    eng = _moteur(tmp_path)
+    base = {"tp_bps": 40.0, "sl_bps": 15.0, "edge_bps": 9.0,
+            "vol_bps": 25.0, "h_bars": 6, "cost_bps": 9.0,
+            "cost_tp_bps": 4.0, "size_mult": 1.0, "net_bps": 20.0,
+            "net_sd": 55.0, "sortie_temps": True}
+    maigre = eng._pick_lev({**base, "net_n": 60})
+    epais = eng._pick_lev({**base, "net_n": 5000})
+    assert maigre < epais, f"maigre {maigre} vs épais {epais}"
+
+
+def test_evidence_too_thin_to_beat_its_own_error_sizes_to_nothing(tmp_path):
+    """Et quand la moyenne ne dépasse même pas son erreur-type, la borne
+    basse est nulle : on ne trade pas la taille d'un avantage qu'on n'a
+    pas établi."""
+    eng = _moteur(tmp_path)
+    p = {"tp_bps": 40.0, "sl_bps": 90.0, "edge_bps": 9.0, "vol_bps": 25.0,
+         "h_bars": 6, "cost_bps": 9.0, "cost_tp_bps": 4.0, "size_mult": 1.0,
+         "net_bps": 5.0, "net_sd": 55.0, "net_n": 40, "sortie_temps": True}
+    assert eng._pick_lev(p) == 0.0
