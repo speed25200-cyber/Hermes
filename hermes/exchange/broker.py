@@ -260,7 +260,27 @@ class PaperBroker(Broker):
         # DOGE par +10 laisse 1,16e-10, qui passait le test et restait au
         # livre pour toujours. Rien de legitime ne pese 1e-9 unite — un
         # milliardieme de DOGE vaut 1e-10 dollar.
-        if abs(self.pos[inst]) < 1e-9:
+        # Un reliquat PLUS PETIT QU UN LOT de l echange n est pas une
+        # position : aucun ordre ne peut le fermer. Mesure en direct —
+        # -9,999999999883585 DOGE, 89 centimes. DOGE-USDT-SWAP vaut 1000
+        # DOGE le contrat, donc fermer dix DOGE demande 0,01 contrat, que
+        # _round_qty ramene a zero et que market_order refuse. Le reliquat
+        # survivait a tous les balayages, s affichait a l ecran comme une
+        # position ouverte, et RIEN n aurait jamais pu l en sortir. Un
+        # vrai echange ne laisse pas cet etat exister ; le courtier papier
+        # ne doit pas l inventer.
+        #
+        # On le solde au prix du remplissage qui vient de le creer, et le
+        # livre l enregistre comme n importe quel realise.
+        reste = self.pos.get(inst, 0.0)
+        if reste and self._round_qty(inst, reste) == 0.0:
+            brut = reste * (px - float(self.entry.get(inst, px)))
+            self.cash += brut
+            self.livre["brut"] = float(self.livre.get("brut", 0.0)) + brut
+            self.pos.pop(inst, None)
+            self.entry.pop(inst, None)
+            self.lever.pop(inst, None)
+        if abs(self.pos.get(inst, 0.0)) < 1e-9:
             self.pos.pop(inst, None)
             self.entry.pop(inst, None)
             self.lever.pop(inst, None)
@@ -268,6 +288,25 @@ class PaperBroker(Broker):
         fill = Fill(inst, side, abs(qty), px, fee, time.time())
         self.fills.append(fill)
         return fill
+
+    def solder(self, inst: str, px: float) -> bool:
+        """Efface un reliquat que l echange rend intradable, au prix donne.
+
+        Le garde-fou de market_order empeche d en creer de nouveaux ;
+        celui-ci nettoie ceux qu un etat anterieur porte deja. Vrai si
+        quelque chose a ete solde — un reliquat dont le brut vaut
+        exactement zero a bel et bien ete efface.
+        """
+        q = float(self.pos.get(inst, 0.0) or 0.0)
+        if not q or px <= 0 or self._round_qty(inst, q) != 0.0:
+            return False
+        brut = q * (px - float(self.entry.get(inst, px)))
+        self.cash += brut
+        self.livre["brut"] = float(self.livre.get("brut", 0.0)) + brut
+        self.pos.pop(inst, None)
+        self.entry.pop(inst, None)
+        self.lever.pop(inst, None)
+        return True
 
     def apply_funding(self, inst: str, rate: float) -> None:
         """Long pays positive funding on notional."""

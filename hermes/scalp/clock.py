@@ -72,7 +72,15 @@ class _Ensemble:
 # 2 592 cellules deviennent 3 024 et la barre passe de 0,2069 a 0,2093 a
 # 290 instants, soit 1,2 % — a comparer a une marge mesuree de 0,035, que
 # la cellule voisine de la grille pourrait tout aussi bien doubler.
-THRESHOLDS = (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0)
+#
+# Le 3,5 et le 4,0 ont ete ajoutes ensuite, sur une mesure sans ambiguite :
+# le journal du 24 aout donne seuil=3.0sig sur les TROIS refits de
+# l horloge 1m, plus le 5m et le 15m. Cinq verdicts sur cinq collent a la
+# borne — l optimum est dehors, pas dedans. Une grille tronquee juste
+# au-dessus de l optimum coute exactement ce que l optimum vaut. Prix :
+# 3 024 cellules -> 3 888, barre 0,1650 -> 0,1682 a 466 instants, soit
+# 1,9 %.
+THRESHOLDS = (0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0)
 MIN_TRADES = 40   # sous ce nombre, une moyenne n'est pas une mesure
 
 # Horizons de détention, en barres. Le modèle était validé sur la barre
@@ -546,6 +554,37 @@ def _portfolio(net: np.ndarray, ts: np.ndarray,
     return np.bincount(inv, weights=w * net) / tot
 
 
+def _profil(pnl: np.ndarray, k: int = 3) -> tuple:
+    """Le Sharpe par tiers chronologique du holdout.
+
+    Il existe deux facons tres differentes pour une regle de rendre un
+    bon Sharpe global, et le chiffre global ne les distingue pas :
+    l avantage est present PARTOUT, ou bien il est concentre dans une
+    fenetre et absent ailleurs. La difference decide de tout — le premier
+    se trade, le second est un mirage de fenetre.
+
+    Mesure qui a impose cette colonne, journal du 24 aout : porter la
+    profondeur 1m de trente a soixante jours a fait tomber le sr de
+    +0,242 a +0,148 alors que la barre ne tombait que de 0,207 a 0,163.
+    La marge est passee negative, la porte a mis son veto. Sans profil,
+    impossible de dire si le mois ajoute a DILUE un avantage reel ou si
+    les trente jours precedents en montraient un FAUX — et les deux
+    appellent des suites opposees.
+
+    pnl arrive trie : _portfolio indexe par np.unique des horodatages.
+    """
+    n = len(pnl)
+    if n < 3 * MIN_TRADES:
+        return ()
+    bornes = np.linspace(0, n, k + 1).astype(int)
+    out = []
+    for i in range(k):
+        t = pnl[bornes[i]:bornes[i + 1]]
+        sd = float(np.std(t, ddof=1)) if len(t) > 1 else 0.0
+        out.append(round(float(np.mean(t)) / sd, 3) if sd > 1e-12 else 0.0)
+    return tuple(out)
+
+
 def _ic(a: np.ndarray, b: np.ndarray) -> float:
     m = np.isfinite(a) & np.isfinite(b)
     a, b = a[m], b[m]
@@ -573,6 +612,7 @@ class CandleModel:
         self.cost_win = 4.0
         self.thr_bps = 0.0      # sous ce mouvement prévu, l'horloge se tait
         self.thr_k = 0.0        # le même seuil, en sigmas de la prédiction
+        self.profil = ()        # sr par tiers chronologique du holdout
         self.n_trades = 0       # combien de déclenchements sur le holdout
         self.horizon_bars = 1   # combien de barres la position doit vivre
         self.up = RidgeRegressor(l2=14.0)
@@ -610,6 +650,7 @@ class CandleModel:
             "net_defl": self.net_defl,
             "family": self.family,
             "thr_bps": self.thr_bps, "thr_k": self.thr_k,
+            "profil": list(self.profil),
             "n_trades": self.n_trades,
             "horizon_bars": self.horizon_bars,
             "n_assets": self.n_assets, "n_periods": self.n_periods,
@@ -1020,6 +1061,11 @@ class CandleModel:
                             "mode": mode,
                             "n_hold": len(yho), "n_train": n_train,
                             "bps": mu, "sr": sr, "cle": cle, "sd": sd,
+                            # Porter la serie coute quelques centaines de
+                            # flottants ; calculer le profil pour trois
+                            # mille cellules couterait le balayage. Seule
+                            # la cellule retenue est profilee.
+                            "pnl": pnl,
                             "barre": barre, "marge": marge, "pente": pente,
                         }
                         if best is None or cle > best["cle"]:
@@ -1050,6 +1096,7 @@ class CandleModel:
         self.stop_mode = str(b.get("mode") or "fixe")
         self.rr, self.nn, self.up, self.dn = b["rr"], b["nn"], b["up"], b["dn"]
         self.ic = b["ic"]
+        self.profil = _profil(b.get("pnl", np.zeros(0)))
         self.thr_bps = float(b["thr"])
         # Le seuil EN SIGMAS, pas seulement en bps : c est lui qui dit si
         # la grille est tronquee au bon endroit. Un optimum qui colle a la
@@ -1368,7 +1415,10 @@ class ScaleDesk:
                      f"seuil={d['thr_bps']:.1f}bps/{d.get('thr_k', 0.0):.1f}sig "
                      f"stop={d['stop_sig']:.0f}sig/{d.get('stop_mode', 'fixe')} "
                      f"pente={d['pente']:.2f} "
-                     f"{'gardee ' if d.get('garde') else ''}"
+                     + (("profil=" + "/".join(f"{x:+.2f}"
+                                              for x in d.get("profil") or ())
+                        + " ") if d.get("profil") else "")
+                     + f"{'gardee ' if d.get('garde') else ''}"
                      f"trades={d['n_trades']}/{d['n_holdout']} "
                      f"instants={d['n_periods']} n={d['n_train']}")
         self.fit_at = time.time()

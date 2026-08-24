@@ -1716,3 +1716,66 @@ def test_risk_parity_does_not_change_the_total_size(tmp_path):
                       dict(commun, inst="ETH-USDT-SWAP", dir="long",
                            edge_bps=12.0, px=2_500.0)])
     assert abs(abs(a["BTC-USDT-SWAP"]) - abs(a["ETH-USDT-SWAP"])) < 1e-12
+
+
+def test_a_residue_smaller_than_one_lot_cannot_be_born():
+    """Le reliquat immortel, trouve en direct et impossible a fermer.
+
+    -9,999999999883585 DOGE, 89 centimes, affiche a l ecran comme une
+    position ouverte pendant des heures. DOGE-USDT-SWAP vaut 1000 DOGE le
+    contrat : fermer dix DOGE demande 0,01 contrat, que _round_qty ramene
+    a zero et que market_order refuse. Aucun ordre, jamais, n aurait pu
+    l en sortir — ni le balayage de poussiere, ni une cible a zero.
+
+    Un vrai echange ne laisse pas cet etat exister. Le courtier papier ne
+    doit pas l inventer : le reliquat se solde au prix du remplissage qui
+    vient de le creer.
+    """
+    from hermes.exchange.broker import PaperBroker
+
+    b = PaperBroker(cash=10_000.0)
+    b.mark_prices({"DOGE-USDT-SWAP": 0.0900})
+    # Sans specs, _round_qty laisse passer n importe quelle quantite :
+    # c est ainsi que le reliquat nait en vrai — des ordres passes avant
+    # que les specs de l echange soient chargees, ou un etat repris.
+    b.market_order("DOGE-USDT-SWAP", -2010.0, 0.0900)
+    assert b.pos["DOGE-USDT-SWAP"] == -2010.0
+
+    # Les specs arrivent : le pas minimal est 0,1 contrat, soit 100 DOGE.
+    b.set_specs({"DOGE-USDT-SWAP": {"ctVal": 1000.0, "lotSz": 0.1,
+                                    "minSz": 0.1}})
+    b.mark_prices({"DOGE-USDT-SWAP": 0.0888})
+    # Le prochain ordre valide doit emporter le reliquat non aligne avec
+    # lui, au lieu de le laisser derriere pour toujours.
+    b.market_order("DOGE-USDT-SWAP", 2000.0, 0.0888)
+    assert "DOGE-USDT-SWAP" not in b.pos, \
+        f"un reliquat intradable survit : {b.pos.get('DOGE-USDT-SWAP')}"
+
+    # Et une position alignee n est evidemment pas touchee.
+    b.market_order("DOGE-USDT-SWAP", -1000.0, 0.0888)
+    assert b.pos["DOGE-USDT-SWAP"] == -1000.0
+
+
+def test_an_inherited_residue_gets_written_off(tmp_path):
+    """Le garde-fou empeche d en creer ; il reste ceux qu un etat
+    anterieur porte deja. Le balayage doit pouvoir les solder, sinon le
+    -10 DOGE d hier survit a tous les deploiements de demain."""
+    from hermes.exchange.broker import PaperBroker
+
+    b = PaperBroker(cash=10_000.0)
+    b.set_specs({"DOGE-USDT-SWAP": {"ctVal": 1000.0, "lotSz": 0.1,
+                                    "minSz": 0.1}})
+    b.pos["DOGE-USDT-SWAP"] = -10.0
+    b.entry["DOGE-USDT-SWAP"] = 0.0888
+    b.mark_prices({"DOGE-USDT-SWAP": 0.0890})
+
+    assert b.market_order("DOGE-USDT-SWAP", 10.0, 0.0890) is None, \
+        "l echange accepterait un ordre de 0,01 contrat"
+    avant = b.livre["brut"]
+    assert b.solder("DOGE-USDT-SWAP", 0.0890) is True
+    assert "DOGE-USDT-SWAP" not in b.pos
+    # le solde passe par le livre, il ne disparait pas en silence
+    assert abs((b.livre["brut"] - avant) - (-10.0 * (0.0890 - 0.0888))) < 1e-12
+    # et une VRAIE position ne se solde jamais
+    b.pos["DOGE-USDT-SWAP"] = -1000.0
+    assert b.solder("DOGE-USDT-SWAP", 0.0890) is False

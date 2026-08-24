@@ -464,4 +464,99 @@ def test_the_retained_threshold_is_reported_in_sigmas_not_only_in_bps():
     d = CandleModel("5m").fit(c)
     assert "thr_k" in d
     assert d["thr_k"] in THRESHOLDS or d["thr_k"] == 0.0, d["thr_k"]
-    assert max(THRESHOLDS) >= 3.0, "la grille des seuils a ete raccourcie"
+    assert max(THRESHOLDS) >= 4.0, "la grille des seuils a ete raccourcie"
+
+
+def test_the_sharpe_profile_separates_a_steady_edge_from_a_lucky_window():
+    """Deux facons tres differentes de rendre le meme Sharpe global, et le
+    chiffre global ne les distingue pas.
+
+    C est la question ouverte par la mesure du 24 aout : porter la
+    profondeur 1m de trente a soixante jours a fait tomber le sr de +0,242
+    a +0,148 pendant que la barre ne tombait que de 0,207 a 0,163. Le mois
+    ajoute a-t-il DILUE un avantage reel, ou les trente jours precedents
+    en montraient-ils un FAUX ? Les deux appellent des suites opposees, et
+    seul un profil chronologique repond.
+    """
+    import numpy as np
+
+    from hermes.scalp.clock import MIN_TRADES, _profil
+
+    n = max(300, 3 * MIN_TRADES)
+    rng = np.random.default_rng(7)
+
+    # Un avantage regulier : les trois tiers se ressemblent.
+    reguliere = rng.normal(0.30, 1.0, n)
+    pr = _profil(reguliere)
+    assert len(pr) == 3
+    assert min(pr) > 0.0, pr
+    assert max(pr) - min(pr) < 0.7, f"un avantage regulier ne doit pas osciller : {pr}"
+
+    # Un mirage de fenetre : tout l avantage dans le dernier tiers, et un
+    # Sharpe GLOBAL comparable a celui de la serie reguliere.
+    mirage = rng.normal(0.0, 1.0, n)
+    mirage[2 * n // 3:] += 0.95
+    pm = _profil(mirage)
+    glob = float(np.mean(mirage)) / float(np.std(mirage, ddof=1))
+    assert abs(glob - 0.30) < 0.18, f"les deux series doivent etre comparables : {glob:.3f}"
+    assert pm[2] > pm[0] + 0.6, f"le profil ne voit pas la concentration : {pm}"
+
+    # Sans assez d instants, on ne profile pas : trois tiers de vingt
+    # points diraient n importe quoi avec aplomb.
+    assert _profil(rng.normal(0, 1, 3 * MIN_TRADES - 1)) == ()
+
+
+def test_the_profile_travels_from_the_gate_to_the_journal():
+    """Une mesure qui n arrive pas au releve n existe pas : elle serait
+    recalculee a la main a chaque diagnostic, donc jamais."""
+    import inspect
+
+    import numpy as np
+
+    from hermes.data.store import Candles
+    from hermes.scalp.clock import CandleModel, ScaleDesk
+
+    rng = np.random.default_rng(12)
+    n = 2600
+    z = rng.uniform(-1, 1, n)
+    r = rng.normal(0, 6e-4, n)
+    r[1:] += 9e-4 * z[:-1]
+    px = 100 * np.exp(np.cumsum(np.clip(r, -0.02, 0.02)))
+    o = np.concatenate([[100.0], px[:-1]])
+    w = np.abs(rng.normal(0, 4e-4, n)) * px
+    v = np.abs(rng.normal(1000, 100, n))
+    buy = v * (0.5 + 0.5 * z)
+    c = Candles("X", "5m", np.arange(n) * 300_000, o,
+                np.maximum(o, px) + w, np.minimum(o, px) - w, px, v,
+                taker_buy=buy, taker_sell=v - buy)
+    d = CandleModel("5m").fit(c)
+    assert "profil" in d and isinstance(d["profil"], list)
+    src = inspect.getsource(ScaleDesk.fit_panel if hasattr(ScaleDesk, "fit_panel")
+                            else ScaleDesk.fit_store)
+    assert "profil=" in src, "le profil natteint pas le journal"
+
+
+def test_the_threshold_grid_reaches_past_where_production_kept_landing():
+    """Mesure sans ambiguite, journal du 24 aout : seuil=3.0sig sur les
+    TROIS refits de l horloge 1m, plus le 5m et le 15m. Cinq verdicts sur
+    cinq collant a la borne, ce n est pas un hasard — c est une grille
+    tronquee, et elle coute exactement ce que vaut l optimum qu elle
+    exclut.
+
+    Le balayage des seuils s applique a des predictions deja calculees :
+    il ne reajuste aucun modele. Le seul prix est la barre deflatee, et il
+    doit rester petit devant les marges qu on cherche.
+    """
+    from hermes.backtest.metrics import expected_max_sharpe
+    from hermes.scalp.clock import THRESHOLDS
+
+    assert max(THRESHOLDS) >= 4.0
+    # la grille reste reguliere : pas de trou ou l optimum pourrait tomber
+    pas = [round(b - a, 6) for a, b in zip(THRESHOLDS, THRESHOLDS[1:])]
+    assert len(set(pas)) == 1, f"grille irreguliere : {pas}"
+
+    avant, apres = 3024, 3888
+    b0 = expected_max_sharpe(avant, 466)
+    b1 = expected_max_sharpe(apres, 466)
+    assert b1 > b0, "elargir la recherche doit RELEVER la barre"
+    assert (b1 / b0 - 1.0) < 0.03, f"cout de la barre {b1 / b0 - 1:.1%}"

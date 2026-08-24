@@ -1176,7 +1176,14 @@ class ScalpEngine:
                 continue
             if not self.broker.market_order(inst, -float(q), last,
                                             force_taker=True):
-                continue
+                # L ordre a ete refuse : le reliquat est plus petit qu un
+                # lot de l echange, donc AUCUN ordre ne le fermera jamais.
+                # Mesure en direct : -9,999999999883585 DOGE, 89 centimes,
+                # soit 0,01 contrat sur un ctVal de 1000. On le solde au
+                # prix courant, sinon il reste a l ecran pour toujours.
+                solder = getattr(self.broker, "solder", None)
+                if solder is None or not solder(inst, last):
+                    continue
             self.opened_bar.pop(inst, None)
             self.hold_ms.pop(inst, None)
             self.opened_h.pop(inst, None)
