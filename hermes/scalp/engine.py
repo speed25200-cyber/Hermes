@@ -105,7 +105,9 @@ class ScalpEngine:
                               "sl": 0, "time": 0,
                               # mesures qui remplacent des hypothèses du
                               # modèle de coût, une fois assez d'échantillons
-                              "entry_edge_bps": 0.0, "exit_edge_bps": 0.0}
+                              "entry_edge_bps": 0.0,
+                              "exit_maker_bps": 0.0, "n_exit_maker": 0,
+                              "exit_taker_bps": 0.0, "n_exit_taker": 0}
         try:
             with open(self.state_path) as f:
                 prev = json.load(f)
@@ -666,17 +668,29 @@ class ScalpEngine:
                                             maker_at=maker_at)
             if fill and br and br.get("explore"):
                 entree = float(br.get("entry") or fill.price)
-                # ce que la sortie obtient par rapport au marché courant :
-                # un TP traversé remplit à SON prix, mieux que le bid
+                # Ce que la sortie obtient par rapport au marché courant —
+                # mais séparément selon qu'elle a REPOSÉ ou TRAVERSÉ, car
+                # les deux chiffres ne disent pas la même chose et les
+                # mélanger produit un nombre qui ne veut rien dire.
+                #
+                # Un take posé se remplit à SON prix pendant que le marché
+                # l'a dépassé : l'écart au marquage est alors négatif PAR
+                # CONSTRUCTION, et c'est le plafond du take, pas un mauvais
+                # remplissage. Le modèle de coût en tient déjà compte
+                # ailleurs (l'économie du bracket borne le gain).
+                #
+                # L'écart d'une sortie qui TRAVERSE, lui, est de la vraie
+                # glissade : c'est le seul des deux qui puisse dire que
+                # traverser coûte plus cher que les frais modélisés.
                 if last > 0:
                     ex = -float(np.sign(qty)) * (last - fill.price) / last * 1e4
-                    n_ex = (self.explore_stats["tp_maker"]
-                            + self.explore_stats["tp_taker"]
-                            + self.explore_stats["sl"]
-                            + self.explore_stats["time"])
-                    moy = self.explore_stats["exit_edge_bps"]
-                    self.explore_stats["exit_edge_bps"] = \
-                        (moy * n_ex + ex) / (n_ex + 1)
+                    cle = ("exit_maker_bps" if maker_at is not None
+                           else "exit_taker_bps")
+                    cnt = "n_exit_maker" if maker_at is not None else "n_exit_taker"
+                    n_ex = int(self.explore_stats.get(cnt) or 0)
+                    moy = float(self.explore_stats.get(cle) or 0.0)
+                    self.explore_stats[cle] = (moy * n_ex + ex) / (n_ex + 1)
+                    self.explore_stats[cnt] = n_ex + 1
                 self.explore_pnl_day += qty * (fill.price - entree) \
                     - float(br.get("entry_fee") or 0.0) - float(fill.fee)
                 if maker_at is not None:

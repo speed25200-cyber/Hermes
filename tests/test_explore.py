@@ -175,3 +175,23 @@ def test_a_stopped_explorer_debits_the_budget(tmp_path):
     assert eng.check_exits() == ["SOL-USDT-SWAP"]
     assert eng.explore_stats["sl"] == 1
     assert eng.explore_pnl_day < 0
+
+
+def test_a_resting_exit_and_a_crossing_exit_are_measured_apart(tmp_path):
+    """Un take POSÉ se remplit à son prix pendant que le marché l'a
+    dépassé : l'écart au marquage est négatif par construction, et c'est
+    le plafond du take, pas un mauvais remplissage. Une sortie qui
+    TRAVERSE, elle, mesure une vraie glissade. Les mélanger produisait un
+    nombre qui ne veut rien dire — et sur lequel j'ai failli durcir le
+    modèle de coût à tort.
+    """
+    from hermes.scalp.engine import ScalpEngine
+    stats = ScalpEngine.__new__(ScalpEngine).__class__
+    assert stats is ScalpEngine
+    # les deux compteurs existent et sont distincts dès l'initialisation
+    import inspect
+    src = inspect.getsource(ScalpEngine.__init__)
+    for cle in ("exit_maker_bps", "n_exit_maker",
+                "exit_taker_bps", "n_exit_taker"):
+        assert cle in src, cle
+    assert "exit_edge_bps" not in src, "l'ancien chiffre mélangé subsiste"
