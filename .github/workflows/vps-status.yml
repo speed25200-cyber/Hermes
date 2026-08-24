@@ -60,6 +60,15 @@ jobs:
               | grep -E "flow (90s|300s|900s) (live|veto)|clock .* (live|veto) \[" \
               | tail -14 || true
             echo
+            # Le panel top-20 ne peut accueillir un nom quapres son
+            # rattrapage dhistoire. Sans cette fenetre, « le classement ne
+            # marche pas » et « le rattrapage nest pas fini » se
+            # ressemblent exactement.
+            echo "===== univers et rattrapage dhistoire (6 h) ====="
+            journalctl -u hermes --since "-6 hours" --no-pager 2>/dev/null \
+              | grep -E "scalp universe|desk panel vise|desk backfill" \
+              | tail -14 || true
+            echo
             # Une regle qui change didentite a chaque refit na pas de
             # mesure en direct du tout : les trades de la fenetre viennent
             # alors de plusieurs cellules differentes. Le mot « gardee »
