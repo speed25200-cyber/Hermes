@@ -60,6 +60,17 @@ jobs:
               | grep -E "flow (90s|300s|900s) (live|veto)|clock .* (live|veto) \[" \
               | tail -14 || true
             echo
+            # Une regle qui change didentite a chaque refit na pas de
+            # mesure en direct du tout : les trades de la fenetre viennent
+            # alors de plusieurs cellules differentes. Le mot « gardee »
+            # dit que lhysteresis a tenu ; sa rarete est le diagnostic.
+            echo "===== horloge 1m : la cellule retenue tient-elle (12 h) ====="
+            journalctl -u hermes --since "-12 hours" --no-pager 2>/dev/null \
+              | grep -E "clock 1m panel" \
+              | sed -E "s/.*clock 1m panel\[[0-9]+\] //" \
+              | sed -E "s/ic=.*net=/net=/" \
+              | tail -12 || true
+            echo
             echo "===== règle validée : ouvertures et fermetures (12 h) ====="
             journalctl -u hermes --since "-12 hours" --no-pager 2>/dev/null \
               | grep -E "ouverture |fermeture " | tail -20 \
