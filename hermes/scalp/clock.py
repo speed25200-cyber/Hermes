@@ -268,7 +268,7 @@ COLONNES = (
     "funding", "taker", "basis", "d_oi", "z20", "z60", "sin_h", "cos_h",
     "d_taker", "vz",
     "r1_1", "r1_2", "r1_3", "r1_4", "r1_5", "r1_6", "r1_7", "r1_8",
-    "loc_1", "loc_2",
+    "loc_1", "loc_2", "d_basis",
 )
 CROISEES = ("btc_r1", "xs", "btc_r1_1")
 N_FEATURES = len(COLONNES)   # colonnes de feat_matrix (un seul actif)
@@ -388,6 +388,17 @@ def feat_matrix(c: Candles) -> np.ndarray:
     if n > 1:
         d_taker[1:] = np.clip(taker[1:] - taker[:-1], -1, 1)
 
+    # Même raisonnement pour le basis, et il porte plus loin. Le NIVEAU
+    # dit qu un perpétuel est cher par rapport a son indice ; sa VARIATION
+    # dit que quelqu un vient de payer pour l acheter LA, tout de suite,
+    # sans passer par le comptant. C est la pression propre au perpétuel,
+    # celle qui se paie ensuite en financement et qui revient a la
+    # moyenne — le seul signal que ce marche-ci possede et que le comptant
+    # n a pas.
+    d_basis = np.zeros(n)
+    if n > 1:
+        d_basis[1:] = np.clip(basis[1:] - basis[:-1], -20, 20)
+
     # La SÉQUENCE, pas seulement ses résumés. Les retours cumulés à 3, 5 et
     # 12 barres imposent une base fixe : ils forcent le modèle à voir des
     # sommes, jamais des motifs. Les huit derniers retours donnés un par un
@@ -415,6 +426,16 @@ def feat_matrix(c: Candles) -> np.ndarray:
         funding, taker, basis, d_oi,
         zscore(20), zscore(60), np.sin(ang), np.cos(ang), d_taker, vz,
         *seq, decale(loc_c, 1), decale(loc_c, 2),
+        # AJOUTEE A LA FIN, et c est essentiel. La couche 0 du reseau est
+        # tiree en un seul bloc (d, h) : INSERER une colonne au milieu
+        # re-associe chaque colonne existante a d autres poids, alors que
+        # l ajouter a la fin laisse les precedentes intactes. Mesure sur
+        # la fixture d interaction, ou d_basis vaut identiquement zero
+        # donc ne peut rien apporter ni rien coûter : inseree a l index
+        # 18, mlp/ens tombait de 11/12 a 8/12 ; ajoutee a la fin, une
+        # colonne morte ne change rien (8/12 -> 8/12). Le « cout » n en
+        # etait pas un, c etait un deplacement.
+        d_basis,
     ])
 
 

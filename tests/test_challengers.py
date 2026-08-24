@@ -172,3 +172,77 @@ def test_a_broken_scale_is_skipped_not_judged():
                 np.abs(rng.normal(1000, 300, n)))
     d = CandleModel("5m").fit(c)
     assert d["thr_bps"] < 1e4, f"seuil aberrant : {d['thr_bps']}"
+
+
+def test_one_random_init_is_a_ticket_not_a_model():
+    """Une porte dont le verdict se deplace pour un tirage mesure la
+    chance, pas le signal.
+
+    Mesure qui l a impose. Sur la fixture d interaction, faire passer la
+    matrice de 28 a 29 colonnes avec une colonne IDENTIQUEMENT NULLE
+    faisait tomber mlp/ens de 11/12 a 8/12 ; passer de 29 a 30 avec une
+    autre colonne nulle ne changeait rien. Aucune information n avait
+    bouge dans un cas comme dans l autre — seul le tirage
+    d initialisation, que le nombre de colonnes decale mecaniquement.
+
+    En moyennant plusieurs reseaux d initialisations differentes, la
+    variance de tirage tombe en 1/racine(k) : 11/12 sans la colonne
+    nulle, 12/12 avec. Et ce n est PAS une famille de plus cherchee par
+    la porte — aucune selection ne separe les freres, on les moyenne
+    tous — donc la barre deflatee ne bouge pas d un iota.
+    """
+    import numpy as np
+
+    from hermes.ml.models import MLPRegressor
+
+    rng = np.random.default_rng(0)
+    n = 4000
+    X = rng.normal(size=(n, 20))
+    y = 0.7 * X[:, 0] * np.sign(X[:, 1]) + rng.normal(0, 1.0, n)
+
+    def ic(k):
+        m = MLPRegressor(hidden=(24, 12), epochs=120, patience=10,
+                         reseaux=k).fit(X[:3200], y[:3200])
+        p = m.predict(X[3200:])
+        return float(np.corrcoef(p, y[3200:])[0, 1])
+
+    seul, moyen = ic(1), ic(3)
+    assert moyen > seul, f"moyenner doit aider : {seul:.4f} -> {moyen:.4f}"
+    assert moyen > 0.9 * 0.3782, f"ic mesure a +0,3782, obtenu {moyen:.4f}"
+
+    # Le defaut mesure : un seul reseau change de reponse quand on lui
+    # ajoute des colonnes MORTES, qui ne portent rien.
+    def ic_mortes(k, mortes):
+        Xa = np.column_stack([X, np.zeros((n, mortes))]) if mortes else X
+        m = MLPRegressor(hidden=(24, 12), epochs=120, patience=10,
+                         reseaux=k).fit(Xa[:3200], y[:3200])
+        p = m.predict(Xa[3200:])
+        return float(np.corrcoef(p, y[3200:])[0, 1])
+
+    ecart_seul = abs(ic_mortes(1, 3) - ic_mortes(1, 0))
+    ecart_moyen = abs(ic_mortes(3, 3) - ic_mortes(3, 0))
+    assert ecart_moyen <= ecart_seul + 1e-12, (
+        f"la moyenne doit STABILISER : ecart {ecart_seul:.4f} -> {ecart_moyen:.4f}")
+
+
+def test_averaging_inits_does_not_buy_a_way_through_the_gate():
+    """Un modele plus fort ne doit pas devenir un modele qui passe sur du
+    bruit. C est la seule chose qui rendrait ce changement inacceptable,
+    et elle se verifie separement du reste."""
+    import numpy as np
+
+    from hermes.data.store import Candles
+    from hermes.scalp.clock import CandleModel
+
+    vivants = 0
+    for seed in range(4):
+        rng = np.random.default_rng(100 + seed)
+        n = 1500
+        px = 100 * np.exp(np.cumsum(rng.normal(0, 0.004, n)))
+        o = np.concatenate([[100.0], px[:-1]])
+        w = np.abs(rng.normal(0, 0.0013, n)) * px
+        c = Candles("X", "5m", np.arange(n) * 300_000, o,
+                    np.maximum(o, px) + w, np.minimum(o, px) - w, px,
+                    np.abs(rng.normal(1000, 300, n)))
+        vivants += CandleModel("5m").fit(c)["status"] == "live"
+    assert vivants == 0, f"{vivants}/4 horloges vivantes sur bruit pur"

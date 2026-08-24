@@ -139,7 +139,8 @@ class MLPRegressor:
 
     def __init__(self, hidden: tuple[int, ...] = (32, 16), l2: float = 1e-4,
                  lr: float = 3e-3, epochs: int = 150, batch: int = 1024,
-                 patience: int = 12, val_frac: float = 0.15, seed: int = 7):
+                 patience: int = 12, val_frac: float = 0.15, seed: int = 7,
+                 reseaux: int = 3):
         self.hidden = tuple(int(h) for h in hidden)
         self.l2 = float(l2)
         self.lr = float(lr)
@@ -148,6 +149,23 @@ class MLPRegressor:
         self.patience = int(patience)
         self.val_frac = float(val_frac)
         self.seed = int(seed)
+        # Un seul tirage d initialisation est un TICKET, pas un modele.
+        #
+        # Mesure qui l a impose : sur la fixture d interaction, faire
+        # passer la matrice de 28 a 29 colonnes avec une colonne
+        # IDENTIQUEMENT NULLE faisait tomber mlp/ens de 11/12 a 8/12,
+        # tandis que passer de 29 a 30 avec une autre colonne nulle ne
+        # changeait rien. Aucune information n avait bouge : seul le
+        # tirage. Une porte dont le verdict se deplace de trois douziemes
+        # pour un tirage mesure la chance, pas le signal — et elle le fait
+        # aussi en production, ou elle decide si Hermes trade.
+        #
+        # On moyenne donc plusieurs reseaux d initialisations
+        # differentes. La variance de tirage tombe en 1/racine(k) ; le
+        # cout est k ajustements, payes dans un fil de fond une fois par
+        # heure.
+        self.reseaux = max(1, int(reseaux))
+        self._extras: list["MLPRegressor"] = []
         self.Ws: list[np.ndarray] | None = None
         self.bs: list[np.ndarray] | None = None
         self._mu = None
@@ -169,6 +187,19 @@ class MLPRegressor:
     def fit(self, X: np.ndarray, y: np.ndarray) -> "MLPRegressor":
         X = np.asarray(X, dtype=np.float64)
         y = np.asarray(y, dtype=np.float64)
+        # Les reseaux frateaux, tires ailleurs, apprennent la meme chose
+        # sur les memes donnees. Ils ne sont pas une famille de plus
+        # cherchee par la porte — aucune selection ne les separe, on les
+        # moyenne tous — donc ils n ajoutent pas une cellule au compte et
+        # la barre ne bouge pas d un iota.
+        self._extras = []
+        for i in range(1, self.reseaux):
+            frere = MLPRegressor(hidden=self.hidden, l2=self.l2, lr=self.lr,
+                                 epochs=self.epochs, batch=self.batch,
+                                 patience=self.patience,
+                                 val_frac=self.val_frac,
+                                 seed=self.seed + 1013 * i, reseaux=1)
+            self._extras.append(frere.fit(X, y))
         n, d = X.shape
         n_val = max(int(n * self.val_frac), 16)
         if n - n_val < 32:                      # trop petit pour un réseau
@@ -262,7 +293,13 @@ class MLPRegressor:
                      -CLIP_STD, CLIP_STD)
         if getattr(self, "_mort", None) is not None:
             Xs[..., self._mort] = 0.0
-        return self._forward(Xs)[:, 0] * self._ysd + self._ymu
+        p = self._forward(Xs)[:, 0] * self._ysd + self._ymu
+        freres = getattr(self, "_extras", None)
+        if not freres:
+            return p
+        for f in freres:
+            p = p + f.predict(X)
+        return p / (len(freres) + 1.0)
 
 
 def math_sqrt(x: float) -> float:

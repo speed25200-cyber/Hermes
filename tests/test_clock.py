@@ -263,3 +263,92 @@ def test_the_clock_can_see_a_cross_sectional_reversal():
     bruit = sum(1 for s in range(2)
                 if CandleModel("5m").fit_panel(panel(30 + s, 0.0))["status"] == "live")
     assert bruit == 0, f"{bruit}/2 — une horloge passe sur du bruit pur"
+
+
+def test_the_perp_pressure_lives_in_the_basis_CHANGE_not_its_level():
+    """Le NIVEAU du basis dit qu un perpetuel est cher par rapport a son
+    indice ; sa VARIATION dit que quelqu un vient de payer pour l acheter
+    LA, tout de suite, sans passer par le comptant. C est la pression
+    propre au perpetuel — le seul signal que ce marche possede et que le
+    comptant n a pas.
+
+    Mesure, meme protocole que pour le volume, sur une fixture ou le
+    prochain retour vaut effet x d(basis) et ou le niveau ne dit rien :
+
+      SANS la colonne   live 0/3   ic +0,0311
+      AVEC la colonne   live 3/3   ic +0,8393
+      bruit pur         live 0/3   ic -0,0118   (les deux)
+
+    Cout ailleurs, sur la fixture d interaction ou d_basis vaut
+    IDENTIQUEMENT ZERO — elle ne peut donc rien y apporter ni rien y
+    coûter :
+
+      un seul reseau    mlp/ens 11/12 sans, 8/12 avec
+      trois reseaux     mlp/ens 11/12 sans, 12/12 avec
+
+    Le « cout » du premier tableau n en etait pas un. Aucune information
+    n avait bouge — seul le tirage d initialisation, que le nombre de
+    colonnes decale. C est cette mesure-la qui a impose de moyenner
+    plusieurs initialisations dans le reseau ; une fois la loterie
+    retiree, la colonne est gratuite.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+    from hermes.scalp.clock import col, feat_matrix
+
+    n = 1200
+    rng = np.random.default_rng(3)
+    bs = np.cumsum(rng.normal(0, 2e-4, n))
+    bs = np.clip(bs - np.convolve(bs, np.ones(200) / 200, mode="same"),
+                 -3e-3, 3e-3)
+    px = 100 * np.exp(np.cumsum(rng.normal(0, 6e-4, n)))
+    o = np.concatenate([[100.0], px[:-1]])
+    c = Candles("X", "5m", np.arange(n) * 300_000, o, px * 1.001, px * 0.999,
+                px, np.ones(n), mark=px, index=px / (1.0 + bs))
+
+    X = feat_matrix(c)
+    niveau = np.clip(np.nan_to_num(c.basis, nan=0.0) * 1e4, -50, 50)
+    attendu = np.concatenate([[0.0], np.diff(niveau)])
+    obtenu = X[:, col("d_basis")]
+    assert np.corrcoef(obtenu, attendu)[0, 1] > 0.99, "la colonne ne porte pas d(basis)"
+    # et elle est DISTINCTE du niveau, sinon elle n apporte rien
+    assert abs(float(np.corrcoef(obtenu, X[:, col("basis")])[0, 1])) < 0.5
+
+    # Une serie sans mark ni index laisse la colonne a zero : une
+    # information absente ne doit pas se distinguer d une information
+    # nulle. Mesure isolee : jusqu a onze colonnes mortes ne coutent rien
+    # au reseau (ic +0,3605 a zero morte, +0,3677 a onze).
+    muet = Candles("X", "5m", np.arange(n) * 300_000, o, px * 1.001,
+                   px * 0.999, px, np.ones(n))
+    assert not feat_matrix(muet)[:, col("d_basis")].any()
+
+
+def test_a_column_the_store_cannot_fill_costs_the_net_nothing():
+    """La matrice promet qu une information absente ne se distingue pas
+    d une information nulle — funding, oi, taker et basis valent zero
+    quand la serie manque. Si une colonne morte degradait quand meme le
+    reseau, cette promesse serait fausse pour TOUT actif dont le magasin
+    ne porte pas encore les series derivees, c est-a-dire chaque nom qui
+    vient d entrer au panel.
+    """
+    import numpy as np
+
+    from hermes.ml.models import MLPRegressor
+
+    def ic(seed, mortes):
+        rng = np.random.default_rng(seed)
+        n = 4000
+        X = rng.normal(size=(n, 20))
+        y = 0.7 * X[:, 0] * np.sign(X[:, 1]) + rng.normal(0, 1.0, n)
+        if mortes:
+            X = np.column_stack([X, np.zeros((n, mortes))])
+        p = MLPRegressor(hidden=(24, 12), epochs=120,
+                         patience=10).fit(X[:3200], y[:3200]).predict(X[3200:])
+        if p.std() < 1e-12:
+            return 0.0
+        return float(np.corrcoef(p, y[3200:])[0, 1])
+
+    vif = float(np.mean([ic(s, 0) for s in range(4)]))
+    mort = float(np.mean([ic(s, 11) for s in range(4)]))
+    assert mort > 0.85 * vif, f"onze colonnes mortes coutent : {vif:.3f} -> {mort:.3f}"
