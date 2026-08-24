@@ -240,3 +240,30 @@ def test_the_engine_records_leverage_and_margin_on_every_position():
     src = inspect.getsource(ScalpEngine._arm)
     for cle in ('"lev"', '"margin"', '"notional"', '"hold_ms"', '"policy"'):
         assert cle in src, f"_arm n'enregistre pas {cle}"
+
+
+def test_the_main_page_answers_why_this_size_without_navigating():
+    """Répondre à « pourquoi cette taille » demandait de naviguer entre
+    trois onglets : l'equity ici, le frein là, le rodage nulle part. Les
+    étages qui multiplient la taille sont maintenant montrés ensemble et
+    dans l'ordre où ils s'appliquent, en tête de la page principale."""
+    s = _html()
+    i_band = s.index('id="bandeau"')
+    i_graphe = s.index('id="gzone"')
+    assert i_band < i_graphe, "le bandeau doit précéder le graphe"
+    i_pos = s.index('id="positions"')
+    assert i_pos < i_graphe, "les positions doivent précéder le graphe"
+    for cle in ("frein_risque", "confiance", "live_rule", "retard_s"):
+        assert cle in s, f"le bandeau ignore {cle}"
+    assert "function rendreBandeau" in s and "rendreBandeau(d);" in s
+
+
+def test_a_trailing_position_shows_the_trail_and_not_a_dead_stop():
+    """Le suiveur REMPLACE le stop fixe. Afficher les deux ferait croire à
+    deux garde-fous là où la règle validée n'en a qu'un."""
+    s = _html()
+    assert 'b.stop_mode === "suiv"' in s
+    assert 'm(trail,"trail","TRAIL")' in s
+    assert ".rail .marq.trail{" in s
+    # l'échelle du rail suit le niveau ACTIF, pas un stop inerte
+    assert "const bas = suiveur && isFinite(trail)" in s

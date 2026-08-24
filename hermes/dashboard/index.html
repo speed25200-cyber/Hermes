@@ -334,6 +334,9 @@ button.ghost.icone{padding:8px;border-radius:50%;display:grid;place-items:center
     color-mix(in oklab,var(--bon) 20%,transparent) 100%)}
 .rail .marq{position:absolute;top:0;bottom:0;width:2px;background:var(--encre-3)}
 .rail .marq.sl{background:var(--critique)} .rail .marq.tp{background:var(--bon)}
+/* Le suiveur n est pas un stop inerte : il MONTE avec la position.
+   Sa couleur le distingue du stop fixe, qui lui ne bouge jamais. */
+.rail .marq.trail{background:var(--attention)}
 .rail .marq.now{background:var(--encre);width:3px;border-radius:2px;
   box-shadow:0 0 10px -1px color-mix(in oklab,var(--encre) 60%,transparent)}
 /* PRIX passe sous le rail : collé à l'objectif il chevauchait son
@@ -359,6 +362,18 @@ button.ghost.icone{padding:8px;border-radius:50%;display:grid;place-items:center
    la position a ete prise, ce qu elle immobilise en marge, et combien de
    temps la regle validee lui laisse encore. */
 .pchips{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+/* Bandeau de pilotage : les etages qui multiplient la taille, dans l ordre
+   ou ils s appliquent. Grille fluide pour qu il tienne du telephone au
+   grand ecran sans point de rupture ecrit a la main. */
+.bandeau{display:grid;gap:var(--e3);margin-bottom:var(--e4);
+  grid-template-columns:repeat(auto-fit,minmax(148px,1fr))}
+.tuile{background:var(--surface-2);border:1px solid var(--filet);
+  border-radius:var(--r-s);padding:10px 12px;min-width:0}
+.tuile.att{border-color:color-mix(in oklab,var(--attention) 55%,var(--filet))}
+.tuile .tl{font-size:11px;text-transform:uppercase;letter-spacing:.05em;
+  color:var(--encre-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tuile .tv{font-size:19px;font-weight:660;letter-spacing:-.02em;margin-top:3px}
+.tuile .ts{font-size:11.5px;color:var(--encre-2);margin-top:2px;line-height:1.35}
 .chip{display:inline-flex;align-items:baseline;gap:5px;padding:3px 8px;
   border:1px solid var(--filet);border-radius:999px;background:var(--surface-2);
   font-size:11.5px;line-height:1.3;white-space:nowrap}
@@ -582,8 +597,13 @@ footer{padding-bottom:96px}
   <main>
    <div class="colg">
 
-    <!-- ═══ MARCHÉ : le prix en héros, le graphe plein cadre ═══ -->
+    <!-- ═══ MARCHÉ : le poste de pilotage, puis le prix ═══ -->
     <section class="vue active" id="vue-marche">
+      <!-- L essentiel AVANT le graphe : ce que la machine fait, avec quel
+           capital, sous quelles brides. C etait disperse sur trois onglets,
+           si bien qu on ne pouvait pas repondre a « pourquoi cette taille »
+           sans naviguer. -->
+      <div class="bandeau" id="bandeau"></div>
       <div class="hero">
         <div>
           <div class="hnom" id="hero-nom">—</div>
@@ -598,6 +618,10 @@ footer{padding-bottom:96px}
           <div class="heqd num" id="hero-eq-d"></div>
         </div>
       </div>
+      <div class="carte" id="carte-positions">
+        <h2>Positions ouvertes <span class="aide" id="pos-aide"></span></h2>
+        <div id="positions"><div class="vide">Aucune position ouverte.</div></div>
+      </div>
       <div class="carte marche">
         <div class="mtete">
           <div class="onglets" id="onglets" role="tablist"></div>
@@ -608,10 +632,6 @@ footer{padding-bottom:96px}
           <div class="gleg num" id="gleg"></div>
           <div class="gvide" id="gvide">Chargement des chandelles…</div>
         </div>
-      </div>
-      <div class="carte">
-        <h2>Positions ouvertes <span class="aide" id="pos-aide"></span></h2>
-        <div id="positions"><div class="vide">Aucune position ouverte.</div></div>
       </div>
     </section>
 
@@ -977,6 +997,54 @@ function rendrePreuve(d){
 }
 
 /* ── Positions avec rail objectif/stop ───────────────────────────── */
+/* ── Bandeau de pilotage ──────────────────────────────────────────
+   Repondre a « pourquoi cette taille » demandait de naviguer entre trois
+   onglets : l equity ici, le frein la, le rodage nulle part. Les etages
+   qui multiplient la taille sont montres DANS L ORDRE ou ils s appliquent,
+   avec leur valeur, pour qu un chiffre inattendu se lise en un coup d oeil. */
+function tuile(lab, val, sous, cls){
+  return `<div class="tuile ${cls||""}">
+    <div class="tl">${esc(lab)}</div>
+    <div class="tv num">${val}</div>
+    ${sous ? `<div class="ts">${sous}</div>` : ""}</div>`;
+}
+function rendreBandeau(d){
+  const el = $("bandeau"); if (!el) return;
+  const s = d.scalp || {}, r = d.risk || {};
+  const eq = Number(d.equity_live || s.equity || 0);
+  const debut = Number(r.day_start_equity || eq);
+  const jour = debut > 0 ? eq / debut - 1 : 0;
+  const reg = s.live_rule || {}, ent = s.entree || {};
+  const frein = Number(s.frein_risque);
+  const conf = Number(reg.confiance);
+  const nliv = Number(reg.n) || 0, bliv = Number(reg.bps);
+  const uni = (s.universe || s.instruments || []).length
+           || Object.keys(s.desk || {}).length;
+  const vivantes = (s.live_bars || []).length;
+  const retard = Number(ent.retard_s);
+
+  const t = [];
+  t.push(tuile("Equity", usdt(eq),
+    `<span class="${jour>=0?"hausse":"baisse"}">${sgn(jour*100,2)} % aujourd'hui</span>`));
+  t.push(tuile("Horloges vives", vivantes + " / 4",
+    uni ? uni + " actifs au panel" : "", vivantes ? "" : "att"));
+  if (isFinite(bliv) && nliv)
+    t.push(tuile("Règle en direct", sgn(bliv,1) + " bps",
+      nliv + " trades fermés", bliv >= 0 ? "" : "att"));
+  if (isFinite(frein))
+    t.push(tuile("Frein du jour", "x" + nf(frein,2),
+      frein < 1 ? "budget de perte entamé" : "budget intact",
+      frein < 1 ? "att" : ""));
+  if (isFinite(conf))
+    t.push(tuile("Rodage", "x" + nf(conf,2),
+      conf < 1 ? "taille bridée tant que le direct n'est pas prouvé"
+               : "taille pleine acquise", conf < 1 ? "att" : ""));
+  if (isFinite(retard) && retard > 0)
+    t.push(tuile("Retard d'entrée", nf(retard,2) + " s",
+      "la porte suppose 0", retard > 3 ? "att" : ""));
+  el.innerHTML = t.join("");
+}
+
 function rendrePositions(d){
   const s = d.scalp || {}, br = s.brackets || {};
   const pb = (d.trader||{}).paper_broker || {};
@@ -1000,6 +1068,9 @@ function rendrePositions(d){
     const dec = px > 1000 ? 1 : 4;
     const lev = Number(b.lev) || 0;
     const marge = Number(b.margin) || (lev > 0 ? notion / lev : 0);
+    const suiveur = b.stop_mode === "suiv";
+    // Le suiveur remplace le stop fixe : afficher les deux ferait croire a
+    // deux garde-fous la ou la regle validee n en a qu un.
     const trail = Number(b.trail);
     // Combien de temps la regle validee lui laisse encore vivre. Sans ce
     // chiffre, une position tenue a l horizon mesure et une position
@@ -1027,10 +1098,11 @@ function rendrePositions(d){
     // Le rail est un axe perte -> gain, pas un axe de prix : le stop reste a
     // gauche et l'objectif a droite dans les deux sens. Un short affichait
     // sinon son stop du cote vert du degrade.
-    const span = lng ? (tp - sl) : (sl - tp);
+    const bas = suiveur && isFinite(trail) && trail > 0 ? trail : sl;
+    const span = lng ? (tp - bas) : (bas - tp);
     const at = v => {
       if (!isFinite(v) || !isFinite(span) || Math.abs(span) < 1e-12) return 50;
-      const f = lng ? (v - sl) / span : (sl - v) / span;
+      const f = lng ? (v - bas) / span : (bas - v) / span;
       return Math.max(0, Math.min(100, f * 100));
     };
     const m = (v, cls, lab, bord) => (isFinite(v) && v>0)
@@ -1059,11 +1131,13 @@ function rendrePositions(d){
       </div>
       <div class="rail">
         <div class="piste">
-          ${m(sl,"sl","SL","g")}${m(entree,"","ENTRÉE")}${m(tp,"tp","TP","d")}${m(px,"now","PRIX")}
+          ${suiveur ? m(trail,"trail","TRAIL") : m(sl,"sl","SL","g")}${m(entree,"","ENTRÉE")}${m(tp,"tp","TP","d")}${m(px,"now","PRIX")}
         </div>
         <div class="leg">
-          <span class="num">${isFinite(sl)?nf(sl,px>1000?1:4):"—"} · perte</span>
-          <span>${b.sl_bps?("stop "+bps(b.sl_bps,0)+" · objectif "+bps(b.tp_bps,0)):""}</span>
+          <span class="num">${suiveur ? (isFinite(trail)?nf(trail,px>1000?1:4):"—")
+                                        : (isFinite(sl)?nf(sl,px>1000?1:4):"—")} · perte</span>
+          <span>${b.sl_bps ? ((suiveur ? "suiveur " : "stop ") + bps(b.sl_bps,0)
+                              + " · objectif " + bps(b.tp_bps,0)) : ""}</span>
           <span class="num">gain · ${isFinite(tp)?nf(tp,px>1000?1:4):"—"}</span>
         </div>
       </div>
@@ -1716,6 +1790,7 @@ function rendre(d){
     el.textContent = sgn(dp) + " USDT (" + pct(dep?dp/dep:0,2) + ")";
     el.className = dp >= 0 ? "hausse" : "baisse";
   }
+  rendreBandeau(d);
   rendreVerdict(d); rendreDecisions(d); rendrePreuve(d); rendrePositions(d);
   Marche.maj(d);
   rendreRisque(d); rendreLevier(d); rendreTrades(d);
