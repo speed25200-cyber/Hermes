@@ -386,6 +386,35 @@ def feat_matrix(c: Candles) -> np.ndarray:
     # colonnes plutôt qu'une pour que minuit et 23 h soient voisines.
     hod = (np.asarray(c.ts, dtype=np.float64) / 3_600_000.0) % 24.0
     ang = 2.0 * math.pi * hod / 24.0
+    # Il n y a PAS de colonne « jour de la semaine » ici, et ce n est pas
+    # un oubli — c est un resultat mesure, garde pour qu on ne le refasse
+    # pas. L hypothese etait bonne sur le papier : la crypto cote 24/7
+    # mais le monde qui la trade non, et a l echelle de l heure l horizon
+    # d une position couvre une fraction visible de la semaine.
+    #
+    # Mesure, meme protocole que pour le volume. Sur une fixture ou le
+    # flux paie en semaine et se retourne le week-end — effet construit
+    # pour etre INVISIBLE aux retours decales, sans quoi elle ne mesure
+    # rien :
+    #
+    #   sans colonne            live 0/4   ic +0,232
+    #   sin/cos du jour (2 col) live 4/4   ic +0,575
+    #   week-end binaire (1 col) live 4/4  ic +0,686
+    #
+    # La colonne revele donc bien l effet, et l encodage minimal de
+    # l hypothese le revele MIEUX que le cycle complet a sept valeurs.
+    #
+    # Mais sur la fixture de reference — 2 400 barres de 5m, huit jours,
+    # sept jours distincts et AUCUN signal calendaire — le compte de
+    # succes tombe de 12/12 a 9/12 avec la colonne binaire, et a 0/3 avec
+    # sin/cos. L ic y restait pourtant a +0,42 : ce ne sont pas les
+    # predictions qui se degradent, c est leur precision sur les barres
+    # qui DECLENCHENT, donc l economie.
+    #
+    # Le benefice est mesure sur une fixture construite pour la colonne ;
+    # le cout est mesure sur la reference. Cette asymetrie tranche. Si le
+    # 1H montre un motif de week-end en PRODUCTION, ce sera le moment d y
+    # revenir — avec une preuve reelle, pas une fixture.
 
     # Le VOLUME, absent de toute la matrice jusqu'ici. Ni le rendement ni
     # la forme de la bougie ne le disent : un mouvement d'un demi sigma sur
