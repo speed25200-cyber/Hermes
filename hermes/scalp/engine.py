@@ -53,6 +53,14 @@ class ScalpEngine:
         # patte blanche une seule fois. On les juge une fois, on retient le
         # verdict — la nature d un actif ne change pas.
         self.admis: set[str] = set()
+        # Combien de barres le magasin portait la DERNIERE fois qu on a
+        # regarde. Un nom qui manque d histoire est remis en file de
+        # rattrapage, rattrape, puis reteste — et s il n a tout simplement
+        # pas assez d histoire A L ECHANGE, ce cycle ne s arrete jamais et
+        # consomme le quota d appels que les noms admissibles attendent.
+        # On chasse tant que le rattrapage FAIT PROGRESSER le compte ; des
+        # qu il n apporte plus rien, l echange a donne tout ce qu il a.
+        self.barres_vues: dict[str, int] = {}
         # Le panel vise les N perpétuels USDT les plus échangés sur OKX ;
         # la liste écrite en dur ne sert que de point de départ avant le
         # premier classement par volume.
@@ -446,6 +454,18 @@ class ScalpEngine:
         except Exception:
             return False
         if c is None or len(c) < self.min_barres:
+            n_vu = 0 if c is None else len(c)
+            avant = self.barres_vues.get(inst)
+            if avant is not None and n_vu <= avant:
+                # Le rattrapage precedent n a rien apporte : l echange n a
+                # pas plus d histoire a donner. Inutile de le poursuivre.
+                self.log(f"scalp recale {inst} : {n_vu} barres 1m et le "
+                         f"rattrapage n en ajoute plus (il en faut "
+                         f"{self.min_barres})")
+                self.recales.add(inst)
+                self.barres_vues.pop(inst, None)
+                return False
+            self.barres_vues[inst] = n_vu
             return False
         ts = np.asarray(c.ts, dtype=np.float64)
         duree = float(ts[-1] - ts[0])

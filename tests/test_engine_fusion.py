@@ -1841,3 +1841,49 @@ def test_the_leverage_actually_reaches_the_broker(tmp_path):
     assert eng.trades, "aucun ordre passe"
     assert eng.trades[-1]["lev"] >= 5.0, (
         f"le levier n arrive pas au journal : {eng.trades[-1]['lev']}")
+
+
+def test_a_name_the_exchange_cannot_fill_stops_being_chased(tmp_path):
+    """Un nom qui manque d histoire etait remis en file de rattrapage,
+    rattrape, reteste, remis en file — pour toujours.
+
+    Si l echange n a tout simplement pas plus d historique a donner — un
+    perpetuel liste il y a trois jours n atteindra jamais cinq mille
+    barres d une minute — ce cycle ne s arrete jamais, et il consomme a
+    chaque tour le quota d appels que les noms REELLEMENT admissibles
+    attendent pour entrer au panel.
+
+    Le critere n est pas un compteur d essais : c est le PROGRES. On
+    poursuit tant que le rattrapage fait grandir le compte de barres ; des
+    qu un rattrapage n apporte plus rien, l echange a donne tout ce qu il
+    a et le nom sort.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+
+    eng, _ = _moteur_pos(tmp_path)
+    dits = []
+    eng.log = dits.append
+    n = [1000]
+
+    def serie(i, b, **k):
+        ts = np.arange(n[0], dtype=np.int64) * 60_000
+        px = 100 + np.zeros(n[0])
+        return Candles(i, "1m", ts, px, px, px, px, np.ones(n[0]))
+
+    eng.store = type("M", (), {"load": lambda self, i, b, **k: serie(i, b)})()
+
+    # Premier passage : trop court, mais on ne juge pas encore.
+    assert eng._assez_dhistoire("NEUF-USDT-SWAP") is False
+    assert "NEUF-USDT-SWAP" not in eng.recales
+
+    # Le rattrapage APPORTE des barres : on continue de le poursuivre.
+    n[0] = 3000
+    assert eng._assez_dhistoire("NEUF-USDT-SWAP") is False
+    assert "NEUF-USDT-SWAP" not in eng.recales, "un nom qui progresse est abandonne"
+
+    # Le rattrapage n apporte plus rien : l echange est a sec.
+    assert eng._assez_dhistoire("NEUF-USDT-SWAP") is False
+    assert "NEUF-USDT-SWAP" in eng.recales, "le nom est poursuivi sans fin"
+    assert any("rattrapage n en ajoute plus" in m for m in dits), dits

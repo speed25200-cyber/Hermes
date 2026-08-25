@@ -66,7 +66,7 @@ jobs:
             # ressemblent exactement.
             echo "===== univers et rattrapage dhistoire (6 h) ====="
             journalctl -u hermes --since "-6 hours" --no-pager 2>/dev/null \
-              | grep -E "scalp universe|desk panel vise|desk backfill" \
+              | grep -E "scalp universe|desk panel vise|scalp recale" \
               | tail -14 || true
             echo
             # Une regle qui change didentite a chaque refit na pas de
@@ -104,7 +104,14 @@ jobs:
             echo "===== profondeur par instrument (panel des horloges) ====="
             # NB: commande ssh dejà entre apostrophes — aucune apostrophe ici,
             # et une seule ligne, sinon le bloc YAML se casse sur l|indentation.
-            /root/venv/bin/python -c "import sqlite3; P=set(\"BTC ETH SOL XRP DOGE BNB\".split()); B=set(\"1m 3m 5m 15m\".split()); [print(f\"  {i:18s} {b:4s} {n:8d}\") for i,b,n in sqlite3.connect(\"/root/hermes/data/market.db\").execute(\"SELECT inst,bar,COUNT(*) FROM candles GROUP BY inst,bar ORDER BY inst,bar\") if i.split(\"-\")[0] in P and b in B]" 2>/dev/null || echo "  base illisible"
+            # Les six noms du panel etaient ecrits EN DUR ici, si bien que
+            # la fenetre ne pouvait pas repondre a la seule question qui
+            # compte : pourquoi les quatorze autres n entrent pas. On liste
+            # donc tous les instruments par profondeur 1m decroissante, avec
+            # une marque quand le seuil dadmission (5000 barres) est franchi.
+            # NB: aucune apostrophe ici, la commande ssh en est entouree ;
+            # le nom de barre voyage en parametre pour eviter den avoir.
+            /root/venv/bin/python -c "import sqlite3; q=sqlite3.connect(\"/root/hermes/data/market.db\").execute(\"SELECT inst,COUNT(*) FROM candles WHERE bar=? GROUP BY inst ORDER BY COUNT(*) DESC LIMIT 26\",(\"1m\",)); [print(f\"  {i.split(chr(45))[0]:12s} 1m {n:8d}  {chr(9989) if n>=5000 else chr(46)}\") for i,n in q]" 2>/dev/null || echo "  base illisible"
             echo
             echo "===== deployed book (registry summary) ====="
             grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
