@@ -352,3 +352,47 @@ def test_the_cheap_timestamp_matches_the_loaded_series(tmp_path):
     # un nom inconnu ne fait pas exploser la boucle, il vaut zero
     assert st.dernier_ts("INCONNU-USDT-SWAP", "1m") == 0
     st.close()
+
+
+def test_the_universe_is_resolved_before_the_first_fit():
+    """L horloge s ajustait sur SIX jambes pendant une heure apres chaque
+    demarrage — donc apres chaque deploiement.
+
+    `self.scalp.instruments` vaut les six noms de la CONFIGURATION tant
+    que refresh_universe n a pas tourne, et celui-ci ne tourne que dans la
+    boucle. Le premier ajustement, lui, precede la boucle. Le
+    reajustement suivant n arrive qu une heure plus tard. Mesure : vingt-
+    six instruments avaient les 86 000 barres d une minute exigees, et le
+    journal affichait toujours « clock 1m panel[6] ».
+
+    La barre deflatee ne depend que du nombre d instants du holdout, et
+    chaque jambe en apporte : partir a six quand vingt sont disponibles,
+    c est se donner une barre plus haute pour rien.
+    """
+    import inspect
+
+    from hermes.live.trader import LiveRunner
+
+    src = inspect.getsource(LiveRunner.run_forever)
+    i_uni = src.find("refresh_universe")
+    i_fit = src.find('self._ajuster(noms, "learner fit")')
+    assert i_uni > 0 and i_fit > 0
+    assert i_uni < i_fit, "le premier ajustement precede la resolution de lunivers"
+    # et `noms` se lit APRES la resolution, sinon on ajusterait sur lancienne liste
+    i_noms = src.find("noms = list(self.scalp.instruments)")
+    assert i_uni < i_noms < i_fit, "les noms sont figes avant la resolution"
+
+
+def test_a_change_of_universe_forces_a_refit():
+    """Attendre l heure du prochain reajustement laisserait l horloge juger
+    un panel qui n est plus celui qu on trade — et une jambe de plus, c est
+    des instants de plus, donc une barre plus basse."""
+    import inspect
+
+    from hermes.live.trader import LiveRunner
+
+    src = inspect.getsource(LiveRunner.run_forever)
+    i_chg = src.find("if len(uni) != len(before)")
+    assert i_chg > 0, "un changement dunivers ne declenche aucun reajustement"
+    suite = src[i_chg:i_chg + 200]
+    assert "last_learn = 0.0" in suite, suite[:120]

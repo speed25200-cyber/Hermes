@@ -834,6 +834,27 @@ class LiveRunner:
             # se creuse derriere, et un second ajustement suit quand il a
             # fini. Sur une machine vierge le premier ajustement rend
             # « few-samples » — c est la verite, et elle ne coute rien.
+            # L UNIVERS D ABORD. `self.scalp.instruments` vaut encore les
+            # six noms de la CONFIGURATION a cet instant : refresh_universe
+            # ne tourne que dans la boucle, et le reajustement suivant
+            # n arrive qu une heure plus tard. L horloge s ajustait donc sur
+            # six jambes pendant une heure APRES CHAQUE DEMARRAGE — donc
+            # apres chaque deploiement, et le panel elargi n a jamais servi
+            # a rien. Mesure : vingt-six instruments avaient les 86 000
+            # barres exigees, et le journal affichait toujours
+            # « clock 1m panel[6] ».
+            #
+            # La barre deflatee ne depend que du nombre d instants, et
+            # chaque jambe en apporte : partir a six quand vingt sont
+            # disponibles, c est se donner une barre plus haute pour rien.
+            try:
+                self.scalp.store = self.store
+                uni = self.scalp.refresh_universe(self.client.swap_tickers())
+                self.log(f"scalp universe {len(uni)} au demarrage: "
+                         + ",".join(i.split("-")[0] for i in uni[:12])
+                         + ("…" if len(uni) > 12 else ""))
+            except Exception as exc:
+                self.log(f"scalp universe demarrage: {type(exc).__name__}: {exc}")
             noms = list(self.scalp.instruments)
             self._ajuster(noms, "learner fit")
 
@@ -877,6 +898,13 @@ class LiveRunner:
                             self.log(f"scalp universe {len(uni)}: "
                                      + ",".join(i.split("-")[0] for i in uni[:12])
                                      + ("…" if len(uni) > 12 else ""))
+                            # Une jambe de plus, c est des instants de plus
+                            # dans le holdout, donc une barre plus basse.
+                            # Attendre l heure du prochain reajustement
+                            # laisserait l horloge juger un panel qui n est
+                            # plus celui qu on trade.
+                            if len(uni) != len(before):
+                                last_learn = 0.0
                     elif ticks:
                         self.scalp.ticks = ticks
                     # Un nom que le volume reclame mais qui n a pas encore
