@@ -296,12 +296,17 @@ def test_the_realised_return_is_counted_at_the_same_costs_as_the_gate(tmp_path):
         price, ts, fee = 101.0, 0.0, 0.0
         inst = "BTC-USDT-SWAP"
 
+    # Les jambes simultanees se soldent par INSTANT : on ferme le paquet
+    # avant de lire le compteur.
     eng._compter_realise(inst, _F(), +1.0, maker_at=101.0)
+    eng._solder_paquet()
     assert eng.live_stats["n"] == 1
     assert abs(eng.live_stats["bps"] - (100.0 - eng.cost_tp_bps)) < 1e-9
     # une sortie qui traverse paie l'aller-retour complet
-    eng.live_stats = {"n": 0, "bps": 0.0}
+    eng.live_stats = {"n": 0, "bps": 0.0, "jambes": 0}
+    eng._paquet = {}
     eng._compter_realise(inst, _F(), +1.0, maker_at=None)
+    eng._solder_paquet()
     assert abs(eng.live_stats["bps"] - (100.0 - eng.round_trip_bps)) < 1e-9
 
 
@@ -418,5 +423,6 @@ def test_an_ordinary_explorer_trade_stays_out_of_the_rule_measure(tmp_path):
     eng.brackets[inst] = {"entry": 100.0, "side": "long", "explore": True,
                           "mesure": True}
     eng._compter_realise(inst, _F(), +1.0, None)
+    eng._solder_paquet()          # les jambes se soldent par INSTANT
     assert eng.live_stats["n"] == 1
     assert abs(eng.live_stats["bps"] - (100.0 - eng.round_trip_bps)) < 1e-9

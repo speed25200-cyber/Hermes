@@ -823,6 +823,9 @@ def test_a_restarted_position_still_answers_to_its_stop(tmp_path):
                           "spread_bps": 2.0}
     touches = repris.check_exits()
     assert inst in touches, "le stop n'a pas survécu au redémarrage"
+    # Les jambes simultanees se soldent par INSTANT : on ferme le
+    # paquet avant de lire le compteur.
+    repris._solder_paquet()
     assert repris.live_stats["n"] == 1, \
         "un trade traversant une mise en ligne doit encore se mesurer"
 
@@ -893,6 +896,9 @@ def test_a_reversal_closes_one_trade_and_opens_another(tmp_path):
     eng.execute_pending()
 
     assert b.pos[inst] == -1.0, "le retournement n'a pas eu lieu"
+    # Les jambes simultanees se soldent par INSTANT : on ferme le
+    # paquet avant de lire le compteur.
+    eng._solder_paquet()
     assert eng.live_stats["n"] == 1, "la jambe fermée n'a pas été mesurée"
     assert eng.brackets[inst]["side"] == "short", eng.brackets[inst]
     assert eng.brackets[inst]["sl"] > 101.0, \
@@ -1002,6 +1008,9 @@ def test_a_close_carries_its_own_result(tmp_path):
     ferm = [t for t in eng.trades if t.get("net_bps") is not None]
     assert len(ferm) == 1, eng.trades
     assert ferm[0]["reason"].startswith("SL")
+    # Le journal porte la jambe ; la mesure porte l INSTANT. Une jambe
+    # seule soldee donne la meme valeur, et c est ce que ce test compare.
+    eng._solder_paquet()
     assert ferm[0]["net_bps"] == eng.live_stats["bps"]
     assert ferm[0]["net_bps"] < 0
 
@@ -1143,6 +1152,9 @@ def test_a_validated_trailing_stop_is_actually_played(tmp_path):
     touches = eng.check_exits()
     assert inst in touches
     assert eng.trades[-1]["reason"].startswith("TRAIL")
+    # Les jambes simultanees se soldent par INSTANT : on ferme le
+    # paquet avant de lire le compteur.
+    eng._solder_paquet()
     assert eng.live_stats["n"] == 1
     assert eng.live_stats["bps"] > 0, "le suiveur doit verrouiller le gain"
 
@@ -1887,3 +1899,54 @@ def test_a_name_the_exchange_cannot_fill_stops_being_chased(tmp_path):
     assert eng._assez_dhistoire("NEUF-USDT-SWAP") is False
     assert "NEUF-USDT-SWAP" in eng.recales, "le nom est poursuivi sans fin"
     assert any("rattrapage n en ajoute plus" in m for m in dits), dits
+
+
+def test_simultaneous_legs_make_one_measurement_not_several(tmp_path):
+    """La porte valide un PORTEFEUILLE, le direct mesurait des JAMBES.
+
+    Une seule horloge parle pour tout le panel au meme instant : trois
+    jambes correlees qui perdent ensemble comptaient pour trois
+    observations dans `live_rule`, alors que la porte les a jugees comme
+    une seule — _portfolio agrege les trades simultanes. On mesurait donc
+    autre chose que ce qu on avait prouve, et on se croyait trois fois
+    plus sur qu on ne l etait.
+
+    L ecart-type suit : une jambe rend 44 bps, un portefeuille de trois
+    jambes a risque egal en rend 25. A un avantage deflate de +1,1 bps,
+    distinguer la moyenne de zero demande 6 400 jambes contre 2 100
+    instants — des mois contre des semaines.
+    """
+    eng, _ = _moteur_pos(tmp_path)
+    eng.live_stats = {"n": 0, "bps": 0.0, "jambes": 0}
+    eng._paquet = {}
+
+    # Trois jambes fermees dans la MEME minute : un seul rendement.
+    t = 1_700_000_000.0
+    for net in (-12.0, +6.0, +3.0):
+        eng._verser(net, t)
+    assert eng.live_stats["n"] == 0, "le paquet est solde trop tot"
+    eng._verser(+9.0, t + 61.0)          # minute suivante : le paquet se solde
+    assert eng.live_stats["n"] == 1
+    assert abs(eng.live_stats["bps"] - (-1.0)) < 1e-9, eng.live_stats
+    assert eng.live_stats["jambes"] == 3
+
+    # Et le nombre de JAMBES reste visible : on ne perd pas l information,
+    # on cesse seulement de la compter comme des observations independantes.
+    eng._solder_paquet()
+    assert eng.live_stats["n"] == 2 and eng.live_stats["jambes"] == 4
+
+
+def test_a_lone_leg_is_not_held_hostage(tmp_path):
+    """Une jambe fermee seule ne doit pas attendre indefiniment un
+    compagnon qui ne viendra pas : le paquet se solde des que sa minute
+    est passee."""
+    import time as _t
+
+    eng, _ = _moteur_pos(tmp_path)
+    eng.live_stats = {"n": 0, "bps": 0.0, "jambes": 0}
+    eng._paquet = {}
+    eng._verser(+5.0, _t.time() - 300.0)
+    assert eng.live_stats["n"] == 0
+    eng._snapshot({"equity": 10_000.0})
+    assert eng.live_stats["n"] == 1, "la jambe solitaire n a jamais ete comptee"
+    assert abs(eng.live_stats["bps"] - 5.0) < 1e-9

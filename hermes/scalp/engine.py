@@ -160,7 +160,7 @@ class ScalpEngine:
         # Ce que la règle validée rapporte EN DIRECT, par trade fermé. Le
         # holdout est une mesure ; le direct en est une autre, et quand les
         # deux se contredisent on ne choisit pas la plus flatteuse.
-        self.live_stats = {"n": 0, "bps": 0.0}
+        self.live_stats = {"n": 0, "bps": 0.0, "jambes": 0}
         # Le retard reel entre la cloture de barre qui a produit la cible
         # et l'ordre qui la joue. La porte mesure une entree AU PRIX DE
         # CLOTURE ; tant que ce chiffre n'est pas au releve, l'ecart entre
@@ -175,6 +175,9 @@ class ScalpEngine:
         self.exec_stats = {"n_entrees": 0, "retard_s": 0.0,
                            "glissement_bps": 0.0, "n_gliss": 0}
         self._dernier_net: float | None = None
+        # Le paquet de fermetures du meme INSTANT, en attente d etre
+        # soldees en un seul rendement de portefeuille.
+        self._paquet: dict = {}
         self._pending_ts = 0.0
         self.explore_stats = {"trades": 0, "tp_maker": 0, "tp_taker": 0,
                               "sl": 0, "time": 0,
@@ -194,7 +197,7 @@ class ScalpEngine:
             # dixième — la règle validée serait condamnée aux micro-positions
             # par un détail de persistance, pas par ses résultats.
             self._reprendre(self.live_stats, prev.get("live_rule"),
-                            ("n", "bps"))
+                            ("n", "bps", "jambes"))
             self._reprendre(self.explore_stats, prev.get("explore"),
                             tuple(self.explore_stats))
             self._reprendre(self.exec_stats, prev.get("entree"),
@@ -246,6 +249,10 @@ class ScalpEngine:
     # ------------------------------------------------------------------ #
 
     def _snapshot(self, extra: dict | None = None) -> None:
+        # Une jambe fermee seule ne doit pas attendre indefiniment un
+        # compagnon : des que la minute est passee, son paquet se solde.
+        if self._paquet and int(time.time() // 60.0) > self._paquet["minute"]:
+            self._solder_paquet()
         tg = self._targets(self.last_preds or []) if self.last_preds else {}
         eq = 0.0
         if extra and extra.get("equity"):
@@ -1064,10 +1071,27 @@ class ScalpEngine:
         brut = float(np.sign(qty)) * (float(fill.price) - entree) / entree * 1e4
         frais = self.cost_tp_bps if maker_at is not None else self.round_trip_bps
         net = brut - float(frais)
-        n = int(self.live_stats.get("n") or 0)
-        moy = float(self.live_stats.get("bps") or 0.0)
-        self.live_stats["bps"] = (moy * n + net) / (n + 1)
-        self.live_stats["n"] = n + 1
+        # Les jambes simultanees font UN rendement, pas plusieurs mesures.
+        #
+        # La porte ne valide pas une jambe : elle valide le PORTEFEUILLE
+        # que l horloge tient a chaque instant, jambes ponderees par
+        # l inverse de leur volatilite (_portfolio). Le direct, lui,
+        # empilait les jambes une par une dans la meme moyenne. Deux
+        # consequences, et la seconde est la pire.
+        #
+        # D abord on ne mesurait pas le meme objet que celui qu on a
+        # prouve : trois jambes correlees qui perdent ensemble comptaient
+        # pour trois observations, ce qui gonfle la confiance qu on croit
+        # avoir sur un chiffre qui n en merite qu une.
+        #
+        # Ensuite l ecart-type. Une jambe seule rend 44 bps d ecart-type ;
+        # un portefeuille de trois jambes a risque egal en rend 44/racine(3)
+        # = 25. A un avantage deflate de +1,1 bps, distinguer la moyenne de
+        # zero a deux ecarts-types demande 6 400 jambes, contre 2 100
+        # instants de portefeuille. C est la difference entre des mois et
+        # des semaines pour savoir si la regle paie — et c est ce chiffre
+        # qui commande le rodage.
+        self._verser(net, float(fill.ts))
         # Le journal des fills ne portait que des prix. « Ou part
         # l'argent » demandait alors de reapparier a la main les entrees
         # et les sorties, instrument par instrument — et une sortie par
@@ -1087,6 +1111,38 @@ class ScalpEngine:
         if int(self.exec_stats.get("n_gliss") or 0) < 30:
             return 0.0
         return max(0.0, float(self.exec_stats.get("glissement_bps") or 0.0))
+
+    def _verser(self, net: float, ts: float) -> None:
+        """Accumule une jambe fermee dans le paquet de son INSTANT.
+
+        Le paquet se solde des qu une fermeture appartient a une minute
+        posterieure, ou au premier instantane qui suit d une minute — une
+        jambe restee seule ne doit pas attendre indefiniment un
+        compagnon.
+        """
+        minute = int(float(ts) // 60.0)
+        if self._paquet and self._paquet["minute"] != minute:
+            self._solder_paquet()
+        if not self._paquet:
+            self._paquet = {"minute": minute, "nets": []}
+        self._paquet["nets"].append(float(net))
+
+    def _solder_paquet(self) -> None:
+        """Un instant, un rendement : la moyenne des jambes fermees."""
+        p = self._paquet
+        self._paquet = {}
+        nets = (p or {}).get("nets") or []
+        if not nets:
+            return
+        # Egalement ponderees, parce que la parite de risque a deja rendu
+        # les jambes equivalentes en risque a l ouverture : les additionner
+        # a poids egaux EST le rendement du portefeuille tenu.
+        net = float(np.mean(nets))
+        n = int(self.live_stats.get("n") or 0)
+        moy = float(self.live_stats.get("bps") or 0.0)
+        self.live_stats["bps"] = (moy * n + net) / (n + 1)
+        self.live_stats["n"] = n + 1
+        self.live_stats["jambes"] = int(self.live_stats.get("jambes") or 0) + len(nets)
 
     def _confiance(self) -> float:
         """Une règle prouvée sur l'histoire doit gagner sa taille au présent.

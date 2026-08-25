@@ -108,9 +108,16 @@ def main() -> int:
     lev = d.get("lev") or {}
     reg = d.get("live_rule") or {}
     ent = d.get("entree") or {}
+    jambes = int(reg.get("jambes") or 0)
     print(f"fonds propres {eq:.2f}   frein {d.get('frein_risque', 1.0):.2f}"
           f"   confiance {float(reg.get('confiance') or 0.0):.2f}"
-          f"   direct n={reg.get('n', 0)} bps={float(reg.get('bps') or 0.0):+.1f}")
+          f"   direct n={reg.get('n', 0)} bps={float(reg.get('bps') or 0.0):+.1f}"
+          + (f" ({jambes} jambes)" if jambes else ""))
+    # n compte des INSTANTS de portefeuille, pas des jambes : la porte
+    # valide le portefeuille que l horloge tient a chaque instant, et
+    # compter chaque jambe separement gonflerait la confiance qu on croit
+    # avoir. Le nombre de jambes reste affiche : l information n est pas
+    # perdue, elle cesse seulement d etre comptee comme independante.
     n_e = int(ent.get("n_entrees") or 0)
     if n_e:
         print(f"retard dentree mesure {float(ent.get('retard_s') or 0.0):.1f} s "
