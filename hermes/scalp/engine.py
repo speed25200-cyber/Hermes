@@ -654,7 +654,7 @@ class ScalpEngine:
             # the flow brain now speaks at the horizon of its best
             # validated head — 90 s, 5 min or 15 min
             h_flow = int(inf.get("h_bars") or max(1, round(HORIZON_S / 60.0)))
-            mins = {"1m": 1, "3m": 3, "5m": 5, "15m": 15}
+            mins = {"1m": 1, "3m": 3, "5m": 5, "15m": 15, "1H": 60}
             # L'horizon vient de la validation de l'horloge, plus d'une
             # constante : le modèle a été prouvé sur h barres, la position
             # doit vivre h barres.

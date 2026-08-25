@@ -396,3 +396,22 @@ def test_a_change_of_universe_forces_a_refit():
     assert i_chg > 0, "un changement dunivers ne declenche aucun reajustement"
     suite = src[i_chg:i_chg + 200]
     assert "last_learn = 0.0" in suite, suite[:120]
+
+
+def test_every_searched_scale_is_actually_followed_live():
+    """La liste des echelles suivies par la boucle etait ecrite EN DUR.
+    Une echelle ajoutee a clock.BARS se serait donc ajustee, aurait vote,
+    et n aurait jamais decide — son horloge n aurait jamais recu de
+    nouvelle barre a juger. Un defaut parfaitement silencieux."""
+    import inspect
+
+    from hermes.live.trader import LiveRunner
+    from hermes.scalp.clock import BARS
+
+    src = inspect.getsource(LiveRunner.run_forever)
+    i = src.find("last_scalp_bar = {")
+    assert i > 0
+    ligne = src[i:i + 160]
+    assert "_BARS0" in ligne or "BARS" in ligne, ligne
+    for b in BARS:
+        assert f'"{b}"' not in ligne, f"{b} ecrit en dur dans la boucle"

@@ -179,8 +179,33 @@ DEBUT_TEST = 0.40
 # est celle qui décrit la machine.
 ENTREE_DECALEE = 0
 
-BARS = ("1m", "3m", "5m", "15m")
-HOLD = {"1m": 3, "3m": 3, "5m": 3, "15m": 3}
+# Les echelles cherchees. Le 1H a ete ajoute pour une raison
+# arithmetique, pas par gout de la variete.
+#
+# Ce qui decide qu une echelle est tradable, c est le rapport entre le
+# mouvement DISPONIBLE et le cout de l aller-retour. Le cout est plat —
+# environ 7 bps, entree postee plus sortie traversee — pendant que le
+# mouvement croit comme racine du temps. Sur un actif a 10 bps de sigma
+# par minute :
+#
+#   echelle x horizon      mouvement       cout        rapport
+#   1m  x 1                    10 bps       7 bps          1,4
+#   1m  x 6                     24 bps      7 bps          3,5
+#   15m x 6  (90 min)           95 bps      7 bps         13,6
+#   1H  x 6  (6 heures)        190 bps      7 bps         27
+#
+# A la minute, le cout mange la moitie de ce qui bouge : il faut une
+# precision de prediction que la litterature ne rapporte nulle part. A
+# l heure, il en mange 4 %. Ce n est pas que la minute soit impossible,
+# c est qu elle exige un avantage dix fois plus grand pour le meme
+# resultat — et le 1m reste cherche, il n est rien retire.
+#
+# Le prix : une echelle de plus multiplie la grille par 5/4, donc la
+# barre deflatee monte d environ 1 %. Et le 1H donne moins d instants
+# (17 520 barres sur deux ans contre 86 400 pour un mois de 1m), donc sa
+# barre a lui sera plus haute. La porte tranchera ; c est son travail.
+BARS = ("1m", "3m", "5m", "15m", "1H")
+HOLD = {"1m": 3, "3m": 3, "5m": 3, "15m": 3, "1H": 3}
 # Profondeur d'historique par horloge. La barre du hasard décroît en
 # 1/racine(trades) : à 21 jours de 5 min, une règle qui déclenche 4 % du
 # temps ne produit que ~50 trades hors échantillon et doit battre 0,37 —
@@ -205,7 +230,7 @@ HOLD = {"1m": 3, "3m": 3, "5m": 3, "15m": 3}
 # complet passe de deux a environ quatre minutes toutes les seize. Et si
 # l avantage n existait que dans le dernier mois, le sr baissera — c est
 # un resultat honnete, pas un echec du dispositif.
-DAYS = {"1m": 60, "3m": 60, "5m": 120, "15m": 365}
+DAYS = {"1m": 60, "3m": 60, "5m": 120, "15m": 365, "1H": 730}
 # Le panel : six perpétuels parmi les plus liquides d'OKX. Élargir la
 # coupe transversale ne fait pas baisser la barre par magie — elle se lit
 # sur le nombre d'INSTANTS mesurés, et deux actifs qui déclenchent en même
@@ -217,7 +242,10 @@ DAYS = {"1m": 60, "3m": 60, "5m": 120, "15m": 365}
 # hasard vaut 0,39 ; à quelques centaines elle tombe vers 0,15.
 ASSETS = ("BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP",
           "XRP-USDT-SWAP", "DOGE-USDT-SWAP", "BNB-USDT-SWAP")
-W = {"1m": 0.15, "3m": 0.20, "5m": 0.28, "15m": 0.37}
+# Poids du vote par echelle. Ils montent avec l horizon parce que le
+# rapport mouvement/cout monte avec lui — voir le tableau au-dessus de
+# BARS. Ils somment a 1.
+W = {"1m": 0.12, "3m": 0.15, "5m": 0.20, "15m": 0.26, "1H": 0.27}
 FEE = 7.0  # maker in + taker SL, bps
 BAR_MS = {"1m": 60_000, "3m": 180_000, "5m": 300_000, "15m": 900_000}
 

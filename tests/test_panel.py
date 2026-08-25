@@ -329,7 +329,11 @@ def test_a_lone_clock_is_not_shrunk_twice():
     # deux horloges d'accord : moyenne pondérée, et taille pleine
     desk.votes[("BTC-USDT-SWAP", "5m")] = dict(v, bar="5m", r_bps=10.0)
     inf2 = desk.fuse("BTC-USDT-SWAP")
-    attendu = (0.15 * 30.0 + 0.28 * 10.0) / (0.15 + 0.28)
+    # Les poids se lisent dans W : les ecrire en dur ici ferait echouer ce
+    # test des qu une echelle est ajoutee au desk, pour une raison qui n a
+    # rien a voir avec ce qu il verifie — la moyenne PONDEREE.
+    from hermes.scalp.clock import W
+    attendu = (W["1m"] * 30.0 + W["5m"] * 10.0) / (W["1m"] + W["5m"])
     assert abs(inf2["ml_bps"] - attendu) < 1e-9, inf2["ml_bps"]
     assert inf2["alpha"] == 1.0
 

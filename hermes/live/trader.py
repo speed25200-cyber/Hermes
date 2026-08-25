@@ -871,7 +871,11 @@ class LiveRunner:
             self.ensure_data()
             threading.Thread(target=self._research_bg, daemon=True).start()
         last_cycle_bar = 0
-        last_scalp_bar = {b: 0 for b in ("1m", "3m", "5m", "15m")}
+        # La liste vient de clock.BARS : ecrite en dur ici, une echelle
+        # ajoutee la-bas n aurait jamais ete suivie et son horloge se
+        # serait ajustee sans jamais decider.
+        from ..scalp.clock import BARS as _BARS0
+        last_scalp_bar = {b: 0 for b in _BARS0}
         last_uni = 0.0
         last_learn = time.time()
         rr = 0

@@ -653,3 +653,49 @@ def test_the_bar_holds_against_an_adversarial_null():
     assert vivantes == 0, f"{vivantes}/4 horloges vivantes sur une nulle dure"
     assert min(ecarts) > 0.0, (
         f"la barre est passee SOUS le maximum du hasard : marge {min(ecarts):+.4f}")
+
+
+def test_the_desk_searches_the_scale_where_cost_stops_dominating():
+    """« Hermes doit savoir predire les prochaines bougies de 1 minute et
+    aussi les autres timeframes. »
+
+    Ce qui rend une echelle tradable n est pas une preference : c est le
+    rapport entre le mouvement DISPONIBLE et le cout de l aller-retour.
+    Le cout est plat — entree postee plus sortie traversee — pendant que
+    le mouvement croit comme racine du temps. A la minute le cout mange la
+    moitie de ce qui bouge ; a l heure, quatre pour cent.
+
+    Ce test pinne l arithmetique qui justifie l ajout du 1H, et le fait
+    que le 1m n a rien perdu au passage.
+    """
+    import math
+
+    from hermes.backtest.metrics import expected_max_sharpe
+    from hermes.scalp.clock import (BARS, DAYS, FAMILIES, HOLD, HORIZONS,
+                                    STOPS, THRESHOLDS, VARIANTS, W)
+
+    assert "1m" in BARS, "la minute reste cherchee"
+    assert "1H" in BARS, "lechelle ou le cout cesse de dominer manque"
+
+    # Le rapport mouvement/cout, sur un actif a 10 bps de sigma la minute.
+    cout = 7.0
+    def rapport(minutes, h):
+        return 10.0 * math.sqrt(minutes * h) / cout
+    assert rapport(1, 1) < 2.0, "a la minute le cout mange la moitie"
+    assert rapport(60, 6) > 20.0, "a lheure il devient marginal"
+
+    # Toute echelle cherchee doit etre COMPLETE : profondeur, poids de
+    # vote, duree par defaut. Une entree manquante rendrait lhorloge
+    # muette ou la ferait voter avec un poids nul, en silence.
+    for b in BARS:
+        assert b in DAYS and b in W and b in HOLD, b
+    assert abs(sum(W.values()) - 1.0) < 1e-9, W
+
+    # Le prix de lechelle supplementaire, paye par la barre et pas
+    # ailleurs : il doit rester petit devant les marges quon cherche.
+    n = (len(BARS) * len(FAMILIES) * len(THRESHOLDS) * len(HORIZONS)
+         * len(STOPS) * len(VARIANTS))
+    avant = n * (len(BARS) - 1) // len(BARS)
+    b0, b1 = expected_max_sharpe(avant, 466), expected_max_sharpe(n, 466)
+    assert b1 > b0, "elargir la recherche doit RELEVER la barre"
+    assert (b1 / b0 - 1.0) < 0.03, f"cout de la barre {b1 / b0 - 1:.1%}"
