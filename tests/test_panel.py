@@ -612,6 +612,12 @@ def test_the_entry_lag_is_measured_not_assumed():
     horodatage de barre est son heure d'OUVERTURE, et le prendre pour sa
     clôture gonflait le délai d'un facteur dix. Le paramètre reste pour
     montrer ce qu'un vrai délai détruirait ; sa valeur décrit la machine.
+
+    Le décalage en BARRES vaut donc zéro — mais le prix d entrée, lui,
+    n est plus la clôture de la barre qui décide : c est l OUVERTURE de la
+    suivante, le seul prix que le moteur puisse réellement obtenir après
+    ses 2,0 secondes de latence mesurées. L écart entre les deux porte
+    exactement le rebond bid-ask, qu aucune exécution n encaisse.
     """
     from hermes.scalp.clock import ENTREE_DECALEE, _targets
     assert ENTREE_DECALEE == 0
@@ -620,9 +626,12 @@ def test_the_entry_lag_is_measured_not_assumed():
     c = Candles("X", "1m", np.arange(n) * 60_000, px, px + 0.5, px - 0.5,
                 px, np.ones(n))
     y, _, _ = _targets(c, h=3)
-    assert abs(y[0] - (px[3] / px[0] - 1.0)) < 1e-12
+    assert abs(y[0] - (px[3] / px[1] - 1.0)) < 1e-12, (
+        "l entrée doit être l ouverture de la barre suivante")
+    # Et un décalage explicite recule l entrée d autant : base =
+    # ouverture de la barre lag+1, sortie = clôture de la barre lag+h.
     decale = _targets(c, h=3, lag=1)[0]
-    assert abs(decale[0] - (px[4] / px[1] - 1.0)) < 1e-12
+    assert abs(decale[0] - (px[4] / px[2] - 1.0)) < 1e-12
 
 
 def test_a_one_bar_ahead_signal_would_not_survive_a_real_delay():

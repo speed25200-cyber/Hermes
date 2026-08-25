@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 
@@ -78,8 +79,23 @@ class ScalpEngine:
         # plancher existe contre les trades de poussière ; c'est le poids
         # notionnel minimal, déjà appliqué à la consommation des ordres,
         # qui s'en charge.
+        # Le levier d echange n est PAS la taille de la position. Une
+        # jambe de 153 USDT immobilise 153 USDT de marge a x1, et 31 a x5 :
+        # meme position, meme risque de marche, meme distance au stop. Ce
+        # que le levier decide, c est la marge bloquee — donc COMBIEN DE
+        # JAMBES le compte peut tenir en meme temps.
+        #
+        # A x1, l exposition brute totale est plafonnee par les fonds
+        # propres : vingt jambes du panel ne tiennent pas. C est un
+        # plafond qui n a aucune raison economique d exister, et il
+        # annulait le plafond brut de x20 que la configuration annonce.
+        # NB : `lev_min` reste le plancher de la TAILLE (Kelly non
+        # tronquee, cf. plus bas) ; le plancher du levier d ECHANGE est
+        # une autre grandeur et porte un autre nom.
         self.lev_min = 1
         self.lev_max = 20
+        self.lev_ech_min = int(s.get("lev_min", 5))
+        self.lev_ech_max = int(s.get("max_name_lev", 20))
         self.opened_bar: dict[str, int] = {}
         self.last_bar: dict[str, int] = {}
         self.last_preds: list[dict] = []
@@ -797,6 +813,31 @@ class ScalpEngine:
                 return 0.25
             return max(0.25, 1.0 - (used - 0.4 * lim) / (0.45 * lim))
         return min(taper(dd, dd_lim), taper(day, day_lim))
+
+    def _levier_echange(self, notionnel: float, equity: float) -> int:
+        """Le levier d echange : une affaire de MARGE, pas de taille.
+
+        La taille de la position est deja decidee — par Kelly deflate, le
+        frein du gouverneur, le rodage et le plafond de ruine. Le levier
+        ne la change pas d un centime : il decide seulement combien de
+        marge elle immobilise, donc combien de jambes le compte peut
+        tenir a la fois.
+
+        A x1 la marge egale le notionnel et vingt jambes ne tiennent pas
+        dans les fonds propres — un plafond sans raison economique, qui
+        annulait en silence le plafond brut de x20 annonce par la
+        configuration.
+
+        Le levier n approche jamais la liquidation : le courtier la
+        declenche sur la MAINTENANCE (0,4 % du notionnel), qui ne depend
+        pas de lui, et le garde-fou de ruine limite deja la perte par stop
+        touche a 2,5 % des fonds propres.
+        """
+        besoin = 0.0
+        if equity > 0:
+            besoin = float(notionnel) / max(0.10 * float(equity), 1e-9)
+        return int(min(self.lev_ech_max,
+                       max(self.lev_ech_min, math.ceil(besoin))))
 
     def _pick_lev(self, p: dict, frein: float | None = None,
                   parite: float = 1.0) -> float:
@@ -1617,10 +1658,21 @@ class ScalpEngine:
             # il ne le rend pas impossible.
             retourne = cur * tgt_qty < 0
             plan = next((p for p in self.last_preds if p.get("inst") == inst), {})
-            lev = float(plan.get("lev") or 0.0) if self.max_name > 1 else 0.0
+            # `plan["lev"]` est un POIDS notionnel — une fraction des fonds
+            # propres, de l ordre de 0,02. Le comparer a 2 pour decider du
+            # levier d echange confondait deux grandeurs sans rapport : la
+            # condition n etait jamais vraie, aucun levier n etait donc
+            # jamais transmis, et l echange retombait a x1 sur CHAQUE
+            # position. Mesure a l ecran : « LEVIER x1,0 MARGE 153,51 »
+            # pour un notionnel de 153,15.
+            #
+            # Le levier se deduit du besoin de MARGE : assez pour qu une
+            # jambe n immobilise pas plus d un dixieme des fonds propres,
+            # jamais moins que le plancher, jamais plus que le plafond.
+            lev_ex = self._levier_echange(abs(tgt_qty) * last, equity)
             fill = self.broker.market_order(
                 inst, delta, last, force_taker=flatten,
-                leverage=(lev if lev >= 2 else None),
+                leverage=(None if flatten else lev_ex),
             )
             if not fill:
                 continue
@@ -1640,7 +1692,7 @@ class ScalpEngine:
                 self.exec_stats["n_gliss"] = ng + 1
             if flatten or retourne:
                 self._compter_realise(inst, fill, cur, None)
-            self._record(fill, delta, why, lev)
+            self._record(fill, delta, why, float(lev_ex))
             # Une position ouverte sur signal validé ne doit pas être plus
             # discrète qu'un éclaireur : sans cette ligne, le seul indice
             # qu'une horloge passée live a réellement travaillé était une
@@ -1656,7 +1708,7 @@ class ScalpEngine:
                 tenue = ((int(time.time() * 1000) - ouvert) / 60_000.0
                          if ouvert else 0.0)
                 self.log(f"{'ouverture' if why == 'open' else 'fermeture'} "
-                         f"{inst} {delta:+.6f} @ {fill.price:.6f} x{lev:.0f} "
+                         f"{inst} {delta:+.6f} @ {fill.price:.6f} x{lev_ex:d} "
                          f"({plan.get('policy') or '?'} "
                          f"{float(plan.get('edge_bps') or 0.0):+.1f}bps "
                          f"h={int(plan.get('h_bars') or 0)}"

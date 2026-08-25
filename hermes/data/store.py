@@ -237,6 +237,26 @@ class DataStore:
                 candles.index = map_last_to_bars(candles.ts, ix, fallback=candles.c)
         return candles
 
+    def dernier_ts(self, inst: str, bar: str) -> int:
+        """L horodatage de la derniere barre, SANS charger la serie.
+
+        La boucle live chargeait l historique complet de chaque instrument
+        pour chaque barre a chaque tour de cinq secondes — quatre-vingts
+        series de dizaines de milliers de lignes, avec leurs jointures de
+        funding, d open interest, de flux et de mark — pour ne lire qu un
+        seul nombre : le dernier horodatage. Doubler la profondeur 1m a
+        double ce cout, et le moteur est devenu muet plusieurs minutes
+        d affilee.
+
+        Une barre ne se charge desormais que lorsqu elle a REELLEMENT
+        avance.
+        """
+        r = self.conn.execute(
+            "SELECT MAX(ts) FROM candles WHERE inst=? AND bar=?",
+            (inst, bar),
+        ).fetchone()
+        return int(r[0]) if r and r[0] is not None else 0
+
     def close(self) -> None:
         self.conn.close()
 

@@ -305,3 +305,50 @@ def test_two_clock_fits_never_run_at_once():
         f.join(3.0)
     assert faux.max == 1, f"{faux.max} ajustements simultanes"
     assert faux.n >= 1, "aucun ajustement n a eu lieu"
+
+
+def test_a_bar_is_loaded_only_when_it_has_actually_advanced():
+    """Le moteur devenait muet plusieurs minutes d affilee — visible a
+    l ecran, « moteur muet depuis 5 min ».
+
+    La boucle chargeait l historique COMPLET de chaque instrument pour
+    chaque barre a chaque tour de cinq secondes : quatre-vingts series de
+    dizaines de milliers de lignes, avec leurs jointures de funding,
+    d open interest, de flux et de mark — pour n en lire qu un seul
+    nombre, le dernier horodatage. Doubler la profondeur 1m de trente a
+    soixante jours a double ce cout.
+
+    Ce test suit le SOURCE parce que le defaut est une question de
+    sequence, pas de resultat : le resultat etait juste, il coutait
+    simplement cent fois son prix.
+    """
+    import inspect
+
+    from hermes.live.trader import LiveRunner
+
+    src = inspect.getsource(LiveRunner.run_forever)
+    i_ts = src.find("dernier_ts(inst, bar)")
+    i_load = src.find("self.store.load(inst, bar)")
+    assert i_ts > 0, "le dernier horodatage nest plus demande a bon marche"
+    assert i_load > i_ts, "la serie est encore chargee avant d etre utile"
+    # et le chargement doit etre DANS la branche qui a vu une barre neuve
+    tete = src[:i_load]
+    assert tete.rfind("if newest > last_scalp_bar") > tete.rfind("for bar in _BARS"), \
+        "le chargement nest pas conditionne a une barre neuve"
+
+
+def test_the_cheap_timestamp_matches_the_loaded_series(tmp_path):
+    """Le raccourci doit donner exactement ce que donnait le chemin long,
+    sinon on echangerait de la lenteur contre des barres manquees."""
+    import numpy as np
+
+    from hermes.data.store import DataStore
+
+    st = DataStore(str(tmp_path))
+    lignes = [(i * 60_000, 1.0, 2.0, 0.5, 1.5, 10.0) for i in range(50)]
+    st.upsert_candles("X-USDT-SWAP", "1m", lignes)
+    c = st.load("X-USDT-SWAP", "1m")
+    assert st.dernier_ts("X-USDT-SWAP", "1m") == int(c.ts[-1])
+    # un nom inconnu ne fait pas exploser la boucle, il vaut zero
+    assert st.dernier_ts("INCONNU-USDT-SWAP", "1m") == 0
+    st.close()

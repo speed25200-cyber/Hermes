@@ -107,6 +107,11 @@ DEFAULTS: dict[str, Any] = {
         "horizon": 8,
         "min_edge_bps": 6.0,
         "max_hold_bars": 16,
+        # Plancher de levier d echange. Il ne touche PAS a la taille des
+        # positions — seulement a la marge qu elles immobilisent, donc au
+        # nombre de jambes que le compte peut tenir a la fois. A x1, vingt
+        # jambes ne tiennent pas dans les fonds propres.
+        "lev_min": 5,
         "max_name_lev": 20.0,
         "gross_cap": 20.0,
         "poll_seconds": 5,

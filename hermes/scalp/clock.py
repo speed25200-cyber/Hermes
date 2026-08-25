@@ -464,10 +464,31 @@ def _targets(c: Candles, h: int = 1,
     y_up = np.full(n, np.nan)
     y_dn = np.full(n, np.nan)
     px = c.c
-    m = n - h - lag
+    m = n - h - lag - 1
     if m < 2:
         return y_r, y_up, y_dn
-    base = px[lag:lag + m]
+    # L ENTREE EST L OUVERTURE DE LA BARRE SUIVANTE, pas la cloture de
+    # celle qui decide.
+    #
+    # Le moteur voit la cloture de la barre i a ts+60s, envoie un ordre,
+    # et le remplissage arrive 2,0 secondes plus tard (mesure : retard_s
+    # sur 458 ordres). Le prix de cloture, lui, existait deja quand
+    # l ordre est parti : la porte simulait un remplissage a un prix
+    # qu on ne peut PAS obtenir.
+    #
+    # L ecart n est pas anodin, parce qu il porte exactement le rebond
+    # bid-ask : chaque print tombe au bid ou a l ask, si bien que la
+    # serie des CLOTURES herite d une autocorrelation negative qui ne
+    # doit rien a une prevision. Mesure sur un marche ou le prix efficient
+    # est une marche aleatoire pure et ou seul le rebond existe :
+    # autocorrelation des retours de cloture -0,131, contre -0,023 pour
+    # le retour ouverture -> cloture suivante. Entrer a l ouverture de la
+    # barre suivante retire ce mirage, et il ne coute rien la ou
+    # l avantage est vrai.
+    #
+    # C est un DURCISSEMENT : le prix d entree devient celui qu on peut
+    # reellement avoir, jamais meilleur.
+    base = np.asarray(c.o, dtype=np.float64)[lag + 1:lag + 1 + m]
     fut = px[lag + h:lag + h + m]
     ok = base > 0
     y_r[:m][ok] = fut[ok] / base[ok] - 1.0
@@ -510,11 +531,12 @@ def _suiveur(c: Candles, h: int, lag: int, largeur: np.ndarray,
     n = len(c)
     touche = np.zeros(n, dtype=bool)
     gain = np.full(n, np.nan)
-    m = n - h - lag
+    m = n - h - lag - 1
     if m < 2:
         return touche, gain
     px = np.asarray(c.c, dtype=np.float64)
-    base = px[lag:lag + m]
+    # Meme entree que _targets : l ouverture de la barre suivante.
+    base = np.asarray(c.o, dtype=np.float64)[lag + 1:lag + 1 + m]
     ok = base > 0
     T = largeur[:m]
     # en unites de rendement, oriente dans le sens favorable au trade

@@ -951,11 +951,20 @@ class LiveRunner:
                     any_new = False
                     last_rep = None
                     for bar in _BARS:
-                        cbar = {inst: self.store.load(inst, bar) for inst in names}
-                        newest = max((int(c.ts[-1]) for c in cbar.values() if len(c)), default=0)
+                        # On demande d abord le dernier horodatage, qui ne
+                        # coute qu un MAX(ts) indexe. Charger les series
+                        # completes a chaque tour de cinq secondes — quatre-
+                        # vingts historiques de dizaines de milliers de
+                        # lignes avec leurs jointures — rendait le moteur
+                        # muet plusieurs minutes d affilee, et doubler la
+                        # profondeur 1m avait double ce cout.
+                        newest = max((self.store.dernier_ts(inst, bar)
+                                      for inst in names), default=0)
                         if newest > last_scalp_bar.get(bar, 0):
                             last_scalp_bar[bar] = newest
                             any_new = True
+                            cbar = {inst: self.store.load(inst, bar)
+                                    for inst in names}
                             last_rep = self.scalp.tick(cbar, time.time(), bar=bar)
                             live = [p for p in (last_rep.get("preds") or []) if p.get("dir") != "flat"]
                             self.log(f"desk {bar} @ {newest}: eq={last_rep.get('equity', 0):.2f} "

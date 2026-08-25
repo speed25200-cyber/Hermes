@@ -352,3 +352,81 @@ def test_a_column_the_store_cannot_fill_costs_the_net_nothing():
     vif = float(np.mean([ic(s, 0) for s in range(4)]))
     mort = float(np.mean([ic(s, 11) for s in range(4)]))
     assert mort > 0.85 * vif, f"onze colonnes mortes coutent : {vif:.3f} -> {mort:.3f}"
+
+
+def test_the_entry_price_is_one_the_engine_can_actually_get():
+    """La porte simulait un remplissage AU PRIX DE CLOTURE de la barre qui
+    decide. Ce prix existait deja quand l ordre est parti.
+
+    Le moteur voit la cloture de la barre i, envoie un ordre, et le
+    remplissage arrive 2,0 secondes plus tard — mesure en production,
+    retard_s sur 458 ordres. Ce qu il obtient est l ouverture de la barre
+    suivante, jamais la cloture de la precedente.
+
+    L ecart porte exactement le rebond bid-ask, et c est pour cela qu il
+    compte : chaque print tombe au bid ou a l ask, si bien que la serie
+    des clotures herite d une autocorrelation negative qui ne doit rien a
+    une prevision et que personne ne peut encaisser.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+    from hermes.scalp.clock import _targets
+
+    n = 200
+    px = 100 + np.arange(n) * 0.1
+    o = px - 0.05                      # ouverture DIFFERENTE de la cloture
+    c = Candles("X", "5m", np.arange(n) * 300_000, o, px + 0.2, px - 0.2,
+                px, np.ones(n))
+    y, _, _ = _targets(c, h=1)
+    assert abs(y[0] - (px[1] / o[1] - 1.0)) < 1e-12, (
+        "l entree n est pas l ouverture de la barre suivante")
+    y3, _, _ = _targets(c, h=3)
+    assert abs(y3[0] - (px[3] / o[1] - 1.0)) < 1e-12
+
+
+def test_a_pure_bid_ask_bounce_is_not_a_forecast():
+    """Un marche ou le prix efficient est une marche aleatoire PURE et ou
+    seul le rebond existe. Il n y a rien a prevoir, et pourtant la serie
+    des clotures est fortement auto-correlee.
+
+    Mesure sur ce marche : autocorrelation des retours de cloture -0,131,
+    contre -0,023 pour le retour ouverture -> cloture suivante. Avec une
+    entree a la cloture, le modele voyait ic +0,12 a +0,13 ; avec
+    l entree honnete il tombe a +0,02. La porte refusait deja ces
+    cellules par l economie (net -2 a -3 bps) — mais un mirage qu on ne
+    voit plus vaut mieux qu un mirage refuse de justesse.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+    from hermes.scalp.clock import CandleModel
+
+    def marche(seed, n=2500, k=3, spread_bps=6.0, vol=6e-4):
+        rng = np.random.default_rng(seed)
+        commun = rng.normal(0, vol, n)
+        demi = spread_bps * 1e-4 / 2.0
+        out = []
+        for i in range(k):
+            r = 0.7 * commun + rng.normal(0, vol, n)
+            p = 100 * np.exp(np.cumsum(r))
+            c_obs = p * (1.0 + demi * rng.choice([-1.0, 1.0], n))
+            o_obs = p * (1.0 + demi * rng.choice([-1.0, 1.0], n))
+            w = np.abs(rng.normal(0, 1.0, n)) * vol * p
+            out.append((Candles(f"A{i}", "5m", np.arange(n) * 300_000, o_obs,
+                                np.maximum(o_obs, c_obs) + w,
+                                np.minimum(o_obs, c_obs) - w, c_obs,
+                                np.abs(rng.normal(1000, 300, n))), None))
+        return out
+
+    # le rebond est bien la, et il ne survit pas au changement de base
+    s = marche(1)[0][0]
+    r = np.diff(s.c) / s.c[:-1]
+    assert np.corrcoef(r[:-1], r[1:])[0, 1] < -0.05, "pas de rebond dans la fixture"
+    r_oc = (s.c[1:] - s.o[1:]) / s.o[1:]
+    assert abs(np.corrcoef(r[:-1], r_oc[1:])[0, 1]) < 0.06
+
+    for seed in range(3):
+        d = CandleModel("5m").fit_panel(marche(10 + seed))
+        assert d["status"] != "live", f"le rebond passe la porte : {d}"
+        assert abs(d["ic"]) < 0.06, f"le modele voit encore le rebond : ic={d['ic']:+.3f}"

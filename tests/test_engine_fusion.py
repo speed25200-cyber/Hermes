@@ -1779,3 +1779,65 @@ def test_an_inherited_residue_gets_written_off(tmp_path):
     # et une VRAIE position ne se solde jamais
     b.pos["DOGE-USDT-SWAP"] = -1000.0
     assert b.solder("DOGE-USDT-SWAP", 0.0890) is False
+
+
+def test_the_exchange_leverage_is_a_margin_decision_not_a_size_one(tmp_path):
+    """« Pourquoi il y a des leviers ridicules de 1 ? »
+
+    Parce que la ligne qui decidait du levier comparait un POIDS a un
+    levier : `plan["lev"]` est une fraction des fonds propres, de l ordre
+    de 0,02, et la condition `lev >= 2` n etait donc JAMAIS vraie. Aucun
+    levier n etait transmis, l echange retombait a x1 sur chaque position.
+    Mesure a l ecran : « LEVIER x1,0 MARGE 153,51 » pour un notionnel de
+    153,15 — la marge egale le notionnel, c est la definition de x1.
+
+    Ce que le levier change, et ce qu il ne change pas : il ne touche ni a
+    la taille de la position, ni a la distance du stop, ni au risque de
+    marche. Il decide de la MARGE immobilisee, donc du nombre de jambes
+    que le compte peut tenir a la fois. A x1, vingt jambes ne tiennent pas
+    dans les fonds propres — un plafond sans raison economique, qui
+    annulait en silence le plafond brut de x20 de la configuration.
+    """
+    eng, _ = _moteur_pos(tmp_path)
+    assert eng.lev_ech_min == 5, "le plancher demande est de cinq"
+    # et il ne se confond PAS avec `lev_min`, qui est le plancher de la
+    # TAILLE (Kelly non tronquee) et vaut toujours un.
+    assert eng.lev_min == 1
+
+    # Une petite jambe prend le plancher, une grosse monte, le plafond tient.
+    eq = 9338.0
+    assert eng._levier_echange(153.0, eq) == 5
+    assert eng._levier_echange(900.0, eq) == 5
+    assert eng._levier_echange(9000.0, eq) == 10
+    assert eng._levier_echange(30_000.0, eq) == 20, "le plafond x20 doit tenir"
+    assert eng._levier_echange(1e9, eq) == 20
+
+    # La marge suit mecaniquement : a x5 une jambe de 153 USDT en
+    # immobilise 31, contre 153 a x1.
+    lev = eng._levier_echange(153.0, eq)
+    assert abs(153.0 / lev - 30.6) < 0.1
+
+    # Et sans fonds propres connus, on ne descend jamais sous le plancher.
+    assert eng._levier_echange(153.0, 0.0) == 5
+
+
+def test_the_leverage_actually_reaches_the_broker(tmp_path):
+    """Le defaut n etait pas dans le calcul du levier, il etait dans son
+    TRANSPORT : la valeur n arrivait jamais au courtier. Ce test suit le
+    chemin complet, de la cible jusqu au levier enregistre sur la
+    position."""
+    inst = "BTC-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path)
+    eng.ticks[inst] = {"last": 100.0, "bid": 99.9, "ask": 100.1,
+                       "spread_bps": 2.0}
+    eng.last_preds = [{"inst": inst, "policy": "candle", "bar": "1m",
+                       "dir": "long", "ml": "live", "conf": 1.0, "px": 100.0,
+                       "h_bars": 6, "edge_bps": 12.0, "lev": 0.02,
+                       "vol_bps": 25.0, "tp_bps": 30.0, "sl_bps": 40.0,
+                       "sortie_temps": True}]
+    eng._vol = {inst: 25.0}
+    eng.pending = {inst: 2.0}
+    eng.execute_pending()
+    assert eng.trades, "aucun ordre passe"
+    assert eng.trades[-1]["lev"] >= 5.0, (
+        f"le levier n arrive pas au journal : {eng.trades[-1]['lev']}")
