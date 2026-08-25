@@ -1950,3 +1950,67 @@ def test_a_lone_leg_is_not_held_hostage(tmp_path):
     eng._snapshot({"equity": 10_000.0})
     assert eng.live_stats["n"] == 1, "la jambe solitaire n a jamais ete comptee"
     assert abs(eng.live_stats["bps"] - 5.0) < 1e-9
+
+
+def test_the_machine_names_what_is_wrong_instead_of_hiding_it(tmp_path):
+    """Les deux defauts les plus couteux de la nuit — un levier bloque a
+    x1 sur chaque position, et des tailles quarante fois trop petites —
+    etaient VISIBLES sur la page d accueil, et c est le proprietaire du
+    compte qui les a remarques, pas la machine.
+
+    Ce n est pas un defaut de vigilance mais d interface : un ecran qui
+    affiche « LEVIER x1,0 » sans rien dire n apprend rien a qui ne sait
+    pas deja que x1 est anormal.
+    """
+    inst = "BTC-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path, {inst: 1.0})
+    b.lever = {inst: 1.0}
+    eng.ticks[inst] = {"last": 100.0, "bid": 99.9, "ask": 100.1,
+                       "spread_bps": 2.0}
+    eng.brackets[inst] = {"side": "long", "entry": 100.0, "sl": 99.0,
+                          "tp": 101.0, "sl_bps": 100.0, "tp_bps": 100.0}
+    eng.last_preds = [{"inst": inst, "dir": "long", "poids_plein": 0.50}]
+
+    a = eng.anomalies(10_000.0, {inst: 0.02})
+    titres = [x["titre"] for x in a]
+    assert "Levier sous le plancher" in titres, titres
+    assert "Taille bridee" in titres, titres
+    assert a[0]["niveau"] == "grave", "les graves doivent passer devant"
+    # la cause de la bride est NOMMEE, sinon le bandeau ne sert a rien
+    bride = next(x for x in a if x["titre"] == "Taille bridee")
+    assert "rodage" in bride["detail"] or "frein" in bride["detail"], bride
+
+    # Une fois le levier correct, l anomalie disparait : un bandeau qui
+    # crie en permanence cesse d etre lu.
+    b.lever = {inst: 5.0}
+    assert "Levier sous le plancher" not in [
+        x["titre"] for x in eng.anomalies(10_000.0, {inst: 0.02})]
+
+
+def test_a_position_without_a_rule_is_shouted_about(tmp_path):
+    """Un DOGE -8050 immobile pendant des heures parce qu aucune regle ne
+    repondait plus pour lui : ni stop, ni sortie au temps, ni mesure."""
+    inst = "DOGE-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path, {inst: -8050.0})
+    b.lever = {inst: 5.0}
+    eng.ticks[inst] = {"last": 0.09, "bid": 0.0899, "ask": 0.0901,
+                       "spread_bps": 2.0}
+    eng.brackets = {}
+    a = eng.anomalies(10_000.0, {})
+    orph = next((x for x in a if x["titre"] == "Position sans regle"), None)
+    assert orph is not None and orph["niveau"] == "grave", a
+    assert "DOGE" in orph["detail"]
+
+
+def test_the_diagnosis_can_never_break_the_snapshot(tmp_path):
+    """Un bandeau de diagnostic qui empeche d ecrire l etat serait le
+    comble : on perdrait la page entiere pour afficher ce qui cloche."""
+    import json
+
+    eng, _ = _moteur_pos(tmp_path)
+    eng.anomalies = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boum"))
+    eng._snapshot({"equity": 10_000.0})
+    with open(eng.state_path) as f:
+        d = json.load(f)
+    assert d["anomalies"][0]["titre"] == "Diagnostic indisponible"
+    assert d["equity"] == 10_000.0, "linstantane a survecu"

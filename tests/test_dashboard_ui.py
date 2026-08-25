@@ -344,3 +344,36 @@ def test_the_page_answers_why_the_positions_are_small(page):
     assert "joue / plein" in bloc, "le rapport nest pas calcule"
     # les deux montants doivent etre en dollars, pas en poids abstraits
     assert bloc.count("usdt(") >= 2
+
+
+def test_the_page_says_what_is_wrong_before_anything_else(page):
+    """Deux defauts couteux — un levier bloque a x1, des tailles quarante
+    fois trop petites — etaient VISIBLES sur cette page, et c est le
+    proprietaire du compte qui les a vus, pas l ecran.
+
+    « LEVIER x1,0 » affiche sans commentaire n apprend rien a qui ne sait
+    pas deja que x1 est anormal. Le bandeau doit donc venir AVANT tout le
+    reste, et nommer le probleme en toutes lettres.
+    """
+    assert 'id="alertes"' in page, "pas de bandeau danomalies"
+    marche = page.split('id="vue-marche"', 1)[1].split("</section>", 1)[0]
+    assert marche.index('id="alertes"') < marche.index('id="bandeau"'), \
+        "les alertes passent apres le cockpit"
+    assert marche.index('id="alertes"') < marche.index('id="carte-panel"')
+
+
+def test_the_screen_renders_the_diagnosis_it_does_not_recompute_it(page):
+    """Le moteur diagnostique, l ecran rend. Deux arithmetiques separees
+    finiraient par se contredire — et c est precisement ce qui rend un
+    tableau de bord ininterpretable.
+
+    La seule exception est le moteur MUET : s il ne publie plus, son
+    diagnostic est fige avec le reste et il ne peut pas se signaler
+    lui-meme. Ce controle-la doit vivre a l ecran."""
+    bloc = page.split("function rendreAlertes", 1)[1].split("function rendreBandeau", 1)[0]
+    assert "scalp || {}).anomalies" in bloc, "lecran ne lit pas le diagnostic du moteur"
+    assert "Moteur muet" in bloc, "le seul controle qui doit vivre ici manque"
+    # aucun seuil metier recalcule ici : pas de comparaison de levier ni de
+    # taille dans l ecran
+    for interdit in ("lev_ech_min", "poids_plein", "round_trip"):
+        assert interdit not in bloc, f"{interdit} recalcule a lecran"

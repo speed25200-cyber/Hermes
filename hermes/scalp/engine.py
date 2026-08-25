@@ -311,6 +311,11 @@ class ScalpEngine:
             # « la règle ne trade plus » et « la règle est freinée » se
             # ressemblent trop.
             "frein_risque": self._risk_scale(),
+            # Ce qui cloche, dit par la machine. Les deux defauts les plus
+            # couteux de la nuit etaient VISIBLES a l ecran et personne ne
+            # les a vus : un ecran qui affiche « LEVIER x1,0 » sans rien
+            # dire n apprend rien a qui ne sait pas que x1 est anormal.
+            "anomalies": self._anomalies_sures(eq, tg),
             # Ou part l argent, sur la vie entiere du compte. Le journal
             # des fills est plafonne : il ne peut pas repondre pour une
             # semaine. Ces compteurs-la si, et ils bouclent au centime.
@@ -821,6 +826,133 @@ class ScalpEngine:
             self.last_preds = list(by.values())
         elif self.preds_h.get("1m"):
             self.last_preds = self.preds_h["1m"]
+
+    def anomalies(self, eq: float, tg: dict) -> list[dict]:
+        """Ce qui cloche, dit par la machine plutot que cherche par l oeil.
+
+        Les deux defauts les plus couteux de la nuit — un levier bloque a
+        x1 sur chaque position, et des tailles quarante fois trop petites
+        — etaient VISIBLES sur la page d accueil, et c est le proprietaire
+        du compte qui les a remarques, pas la machine. Ce n est pas un
+        defaut de vigilance mais d interface : un ecran qui affiche
+        « LEVIER x1,0 » sans rien dire n apprend rien a qui ne sait pas
+        deja que x1 est anormal.
+
+        Chaque controle ci-dessous correspond a un defaut REELLEMENT
+        rencontre. On ne devine pas ce qui pourrait mal tourner, on liste
+        ce qui a mal tourne.
+
+        niveau : "grave" (l argent est en jeu maintenant),
+                 "attention" (la machine tourne bridee ou a moitie),
+                 "info" (un fait a savoir, pas un probleme).
+        """
+        out: list[dict] = []
+
+        def dire(niveau, titre, detail):
+            out.append({"niveau": niveau, "titre": titre, "detail": detail})
+
+        pos = self.broker.positions() or {}
+
+        # 1. Le levier. Defaut du 25 aout : `plan["lev"]` est un POIDS, il
+        #    etait compare a 2, la condition n etait jamais vraie et
+        #    l echange retombait a x1 sur CHAQUE position.
+        lev = getattr(self.broker, "lever", {}) or {}
+        bas = [i for i, q in pos.items()
+               if abs(float(q)) > 1e-12
+               and float(lev.get(i, 1.0) or 1.0) < self.lev_ech_min - 1e-9]
+        if bas:
+            dire("grave", "Levier sous le plancher",
+                 f"{len(bas)} position(s) a moins de x{self.lev_ech_min} : "
+                 + ", ".join(i.split("-")[0] for i in bas[:4]))
+
+        # 2. La taille contre ce que l avantage justifie — la question
+        #    « pourquoi les positions sont-elles minuscules » rendue lisible.
+        plein = sum(abs(float(p.get("poids_plein") or 0.0))
+                    for p in (self.last_preds or []))
+        joue = sum(abs(float(v or 0.0)) for v in (tg or {}).values())
+        if plein > 1e-9 and joue < 0.5 * plein:
+            frein, conf = self._risk_scale(), self._confiance()
+            causes = []
+            if conf < 0.95:
+                causes.append(f"rodage x{conf:.2f} (le direct nest pas prouve)")
+            if frein < 0.95:
+                causes.append(f"frein du jour x{frein:.2f}")
+            dire("attention", "Taille bridee",
+                 f"{joue / plein * 100:.0f} % de ce que lavantage justifie"
+                 + (" — " + ", ".join(causes) if causes else ""))
+
+        # 3. Une position sans regle : ni stop, ni duree, personne pour la
+        #    fermer. Mesure : un DOGE -8050 immobile pendant des heures.
+        orph = [i for i, q in pos.items()
+                if abs(float(q)) > 1e-12
+                and not (self.brackets.get(i) or {}).get("entry")]
+        if orph:
+            dire("grave", "Position sans regle",
+                 ", ".join(i.split("-")[0] for i in orph[:4])
+                 + " — ni stop ni sortie au temps")
+
+        # 4. La poussiere : sous le plancher economique elle ne peut ni
+        #    rapporter ni etre geree, et un reliquat plus petit qu un LOT
+        #    de l echange ne peut meme pas etre ferme.
+        pous = [i for i, q in pos.items()
+                if abs(float(q)) > 1e-12 and not self._tient(i, q)]
+        if pous:
+            dire("attention", "Poussiere en position",
+                 ", ".join(i.split("-")[0] for i in pous[:4])
+                 + f" — sous {self.poussiere_usd:.0f} USD de notionnel")
+
+        # 5. Les frais contre le brut. Si les frais dominent, le probleme
+        #    est le NOMBRE de trades et pas le signal — et cette phrase
+        #    doit etre dite, pas deduite.
+        livre = getattr(self.broker, "livre", None) or {}
+        brut = float(livre.get("brut") or 0.0)
+        frais = float(livre.get("frais") or 0.0)
+        if frais > 1.0 and abs(brut) < frais:
+            dire("grave", "Les frais depassent le brut",
+                 f"{frais:.2f} USD de frais pour {brut:+.2f} de brut realise "
+                 "— cest le nombre de trades qui coute, pas le signal")
+
+        # 6. Aucune horloge validee. Ce n est PAS un defaut — un carnet
+        #    vide est un resultat honnete — mais il faut le dire au lieu de
+        #    laisser croire a une panne.
+        if not self.horizons.live_bars():
+            dire("info", "Aucune horloge validee",
+                 "la porte refuse toutes les cellules : le moteur observe "
+                 "sans trader, cest un resultat et pas une panne")
+
+        # 7. Le panel contre ce que le volume reclame.
+        if len(self.instruments) < self.universe_n:
+            dire("attention", "Panel incomplet",
+                 f"{len(self.instruments)} jambes sur {self.universe_n} — "
+                 f"{len(self.attendus)} en attente dhistoire, "
+                 f"{len(self.recales)} ecartes")
+
+        # 8. Le retard d entree, et ce qu il coute une fois mesure.
+        retard = float(self.exec_stats.get("retard_s") or 0.0)
+        if retard > 5.0:
+            dire("attention", "Retard dentree",
+                 f"{retard:.1f} s entre la barre qui decide et lordre")
+        gl = self._glissement()
+        if gl > 0.5:
+            dire("attention", "Glissement defavorable",
+                 f"{gl:+.2f} bps factures a la porte sur "
+                 f"{int(self.exec_stats.get('n_gliss') or 0)} ouvertures")
+
+        rang = {"grave": 0, "attention": 1, "info": 2}
+        out.sort(key=lambda a: rang.get(a["niveau"], 3))
+        return out
+
+    def _anomalies_sures(self, eq: float, tg: dict) -> list[dict]:
+        """L instantane ne doit JAMAIS echouer a cause du diagnostic.
+
+        Un bandeau qui empeche d ecrire l etat serait le comble : on
+        perdrait la page entiere pour afficher ce qui cloche.
+        """
+        try:
+            return self.anomalies(eq, tg)
+        except Exception as exc:            # pragma: no cover - filet
+            return [{"niveau": "info", "titre": "Diagnostic indisponible",
+                     "detail": type(exc).__name__}]
 
     def _risk_scale(self) -> float:
         """Cut leverage as we spend the daily / DD budget. Never blind-trade into the kill."""

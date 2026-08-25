@@ -400,6 +400,24 @@ button.ghost.icone{padding:8px;border-radius:50%;display:grid;place-items:center
 .liv .lr.tot .ln{color:var(--encre);font-weight:620}
 .liv .lnote{color:var(--encre-3);font-size:11.5px;margin-top:8px}
 @media (max-width:560px){ .liv .lr{grid-template-columns:88px 1fr 84px} }
+/* Ce qui cloche, en haut de tout. Deux defauts couteux — un levier
+   bloque a x1, des tailles quarante fois trop petites — etaient VISIBLES
+   sur cette page et c est le proprietaire du compte qui les a vus, pas
+   l ecran. Un « LEVIER x1,0 » affiche sans commentaire n apprend rien a
+   qui ne sait pas deja que x1 est anormal. */
+.alertes{display:flex;flex-direction:column;gap:6px;margin-bottom:var(--e4)}
+.alerte{display:grid;grid-template-columns:auto 1fr;gap:10px;
+  align-items:baseline;padding:9px 12px;border-radius:var(--r-s);
+  border:1px solid var(--filet);background:var(--surface-2)}
+.alerte .pic{font-size:13px;line-height:1}
+.alerte .txt{min-width:0}
+.alerte .at{font-weight:620;font-size:13px}
+.alerte .ad{color:var(--encre-2);font-size:12px;margin-top:2px}
+.alerte.grave{border-color:color-mix(in oklab,var(--critique) 60%,var(--filet));
+  background:color-mix(in oklab,var(--critique) 8%,var(--surface-2))}
+.alerte.grave .at{color:var(--critique)}
+.alerte.attention{border-color:color-mix(in oklab,var(--attention) 55%,var(--filet))}
+.alerte.attention .at{color:var(--attention)}
 .bandeau{display:grid;gap:var(--e3);margin-bottom:var(--e4);
   grid-template-columns:repeat(auto-fit,minmax(148px,1fr))}
 .tuile{background:var(--surface-2);border:1px solid var(--filet);
@@ -638,6 +656,7 @@ footer{padding-bottom:96px}
            capital, sous quelles brides. C etait disperse sur trois onglets,
            si bien qu on ne pouvait pas repondre a « pourquoi cette taille »
            sans naviguer. -->
+      <div class="alertes" id="alertes"></div>
       <div class="bandeau" id="bandeau"></div>
       <div class="hero">
         <div>
@@ -1063,6 +1082,34 @@ function tuile(lab, val, sous, cls){
     <div class="tv num">${val}</div>
     ${sous ? `<div class="ts">${sous}</div>` : ""}</div>`;
 }
+/* ── Ce qui cloche ────────────────────────────────────────────────
+   Le moteur diagnostique, l ecran ne fait que RENDRE. Deux
+   arithmetiques separees — une ici, une la-bas — finiraient par se
+   contredire, et c est precisement ce qui rend un tableau de bord
+   ininterpretable. */
+function rendreAlertes(d){
+  const el = $("alertes"); if (!el) return;
+  const a = ((d.scalp || {}).anomalies) || [];
+  // Le moteur muet ne peut pas se signaler lui-meme : s il ne publie
+  // plus, son diagnostic est fige avec le reste. C est le seul controle
+  // que l ecran doit faire de son cote.
+  const ts = Number((d.scalp || {}).ts || 0);
+  const age = ts ? (Number(d.now || Date.now() / 1000) - ts) : null;
+  const tout = [];
+  if (age != null && age > 120)
+    tout.push({niveau: "grave", titre: "Moteur muet",
+               detail: `aucun etat ecrit depuis ${Math.round(age / 60)} min`});
+  for (const x of a) tout.push(x);
+  if (!tout.length) { el.innerHTML = ""; return; }
+  const pic = {grave: "\u26A0", attention: "\u25B3", info: "\u2139"};
+  el.innerHTML = tout.slice(0, 6).map(x => `
+    <div class="alerte ${esc(x.niveau || "info")}" role="status">
+      <span class="pic">${pic[x.niveau] || pic.info}</span>
+      <span class="txt"><div class="at">${esc(x.titre || "")}</div>
+        ${x.detail ? `<div class="ad">${esc(x.detail)}</div>` : ""}</span>
+    </div>`).join("");
+}
+
 function rendreBandeau(d){
   const el = $("bandeau"); if (!el) return;
   const s = d.scalp || {}, r = d.risk || {};
@@ -1982,6 +2029,7 @@ function rendre(d){
     el.textContent = sgn(dp) + " USDT (" + pct(dep?dp/dep:0,2) + ")";
     el.className = dp >= 0 ? "hausse" : "baisse";
   }
+  rendreAlertes(d);
   rendreBandeau(d); rendrePanel(d); rendreClotures(d); rendreLivre(d);
   rendreVerdict(d); rendreDecisions(d); rendrePreuve(d); rendrePositions(d);
   Marche.maj(d);
