@@ -2561,3 +2561,54 @@ def test_the_hourly_concentration_finds_a_session_wherever_it_is(tmp_path):
     # 3) Et elle ne sert A RIEN : les trois noms restent admis.
     assert a_plat is True and a_ny is True and a_kr is True, \
         "la concentration a ete branchee comme critere sans avoir ete lue"
+
+
+def test_the_burn_in_schedule_assumes_a_stability_the_search_does_not_give(tmp_path):
+    """Le rodage exige trente fermetures ; la règle n'en voit que deux.
+
+    Compté sur les douze derniers verdicts 1m du 27 août, le mot
+    `gardee` — qui dit que l'hystérésis a retenu la cellule précédente —
+    apparaît QUATRE fois sur douze. La cellule change donc d'identité
+    deux fois sur trois d'un ajustement à l'autre, et vit en moyenne 1,5
+    ajustement, soit environ 1,2 heure.
+
+    Or le rodage reste à 0,10 tant que trente fermetures ne sont pas
+    accumulées, et la cellule déclenche 1,53 fois par heure : il faut
+    vingt heures, pendant lesquelles la règle change une quinzaine de
+    fois.
+
+    Conséquence : `live_rule` ne mesure jamais UNE règle, et c'est
+    pourtant lui qui commande `confiance`. Le système est
+    structurellement bloqué au dixième de taille — même une règle
+    réellement rentable ne pourrait pas grandir.
+
+    Ce test ancre l'arithmétique pour qu'elle ne se perde pas, et vérifie
+    que le barème du rodage n'a pas été assoupli pour contourner le
+    problème : il a été posé sur une mesure (une règle à +9/+11 bps hors
+    échantillon avait rendu −609 USD en quatre heures de direct).
+    """
+    eng, _ = _moteur_pos(tmp_path)
+
+    # 1) L'arithmetique du blocage.
+    survie = 4.0 / 12.0
+    vie_refits = 1.0 / (1.0 - survie)
+    assert 1.4 < vie_refits < 1.6, vie_refits
+    heures_de_vie = vie_refits * 50.0 / 60.0
+    fermetures_exigees, par_heure = 30.0, 1.53
+    heures_exigees = fermetures_exigees / par_heure
+    assert heures_exigees / heures_de_vie > 10.0, \
+        "la regle vit assez longtemps pour etre jugee : le probleme a disparu"
+
+    # 2) Le bareme du rodage n'a pas bouge. Trente fermetures pour sortir
+    #    du dixieme, cent trente pour la taille pleine, et retour au
+    #    dixieme des que la moyenne repasse sous zero.
+    eng.live_stats.update({"n": 0, "bps": 0.0})
+    assert abs(eng._confiance() - 0.10) < 1e-9
+    eng.live_stats.update({"n": 29, "bps": +5.0})
+    assert abs(eng._confiance() - 0.10) < 1e-9, \
+        "le rodage sort du dixieme avant trente fermetures"
+    eng.live_stats.update({"n": 130, "bps": +5.0})
+    assert eng._confiance() > 0.9, "la taille pleine nest plus atteinte a 130"
+    eng.live_stats.update({"n": 130, "bps": -0.1})
+    assert abs(eng._confiance() - 0.10) < 1e-9, \
+        "une moyenne negative ne ramene plus au dixieme"

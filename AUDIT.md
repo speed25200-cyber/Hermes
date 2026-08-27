@@ -213,6 +213,57 @@ moi compris.
 
 ---
 
+### Le rodage suppose une règle stable ; la recherche n'en produit pas
+
+Ce n'est pas un défaut localisé — c'est une contradiction entre deux
+parties du système, et elle met la rentabilité hors d'atteinte par
+construction.
+
+Compté sur les douze derniers verdicts 1m du 27 août, le mot `gardee`
+— qui dit que l'hystérésis a retenu la cellule précédente — apparaît
+**quatre fois sur douze**. La cellule change donc d'identité deux fois
+sur trois d'un ajustement à l'autre.
+
+| | |
+|---|---|
+| survie d'une cellule à un ajustement | 1/3 |
+| durée de vie moyenne | 1,5 ajustement ≈ **1,2 h** |
+| fermetures exigées par le rodage | 30 |
+| à 1,53 déclenchement par heure | **20 h** |
+| changements de règle d'ici là | **~16** |
+
+Trois conséquences, et la troisième est la vraie :
+
+1. `live_rule` ne mesure **jamais une règle**. Ses 68 mesures sont un
+   mélange d'une quinzaine de règles différentes ; son −1,56 bps ne dit
+   rien de la cellule actuelle, ni pour ni contre.
+2. C'est pourtant ce mélange qui commande `confiance`. Le rodage reste
+   donc à 0,10 — un dixième de taille — non pas parce que la règle
+   échoue, mais parce qu'aucune règle ne vit assez pour être jugée.
+3. Le système est **structurellement bloqué au dixième de taille**. Même
+   une règle réellement rentable ne pourrait pas grandir.
+
+Ce qui n'est PAS la réponse : toucher au barème du rodage. Il a été posé
+sur une mesure — une règle à +9/+11 bps hors échantillon avait rendu
+−609 USD en quatre heures de direct — et l'assouplir reviendrait à
+effacer cette leçon.
+
+Les options réelles, aucune mesurée, donc aucune retenue :
+
+- **Ajuster moins souvent.** La cellule vit 1,5 ajustement quoi qu'il
+  arrive ; espacer les ajustements de cinquante minutes à quatre heures
+  la ferait vivre six heures au lieu d'une, et accumuler neuf fermetures
+  au lieu de deux. Ce n'est pas un assouplissement de porte, c'est une
+  cadence — mais le modèle vieillit d'autant.
+- **Élargir la bande d'hystérésis.** Elle vaut `1/√n_per`, soit l'erreur
+  type d'un Sharpe : c'est principiel, et l'élargir serait du réglage.
+- **Mesurer le direct par identité de cellule.** Plus honnête, mais
+  chaque identité n'aurait que deux fermetures — inutilisable.
+
+Le fait mesuré est écrit ; le choix attendra d'être mesuré lui aussi.
+
+---
+
 ### Le défaut le plus coûteux de la journée : une clé manquante
 
 `BARS` contient cinq échelles ; `BAR_MS` n'en contenait que quatre.
