@@ -869,3 +869,63 @@ def test_a_useless_column_costs_nothing_once_the_sample_is_real():
     for bar in ("1m", "5m"):
         barres = DAYS[bar] * 86_400_000 / BAR_MS[bar]
         assert barres > 6000, f"{bar} : {barres:.0f} barres, sous le plancher"
+
+
+def test_the_matrix_absorbs_useless_columns_at_production_size():
+    """Le budget de colonnes, mesure au lieu d etre suppose.
+
+    Le code portait deux rejets fondes sur la meme mesure trop courte :
+    « quatre colonnes de bruit suffisent a faire echouer une regle par
+    ailleurs vraie » (5/6 -> 2/6) et le cout d une colonne calendaire
+    (12/12 -> 9/12). Les deux sur 2 400 barres.
+
+    La mesure generale, k colonnes de PUR BRUIT ajoutees a la matrice :
+
+               k=0    k=2    k=4    k=8
+      2 400    5/6    4/6    5/6    5/6
+      6 000    6/6    6/6    6/6    6/6
+
+    A 2 400 barres le compte oscille SANS TENDANCE en k : c est du bruit
+    d echantillonnage lu comme un cout. A 6 000, la matrice absorbe huit
+    colonnes inutiles sans rien perdre.
+
+    Ce test garde le fait a la taille qui compte. Une idee prometteuse ne
+    doit pas etre ecartee sur un cout mesure trop court ; elle doit
+    l etre quand elle n apporte rien.
+    """
+    import numpy as np
+
+    import hermes.scalp.clock as CK
+    from hermes.data.store import Candles
+
+    def interaction(seed, n):
+        rng = np.random.default_rng(seed)
+        fb = rng.choice([-1.0, 1.0], size=n // 10 + 2)
+        f = np.repeat(fb, 10)[:n] * (2e-4 + rng.random(n) * 3e-4)
+        z = rng.uniform(-1.0, 1.0, n)
+        r = rng.normal(0, 8e-4, n)
+        r[1:] += 12e-4 * z[:-1] * np.sign(f[:-1])
+        r = np.clip(r, -0.02, 0.02)
+        px = 100 * np.exp(np.cumsum(r))
+        o = np.concatenate([[100.0], px[:-1]])
+        w = np.abs(rng.normal(0, 4e-4, n)) * px
+        v = np.abs(rng.normal(1000, 100, n))
+        return Candles("X", "5m", np.arange(n, dtype=np.int64) * 300_000, o,
+                       np.maximum(o, px) + w, np.minimum(o, px) - w, px, v,
+                       funding=f, taker_buy=v * (0.5 + 0.5 * z),
+                       taker_sell=v * (0.5 - 0.5 * z))
+
+    vrai, n_vrai = CK.feat_matrix, CK.N_FEATURES
+    try:
+        rng = np.random.default_rng(1234)
+        bruit = rng.normal(size=(20_000, 8))
+        CK.feat_matrix = lambda c: np.column_stack(
+            [vrai(c), bruit[:len(c)]])
+        CK.N_FEATURES = n_vrai + 8
+        vus = sum(CK.CandleModel("5m").fit(interaction(s, 6000))["status"] == "live"
+                  for s in range(30, 34))
+    finally:
+        CK.feat_matrix, CK.N_FEATURES = vrai, n_vrai
+    assert vus >= 3, (
+        f"{vus}/4 — huit colonnes de bruit cassent encore une regle vraie "
+        "a taille de production")

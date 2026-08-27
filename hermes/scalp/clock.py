@@ -1371,12 +1371,28 @@ def croise(X: np.ndarray, br: np.ndarray | None = None,
 
     UNE colonne, pas sept. Les retards 2 et 3, la poussée cumulée et le
     résidu retardé ont été essayés ensemble : ils n'ajoutent RIEN au
-    lead-lag (3/3 dans les deux cas) et coûtent cher ailleurs — sur le
-    marché à interaction plantée, avec un BTC de bruit, la famille retenue
-    tombe de 5 succès sur 6 à 2. L'ic y restait pourtant élevé : ce ne
-    sont pas les prédictions qui se dégradent, c'est leur précision sur
-    les barres qui déclenchent, donc l'économie. Quatre colonnes de bruit
-    suffisent à faire échouer une règle par ailleurs vraie.
+    lead-lag — 3/3 avec comme sans. C'est cette absence de BÉNÉFICE qui
+    les tient dehors, et rien d'autre.
+
+    Ce paragraphe portait aussi un coût — « la famille retenue tombe de 5
+    succès sur 6 à 2 », d'où la conclusion que quatre colonnes de bruit
+    suffiraient à casser une règle vraie. C'était FAUX, et l'erreur vaut
+    d'être gardée : la mesure venait d'une fixture de 2 400 barres. Refaite
+    proprement, en ajoutant k colonnes de pur bruit à la matrice :
+
+               k=0    k=2    k=4    k=8
+      2 400    5/6    4/6    5/6    5/6
+      6 000    6/6    6/6    6/6    6/6
+
+    A 2 400 barres le compte oscille sans tendance en k — c'est du bruit
+    d'échantillonnage qu'on lisait comme un coût. A 6 000, la matrice
+    absorbe HUIT colonnes inutiles sans rien perdre. En production elle
+    voit des centaines de milliers de lignes.
+
+    Conséquence pratique : le budget de colonnes est large. Une idée
+    prometteuse ne doit pas être écartée sur un coût mesuré trop court —
+    elle doit l'être quand elle n'apporte rien, ce qui reste le cas de ces
+    quatre-là.
 
     Tout est en sigmas de CET actif, comme le reste de la matrice, pour
     que six actifs puissent nourrir la même horloge. Toutes les colonnes

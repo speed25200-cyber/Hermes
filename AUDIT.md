@@ -186,7 +186,7 @@ Chacun était silencieux. Aucun n'apparaissait dans les journaux.
 | semi-variance signée (saut signé) | fixture dédiée **déjà** 4/4, ic +0,44 sans la colonne — `z20`/`z60` la portent | inutile |
 | colonne jour de la semaine (sin/cos) | fixture dédiée ic +0,232 → +0,575 ; le binaire fait mieux pour un degré de liberté | remplacée par le binaire |
 | sortie postée au take | mesurée à −3,4 bps, 13 remplissages sur 31 | rejetée |
-| 7 colonnes croisées BTC | lead-lag inchangé 3/3, **interaction 5/6 → 2/6** | réduites à 1 |
+| 7 colonnes croisées BTC | lead-lag inchangé 3/3 **avec comme sans** — aucun bénéfice | réduites à 1 |
 
 ### Une erreur de méthode, et sa correction
 
@@ -212,6 +212,24 @@ Mesurer un coût sur une fixture trop courte pour le mesurer, c'est
 rejeter de bonnes idées pour du bruit. Les deux colonnes de calendrier
 sont donc en place, et un test verrouille le plancher au-delà duquel une
 mesure de coût veut dire quelque chose.
+
+La même erreur portait sur un second rejet. Le code affirmait que
+« quatre colonnes de bruit suffisent à faire échouer une règle par
+ailleurs vraie » (5/6 → 2/6). Mesuré proprement, en ajoutant k colonnes
+de **pur bruit** à la matrice :
+
+| taille | k=0 | k=2 | k=4 | k=8 |
+|---|---|---|---|---|
+| 2 400 barres | 5/6 | 4/6 | 5/6 | 5/6 |
+| **6 000 barres** | **6/6** | **6/6** | **6/6** | **6/6** |
+
+À 2 400 barres le compte oscille **sans tendance en k** — c'était du bruit
+d'échantillonnage lu comme un coût. À 6 000, la matrice absorbe **huit**
+colonnes inutiles sans rien perdre.
+
+Conséquence pratique : le budget de colonnes est large. Une idée
+prometteuse ne doit pas être écartée sur un coût mesuré trop court — elle
+doit l'être quand elle n'apporte rien.
 
 La leçon qui tient toujours : le coût d'une colonne ne se voit pas sur
 l'ic — il se voit sur la précision **des barres qui déclenchent**, donc
