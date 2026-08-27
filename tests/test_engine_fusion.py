@@ -2143,3 +2143,150 @@ def test_a_market_maker_quoting_at_night_does_not_make_it_a_crypto(tmp_path):
     eng3.store = type("M", (), {"load": lambda self, i, b, **k: crypto(i)})()
     assert eng3._assez_dhistoire("DOGE-USDT-SWAP") is True, \
         "une vraie crypto au week-end calme est ecartee a tort"
+
+
+def test_a_quote_without_a_counterparty_is_not_a_crypto(tmp_path):
+    """Relevé du 27 août : SEPT actions tokenisées sur vingt places.
+
+    Le panel visé était BTC, ETH, SOL, XRP, DOGE, BNB, SNDK, ZEC, HYPE,
+    XAU, SKHYNIX, TRUMP, PUMP, SPCX, SOXL, MU, PEPE, ENA, SUI, CRCL — et
+    le journal ne portait AUCUNE ligne « scalp recale » en six heures.
+    Les deux critères de PRIX les avaient donc laissés passer tous les
+    deux.
+
+    C'est explicable : les deux lisent la COTATION, et une cotation est
+    ce qu'un teneur de marché produit tout seul. Rien ne l'empêche de la
+    faire bouger le dimanche à chaque minute, aussi finement qu'il veut,
+    sans qu'une seule action change de main. Ni l'amplitude moyenne ni
+    la part de barres plates ne peuvent alors distinguer les deux
+    populations, parce qu'aucune des deux ne regarde s'il y a quelqu'un
+    en face.
+
+    Le VOLUME, lui, demande une contrepartie. C'est la seule des trois
+    quantités qu'un teneur seul ne peut pas fabriquer.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+
+    def teneur_continu(nom):
+        """Le cas que les deux critères de prix ne voient pas : le
+        teneur cote CHAQUE minute du week-end, avec la même amplitude
+        qu'en semaine. Aucune barre plate, rapport d'amplitude 1,00 —
+        et pourtant presque personne n'échange."""
+        n = 20_000
+        ts = np.arange(n, dtype=np.int64) * 60_000
+        jour = ((ts // 86_400_000) + 4) % 7
+        we = jour >= 5
+        rng = np.random.default_rng(11)
+        r = rng.normal(0, 4e-4, n)
+        px = 100 * np.exp(np.cumsum(r))
+        v = np.full(n, 1000.0)
+        v[we] = 20.0                      # 2 % : le sous-jacent est fermé
+        return Candles(nom, "1m", ts, px, px, px, px, v)
+
+    eng, _ = _moteur_pos(tmp_path)
+    dits = []
+    eng.log = dits.append
+    eng.store = type("M", (), {"load": lambda self, i, b, **k: teneur_continu(i)})()
+
+    # D'abord la preuve que les deux critères de PRIX sont bien aveugles
+    # ici — sinon ce test passerait pour la mauvaise raison.
+    c = teneur_continu("SPCX-USDT-SWAP")
+    amp = np.abs(np.diff(c.c) / c.c[:-1])
+    we = (((c.ts[1:] // 86_400_000) + 4) % 7) >= 5
+    assert amp[we].mean() / amp[~we].mean() >= 0.5, \
+        "le rapport d amplitude arrete deja ce cas : le test ne prouve rien"
+    assert (amp[we] <= 0.0).mean() <= 0.5, \
+        "la part de barres plates arrete deja ce cas : le test ne prouve rien"
+
+    assert eng._assez_dhistoire("SPCX-USDT-SWAP") is False, \
+        "une cotation sans contrepartie entre au panel"
+    assert "SPCX-USDT-SWAP" in eng.recales
+    assert any("volume des jours ouvres" in m for m in dits), dits
+
+    # Contre-épreuve : une vraie crypto respire plus calmement le
+    # week-end sans jamais s'arrêter. Elle doit passer.
+    def crypto(nom):
+        n = 20_000
+        ts = np.arange(n, dtype=np.int64) * 60_000
+        we = (((ts // 86_400_000) + 4) % 7) >= 5
+        rng = np.random.default_rng(12)
+        r = rng.normal(0, 4e-4, n)
+        px = 100 * np.exp(np.cumsum(r))
+        v = np.full(n, 1000.0)
+        v[we] = 650.0                     # week-end plus calme, pas mort
+        return Candles(nom, "1m", ts, px, px, px, px, v)
+
+    eng2, _ = _moteur_pos(tmp_path / "b")
+    (tmp_path / "b").mkdir(exist_ok=True)
+    eng2.store = type("M", (), {"load": lambda self, i, b, **k: crypto(i)})()
+    assert eng2._assez_dhistoire("SOL-USDT-SWAP") is True, \
+        "une vraie crypto au week-end calme est ecartee a tort"
+
+
+def test_the_judgement_is_logged_for_the_names_it_admits_too(tmp_path):
+    """Le défaut a vécu six heures parce que le critère se taisait.
+
+    Il ne parlait que pour refuser. Sept actions tokenisées sont donc
+    entrées sans laisser la moindre trace de POURQUOI elles passaient,
+    et le seul moyen de le savoir était de deviner. Un critère qui ne
+    s'explique que lorsqu'il dit non est à moitié aveugle.
+
+    Les trois quantités mesurées sont donc journalisées pour tout nom
+    jugé, admis compris — c'est ce qui rend le prochain relevé capable
+    de contredire le seuil au lieu de le confirmer par défaut.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+
+    def crypto(nom):
+        n = 20_000
+        ts = np.arange(n, dtype=np.int64) * 60_000
+        rng = np.random.default_rng(13)
+        px = 100 * np.exp(np.cumsum(rng.normal(0, 4e-4, n)))
+        return Candles(nom, "1m", ts, px, px, px, px, np.full(n, 1000.0))
+
+    eng, _ = _moteur_pos(tmp_path)
+    dits = []
+    eng.log = dits.append
+    eng.store = type("M", (), {"load": lambda self, i, b, **k: crypto(i)})()
+
+    assert eng._assez_dhistoire("ETH-USDT-SWAP") is True
+    juges = [m for m in dits if "scalp juge ETH-USDT-SWAP" in m]
+    assert juges, dits
+    ligne = juges[0]
+    for quantite in ("amplitude", "plates", "volume"):
+        assert quantite in ligne, ligne
+
+
+def test_a_missing_volume_column_never_rejects_a_name(tmp_path):
+    """Le volume peut manquer ; l'absence de mesure n'est pas un refus.
+
+    Le magasin remplit `v` à zéro quand l'échange ne l'a pas donné. Un
+    rapport calculé sur un dénominateur nul vaudrait NaN, et NaN < 0,15
+    est faux en Python — mais s'appuyer sur cette subtilité serait
+    fragile. La condition est écrite pour ne trancher que sur une
+    quantité RÉELLEMENT mesurée, et ce test l'ancre : un nom dont le
+    volume est inconnu est jugé sur le prix seul, comme avant.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+
+    def sans_volume(nom):
+        n = 20_000
+        ts = np.arange(n, dtype=np.int64) * 60_000
+        rng = np.random.default_rng(14)
+        px = 100 * np.exp(np.cumsum(rng.normal(0, 4e-4, n)))
+        return Candles(nom, "1m", ts, px, px, px, px, np.zeros(n))
+
+    eng, _ = _moteur_pos(tmp_path)
+    dits = []
+    eng.log = dits.append
+    eng.store = type("M", (), {"load": lambda self, i, b, **k: sans_volume(i)})()
+
+    assert eng._assez_dhistoire("BTC-USDT-SWAP") is True, \
+        "un volume absent fait passer le nom pour une action tokenisee"
+    assert any("volume non mesure" in m for m in dits), dits

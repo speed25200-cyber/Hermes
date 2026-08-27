@@ -176,6 +176,8 @@ Chacun était silencieux. Aucun n'apparaissait dans les journaux.
 | noms sans assez d'historique poursuivis sans fin | quota d'appels consommé pour rien | — |
 | le direct comptait 3 jambes simultanées comme 3 résultats | écart-type 44 bps au lieu de 25 ; des mois au lieu de semaines pour trancher | — |
 | actions tokenisées (SNDK, XAU, SKHYNIX) dans le panel crypto | elles publient des bougies plates 24/7, le compte de barres ne les distingue pas | filtre sur l'amplitude du week-end |
+| le même défaut, deux fois de suite : sept actions tokenisées sur vingt places (SNDK, XAU, SKHYNIX, SPCX, SOXL, MU, CRCL) | les deux critères de PRIX lisent la cotation, qu'un teneur de marché produit seul | zéro ligne `scalp recale` en six heures, panel visé 20 le 27/08 |
+| le critère ne parlait que pour refuser | le défaut a vécu six heures sans laisser trace de POURQUOI les noms passaient | ligne `scalp juge` désormais émise pour tout nom jugé, admis compris |
 
 ---
 
@@ -187,6 +189,89 @@ Chacun était silencieux. Aucun n'apparaissait dans les journaux.
 | colonne jour de la semaine (sin/cos) | fixture dédiée ic +0,232 → +0,575 ; le binaire fait mieux pour un degré de liberté | remplacée par le binaire |
 | sortie postée au take | mesurée à −3,4 bps, 13 remplissages sur 31 | rejetée |
 | 7 colonnes croisées BTC | lead-lag inchangé 3/3 **avec comme sans** — aucun bénéfice | réduites à 1 |
+
+### La cellule de plus grande marge est-elle la meilleure payeuse ?
+
+Le code posait la question et refusait d'y répondre avant d'avoir publié
+`par_jour` et `gain_jour_bps`. Voici la publication, relevé du 27 août,
+un tour complet des cinq échelles :
+
+| échelle | cellule | net/trade | sr | barre | marge | par jour | net×jour |
+|---|---|---|---|---|---|---|---|
+| 1m  | mlp/h6/abs 2,5σ | +2,14 bps | +0,017 | 0,074 | −0,057 | 19,8 | +42 bps |
+| 3m  | ens/h3/abs 4,0σ | +0,82 bps | +0,017 | 0,142 | −0,125 | 2,6 | +2 bps |
+| 5m  | mlp/h6/neu 3,0σ | +0,59 bps | −0,002 | 0,131 | −0,133 | 3,2 | +2 bps |
+| 15m | mlp/h3/abs 2,0σ | −3,54 bps | −0,005 | 0,059 | −0,064 | 1,9 | — |
+| 1H  | ridge/h6/neu 4,0σ | **+43,13 bps** | **+0,094** | 0,109 | **−0,015** | 2,1 | **+91 bps** |
+
+La réponse est **non, il n'y a pas de conflit** : l'échelle de plus
+grande marge (1H, à 0,015 de la barre) est aussi, et de loin, la
+meilleure payeuse — deux fois le 1m en bps par jour, vingt fois en bps
+par trade. Le classement par marge n'a donc pas besoin d'être changé.
+C'est un résultat négatif sur ma propre suspicion, et il vaut d'être
+écrit : le soupçon portait sur le classement, la mesure le disculpe.
+
+Ce que la mesure dit vraiment, c'est **où porter l'effort**. Le 1H est
+la seule échelle où le coût ne mange que 4 % du mouvement, et c'est la
+seule qui approche la barre. Il lui manque `sr ≥ barre`, soit
+0,094 ≥ 0,109 : la barre valant `3,63/√instants`, il faudrait
+`instants ≥ (3,63/0,094)² = 1 491` contre 1 143 aujourd'hui, soit
+**+31 % d'instants**.
+
+Trois leviers, un seul utile :
+
+- **rétrécir la recherche** ne sert à rien. La barre croît comme
+  `√(2 ln n_cellules)` : passer de 4 860 cellules à 486 ne ferait
+  descendre la barre que de 0,107 à 0,104. Un logarithme ne se plie pas.
+- **allonger l'histoire** est déjà au maximum : `DAYS["1H"] = 730` est
+  ce que l'échange donne.
+- **élargir le panel** est le seul levier réel — et c'est celui que le
+  filtre du volume vient de rendre honnête.
+
+Avertissement à la mesure suivante : écarter sept actions tokenisées
+fera probablement **baisser** les instants du 1H avant de les faire
+monter. Une action qui ouvre en séance produit des mouvements de 4 σ
+sur une barre horaire ; elle déclenche donc beaucoup, et ses
+déclenchements sont un artefact de calendrier, pas un avantage. Si le
+1H s'éloigne de la barre au prochain relevé, ce n'est pas une
+régression : c'est le prix de mesurer sur des cryptos.
+
+---
+
+### Ce qu'un teneur de marché peut fabriquer, et ce qu'il ne peut pas
+
+Le filtre 24/7 a été franchi deux fois, et les deux échecs ont la même
+racine. Le premier critère comptait les barres présentes ; le deuxième
+mesurait l'amplitude du prix ; le troisième la part de barres plates.
+Les trois lisent la **cotation** — or une cotation est exactement ce
+qu'un teneur de marché produit tout seul. Rien ne l'empêche de la faire
+bouger le dimanche à chaque minute, aussi finement qu'il veut, sans
+qu'une seule action change de main.
+
+Le **volume** demande une contrepartie. C'est la seule des quantités
+disponibles qu'un teneur seul ne peut pas simuler, et c'est pour cela
+qu'elle sépare les deux populations là où le prix échoue. Le seuil est
+à 0,15 du volume des jours ouvrés — choisi loin des deux populations et
+non entre elles : une crypto respire plus calmement le week-end sans
+jamais s'arrêter, une action dont le sous-jacent est fermé n'a personne
+en face.
+
+Un seuil posé sans mesure reste un pari tant que la mesure ne l'a pas
+confirmé. Les trois quantités sont donc journalisées pour **tout** nom
+jugé, admis compris : si une vraie crypto tombe sous 0,15, son chiffre
+sera au journal et le seuil sera faux. C'est précisément ce qui manquait
+— un critère qui ne s'explique que lorsqu'il dit non est à moitié
+aveugle, et c'est ce qui a laissé le défaut vivre.
+
+Conséquence attendue et non garantie : le panel se rétrécit avant de se
+réélargir, le temps que le rattrapage donne assez d'histoire aux vraies
+cryptos qui attendent (ADA, AVAX, LINK, XLM). Moins de jambes, c'est
+moins d'instants, donc une **barre plus haute** — la sélection devient
+plus difficile à court terme, pas plus facile. Le gain n'est pas dans le
+chiffre, il est dans le fait que le chiffre porte enfin sur ce qu'on
+prétend mesurer.
+
+---
 
 ### Une erreur de méthode, et sa correction
 

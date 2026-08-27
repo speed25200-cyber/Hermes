@@ -552,6 +552,55 @@ class ScalpEngine:
         # sont independants et il faut passer les DEUX.
         plat_we = float((amp[we] <= 0.0).mean())
         plat_ouvre = float((amp[~we] <= 0.0).mean())
+
+        # TROISIEME critere : le VOLUME du week-end, et c est celui qui
+        # tranche pour de bon.
+        #
+        # Mesure du 27 aout : le panel de vingt portait SNDK, XAU,
+        # SKHYNIX, SPCX, SOXL, MU et CRCL — sept actions ou matieres
+        # tokenisees sur vingt places, et le journal ne montrait AUCUNE
+        # ligne de recalage en six heures. Les deux criteres de PRIX les
+        # laissaient donc passer tous les deux, ce qui s explique : ils
+        # lisent la cotation, et une cotation est ce qu un teneur de
+        # marche produit tout seul. Il peut la faire bouger le dimanche
+        # aussi finement qu il veut, sans qu une seule action change de
+        # main.
+        #
+        # Le volume, lui, demande une CONTREPARTIE. On ne le fabrique
+        # pas en cotant : il faut quelqu un en face. C est la seule des
+        # trois quantites qu un teneur de marche seul ne peut pas
+        # simuler, et c est pour cela qu elle separe les deux
+        # populations la ou le prix echoue.
+        #
+        # Le seuil est a 0,15, choisi loin des deux populations et non
+        # entre elles : une crypto respire plus calmement le week-end
+        # sans jamais s arreter, une action dont le sous-jacent est
+        # ferme n a personne en face. Il n y a pas de reglage fin a
+        # trouver entre 0,7 et 0,03. Si une vraie crypto tombait sous
+        # 0,15, la ligne de journal ci-dessous donnerait son chiffre
+        # mesure et le seuil serait faux — c est pour cela que les trois
+        # quantites sont journalisees pour TOUT nom juge, admis compris.
+        # Un critere qui ne s explique que lorsqu il dit non est a
+        # moitie aveugle : c est ce qui a laisse ce defaut vivre.
+        vol = np.asarray(getattr(c, "v", None), dtype=np.float64)
+        rapport_v = float("nan")
+        if vol.size == len(px):
+            vol = np.nan_to_num(vol[1:], nan=0.0)
+            ouvre_v = float(vol[~we].mean())
+            if ouvre_v > 0.0:
+                rapport_v = float(vol[we].mean()) / ouvre_v
+
+        self.log(f"scalp juge {c.inst} : week-end amplitude {rapport:.2f} "
+                 f"plates {plat_we * 100:.0f}% (semaine "
+                 f"{plat_ouvre * 100:.0f}%) volume "
+                 + (f"{rapport_v:.2f}" if rapport_v == rapport_v
+                    else "non mesure"))
+
+        if rapport_v == rapport_v and rapport_v < 0.15:
+            self.log(f"scalp recale {c.inst} : le week-end n echange que "
+                     f"{rapport_v * 100:.1f} % du volume des jours ouvres "
+                     f"— une cotation sans contrepartie, pas une crypto")
+            return False
         if plat_we <= 0.5 and rapport >= 0.5:
             return True
         if plat_we > 0.5:
