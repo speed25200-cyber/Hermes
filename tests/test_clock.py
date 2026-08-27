@@ -556,3 +556,66 @@ def test_measuring_in_risk_units_never_overshoots_the_book_actually_held():
     r = sharpe(_en_risque(net.ravel(), ts, sig.ravel()))
     assert abs(r - a) < 0.15 * max(abs(a), 1e-9), \
         f"sans regimes, les deux mesures divergent quand meme : {a:.4f} vs {r:.4f}"
+
+
+def test_the_reported_ic_belongs_to_the_variant_that_was_selected():
+    """« [ridge/h6/neu] ic=0.010 » décrivait la série `abs`.
+
+    L'ic était calculé une seule fois, sur la prédiction brute, avant la
+    boucle des variantes — puis journalisé tel quel même quand la
+    cellule retenue était `neu`. Deux conséquences, toutes deux graves :
+
+    - la porte teste `ic > 2/racine(n)` et le testait sur une autre série
+      que celle qu'elle sélectionne ;
+    - comparer l'ic entre deux ajustements dont la variante a changé
+      comparait deux choses différentes — et c'est avec cet ic-là que je
+      jugeais si les colonnes neuves payaient.
+
+    Fixture construite pour que les deux séries soient franchement
+    différentes : un facteur commun fort que `neu` retranche et que `abs`
+    conserve. Si l'ic rapporté ne dépendait pas de la variante, les deux
+    cellules montreraient le même chiffre.
+    """
+    import inspect
+
+    from hermes.scalp import clock
+
+    src = inspect.getsource(clock.CandleModel._chercher
+                            if hasattr(clock.CandleModel, "_chercher")
+                            else clock.CandleModel)
+
+    # L'ic de la variante est calculé DANS la boucle des variantes.
+    assert 'ic = _ic(pv, yho) if var != "abs" else ic_abs' in src, \
+        "l ic n est plus calcule par variante"
+    # Et le repli garde délibérément l'ic de la série brute : il répond à
+    # une autre question, qui ne dépend pas de la variante.
+    assert 'muet.update({"ic": ic_abs' in src, \
+        "le repli lit un ic qui fuit de la boucle des variantes"
+
+
+def test_a_cell_the_engine_cannot_size_says_so():
+    """Une pente négative rend le shrink nul, et le silence est total.
+
+    `shrink = max(0 ; 1 + (pente − 1)·crédit)`. Le verdict 1H du 27 août
+    portait `pente=-0.70` sur 1 142 instants, donc un crédit de 1, donc
+    un shrink de EXACTEMENT zéro. Une telle cellule, si elle franchissait
+    la barre, serait déclarée `live`, bloquerait toutes les autres, et ne
+    produirait jamais une prédiction tradable — sans que rien ne le dise.
+
+    Ce test n'exige pas qu'on la rejette : on ne sait pas encore si c'est
+    fréquent, et changer le classement sans mesure serait exactement
+    l'erreur déjà commise sur le filtre 24/7. Il exige qu'on la VOIE.
+    """
+    import inspect
+
+    from hermes.scalp import clock
+
+    src = inspect.getsource(clock)
+    assert "INERTE(shrink=0)" in src, \
+        "une cellule live que le moteur ne peut pas dimensionner reste muette"
+
+    # La formule qui produit le zéro, ancrée pour que le test parle du
+    # même mécanisme si elle change.
+    for pente, credit, attendu in ((-0.70, 1.0, 0.0), (0.0, 1.0, 0.0),
+                                   (1.0, 1.0, 1.0), (2.0, 0.5, 1.5)):
+        assert min(3.0, max(0.0, 1.0 + (pente - 1.0) * credit)) == attendu

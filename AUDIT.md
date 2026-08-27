@@ -190,6 +190,43 @@ Chacun était silencieux. Aucun n'apparaissait dans les journaux.
 | sortie postée au take | mesurée à −3,4 bps, 13 remplissages sur 31 | rejetée |
 | 7 colonnes croisées BTC | lead-lag inchangé 3/3 **avec comme sans** — aucun bénéfice | réduites à 1 |
 
+### Deux choses que le journal ne disait pas, et une qu'il disait faux
+
+**L'ic rapporté n'était pas celui de la cellule choisie.** Il était
+calculé une fois sur la prédiction brute, avant la boucle des variantes,
+puis journalisé tel quel — le verdict du 27 août affichait
+`[ridge/h6/neu] ic=0,010` pour un ic décrivant la série `abs`, pas la
+série `neu` qui avait été retenue. Deux conséquences : la porte teste
+`ic > 2/√n` et le testait sur une autre série que celle qu'elle
+sélectionne ; et comparer l'ic entre deux ajustements dont la variante a
+changé comparait deux choses différentes — or c'est avec cet ic-là que
+je jugeais si les colonnes `vers_reglement` et `weekend` payaient. Ce
+n'est un assouplissement dans aucun sens : c'est le même seuil appliqué à
+la bonne quantité.
+
+**Une cellule que le moteur ne peut pas dimensionner ne le disait pas.**
+`shrink = max(0 ; 1 + (pente − 1)·crédit)`. Le verdict 1H portait
+`pente = −0,70` sur 1 142 instants, donc un crédit de 1, donc un shrink
+de **exactement zéro**. Si cette cellule franchissait la barre, elle
+serait déclarée `live`, bloquerait toutes les autres cellules du
+classement, et ne produirait jamais une prédiction tradable. En silence.
+Le verdict porte désormais `INERTE(shrink=0)`.
+
+Ce qui n'a **pas** été changé, et pourquoi : le classement continue de
+pouvoir couronner une telle cellule. On ne sait pas encore si le cas est
+fréquent ou marginal, et modifier le classement sans mesure serait
+exactement l'erreur déjà commise sur le filtre 24/7 — un seuil posé sur
+une intuition. Le journal le dira ; on décidera après.
+
+À noter pour lire le reste : `pente` et `ic` peuvent être de signes
+opposés sans qu'il y ait contradiction. L'ic porte sur **toutes** les
+lignes du holdout ; la pente sur le **sous-ensemble déclenché**
+(`|pred| ≥ k·σ`). Une pente négative sur les seules lignes extrêmes est
+la signature classique d'une sur-extrapolation dans les queues : les plus
+grosses prédictions du modèle sont les moins fiables.
+
+---
+
 ### La mesure décrivait un livre que personne ne tient — dans le TEMPS
 
 `_portfolio` pondère les jambes par `1/sigma` puis divise par la **somme

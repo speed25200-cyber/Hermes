@@ -1110,7 +1110,8 @@ class CandleModel:
             # a produit en direct des seuils à 240771075 bps.
             if not np.isfinite(sd_p) or sd_p > 10.0 * max(sd_y, 1e-12):
                 continue
-            ic = _ic(p_bps, yho)
+            ic_abs = _ic(p_bps, yho)
+            ic = ic_abs
             # « neu » : à chaque instant, on retranche la moyenne du panel.
             # Le signal ne dit plus « ça monte » mais « ça monte plus que
             # les autres » — et comme le portefeuille moyenne ensuite des
@@ -1122,6 +1123,21 @@ class CandleModel:
                 moy = np.bincount(iv, weights=p_bps) / np.bincount(iv)
                 variantes.append(("neu", p_bps - moy[iv]))
             for var, pv in variantes:
+                # L ic doit etre celui de la serie REELLEMENT choisie.
+                # Il etait calcule une fois sur `p_bps`, donc sur la
+                # variante « abs », et journalise tel quel meme quand la
+                # cellule retenue etait « neu » — le verdict du 27 aout
+                # affichait « [ridge/h6/neu] ic=0.010 » pour un ic qui
+                # decrivait une autre serie. Toute comparaison d ic entre
+                # deux ajustements dont la variante a change comparait
+                # alors deux choses differentes, et c est avec cet ic-la
+                # que je jugeais si des colonnes neuves payaient.
+                #
+                # Ce n est pas un assouplissement : la porte teste
+                # `ic > 2/racine(n)`, et elle doit le tester sur la serie
+                # qu elle selectionne. La tester sur une autre etait
+                # simplement faux, dans un sens comme dans l autre.
+                ic = _ic(pv, yho) if var != "abs" else ic_abs
                 sd_v = float(np.std(pv))
                 for mode, ks in STOPS:
                     for k in THRESHOLDS:
@@ -1281,8 +1297,13 @@ class CandleModel:
             # on retient quand même l'ic, sinon le refus se raconte avec un
             # ic=0.000 qui n'est pas le sien et le lecteur ne peut pas
             # distinguer « aucun signal » de « signal trop petit à payer ».
-            if abs(ic) > abs(muet.get("ic", 0.0)):
-                muet.update({"ic": ic, "fam": fam, "h": h})
+            # Le repli garde l ic de la serie BRUTE : il repond a
+            # « le modele predit-il quoi que ce soit », question qui ne
+            # depend pas de la variante. Depuis que `ic` est reaffecte
+            # dans la boucle des variantes, le lire ici prendrait la
+            # derniere variante essayee, ce qui ne veut rien dire.
+            if abs(ic_abs) > abs(muet.get("ic", 0.0)):
+                muet.update({"ic": ic_abs, "fam": fam, "h": h})
         if best is not None:
             best["sortant"] = sortant
         return best
@@ -1640,7 +1661,18 @@ class ScaleDesk:
                      f"sr={d['holdout_sr']:+.3f} vs bar={d['sel_bar']:.3f} "
                      f"seuil={d['thr_bps']:.1f}bps/{d.get('thr_k', 0.0):.1f}sig "
                      f"stop={d['stop_sig']:.0f}sig/{d.get('stop_mode', 'fixe')} "
-                     f"pente={d['pente']:.2f} "
+                     f"pente={d['pente']:.2f}"
+                     # Une pente negative rend un shrink nul, et un shrink
+                     # nul rend une cellule INERTE : elle gagne la
+                     # recherche, en bloque toutes les autres, et ne
+                     # produit jamais une prediction tradable. Le dire ici
+                     # est la seule facon de savoir a quelle frequence la
+                     # recherche couronne une cellule que le moteur
+                     # refusera de dimensionner.
+                     + (" INERTE(shrink=0)"
+                        if d.get("status") == "live"
+                        and float(d.get("alpha") or d.get("shrink") or 0.0) <= 0.0
+                        else "") + " "
                      + (("profil=" + "/".join(f"{x:+.2f}"
                                               for x in d.get("profil") or ())
                         + " ") if d.get("profil") else "")

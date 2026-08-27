@@ -69,6 +69,24 @@ jobs:
               | grep -E "scalp universe|desk panel vise|scalp recale" \
               | tail -14 || true
             echo
+            # Le critere 24/7 a laisse passer sept actions tokenisees en
+            # ne parlant QUE pour refuser : le panel du 27 aout portait
+            # SNDK, XAU, SKHYNIX, SPCX, SOXL, MU et CRCL sans une seule
+            # ligne de recalage. Un critere qui ne sexplique que lorsquil
+            # dit non est a moitie aveugle. La ligne « scalp juge » porte
+            # donc les trois quantites mesurees pour TOUT nom juge, admis
+            # compris — et cest la seule chose capable de contredire le
+            # seuil de 0,15 au lieu de le confirmer par defaut.
+            #
+            # Fenetre separee, et non ajoutee a celle du dessus : vingt
+            # noms juges a chaque demarrage chasseraient les lignes de
+            # panel dun tail de quatorze.
+            echo "===== critere 24/7 : ce que chaque nom a mesure (6 h) ====="
+            journalctl -u hermes --since "-6 hours" --no-pager 2>/dev/null \
+              | grep -E "scalp juge " \
+              | sed -E "s/.*scalp juge //" \
+              | tail -30 || true
+            echo
             # Une regle qui change didentite a chaque refit na pas de
             # mesure en direct du tout : les trades de la fenetre viennent
             # alors de plusieurs cellules differentes. Le mot « gardee »
