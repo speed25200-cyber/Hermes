@@ -15,10 +15,10 @@ La chaîne complète, de la bougie à la position :
 ```
 bougies OKX (1m, 3m, 5m, 15m, 1H)
    │
-   ├─ feat_matrix : 29 colonnes causales par actif
+   ├─ feat_matrix : 31 colonnes causales par actif
    │    prix, forme de bougie, volatilité relative, volume, funding,
    │    flux taker, open interest, base mark/index, heure, séquence
-   │    des 8 derniers retours
+   │    des 8 derniers retours, proximité du règlement, week-end
    │
    ├─ croise() : 3 colonnes transversales
    │    retour BTC, résidu contre le panel, décalage BTC → alts
@@ -183,14 +183,39 @@ Chacun était silencieux. Aucun n'apparaissait dans les journaux.
 
 | idée | mesure | verdict |
 |---|---|---|
-| colonne jour de la semaine (sin/cos) | fixture dédiée 0/4 → 4/4, ic +0,232 → +0,575 ; **référence 12/12 → 0/3** | rejetée |
-| colonne week-end binaire | fixture dédiée 4/4, ic +0,686 ; **référence 12/12 → 9/12** | rejetée |
+| semi-variance signée (saut signé) | fixture dédiée **déjà** 4/4, ic +0,44 sans la colonne — `z20`/`z60` la portent | inutile |
+| colonne jour de la semaine (sin/cos) | fixture dédiée ic +0,232 → +0,575 ; le binaire fait mieux pour un degré de liberté | remplacée par le binaire |
 | sortie postée au take | mesurée à −3,4 bps, 13 remplissages sur 31 | rejetée |
 | 7 colonnes croisées BTC | lead-lag inchangé 3/3, **interaction 5/6 → 2/6** | réduites à 1 |
 
-La leçon commune : une colonne qui varie sans expliquer coûte réellement,
-et le coût ne se voit pas sur l'ic — il se voit sur la précision **des
-barres qui déclenchent**, donc sur l'économie.
+### Une erreur de méthode, et sa correction
+
+La colonne **week-end** a d'abord été rejetée, à tort. Le coût mesuré sur
+la fixture de référence — 2 400 barres de 5 min — faisait tomber le
+compte de succès de 12/12 à 9/12, et cela semblait trancher.
+
+La même mesure, en faisant **grandir** la fixture :
+
+| taille | succès |
+|---|---|
+| 2 400 barres (8 jours) | 6/8 |
+| 6 000 barres (21 jours) | **8/8** |
+| 14 000 barres (49 jours) | **8/8** |
+
+Le coût était entièrement un **artefact de petit échantillon** : avec peu
+de lignes, le réseau n'a pas de quoi apprendre qu'une colonne est
+inutile, il la prend pour du signal et se disperse. En production il en
+voit des centaines de milliers — l'horloge 5 min s'entraîne sur 120
+jours, la 1 min sur 60.
+
+Mesurer un coût sur une fixture trop courte pour le mesurer, c'est
+rejeter de bonnes idées pour du bruit. Les deux colonnes de calendrier
+sont donc en place, et un test verrouille le plancher au-delà duquel une
+mesure de coût veut dire quelque chose.
+
+La leçon qui tient toujours : le coût d'une colonne ne se voit pas sur
+l'ic — il se voit sur la précision **des barres qui déclenchent**, donc
+sur l'économie.
 
 ---
 
@@ -202,10 +227,14 @@ barres qui déclenchent**, donc sur l'économie.
    preuve d'échec.
 2. **Le panel doit atteindre 20 jambes tenues.** L'historique est là
    pour 26 noms ; les positions simultanées restent peu nombreuses.
-3. **Le 1H n'a pas encore rendu de verdict.** C'est l'échelle où
+3. **Deux colonnes neuves attendent leur verdict en production.** La
+   proximité du règlement de funding (période 8 h, là où la matrice ne
+   portait qu'un cycle de 24 h : 0/4 → 4/4 en fixture, ic −0,011 →
+   +0,520) et le week-end.
+4. **Le 1H n'a pas encore rendu de verdict.** C'est l'échelle où
    l'économie est franchement favorable, et son rattrapage d'historique
    (deux ans par instrument) est en cours.
-4. **Le profil chronologique du Sharpe** doit dire si l'avantage est
+5. **Le profil chronologique du Sharpe** doit dire si l'avantage est
    régulier ou concentré dans la fenêtre récente. Les premiers relevés
    sont croissants, ce qui suggère de la non-stationnarité.
 

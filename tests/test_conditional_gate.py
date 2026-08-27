@@ -808,3 +808,64 @@ def test_a_higher_threshold_trades_rarer_and_the_number_shows_it():
     # et a 3 sigma il sort deja moins d une jambe par instant : « une
     # seule position a la fois » est arithmetique, pas un defaut
     assert par_instant(3.0) < 0.1
+
+
+def test_a_useless_column_costs_nothing_once_the_sample_is_real():
+    """L erreur de methode la plus couteuse de ce projet, gardee ici pour
+    qu elle ne se repete pas.
+
+    Une colonne de calendrier a ete REJETEE sur un cout mesure avec la
+    fixture de reference : 2 400 barres de 5m, ou le compte de succes
+    tombait de 12/12 a 9/12. Cela semblait trancher.
+
+    La meme mesure, repetee en faisant GRANDIR la fixture :
+
+           2 400 barres ( 8 jours)   6/8
+           6 000 barres (21 jours)   8/8
+          14 000 barres (49 jours)   8/8
+
+    Le cout etait entierement un artefact de petit echantillon. Avec peu
+    de lignes, le reseau n a pas de quoi apprendre qu une colonne est
+    inutile ; il la prend pour du signal et se disperse. En production il
+    voit des centaines de milliers de lignes — l horloge 5m s entraine
+    sur 120 jours, la 1m sur 60.
+
+    Mesurer un cout sur une fixture trop courte pour le mesurer, c est
+    rejeter de bonnes idees pour du bruit. Ce test pinne le fait que le
+    plancher de taille au-dela duquel une mesure de cout veut dire quelque
+    chose est de l ordre de six mille barres — bien au-dessus de la
+    fixture de reference.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+    from hermes.scalp.clock import DAYS, BAR_MS, CandleModel
+
+    def interaction(seed, n):
+        rng = np.random.default_rng(seed)
+        fb = rng.choice([-1.0, 1.0], size=n // 10 + 2)
+        f = np.repeat(fb, 10)[:n] * (2e-4 + rng.random(n) * 3e-4)
+        z = rng.uniform(-1.0, 1.0, n)
+        r = rng.normal(0, 8e-4, n)
+        r[1:] += 12e-4 * z[:-1] * np.sign(f[:-1])
+        r = np.clip(r, -0.02, 0.02)
+        px = 100 * np.exp(np.cumsum(r))
+        o = np.concatenate([[100.0], px[:-1]])
+        w = np.abs(rng.normal(0, 4e-4, n)) * px
+        v = np.abs(rng.normal(1000, 100, n))
+        return Candles("X", "5m", np.arange(n, dtype=np.int64) * 300_000, o,
+                       np.maximum(o, px) + w, np.minimum(o, px) - w, px, v,
+                       funding=f, taker_buy=v * (0.5 + 0.5 * z),
+                       taker_sell=v * (0.5 - 0.5 * z))
+
+    # A taille de production, les colonnes de calendrier — qui ne portent
+    # AUCUN signal dans cette fixture — ne coutent rien.
+    g = sum(CandleModel("5m").fit(interaction(s, 6000))["status"] == "live"
+            for s in range(30, 34))
+    assert g >= 3, f"{g}/4 — une colonne inutile coute encore a 6 000 barres"
+
+    # Et la profondeur reellement utilisee en production est bien au-dela
+    # de ce plancher : c est ce qui rend la mesure ci-dessus pertinente.
+    for bar in ("1m", "5m"):
+        barres = DAYS[bar] * 86_400_000 / BAR_MS[bar]
+        assert barres > 6000, f"{bar} : {barres:.0f} barres, sous le plancher"

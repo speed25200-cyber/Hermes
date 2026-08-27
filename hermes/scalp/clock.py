@@ -296,7 +296,7 @@ COLONNES = (
     "funding", "taker", "basis", "d_oi", "z20", "z60", "sin_h", "cos_h",
     "d_taker", "vz",
     "r1_1", "r1_2", "r1_3", "r1_4", "r1_5", "r1_6", "r1_7", "r1_8",
-    "loc_1", "loc_2", "d_basis",
+    "loc_1", "loc_2", "d_basis", "vers_reglement", "weekend",
 )
 CROISEES = ("btc_r1", "xs", "btc_r1_1")
 N_FEATURES = len(COLONNES)   # colonnes de feat_matrix (un seul actif)
@@ -386,51 +386,66 @@ def feat_matrix(c: Candles) -> np.ndarray:
     # colonnes plutôt qu'une pour que minuit et 23 h soient voisines.
     hod = (np.asarray(c.ts, dtype=np.float64) / 3_600_000.0) % 24.0
     ang = 2.0 * math.pi * hod / 24.0
-    # Il n y a PAS de colonne « jour de la semaine » ici, et ce n est pas
-    # un oubli — c est un resultat mesure, garde pour qu on ne le refasse
-    # pas. L hypothese etait bonne sur le papier : la crypto cote 24/7
-    # mais le monde qui la trade non, et a l echelle de l heure l horizon
-    # d une position couvre une fraction visible de la semaine.
-    #
-    # Mesure, meme protocole que pour le volume. Sur une fixture ou le
-    # flux paie en semaine et se retourne le week-end — effet construit
-    # pour etre INVISIBLE aux retours decales, sans quoi elle ne mesure
-    # rien :
-    #
-    #   sans colonne            live 0/4   ic +0,232
-    #   sin/cos du jour (2 col) live 4/4   ic +0,575
-    #   week-end binaire (1 col) live 4/4  ic +0,686
-    #
-    # La colonne revele donc bien l effet, et l encodage minimal de
-    # l hypothese le revele MIEUX que le cycle complet a sept valeurs.
-    #
-    # Mais sur la fixture de reference — 2 400 barres de 5m, huit jours,
-    # sept jours distincts et AUCUN signal calendaire — le compte de
-    # succes tombe de 12/12 a 9/12 avec la colonne binaire, et a 0/3 avec
-    # sin/cos. L ic y restait pourtant a +0,42 : ce ne sont pas les
-    # predictions qui se degradent, c est leur precision sur les barres
-    # qui DECLENCHENT, donc l economie.
-    #
-    # Le benefice est mesure sur une fixture construite pour la colonne ;
-    # le cout est mesure sur la reference. Cette asymetrie tranche. Si le
-    # 1H montre un motif de week-end en PRODUCTION, ce sera le moment d y
-    # revenir — avec une preuve reelle, pas une fixture.
 
-    # Le VOLUME, absent de toute la matrice jusqu'ici. Ni le rendement ni
-    # la forme de la bougie ne le disent : un mouvement d'un demi sigma sur
-    # gros volume et le même sur volume mort donnent exactement les mêmes
-    # colonnes. Or ils ne veulent pas dire la même chose — l'un est une
-    # arrivée d'information, l'autre un accident de liquidité, et la barre
-    # suivante ne fait pas la même chose. Mesuré : avec un effet volume x
-    # sens planté à la même intensité qu'une interaction que la matrice
-    # attrape (3 horloges sur 3, ic +0,138), elle rend 0 sur 3 et ic
-    # +0,029. Aveugle, pas subtile.
+    # La PROXIMITE DU REGLEMENT de funding. Les perpetuels le reglent
+    # toutes les huit heures — 00, 08 et 16 UTC — et les positions se
+    # concentrent avant puis se defont apres. L effet a donc une periode
+    # de HUIT heures, quand la matrice ne portait qu un cycle de
+    # vingt-quatre : deux colonnes qui font un tour complet sur la journee
+    # ne peuvent pas representer trois zones identiques dans la journee.
     #
-    # Une seule colonne, en z causal du logarithme : le NIVEAU de volume
-    # dépend de l'actif et de l'heure, son écart à sa propre moyenne
-    # courue n'en dépend pas — c'est cette forme-là qui traverse le panel.
-    # Le produit avec le sens n'est pas donné : le réseau le forme seul,
-    # comme il forme déjà celui de l'open interest.
+    # Mesure, meme protocole que pour le volume, sur une fixture ou le
+    # flux paie pres du reglement et se retourne loin de lui — effet
+    # construit pour etre invisible aux retours decales, le signe du
+    # retour suivant le FLUX qui est blanc :
+    #
+    #   sans la colonne   live 0/4   ic -0,011
+    #
+    # Zero sur quatre : aveugle, pas subtile.
+    #
+    # UNE colonne, et elle encode exactement l hypothese — la distance au
+    # reglement le plus proche, nulle au reglement et pleine a mi-chemin.
+    # Pas un cycle a deux colonnes : sur le jour de la semaine, l encodage
+    # minimal revelait MIEUX que le cycle complet et coutait moins.
+    dow_ = ((np.asarray(c.ts, dtype=np.int64) // 86_400_000) + 4) % 7
+    weekend = (dow_ >= 5).astype(np.float64)
+    vers_reglement = 2.0 * np.minimum(
+        (np.asarray(c.ts, dtype=np.float64) % 28_800_000.0) / 28_800_000.0,
+        1.0 - (np.asarray(c.ts, dtype=np.float64) % 28_800_000.0) / 28_800_000.0)
+    # Le WEEK-END, et pourquoi il a failli ne pas etre la.
+    #
+    # La crypto cote 24/7 mais le monde qui la trade, non : moins de flux
+    # institutionnel le week-end, moins de couverture, et un meme
+    # desequilibre de flux n y paie pas la meme chose.
+    #
+    # Mesure, meme protocole que pour le volume, sur une fixture ou le
+    # flux paie en semaine et se retourne le week-end — effet construit
+    # pour etre invisible aux retours decales :
+    #
+    #   sans colonne              live 0/4   ic +0,232
+    #   sin/cos du jour (2 col)   live 4/4   ic +0,575
+    #   week-end binaire (1 col)  live 4/4   ic +0,686
+    #   bruit pur                 live 0/4 dans TOUS les cas
+    #
+    # L encodage minimal de l hypothese — « le week-end est different »
+    # plutot que « chaque jour l est » — revele MIEUX que le cycle complet
+    # a sept valeurs, en retirant six degres de liberte.
+    #
+    # Cette colonne a d abord ete REJETEE, a tort, et l erreur vaut d etre
+    # gardee. Le cout mesure sur la fixture de reference — 2 400 barres de
+    # 5m — faisait tomber le compte de succes de 12/12 a 9/12, et cela
+    # semblait trancher. Mais la meme mesure repetee en faisant GRANDIR la
+    # fixture donne :
+    #
+    #        2 400 barres ( 8 jours)   6/8
+    #        6 000 barres (21 jours)   8/8
+    #       14 000 barres (49 jours)   8/8
+    #
+    # Le cout etait entierement un artefact de petit echantillon : avec
+    # peu de lignes, le reseau n a pas de quoi apprendre qu une colonne
+    # est inutile. En production il en voit des centaines de milliers.
+    # Mesurer un cout sur une fixture trop courte pour le mesurer, c est
+    # rejeter de bonnes idees pour du bruit — et j en ai rejete une.
     lv = np.log1p(np.maximum(np.nan_to_num(np.asarray(c.v, dtype=np.float64),
                                            nan=0.0), 0.0))
     mv = np.convolve(lv, np.ones(60) / 60.0, mode="full")[:n]
@@ -493,6 +508,8 @@ def feat_matrix(c: Candles) -> np.ndarray:
         # colonne morte ne change rien (8/12 -> 8/12). Le « cout » n en
         # etait pas un, c etait un deplacement.
         d_basis,
+        # Meme regle : a la fin.
+        vers_reglement, weekend,
     ])
 
 
