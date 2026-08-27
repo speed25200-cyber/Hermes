@@ -160,7 +160,8 @@ class ScalpEngine:
         # Ce que la règle validée rapporte EN DIRECT, par trade fermé. Le
         # holdout est une mesure ; le direct en est une autre, et quand les
         # deux se contredisent on ne choisit pas la plus flatteuse.
-        self.live_stats = {"n": 0, "bps": 0.0, "jambes": 0}
+        self.live_stats = {"n": 0, "bps": 0.0, "jambes": 0,
+                           "n_risque": 0, "bps_risque": 0.0}
         # Le retard reel entre la cloture de barre qui a produit la cible
         # et l'ordre qui la joue. La porte mesure une entree AU PRIX DE
         # CLOTURE ; tant que ce chiffre n'est pas au releve, l'ecart entre
@@ -197,7 +198,8 @@ class ScalpEngine:
             # dixième — la règle validée serait condamnée aux micro-positions
             # par un détail de persistance, pas par ses résultats.
             self._reprendre(self.live_stats, prev.get("live_rule"),
-                            ("n", "bps", "jambes"))
+                            ("n", "bps", "jambes",
+                             "n_risque", "bps_risque"))
             self._reprendre(self.explore_stats, prev.get("explore"),
                             tuple(self.explore_stats))
             self._reprendre(self.exec_stats, prev.get("entree"),
@@ -1368,7 +1370,11 @@ class ScalpEngine:
         # instants de portefeuille. C est la difference entre des mois et
         # des semaines pour savoir si la regle paie — et c est ce chiffre
         # qui commande le rodage.
-        self._verser(net, float(fill.ts))
+        # La jambe porte son propre risque : `sl_bps` est EXACTEMENT la
+        # quantite dont le moteur prend l inverse pour dimensionner
+        # (`inv = 1/sl_bps` dans la parite de risque). On la transmet.
+        self._verser(net, float(fill.ts),
+                     float(br.get("sl_bps") or 0.0))
         # Le journal des fills ne portait que des prix. « Ou part
         # l'argent » demandait alors de reapparier a la main les entrees
         # et les sorties, instrument par instrument — et une sortie par
@@ -1389,7 +1395,7 @@ class ScalpEngine:
             return 0.0
         return max(0.0, float(self.exec_stats.get("glissement_bps") or 0.0))
 
-    def _verser(self, net: float, ts: float) -> None:
+    def _verser(self, net: float, ts: float, sl_bps: float = 0.0) -> None:
         """Accumule une jambe fermee dans le paquet de son INSTANT.
 
         Le paquet se solde des qu une fermeture appartient a une minute
@@ -1401,8 +1407,9 @@ class ScalpEngine:
         if self._paquet and self._paquet["minute"] != minute:
             self._solder_paquet()
         if not self._paquet:
-            self._paquet = {"minute": minute, "nets": []}
+            self._paquet = {"minute": minute, "nets": [], "sl": []}
         self._paquet["nets"].append(float(net))
+        self._paquet.setdefault("sl", []).append(float(sl_bps))
 
     def _solder_paquet(self) -> None:
         """Un instant, un rendement : la moyenne des jambes fermees."""
@@ -1411,15 +1418,48 @@ class ScalpEngine:
         nets = (p or {}).get("nets") or []
         if not nets:
             return
-        # Egalement ponderees, parce que la parite de risque a deja rendu
-        # les jambes equivalentes en risque a l ouverture : les additionner
-        # a poids egaux EST le rendement du portefeuille tenu.
         net = float(np.mean(nets))
         n = int(self.live_stats.get("n") or 0)
         moy = float(self.live_stats.get("bps") or 0.0)
         self.live_stats["bps"] = (moy * n + net) / (n + 1)
         self.live_stats["n"] = n + 1
         self.live_stats["jambes"] = int(self.live_stats.get("jambes") or 0) + len(nets)
+
+        # LA MEME MESURE, EN UNITES DE RISQUE — en parallele, sans rien
+        # remplacer.
+        #
+        # La moyenne ci-dessus est EQUIPONDEREE en points de base. Elle se
+        # justifiait ainsi : « la parite de risque a deja rendu les jambes
+        # equivalentes en risque a l ouverture ». C est faux, et le releve
+        # du 27 aout le montre — 29 fermetures a -4,7 bps par trade pour
+        # +0,94 USD. Negatif en points de base, positif en dollars.
+        #
+        # La raison est arithmetique. Le moteur dimensionne chaque jambe
+        # par l INVERSE de son garde-fou (`inv = 1/sl_bps`), donc le P&L
+        # en dollars d un instant vaut somme(net_i / sl_i), pas
+        # moyenne(net_i). Une jambe calme porte un notionnel plus gros et
+        # pese donc davantage en dollars ; l equiponderation en bps
+        # l ignore. C est le MEME defaut de categorie que celui corrige
+        # dans `_portfolio` — mesurer un livre a notionnel constant quand
+        # on en tient un a risque constant — mais du cote du direct, et
+        # c est cette mesure-la qui commande le rodage.
+        #
+        # On ne remplace rien et on ne remet rien a zero : la serie
+        # existante garde son sens et son compte. La serie en risque part
+        # de zero a cote, et on comparera quand elle aura de quoi parler.
+        #
+        # L echelle : on ramene au garde-fou MOYEN du paquet, de sorte
+        # qu un instant a une seule jambe donne exactement le meme chiffre
+        # que la mesure historique. Les deux series ne divergent donc que
+        # la ou elles doivent — sur les instants a plusieurs jambes.
+        sl = [x for x in ((p or {}).get("sl") or []) if x > 0.0]
+        if len(sl) == len(nets) and sl:
+            ref = float(np.mean(sl))
+            u = float(np.mean([nn / ss for nn, ss in zip(nets, sl)])) * ref
+            nr = int(self.live_stats.get("n_risque") or 0)
+            mr = float(self.live_stats.get("bps_risque") or 0.0)
+            self.live_stats["bps_risque"] = (mr * nr + u) / (nr + 1)
+            self.live_stats["n_risque"] = nr + 1
 
     def _confiance(self) -> float:
         """Une règle prouvée sur l'histoire doit gagner sa taille au présent.

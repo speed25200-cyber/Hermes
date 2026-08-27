@@ -768,6 +768,42 @@ def _pente_et_erreur(x: np.ndarray, y: np.ndarray) -> tuple:
     return b, (se if np.isfinite(se) and se > 0.0 else float("inf"))
 
 
+def _agreger(net: np.ndarray, ts: np.ndarray,
+             sig: np.ndarray) -> tuple:
+    """Les DEUX series du portefeuille, en UN seul tri.
+
+    `_portfolio` et `_en_risque` mesurent le meme portefeuille dans deux
+    unites, et chacune faisait son propre `np.unique` sur les memes
+    horodatages. Le balayage en appelle une par cellule, donc 4 860 par
+    echelle : ajouter la seconde mesure a double le nombre de tris de la
+    boucle la plus interne.
+
+    Mesure du 27 aout, et elle est severe : apres le deploiement de la
+    mesure en unites de risque, AUCUN verdict d horloge n est sorti en
+    deux fenetres de trente-sept minutes, la ou un moteur sain en produit
+    quatre. Le cycle complet etait passe d environ cinquante minutes a
+    environ cent, et chaque deploiement l interrompait avant le premier
+    verdict.
+
+    Un tri partage rend le cout d origine. Les deux series restent
+    disponibles separement — les tests les appellent directement, et
+    c est par elles que la barre a ete verifiee sous nul dur.
+    """
+    net = np.asarray(net, dtype=np.float64)
+    if len(net) == 0:
+        return np.zeros(0), np.zeros(0)
+    _, inv = np.unique(np.asarray(ts), return_inverse=True)
+    compte = np.bincount(inv)
+    sg = np.maximum(np.asarray(sig, dtype=np.float64), 1e-12)
+    w = 1.0 / sg
+    w = np.where(np.isfinite(w) & (w > 0), w, 0.0)
+    tot = np.bincount(inv, weights=w)
+    tot = np.where(tot > 0, tot, 1.0)
+    bps = np.bincount(inv, weights=w * net) / tot
+    risque = np.bincount(inv, weights=net / sg) / compte
+    return bps, risque
+
+
 def _profil(pnl: np.ndarray, k: int = 3) -> tuple:
     """Le Sharpe par tiers chronologique du holdout.
 
@@ -1219,8 +1255,7 @@ class CandleModel:
                             net = gains - np.where(
                                 touche, self.fee,
                                 np.where(gains > 0, c_win, self.fee))
-                            pnl = _portfolio(net, tso[m],
-                                             1.0 / np.maximum(sgo[m], 1e-12))
+                            pnl, rq = _agreger(net, tso[m], sgo[m])
                             n_per = len(pnl)
                             if n_per < MIN_TRADES:
                                 continue
@@ -1229,7 +1264,6 @@ class CandleModel:
                             # risque, parce que c est le livre reellement
                             # tenu — voir _en_risque.
                             sd = float(np.std(pnl, ddof=1))
-                            rq = _en_risque(net, tso[m], sgo[m])
                             sdr = float(np.std(rq, ddof=1))
                             sr = float(np.mean(rq)) / sdr if sdr > 1e-12 else 0.0
                             barre = expected_max_sharpe(self.n_cells, n_per)
@@ -1284,14 +1318,13 @@ class CandleModel:
                         # de mesurer est la seule façon de ne pas confondre
                         # diversification et répétition — et, en variante neutre,
                         # c'est cette moyenne-là qui annule le facteur commun.
-                        pnl = _portfolio(net, tso[m], 1.0 / np.maximum(sgo[m], 1e-12))
+                        pnl, rq = _agreger(net, tso[m], sgo[m])
                         n_per = len(pnl)
                         if n_per < MIN_TRADES:
                             continue
                         # `sd` en bps pour Kelly, `sr` en unites de risque
                         # pour la selection — voir _en_risque.
                         sd = float(np.std(pnl, ddof=1))
-                        rq = _en_risque(net, tso[m], sgo[m])
                         sdr = float(np.std(rq, ddof=1))
                         sr = float(np.mean(rq)) / sdr if sdr > 1e-12 else 0.0
                         # On classe les cellules par la MARGE sur leur propre

@@ -190,6 +190,104 @@ Chacun était silencieux. Aucun n'apparaissait dans les journaux.
 | sortie postée au take | mesurée à −3,4 bps, 13 remplissages sur 31 | rejetée |
 | 7 colonnes croisées BTC | lead-lag inchangé 3/3 **avec comme sans** — aucun bénéfice | réduites à 1 |
 
+### Une correction juste, déployée d'une façon qui l'a rendue muette
+
+La mesure en unités de risque était vérifiée en fixture et sous nul dur.
+Elle a quand même produit un incident, et il vient de deux erreurs qui
+sont les miennes.
+
+**La première est un coût de calcul invisible en test.** `_portfolio` et
+`_en_risque` mesurent le même portefeuille dans deux unités, et chacune
+faisait son propre `np.unique` sur les mêmes horodatages. Le balayage en
+appelle une par cellule — 4 860 par échelle, cinq échelles. Ajouter la
+seconde mesure a donc **doublé le nombre de tris de la boucle la plus
+interne**. Une suite de tests qui passe ne dit rien du temps de calcul
+en production.
+
+**La seconde est une erreur de conduite.** J'ai déployé trois fois en
+soixante-seize minutes — 10:51, 11:29, 12:07 — dans un système dont le
+cycle complet prend cinquante minutes, et qui venait de passer à cent.
+
+Le résultat est net : **aucun verdict d'horloge entre 10:41 et 12:13**,
+alors que deux fenêtres de trente-sept minutes auraient dû en produire
+quatre chacune. J'ai réclamé une mesure tout en supprimant les
+conditions de son apparition.
+
+Le coût, **mesuré** plutôt que supposé — j'avais d'abord écrit « de
+cinquante minutes à cent », et c'était exagéré :
+
+| n_tr | 1 tri | 2 tris | tri partagé | part de la cellule |
+|---|---|---|---|---|
+| 2 000 | 0,12 ms | 0,15 ms | 0,10 ms | 70 % |
+| 20 000 | 0,93 ms | 1,79 ms | 0,98 ms | 75 % |
+| 90 000 | 2,36 ms | 4,34 ms | 2,87 ms | 56 % |
+| 180 000 | 4,43 ms | 9,03 ms | 6,07 ms | 58 % |
+
+L'agrégation pèse 56 à 75 % du travail d'une cellule et mon changement
+l'a bien doublée — ce qui porte le coût de la cellule à **+55 à +70 %**,
+soit un cycle passé d'environ cinquante minutes à environ quatre-vingts.
+Suffisant pour qu'aucun verdict ne sorte entre deux déploiements espacés
+de trente-sept minutes.
+
+Et le tri partagé ne revient **pas tout à fait** au coût d'origine
+(6,07 ms contre 4,43 à 180 000 lignes) : produire une seconde série
+coûte deux `bincount` de plus, et ce résidu est le prix honnête de la
+mesure ajoutée.
+
+| | après 07:22 | après 09:41 | après 10:51 | après 11:29 |
+|---|---|---|---|---|
+| premier verdict | 4 min | 4 min | **aucun en 37 min** | **aucun en 37 min** |
+
+Le correctif rend le coût d'origine : un tri partagé entre les deux
+séries (`_agreger`). Les deux fonctions séparées restent — les tests les
+appellent directement, et c'est par elles que la barre a été vérifiée
+sous nul dur ; un test exige que la version partagée leur soit
+identique, et qu'elle ne trie qu'une fois.
+
+La règle qui manquait, et qui vaut pour la suite : **ne pas redéployer
+avant qu'un cycle complet d'horloges ait produit ses verdicts.** Un
+déploiement qui interrompt la mesure coûte plus que le défaut qu'il
+corrige.
+
+---
+
+### Le même défaut de catégorie, du côté du direct
+
+Le relevé du 27 août porte deux chiffres sur les **mêmes** 29
+fermetures : **−4,7 bps par trade** et **+0,94 USD**. Négatif en points
+de base, positif en dollars.
+
+Ce n'est pas une incohérence comptable. `_solder_paquet` prenait la
+moyenne **équipondérée** des points de base des jambes fermées, et s'en
+justifiait ainsi : *« la parité de risque a déjà rendu les jambes
+équivalentes en risque à l'ouverture »*. C'est faux. Le moteur
+dimensionne chaque jambe par l'**inverse** de son garde-fou
+(`inv = 1/sl_bps` dans la parité de risque), donc le P&L en dollars d'un
+instant vaut `somme(net_i / sl_i)`, pas `moyenne(net_i)`. Une jambe
+calme porte un notionnel plus gros et pèse davantage en dollars ;
+l'équipondération en bps l'ignore.
+
+C'est **exactement** le défaut corrigé dans `_portfolio` — mesurer un
+livre à notionnel constant quand on en tient un à risque constant — mais
+du côté du direct. Et c'est cette mesure-là qui commande le rodage :
+`confiance` reste à 0,10 tant que la moyenne est négative.
+
+**Rien n'est remplacé et rien n'est remis à zéro.** La série historique
+garde son compte (n = 68) et sa moyenne, parce qu'elle commande encore
+le barème et qu'on ne change pas un barème en cours de mesure. Une série
+en unités de risque part de zéro **à côté**, et on comparera quand elle
+aura de quoi parler.
+
+L'échelle est choisie pour que la comparaison soit lisible : on ramène
+au garde-fou **moyen** du paquet, de sorte qu'un instant à une seule
+jambe donne exactement le même chiffre que la mesure historique. Les
+deux séries ne divergent donc que là où elles doivent — sur les instants
+à plusieurs jambes. Un test l'ancre, et un second vérifie qu'une jambe
+sans garde-fou mesuré fait sauter l'instant à la série en risque plutôt
+que d'y injecter un infini.
+
+---
+
 ### Ce qui bloque vraiment : pas la porte, ce qui vient juste après
 
 Le 1H nette **+40,95 bps par trade** et son Sharpe est à **0,007** de la

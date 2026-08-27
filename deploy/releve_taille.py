@@ -112,7 +112,17 @@ def main() -> int:
     print(f"fonds propres {eq:.2f}   frein {d.get('frein_risque', 1.0):.2f}"
           f"   confiance {float(reg.get('confiance') or 0.0):.2f}"
           f"   direct n={reg.get('n', 0)} bps={float(reg.get('bps') or 0.0):+.1f}"
-          + (f" ({jambes} jambes)" if jambes else ""))
+          + (f" ({jambes} jambes)" if jambes else "")
+          # La MEME mesure en unites de risque, en parallele. La moyenne
+          # equiponderee en bps decrit un livre a notionnel constant ; le
+          # moteur en tient un a risque constant. Les 29 fermetures du
+          # 27 aout donnaient -4,7 bps par trade pour +0,94 USD, ce qui
+          # est exactement ce que produit cet ecart. Les deux series
+          # coincident sur les instants a une seule jambe et ne divergent
+          # que la ou elles doivent.
+          + ((f"   en risque n={int(reg.get('n_risque') or 0)} "
+              f"bps={float(reg.get('bps_risque') or 0.0):+.1f}")
+             if int(reg.get("n_risque") or 0) else ""))
     # n compte des INSTANTS de portefeuille, pas des jambes : la porte
     # valide le portefeuille que l horloge tient a chaque instant, et
     # compter chaque jambe separement gonflerait la confiance qu on croit

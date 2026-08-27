@@ -2392,3 +2392,96 @@ def test_the_weekend_volume_threshold_is_recorded_as_measured_not_assumed(tmp_pa
             "load": lambda self, i, b, _p=part, **k: serie(i, _p)})()
         assert eng._assez_dhistoire("X-USDT-SWAP") is True, \
             f"un volume de week-end de {part:.2f} est ecarte"
+
+
+def test_the_live_measure_also_reports_itself_in_risk_units(tmp_path):
+    """−4,7 bps par trade, et pourtant +0,94 USD.
+
+    Le relevé du 27 août portait les deux chiffres côte à côte sur les
+    MÊMES 29 fermetures. Ce n'est pas une incohérence comptable : c'est
+    la signature d'un défaut de catégorie.
+
+    `_solder_paquet` prenait la moyenne ÉQUIPONDÉRÉE des points de base
+    des jambes fermées, en se justifiant ainsi : « la parité de risque a
+    déjà rendu les jambes équivalentes en risque à l'ouverture ». C'est
+    faux. Le moteur dimensionne chaque jambe par l'INVERSE de son
+    garde-fou (`inv = 1/sl_bps`), donc le P&L en dollars d'un instant
+    vaut `somme(net_i / sl_i)`, pas `moyenne(net_i)`. Une jambe calme
+    porte un notionnel plus gros et pèse davantage en dollars ;
+    l'équipondération en bps l'ignore.
+
+    C'est le MÊME défaut que celui corrigé dans `_portfolio` — mesurer un
+    livre à notionnel constant quand on en tient un à risque constant —
+    mais du côté du direct, et c'est cette mesure-là qui commande le
+    rodage.
+
+    Ce test exige les deux propriétés qui rendent l'ajout honnête :
+    aucune remise à zéro, et coïncidence exacte là où les deux mesures
+    doivent coïncider.
+    """
+    eng, _ = _moteur_pos(tmp_path)
+
+    # 1) UNE seule jambe : les deux mesures doivent donner EXACTEMENT le
+    #    même chiffre, sinon l'échelle choisie serait arbitraire.
+    eng._verser(-10.0, 60.0, 20.0)
+    eng._solder_paquet()
+    assert eng.live_stats["n"] == 1
+    assert eng.live_stats["n_risque"] == 1
+    assert abs(eng.live_stats["bps"] - (-10.0)) < 1e-9
+    assert abs(eng.live_stats["bps_risque"] - (-10.0)) < 1e-9, \
+        "les deux mesures divergent sur un instant a une seule jambe"
+
+    # 2) DEUX jambes de risques très différents : une jambe calme qui
+    #    gagne (garde-fou 10, donc gros notionnel) et une jambe agitée
+    #    qui perd (garde-fou 50). En bps équipondérés le résultat est
+    #    négatif ; à risque constant il est positif — et c'est le livre
+    #    réellement tenu qui a raison.
+    eng2, _ = _moteur_pos(tmp_path / "b")
+    (tmp_path / "b").mkdir(exist_ok=True)
+    eng2._verser(+20.0, 120.0, 10.0)     # calme, gagnante
+    eng2._verser(-30.0, 120.0, 50.0)     # agitee, perdante
+    eng2._solder_paquet()
+    equi = eng2.live_stats["bps"]
+    risque = eng2.live_stats["bps_risque"]
+    assert equi < 0.0, f"la mesure equiponderee devrait etre negative : {equi}"
+    assert risque > 0.0, \
+        f"la mesure en risque devrait etre positive : {risque}"
+    # verification arithmetique : moyenne(net/sl) x sl_moyen
+    attendu = ((20.0 / 10.0) + (-30.0 / 50.0)) / 2.0 * ((10.0 + 50.0) / 2.0)
+    assert abs(risque - attendu) < 1e-9, (risque, attendu)
+
+    # 3) La série historique n'est ni remise à zéro ni modifiée : elle
+    #    garde son compte et sa moyenne, parce que c'est elle qui commande
+    #    encore le rodage et qu'on ne change pas un barème en cours de
+    #    mesure.
+    eng3, _ = _moteur_pos(tmp_path / "c")
+    (tmp_path / "c").mkdir(exist_ok=True)
+    eng3.live_stats.update({"n": 68, "bps": -1.5636, "jambes": 91})
+    avant_n, avant_bps = eng3.live_stats["n"], eng3.live_stats["bps"]
+    eng3._verser(+5.0, 180.0, 25.0)
+    eng3._solder_paquet()
+    assert eng3.live_stats["n"] == avant_n + 1
+    assert eng3.live_stats["bps"] != avant_bps      # elle avance, elle ne saute pas
+    assert abs(eng3.live_stats["bps"] - (avant_bps * 68 + 5.0) / 69.0) < 1e-9
+    # et la serie en risque part de zero A COTE, sans toucher a l autre
+    assert eng3.live_stats["n_risque"] == 1
+
+
+def test_a_leg_without_a_measured_guardrail_does_not_corrupt_the_risk_series(tmp_path):
+    """Un garde-fou absent ne doit pas produire un chiffre inventé.
+
+    Une jambe reprise d'un état antérieur, ou ouverte par un chemin qui
+    ne renseigne pas `sl_bps`, arriverait avec zéro. Diviser par lui
+    donnerait un infini qui empoisonnerait la moyenne pour toujours. La
+    série en risque saute alors l'instant entier plutôt que d'inventer,
+    et la série historique, elle, continue de compter — c'est elle qui
+    commande le rodage et elle ne doit pas dépendre de ce détail.
+    """
+    eng, _ = _moteur_pos(tmp_path)
+    eng._verser(+7.0, 60.0, 0.0)          # garde-fou inconnu
+    eng._solder_paquet()
+    assert eng.live_stats["n"] == 1, "la mesure historique a saute un instant"
+    assert eng.live_stats["n_risque"] == 0, \
+        "la serie en risque a compte un instant quelle ne pouvait pas mesurer"
+    import math
+    assert math.isfinite(eng.live_stats["bps_risque"])

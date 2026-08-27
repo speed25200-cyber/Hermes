@@ -774,3 +774,70 @@ def test_the_slope_is_measured_on_what_the_strategy_actually_realises():
     assert "_pente_et_erreur(pv[m], yho[m])" in src, \
         "la pente brute nest plus journalisee, la comparaison est perdue"
     assert "pente_brut" in src
+
+
+def test_the_two_series_share_one_sort_and_agree_with_the_separate_ones():
+    """Ajouter la mesure en risque avait DOUBLÉ les tris du balayage.
+
+    `_portfolio` et `_en_risque` mesurent le même portefeuille dans deux
+    unités, et chacune faisait son propre `np.unique` sur les mêmes
+    horodatages. Le balayage en appelle une par cellule — 4 860 par
+    échelle — donc la seconde mesure a doublé le coût de la boucle la
+    plus interne.
+
+    Mesure du 27 août, et elle est sévère : après le déploiement, AUCUN
+    verdict d'horloge n'est sorti en deux fenêtres de trente-sept
+    minutes, là où un moteur sain en produit quatre. Le cycle complet
+    était passé d'environ cinquante minutes à environ cent, et chaque
+    déploiement l'interrompait avant le premier verdict. Le défaut ne
+    s'est pas vu en test : une suite qui passe ne dit rien du temps de
+    calcul en production.
+
+    Ce test exige les deux choses qui comptent : un seul tri, et des
+    résultats identiques à ceux des deux fonctions séparées — celles par
+    lesquelles la barre a été vérifiée sous nul dur.
+    """
+    import numpy as np
+
+    from hermes.scalp import clock
+
+    rng = np.random.default_rng(505)
+    n = 4000
+    ts = np.sort(rng.integers(0, 900, n)).astype(np.int64)
+    net = rng.normal(0, 12.0, n)
+    sig = np.exp(rng.normal(-7.0, 0.4, n))
+
+    bps, risque = clock._agreger(net, ts, sig)
+    bps_ref = clock._portfolio(net, ts, 1.0 / np.maximum(sig, 1e-12))
+    risque_ref = clock._en_risque(net, ts, sig)
+
+    assert np.allclose(bps, bps_ref), "la serie en bps a change de valeur"
+    assert np.allclose(risque, risque_ref), "la serie en risque a change de valeur"
+    assert len(bps) == len(risque) == len(np.unique(ts))
+
+    # Un seul tri : on compte les appels reellement passes.
+    appels = {"n": 0}
+    vrai = np.unique
+
+    def compte(*a, **k):
+        appels["n"] += 1
+        return vrai(*a, **k)
+
+    np.unique = compte
+    try:
+        clock._agreger(net, ts, sig)
+    finally:
+        np.unique = vrai
+    assert appels["n"] == 1, f"{appels['n']} tris au lieu dun seul"
+
+    # Serie vide : pas de division par zero, deux tableaux vides.
+    v1, v2 = clock._agreger(np.zeros(0), np.zeros(0), np.zeros(0))
+    assert len(v1) == 0 and len(v2) == 0
+
+    # Et le balayage n appelle plus les deux fonctions separement.
+    import inspect
+
+    src = inspect.getsource(clock)
+    assert "_en_risque(net, tso" not in src, \
+        "le balayage refait un tri separe pour la serie en risque"
+    assert src.count("_agreger(net, tso[m], sgo[m])") == 2
