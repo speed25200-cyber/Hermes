@@ -1078,3 +1078,9 @@ Elles ne se négocient pas, et elles ont toutes été écrites après avoir
   déflatée existe pour empêcher ;
 - ne redéployer que pour un défaut identifié et nommé — chaque
   redémarrage interrompt la mesure, et c'est elle qui manque.
+- déployer en `mode=code`, jamais en `mode=full`, pour un changement
+  qui ne touche pas la recherche. Un déploiement complet lance une
+  passe de recherche derrière lui et le moteur reste **arrêté**
+  jusqu'à ce qu'elle finisse : mesuré le 27 août, une heure et cinq
+  minutes sans un seul trade, pour un changement qui n'en avait pas
+  besoin. `mode=code` relance le moteur immédiatement.

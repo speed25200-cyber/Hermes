@@ -196,16 +196,80 @@ class DataStore:
         lo, hi, n = cur.fetchone()
         return (lo or 0, hi or 0, n or 0)
 
+    # Barres de queue relues a chaque fois. La boucle live REECRIT les
+    # dernieres barres — `update_latest` en demande 120 et les upserte —
+    # si bien quune barre deja en base peut changer de valeur sans
+    # changer dhorodatage. Un cache qui ne lirait que les barres
+    # NOUVELLES servirait donc une derniere barre figee sur sa premiere
+    # version, celle-la meme qui declenche la decision. On relit la
+    # queue, six fois plus large que la fenetre de reecriture.
+    QUEUE_RELUE = 720
+
     def load(self, inst: str, bar: str, with_funding: bool = True) -> Candles:
-        cur = self.conn.execute(
-            "SELECT ts, o, h, l, c, v FROM candles WHERE inst=? AND bar=? ORDER BY ts",
-            (inst, bar),
-        )
-        rows = cur.fetchall()
-        if not rows:
+        """La serie complete, en ne relisant que ce qui peut avoir bouge.
+
+        Le releve du 27 aout donne vingt-six secondes entre la cloture
+        dune barre 1m et la decision quelle declenche, cent cinquante-deux
+        sur la 15m, quand la porte simule zero. Mesure du cout : vingt
+        historiques de quatre-vingt-dix mille barres relus en entier
+        coutent 5,8 s sur une machine de developpement — davantage sur le
+        VPS, et cest ce que la boucle fait a CHAQUE barre nouvelle.
+        `candle_range`, lui, coute une milliseconde pour les vingt.
+
+        On garde donc la serie construite et on recolle : le prefixe
+        memorise, moins la queue, plus tout ce qui est relu depuis la
+        base. La recolle nest acceptee QUE si elle rend exactement le
+        nombre de barres que la base annonce ; sinon on relit tout. Un
+        trou, une insertion ancienne, un rattrapage dhistoire retombent
+        ainsi sur la lecture complete au lieu de servir une serie fausse.
+
+        Le prefixe memorise partage ses tableaux avec la serie rendue au
+        tour precedent. Rien dans `hermes/` ne modifie une bougie chargee
+        en place — aucune affectation `c.x[i] = ...` nexiste hors du
+        generateur synthetique, qui construit les siennes — et cest la
+        condition pour que ce partage soit sain.
+        """
+        cle = (inst, bar, bool(with_funding))
+        memo = getattr(self, "_memo", None)
+        if memo is None:
+            memo = self._memo = {}
+        lo, hi, n = self.candle_range(inst, bar)
+        if n == 0:
+            memo.pop(cle, None)
             return Candles(inst, bar, [], [], [], [], [], [])
-        arr = np.array(rows, dtype=np.float64)
+        vieux = memo.get(cle)
+        arr = None
+        if (vieux is not None and int(vieux["lo"]) == int(lo)
+                and int(vieux["n"]) <= int(n)
+                and len(vieux["c"].ts) > self.QUEUE_RELUE):
+            base = vieux["c"]
+            garde = len(base.ts) - self.QUEUE_RELUE
+            depuis = int(base.ts[garde])
+            rows = self.conn.execute(
+                "SELECT ts, o, h, l, c, v FROM candles "
+                "WHERE inst=? AND bar=? AND ts>=? ORDER BY ts",
+                (inst, bar, depuis),
+            ).fetchall()
+            queue = np.array(rows, dtype=np.float64)
+            # `depuis` est un horodatage qui EXISTAIT au tour precedent, si
+            # bien quune queue vide veut dire que la base a perdu des
+            # lignes. On ne recolle pas dans ce cas — on relit tout.
+            if queue.ndim == 2 and queue.shape[0] > 0:
+                cols = [np.concatenate([getattr(base, k)[:garde], queue[:, i]])
+                        for i, k in enumerate(("ts", "o", "h", "l", "c", "v"))]
+                if len(cols[0]) == n:
+                    arr = np.column_stack(cols)
+        if arr is None:
+            rows = self.conn.execute(
+                "SELECT ts, o, h, l, c, v FROM candles WHERE inst=? AND bar=? ORDER BY ts",
+                (inst, bar),
+            ).fetchall()
+            if not rows:
+                memo.pop(cle, None)
+                return Candles(inst, bar, [], [], [], [], [], [])
+            arr = np.array(rows, dtype=np.float64)
         candles = Candles(inst, bar, arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 4], arr[:, 5])
+        memo[cle] = {"lo": int(lo), "hi": int(hi), "n": int(n), "c": candles}
         if with_funding:
             fr = self.conn.execute(
                 "SELECT ts, rate FROM funding WHERE inst=? ORDER BY ts", (inst,)
