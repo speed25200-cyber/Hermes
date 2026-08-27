@@ -101,7 +101,7 @@ jobs:
           # NB: aucune apostrophe ici, la commande ssh en est entouree.
           echo "===== ou passe le temps entre la cloture et lordre ====="
           journalctl -u hermes --since "-3 hours" --no-pager 2>/dev/null \
-            | grep -E "desk .* retard=" \
+            | grep -E "desk .* charge=" \
             | sed -E "s/.*\] desk /desk /" \
             | tail -12 || true
           echo
