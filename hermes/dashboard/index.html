@@ -613,6 +613,9 @@ footer{padding-bottom:96px}
   .hpx{font-size:40px}
   .hero{padding:var(--e2) 0 var(--e3)}
   /* cinq mesures dans la colonne étroite : deux rangées lisibles */
+  .prevu{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:10px;
+    font-size:11px;color:var(--encre3);padding:2px 0 0 26px}
+  .prevu i{font-style:normal;opacity:.7;margin-right:3px}
   #vue-signaux .mesures{grid-template-columns:repeat(3,1fr)}
   /* cinq cases sur 3×2 : la dernière s'étire, aucune cellule morte */
   #vue-signaux .mesures>.mesure:last-child:nth-child(5){grid-column:span 2}
@@ -1318,6 +1321,14 @@ function rendrePanel(d){
                p.dir === "short" ? ["short", "▼"] : ["plat", "—"];
     const e = Number(p.edge_bps) || 0;
     const w = Number(p.lev) || 0;                     // poids notionnel
+    // Ce que la position SERA si elle part. La carte des positions porte
+    // deja levier, marge, TP, SL et trail — mais seulement une fois la
+    // position ouverte, et il ne s en est ouvert aucune de la journee.
+    // Une page qui ne montre ces chiffres que lorsqu il y a une position
+    // ne les montre jamais quand on en a le plus besoin : avant.
+    const lch = Number(p.lev_ech) || 0;               // levier d echange
+    const mrg = Number(p.margin) || 0;                // part des fonds propres
+    const tpb = Number(p.tp_bps), slb = Number(p.sl_bps);
     const [nom] = motif(p.reason || "");
     return `<div class="tr" role="row">
       <span class="dsym">${esc(court(p.inst))}</span>
@@ -1327,6 +1338,13 @@ function rendrePanel(d){
         p.bar ? " · " + esc(String(p.bar)) : ""}</span>
       <span class="num poids">${w ? usdt(Math.abs(w) * Number(d.equity_live || s.equity || 0)) : ""}</span>
       <span class="motif">${p.dir === "flat" ? esc(nom) : (p.ml === "live" ? "validé" : "")}</span>
+      ${p.dir && p.dir !== "flat" ? `<span class="prevu">${[
+        lch > 0 ? `<i>levier</i>x${nf(lch, lch < 10 ? 1 : 0)}` : "",
+        mrg > 0 ? `<i>marge</i>${usdt(mrg * Number(d.equity_live || s.equity || 0))}` : "",
+        isFinite(tpb) && tpb > 0 ? `<i>TP</i>${bps(tpb, 0)}` : "",
+        isFinite(slb) && slb > 0
+          ? `<i>${p.stop_mode === "suiv" ? "trail" : "SL"}</i>${bps(slb, 0)}` : "",
+      ].filter(Boolean).join("")}</span>` : ""}
     </div>`;
   }).join("") + `</div>`;
 }

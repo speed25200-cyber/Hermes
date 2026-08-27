@@ -469,3 +469,58 @@ def test_the_blocking_card_does_not_shadow_the_bps_formatter(page):
     # ne prouve rien.
     assert re.search(r"(?<![\w_])bps\s*=\s*Number\(",
                      "const n = 0, bps = Number(reg.bps);")
+
+
+def test_a_pending_signal_shows_the_position_it_would_become(page):
+    """La carte des positions porte tout — mais seulement quand il y a
+    une position, et il ne s'en est ouvert aucune de la journée.
+
+    Une page qui ne montre le levier, la marge, le TP et le SL que
+    lorsqu'une position existe ne les montre jamais au moment où on en a
+    le plus besoin : avant. Le panneau des prédictions porte donc, pour
+    chaque signal non plat, ce que la position SERA si elle part.
+
+    Les quatre valeurs existaient déjà dans `preds` — `tp_bps`,
+    `sl_bps`, `margin` et le levier d'échange — mais la dernière était
+    écrasée en chemin : l'instantané réutilisait la clé `lev` pour le
+    POIDS notionnel, deux grandeurs sans rapport sous le même nom, alors
+    que la marge affichée avait été calculée avec l'autre.
+    """
+    assert "const lch = Number(p.lev_ech)" in page, \
+        "le levier dechange nest pas lu"
+    assert 'class="prevu"' in page, "la ligne prevue nest pas rendue"
+    for mot in ("levier", "marge", "TP"):
+        assert f"<i>{mot}</i>" in page, f"la ligne prevue ne porte pas {mot}"
+    # En mode suiveur c'est un trail, pas un stop fixe : le nommer « SL »
+    # laisserait croire a un garde-fou immobile.
+    assert '"suiv" ? "trail" : "SL"' in page, \
+        "la ligne prevue appelle SL ce qui est un suiveur"
+    # Et elle ne s'affiche que pour un signal reel, pas pour une ligne plate.
+    assert 'p.dir && p.dir !== "flat" ? `<span class="prevu">' in page, \
+        "la ligne prevue safficherait sur un actif plat"
+
+
+def test_the_exchange_leverage_is_not_overwritten_by_the_notional_weight():
+    """Deux grandeurs sans rapport portaient le même nom.
+
+    `_snapshot` réutilisait `lev` pour le poids notionnel visé — ce dont
+    l'écran a besoin pour une taille en dollars — et écrasait au passage
+    le levier d'échange calculé par `_levier_echange`. La marge exposée
+    à côté avait pourtant été calculée avec le levier écrasé, si bien
+    que `margin` et `lev` ne se répondaient plus.
+
+    Le levier d'échange a désormais son propre nom.
+    """
+    import os
+
+    src = os.path.join(os.path.dirname(__file__), "..", "hermes", "scalp",
+                       "engine.py")
+    with open(src, encoding="utf-8") as f:
+        code = f.read()
+    i = code.index("preds = []")
+    bloc = code[i:i + 1600]
+    assert 'q["lev_ech"] = float(p.get("lev") or 0.0)' in bloc, \
+        "le levier dechange est encore perdu dans linstantane"
+    # L'ordre compte : lire AVANT d'ecraser.
+    assert bloc.index('q["lev_ech"]') < bloc.index('q["lev"] = float(tg'), \
+        "le levier dechange est lu apres avoir ete ecrase"

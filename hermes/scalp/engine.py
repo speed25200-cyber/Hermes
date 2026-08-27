@@ -273,6 +273,17 @@ class ScalpEngine:
         preds = []
         for p in (self.last_preds or []):
             q = dict(p)
+            # `lev` devient ici le POIDS notionnel vise, ce dont l ecran a
+            # besoin pour afficher une taille en dollars. Mais il ecrasait
+            # au passage le LEVIER D ECHANGE calcule par _levier_echange —
+            # deux grandeurs sans rapport qui portaient le meme nom, et la
+            # marge affichee avait ete calculee avec la seconde.
+            #
+            # On garde donc le levier d echange sous son propre nom. Sans
+            # lui, l ecran ne peut pas dire a quel levier une position
+            # PARTIRA — il ne le montre qu une fois ouverte, et il ne s en
+            # est ouvert aucune de la journee.
+            q["lev_ech"] = float(p.get("lev") or 0.0)
             q["lev"] = float(tg.get(p.get("inst"), 0.0) or 0.0)
             preds.append(q)
         d = {

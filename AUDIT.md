@@ -251,6 +251,31 @@ Le correctif ne se contente donc pas d'ajouter « 1H » : il prend l'ordre
 voulu **puis tout ce que le moteur envoie**, pour qu'une échelle neuve
 apparaisse même si personne ne pense à la déclarer ici.
 
+#### Ce que la position SERA, avant qu'elle existe
+
+La carte des positions porte déjà tout ce que le but demande — sens,
+taille, marge, levier, TP, SL, trail, et un rail perte→gain qui montre
+où le prix se tient entre les deux. Des tests l'ancrent depuis
+longtemps (`b.lev`, `b.margin`, `b.trail`, et le fait qu'en mode suiveur
+le trail **remplace** le stop fixe au lieu de s'afficher à côté).
+
+Mais elle ne porte tout cela **que lorsqu'une position existe**, et il
+ne s'en est ouvert aucune de la journée. Une page qui ne montre ces
+chiffres qu'en présence d'une position ne les montre jamais au moment où
+on en a le plus besoin : avant.
+
+Le panneau des prédictions porte donc désormais, pour chaque signal non
+plat, ce que la position **sera** si elle part — levier d'échange,
+marge, TP, et SL ou trail selon le mode.
+
+Les quatre valeurs existaient déjà dans `preds`. La dernière était
+perdue en chemin : l'instantané réutilisait la clé `lev` pour le POIDS
+notionnel — deux grandeurs sans rapport sous le même nom — et écrasait
+le levier d'échange, alors que la `margin` exposée juste à côté avait
+été calculée avec lui. Les deux ne se répondaient plus. Le levier
+d'échange a maintenant son propre nom, et un test vérifie qu'il est lu
+**avant** d'être écrasé.
+
 Un troisième défaut a été introduit puis corrigé dans la même passe :
 une variable locale `bps` masquait le formateur global du même nom, ce
 qui aurait planté la page entière au premier rendu — un écran blanc, pas
