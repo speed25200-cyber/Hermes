@@ -691,10 +691,49 @@ raisonnement « loin des deux populations » qui vient d'échouer.
 
 Ce qui devrait séparer d'un **ordre de grandeur** plutôt que de 30 %,
 c'est le profil horaire : une action tokenisée suit sa séance, une
-crypto n'en a pas. Cette quantité est désormais mesurée et journalisée
-(`seance/nuit`) — et délibérément branchée à **rien**. Poser un seuil
-dessus avant de l'avoir lue serait refaire, à l'identique et trois
-heures plus tard, l'erreur que cette section décrit.
+crypto n'en a pas. Cette quantité a été mesurée et journalisée
+(`seance/nuit`), délibérément branchée à **rien**.
+
+#### Elle a parlé, et elle était mal construite
+
+| actions tokenisées | | vraies cryptos | |
+|---|---|---|---|
+| SPCX | **4,35** | BTC | 1,67 |
+| CRCL | **4,22** | ETH | 1,60 |
+| SOXL | **3,02** | XRP | 1,58 |
+| SNDK | **2,95** | ZEC | 1,52 |
+| MU | **2,62** | … | … |
+| XAU | 1,29 | ENA | 1,08 |
+| SKHYNIX | **0,79** | | |
+
+Cinq sur sept se séparent nettement. **Deux échouent**, et l'explication
+vaut mieux que le résultat : XAU est de l'or, qui se traite presque 24 h
+sur les marchés à terme ; SKHYNIX est une action **coréenne**, dont la
+séance est asiatique — la fenêtre 13h30–20h UTC mesure sa **nuit**, d'où
+0,79, sous *toutes* les cryptos.
+
+L'instrument présupposait *quelle* séance. La **concentration horaire**
+ne présuppose rien : elle demande seulement si le volume se masse
+quelque part dans la journée, où qu'il soit — moyenne des six heures les
+plus actives sur la moyenne générale, six parce que c'est la durée d'une
+séance boursière.
+
+| profil | seance/nuit | concentration |
+|---|---|---|
+| crypto 24/7 | 1,00 | 1,01 |
+| séance New York | 7,51 | **2,60** |
+| séance Corée | **0,27** | **2,59** |
+| or (quasi 24 h) | 1,75 | 1,44 |
+
+La mesure directionnelle place la séance coréenne **sous** la crypto —
+l'anomalie SKHYNIX reproduite en fixture. La concentration lui donne le
+même chiffre qu'à New York. L'or reste intermédiaire dans les deux,
+parce qu'il *est* réellement quasi-24 h : aucun critère de séance ne le
+tranchera, et c'est une limite à connaître.
+
+Elle est **mesurée et branchée à rien**, elle aussi. Poser un seuil
+dessus avant de l'avoir lue en production serait la troisième fois de la
+journée, après le 0,15 du volume et la fenêtre new-yorkaise.
 
 Conséquence attendue et non garantie : le panel se rétrécit avant de se
 réélargir, le temps que le rattrapage donne assez d'histoire aux vraies

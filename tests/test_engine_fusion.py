@@ -2485,3 +2485,79 @@ def test_a_leg_without_a_measured_guardrail_does_not_corrupt_the_risk_series(tmp
         "la serie en risque a compte un instant quelle ne pouvait pas mesurer"
     import math
     assert math.isfinite(eng.live_stats["bps_risque"])
+
+
+def test_the_hourly_concentration_finds_a_session_wherever_it_is(tmp_path):
+    """`seance/nuit` présuppose la séance de NEW YORK, et cela lui coûte.
+
+    Mesure du 27 août, la première fois que ce champ a parlé :
+
+        SPCX 4,35   CRCL 4,22   SOXL 3,02   SNDK 2,95   MU 2,62
+        BTC 1,67    ETH 1,60    XRP 1,58    …    ENA 1,08
+        XAU 1,29    SKHYNIX 0,79
+
+    Cinq actions tokenisées sur sept se séparent nettement. Les deux
+    autres échouent, et l'explication est instructive : XAU est de l'or,
+    qui se traite presque 24 h sur les marchés à terme ; SKHYNIX est une
+    action **coréenne**, dont la séance est asiatique — la fenêtre
+    13h30–20h UTC mesure sa NUIT, d'où 0,79, sous toutes les cryptos.
+
+    L'instrument était mal choisi, pas l'idée. La concentration horaire
+    ne présuppose rien : elle demande seulement si le volume se masse
+    quelque part dans la journée, où qu'il soit.
+
+    Ce test exige les deux propriétés : qu'elle trouve la séance quelle
+    qu'elle soit, et qu'elle ne serve À RIEN pour l'instant.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+
+    def serie(nom, profil):
+        """`profil` : volume moyen pour chacune des 24 heures UTC."""
+        n = 40 * 24 * 60
+        ts = np.arange(n, dtype=np.int64) * 60_000
+        rng = np.random.default_rng(707)
+        px = 100 * np.exp(np.cumsum(rng.normal(0, 4e-4, n)))
+        h = ((ts % 86_400_000) // 3_600_000).astype(int)
+        v = np.asarray(profil, dtype=np.float64)[h]
+        v = v * np.exp(rng.normal(0, 0.3, n))
+        return Candles(nom, "1m", ts, px, px, px, px, v)
+
+    plat = np.ones(24)
+    ny = np.ones(24) * 0.4; ny[13:20] = 3.0          # seance New York
+    coree = np.ones(24) * 0.4; coree[0:7] = 3.0      # seance de Seoul
+
+    def mesure(profil, nom):
+        eng, _ = _moteur_pos(tmp_path / nom)
+        (tmp_path / nom).mkdir(parents=True, exist_ok=True)
+        dits = []
+        eng.log = dits.append
+        eng.store = type("M", (), {
+            "load": lambda self, i, b, _p=profil, **k: serie(i, _p)})()
+        admis = eng._assez_dhistoire(f"{nom}-USDT-SWAP")
+        ligne = next(m for m in dits if "scalp juge" in m)
+        conc = float(ligne.split("concentration")[1].strip())
+        sn = float(ligne.split("seance/nuit")[1].split("concentration")[0])
+        return admis, sn, conc
+
+    a_plat, sn_plat, c_plat = mesure(plat, "SOL")
+    a_ny, sn_ny, c_ny = mesure(ny, "SPCX")
+    a_kr, sn_kr, c_kr = mesure(coree, "SKHYNIX")
+
+    # 1) La concentration trouve la seance, d'ou qu'elle vienne.
+    assert c_plat < 1.2, c_plat
+    assert c_ny > 2.0 and c_kr > 2.0, (c_ny, c_kr)
+    assert abs(c_ny - c_kr) < 0.4, \
+        f"la mesure depend encore de QUELLE seance : {c_ny:.2f} vs {c_kr:.2f}"
+
+    # 2) Contre-epreuve : l'ancienne mesure, elle, met la seance coreenne
+    #    SOUS la crypto — c'est l'anomalie SKHYNIX reproduite. Sans cela
+    #    ce test ne prouverait pas que la nouvelle apporte quoi que ce soit.
+    assert sn_kr < sn_plat, \
+        f"la seance coreenne ne piege plus lancienne mesure ({sn_kr:.2f})"
+    assert sn_ny > 3.0, sn_ny
+
+    # 3) Et elle ne sert A RIEN : les trois noms restent admis.
+    assert a_plat is True and a_ny is True and a_kr is True, \
+        "la concentration a ete branchee comme critere sans avoir ete lue"

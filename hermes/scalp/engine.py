@@ -613,6 +613,7 @@ class ScalpEngine:
         # journalise donc le chiffre, on ne s en sert pas, et on decidera
         # quand les deux populations auront parle.
         rapport_h = float("nan")
+        concentration = float("nan")
         if vol.size == len(px) - 1:
             heure = (np.asarray(ts[1:], dtype=np.float64)
                      % 86_400_000.0) / 3_600_000.0
@@ -623,6 +624,41 @@ class ScalpEngine:
                 if h_hors > 0.0:
                     rapport_h = float(vol[seance].mean()) / h_hors
 
+            # CONCENTRATION HORAIRE, agnostique a la seance.
+            #
+            # `seance/nuit` presuppose la seance de NEW YORK, et la mesure
+            # du 27 aout montre ce que cela coute : elle separe cinq
+            # actions tokenisees sur sept (SPCX 4,35, CRCL 4,22, SOXL
+            # 3,02, SNDK 2,95, MU 2,62 contre au plus 1,67 pour les
+            # cryptos) mais rate les deux autres. XAU est de l or, qui se
+            # traite presque 24 h sur les marches a terme. SKHYNIX est une
+            # action COREENNE : sa seance est asiatique, la fenetre
+            # 13h30-20h UTC mesure sa NUIT, et elle sort a 0,79 — sous
+            # toutes les cryptos.
+            #
+            # La concentration ne presuppose rien : elle demande seulement
+            # si le volume se masse quelque part dans la journee, ou qu il
+            # soit. Six heures parce que c est la duree d une seance
+            # boursiere ; aucune heure n est privilegiee.
+            #
+            # Fixture : crypto 24/7 -> 1,01 ; seance New York -> 2,60 ;
+            # seance Coree -> 2,59 (contre 0,27 en seance/nuit) ; or
+            # quasi-24 h -> 1,44. Elle trouve la seance ou qu elle soit.
+            #
+            # MESUREE, BRANCHEE A RIEN. Poser un seuil dessus avant de
+            # l avoir lue en production serait la troisieme fois de la
+            # journee, apres le 0,15 du volume et la fenetre new-yorkaise.
+            hh = np.floor(heure).astype(np.int64)
+            par_h = np.full(24, np.nan)
+            for k in range(24):
+                m_k = (hh == k) & (~we)
+                if int(m_k.sum()) >= 60:
+                    par_h[k] = float(vol[m_k].mean())
+            bons = par_h[np.isfinite(par_h)]
+            if len(bons) >= 20 and float(bons.mean()) > 0.0:
+                concentration = float(np.sort(bons)[-6:].mean()
+                                      / bons.mean())
+
         self.log(f"scalp juge {c.inst} : week-end amplitude {rapport:.2f} "
                  f"plates {plat_we * 100:.0f}% (semaine "
                  f"{plat_ouvre * 100:.0f}%) volume "
@@ -630,6 +666,9 @@ class ScalpEngine:
                     else "non mesure")
                  + " seance/nuit "
                  + (f"{rapport_h:.2f}" if rapport_h == rapport_h
+                    else "non mesure")
+                 + " concentration "
+                 + (f"{concentration:.2f}" if concentration == concentration
                     else "non mesure"))
 
         if rapport_v == rapport_v and rapport_v < 0.15:
