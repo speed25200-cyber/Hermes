@@ -1065,3 +1065,45 @@ def test_the_journal_says_how_far_behind_the_incumbent_cell_was():
     # La bande reste exactement ce qu elle etait — on mesure, on ne regle pas.
     assert "bruit = 1.0 / math.sqrt(max(sortant[\"n_per\"], 1))" in src, \
         "la bande dhysteresis a ete modifiee sans mesure"
+
+
+def test_the_journal_says_how_much_of_the_book_went_short():
+    """« Il doit trader les mouvements long ET short », et rien ne
+    permettait de le vérifier.
+
+    Un relevé du 27 août montrait dix-huit jambes toutes longues. Sans
+    autre chiffre, impossible de savoir si c'est un moment ou un biais.
+
+    Ce n'est PAS du bêta déguisé, et il faut le dire pour ne pas
+    s'alarmer à tort : la cellule retenue déclenche sur 1 364 instants
+    pour environ 53 000 barres de holdout, soit 2,6 % du temps. Elle
+    choisit ses moments ; elle n'est pas « toujours longue ». Mais une
+    règle qui ne prendrait JAMAIS le sens court ne répondrait qu'à la
+    moitié de ce qu'on lui demande, et c'est une chose qui se compte.
+
+    Le verdict porte donc `court=NN%`. Ce test exige la mesure, pas une
+    valeur : imposer un équilibre long/court serait poser une contrainte
+    sur la recherche sans l'avoir mesurée.
+    """
+    import inspect
+
+    import numpy as np
+
+    from hermes.scalp import clock
+
+    src = inspect.getsource(clock)
+    assert "part_courte = (float(np.mean(sens < 0))" in src, \
+        "la part de trades courts nest pas mesuree"
+    assert "court={100.0 * d.get('part_courte', 0.0):.0f}%" in src, \
+        "la part de trades courts natteint pas le journal"
+
+    # Larithmetique elle-meme, ancree : la part compte les sens negatifs.
+    for sens, attendu in ((np.array([1.0, 1.0, 1.0, 1.0]), 0.0),
+                          (np.array([-1.0, 1.0, -1.0, 1.0]), 0.5),
+                          (np.array([-1.0, -1.0]), 1.0)):
+        assert float(np.mean(sens < 0)) == attendu
+
+    # Et AUCUNE contrainte nest imposee : la recherche reste libre de
+    # choisir une cellule a 100 % longue si cest elle qui a la marge.
+    assert "part_courte >" not in src and "part_courte <" not in src, \
+        "une contrainte a ete posee sur lequilibre long/court sans mesure"

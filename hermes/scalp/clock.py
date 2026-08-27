@@ -911,6 +911,7 @@ class CandleModel:
         self.se_pente = float("inf")   # et ce que vaut cette mesure
         self.ecart_sortant = float("nan")  # marge gagnante - sortante
         self.pente_brut = 0.0  # la meme, sur un rendement non stoppe
+        self.part_courte = 0.0  # part de trades COURTS du holdout
         self.stop_sig = 3.0    # stop retenu, en sigmas de l'horizon tenu
         self.stop_mode = "fixe"  # "fixe" ou "suiv" (suiveur)
         self._sig_ref = 1e-3   # sigma de repli si l'appelant n'en donne pas
@@ -956,6 +957,7 @@ class CandleModel:
             "se_pente": self.se_pente,
             "ecart_sortant": self.ecart_sortant,
             "pente_brut": self.pente_brut,
+            "part_courte": self.part_courte,
             "stop_sig": self.stop_sig, "stop_mode": self.stop_mode,
             "garde": bool(self.ident is not None
                           and self.ident == self._precedent),
@@ -1305,6 +1307,24 @@ class CandleModel:
                         # sauf si l'excursion adverse touche le stop d'abord,
                         # auquel cas on sort là, en traversant.
                         sens = np.sign(pv[m])
+                        # La part de trades COURTS du holdout.
+                        #
+                        # « Il doit trader les mouvements long ET short »,
+                        # et rien ne permettait de le verifier : le
+                        # journal ne dit ni le sens des trades mesures, ni
+                        # celui des jambes annoncees. Un releve du 27 aout
+                        # montrait dix-huit jambes toutes longues, sans
+                        # qu on puisse savoir si c est un moment ou un
+                        # biais.
+                        #
+                        # Ce n est PAS du beta deguise — la cellule
+                        # declenche sur 2,6 % des barres, donc elle choisit
+                        # ses moments et n est pas « toujours longue ».
+                        # Mais une regle qui ne prendrait JAMAIS le sens
+                        # court ne repondrait qu a la moitie de ce qu on
+                        # lui demande, et c est une chose qui se compte.
+                        part_courte = (float(np.mean(sens < 0))
+                                       if len(sens) else 0.0)
                         if mode == "suiv":
                             # Le suiveur a ete simule barre par barre, dans
                             # les deux sens : on lit l issue du sens joue.
@@ -1349,6 +1369,8 @@ class CandleModel:
                                 "barre": barre, "marge": marge, "pente": pente,
                                 "se_pente": se_pente,
                                 "pente_brut": pente_brut,
+                                "part_courte": part_courte,
+                            "part_courte": part_courte,
                             }
                             if best is None or cle > best["cle"]:
                                 best = cellule
@@ -1440,6 +1462,7 @@ class CandleModel:
                             "barre": barre, "marge": marge, "pente": pente,
                             "se_pente": se_pente,
                             "pente_brut": pente_brut,
+                            "part_courte": part_courte,
                         }
                         if best is None or cle > best["cle"]:
                             best = cellule
@@ -1468,6 +1491,7 @@ class CandleModel:
         self.pente = float(b.get("pente") or 0.0)
         self.se_pente = float(b.get("se_pente") or float("inf"))
         self.pente_brut = float(b.get("pente_brut") or 0.0)
+        self.part_courte = float(b.get("part_courte") or 0.0)
         self.stop_sig = float(b.get("stop") or 3.0)
         # Le MODE du stop fait partie de la regle validee au meme titre que
         # sa largeur. Le laisser derriere ferait jouer un stop fixe la ou la
@@ -1868,6 +1892,7 @@ class ScaleDesk:
                          f"/bande={1.0 / math.sqrt(max(d['n_periods'], 1)):.3f} ")
                         if d.get("ecart_sortant") == d.get("ecart_sortant")
                         else "")
+                     + f"court={100.0 * d.get('part_courte', 0.0):.0f}% "
                      + f"trades={d['n_trades']}/{d['n_holdout']} "
                      f"instants={d['n_periods']} n={d['n_train']} "
                      f"parjour={d.get('par_jour', 0.0):.1f} "

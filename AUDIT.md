@@ -213,6 +213,33 @@ moi compris.
 
 ---
 
+### « Long ET short » — une exigence qu'on ne pouvait pas vérifier
+
+Le relevé du 27 août montrait **dix-huit jambes toutes longues**. Le but
+demande explicitement de trader les mouvements *long et short*, et rien
+dans le journal ne permettait de dire si c'était un moment ou un biais.
+
+**Ma première lecture était trop alarmiste**, et la corriger vaut d'être
+écrit : j'ai d'abord pensé à du bêta de marché déguisé — un livre
+toujours long en marché haussier a un Sharpe positif sans la moindre
+compétence, et le calibrage de la barre ne contrôle pas cela. C'est
+faux ici. La cellule retenue déclenche sur 1 364 instants pour environ
+53 000 barres de holdout, soit **2,6 % du temps**. Elle choisit ses
+moments ; elle n'est pas « toujours longue ». Le bêta n'est pas le
+sujet.
+
+Ce qui reste vrai : une règle qui ne prendrait **jamais** le sens court
+ne répondrait qu'à la moitié de ce qu'on lui demande. Et cela se compte.
+
+Le verdict porte donc `court=NN%` — la part de trades courts du holdout
+mesuré. **Aucune contrainte n'est imposée** : la recherche reste libre de
+retenir une cellule à 100 % longue si c'est elle qui a la marge, et un
+test vérifie qu'aucun seuil n'a été posé sur cet équilibre. Imposer une
+parité long/court serait contraindre la recherche sans l'avoir mesurée —
+la même erreur que le seuil de 0,15.
+
+---
+
 ### L'écran ne disait pas ce qui bloque, et la donnée était là
 
 *« Je peux savoir ce qu'il se passe, ce que tu fais et ce qui bloque, car
