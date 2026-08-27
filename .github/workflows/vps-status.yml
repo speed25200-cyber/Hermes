@@ -91,7 +91,21 @@ jobs:
             # mesure en direct du tout : les trades de la fenetre viennent
             # alors de plusieurs cellules differentes. Le mot « gardee »
             # dit que lhysteresis a tenu ; sa rarete est le diagnostic.
-            echo "===== horloge 1m : la cellule retenue tient-elle (12 h) ====="
+            # Le retard entre la cloture dune barre et la decision
+          # quelle declenche vaut vingt-six secondes sur la 1m et cent
+          # cinquante-deux sur la 15m, quand la porte simule zero. Trois
+          # nombres le decomposent et leur somme est le retard complet :
+          # la tournee de rafraichissement, le chargement des
+          # historiques, le calcul. Sans cette fenetre, « il faut
+          # reduire le retard » reste un voeu sans adresse.
+          # NB: aucune apostrophe ici, la commande ssh en est entouree.
+          echo "===== ou passe le temps entre la cloture et lordre ====="
+          journalctl -u hermes --since "-3 hours" --no-pager 2>/dev/null \
+            | grep -E "desk .* retard=" \
+            | sed -E "s/.*\] desk /desk /" \
+            | tail -12 || true
+          echo
+          echo "===== horloge 1m : la cellule retenue tient-elle (12 h) ====="
             journalctl -u hermes --since "-12 hours" --no-pager 2>/dev/null \
               | grep -E "clock 1m panel" \
               | sed -E "s/.*clock 1m panel\[[0-9]+\] //" \

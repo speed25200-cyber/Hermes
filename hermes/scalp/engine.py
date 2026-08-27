@@ -174,7 +174,10 @@ class ScalpEngine:
         # mesure donc directement — prix paye contre prix du signal, signe
         # par le sens — et on le FACTURE.
         self.exec_stats = {"n_entrees": 0, "retard_s": 0.0,
-                           "glissement_bps": 0.0, "n_gliss": 0}
+                           "glissement_bps": 0.0, "n_gliss": 0,
+                           "gliss_med": 0.0,
+                           "retard_barre_s": 0.0, "n_retard_barre": 0,
+                           "retard_par_barre": {}}
         self._dernier_net: float | None = None
         # Le paquet de fermetures du meme INSTANT, en attente d etre
         # soldees en un seul rendement de portefeuille.
@@ -204,6 +207,28 @@ class ScalpEngine:
                             tuple(self.explore_stats))
             self._reprendre(self.exec_stats, prev.get("entree"),
                             tuple(self.exec_stats))
+            # `_reprendre` ne reprend que des NOMBRES, a dessein. Deux
+            # mesures nen sont pas : lechantillon de glissement et le
+            # retard par echelle. Sans elles, la mediane repartirait de
+            # zero a chaque redemarrage pendant que la moyenne, elle,
+            # survivrait — deux chiffres cote a cote qui ne parleraient
+            # plus du meme echantillon.
+            ent = prev.get("entree")
+            if isinstance(ent, dict):
+                ech = ent.get("gliss_ech")
+                if isinstance(ech, list):
+                    self.exec_stats["gliss_ech"] = [
+                        float(x) for x in ech[-200:]
+                        if isinstance(x, (int, float))
+                        and not isinstance(x, bool) and x == x]
+                par = ent.get("retard_par_barre")
+                if isinstance(par, dict):
+                    self.exec_stats["retard_par_barre"] = {
+                        str(b): [float(v[0]), int(v[1])]
+                        for b, v in par.items()
+                        if isinstance(v, (list, tuple)) and len(v) == 2
+                        and all(isinstance(x, (int, float))
+                                and not isinstance(x, bool) for x in v)}
             # Une position ouverte appartient à une règle : prix d'entrée,
             # stop, durée validée, politique qui l'a décidée. Rien de tout
             # cela ne survivait au redémarrage — le moteur retrouvait la
@@ -1089,12 +1114,25 @@ class ScalpEngine:
         retard = float(self.exec_stats.get("retard_s") or 0.0)
         if retard > 5.0:
             dire("attention", "Retard dentree",
-                 f"{retard:.1f} s entre la barre qui decide et lordre")
+                 f"{retard:.1f} s entre la cible et lordre qui la joue")
+        # Le retard sur la CLOTURE, qui est celui que la porte ignore.
+        rb = float(self.exec_stats.get("retard_barre_s") or 0.0)
+        par = self.exec_stats.get("retard_par_barre") or {}
+        detail = ", ".join(
+            f"{b} {float(v[0]):.0f}s"
+            for b, v in sorted(par.items(), key=lambda kv: kv[0])
+            if int(v[1]) > 0)
+        if rb > 5.0:
+            dire("attention", "Retard sur la cloture de barre",
+                 f"{rb:.0f} s en moyenne entre la cloture qui decide "
+                 f"et la decision, quand la porte simule zero"
+                 + (f" ({detail})" if detail else ""))
         gl = self._glissement()
         if gl > 0.5:
             dire("attention", "Glissement defavorable",
                  f"{gl:+.2f} bps factures a la porte sur "
-                 f"{int(self.exec_stats.get('n_gliss') or 0)} ouvertures")
+                 f"{int(self.exec_stats.get('n_gliss') or 0)} ouvertures"
+                 f" (mediane {float(self.exec_stats.get('gliss_med') or 0.0):+.2f})")
 
         rang = {"grave": 0, "attention": 1, "info": 2}
         out.sort(key=lambda a: rang.get(a["niveau"], 3))
@@ -1948,9 +1986,55 @@ class ScalpEngine:
                      f"(pnl jour {self.explore_pnl_day:+.2f} USD)")
             return                    # un seul par cycle : pas un moulin
 
+    def _mesurer_retard_barre(self, candles: dict, now: float,
+                              bar: str) -> float:
+        """Le retard QUI COMPTE : entre la cloture de la barre qui decide
+        et linstant ou la decision est prise.
+
+        `retard_s` en mesurait un autre — entre la cible produite et
+        lordre parti — et affichait 0,3 s sur 4 381 ordres. Le vrai delai
+        est ailleurs, et le journal du 27 aout le donne : « desk 1m @
+        1787842860000 » est journalise a 15:02:26 pour une barre ouverte a
+        15:01:00, donc fermee a 15:02:00 — vingt-six secondes. « desk 15m
+        @ 1787841900000 » a 15:02:32 pour une barre fermee a 15:00:00 —
+        deux minutes et demie.
+
+        La porte, elle, simule lentree a lOUVERTURE de la barre suivante,
+        soit zero seconde (ENTREE_DECALEE vaut 0, et le commentaire qui le
+        justifie cite 6 s sur la 1m et 43 s sur la 15m : le retard a
+        quadruple depuis, sans que rien ne le dise).
+
+        Ce chiffre est donc la moitie manquante du glissement : le
+        glissement dit ce que le retard COUTE, celui-ci dit ce quil EST.
+        On mesure, on affiche, on ne touche a rien dautre.
+        """
+        pas = float(BAR_MS.get(bar, 60_000)) / 1000.0
+        derniers = [float(c.ts[-1]) for c in (candles or {}).values()
+                    if getattr(c, "ts", None) is not None and len(c.ts)]
+        if not derniers:
+            return 0.0
+        rb = float(now) - (max(derniers) / 1000.0 + pas)
+        # Une barre encore ouverte donne un retard negatif : ce nest pas
+        # un retard, cest une barre qui na pas fini. On ne la compte pas.
+        if rb < 0.0:
+            return 0.0
+        nb = int(self.exec_stats.get("n_retard_barre") or 0)
+        mb = float(self.exec_stats.get("retard_barre_s") or 0.0)
+        self.exec_stats["retard_barre_s"] = (mb * nb + rb) / (nb + 1)
+        self.exec_stats["n_retard_barre"] = nb + 1
+        # Et par echelle, parce que la moyenne melangee de la 1m et de la
+        # 15m ne repond a aucune question : cest le retard RAPPORTE a la
+        # duree de la barre qui dit si la porte se trompe.
+        par = dict(self.exec_stats.get("retard_par_barre") or {})
+        moy, n = par.get(bar) or (0.0, 0)
+        par[bar] = [(float(moy) * int(n) + rb) / (int(n) + 1), int(n) + 1]
+        self.exec_stats["retard_par_barre"] = par
+        return rb
+
     def tick(self, candles_1m: dict[str, Candles], now: float | None = None,
              bar: str = "1m") -> dict:
         now = now or time.time()
+        self._mesurer_retard_barre(candles_1m, now, bar)
         if hasattr(self.broker, "mark_ticks") and self.ticks:
             self.broker.mark_ticks(self.ticks)
         preds = self.predict_all(candles_1m, bar=bar)
@@ -2133,6 +2217,43 @@ class ScalpEngine:
                 mg = float(self.exec_stats.get("glissement_bps") or 0.0)
                 self.exec_stats["glissement_bps"] = (mg * ng + gl) / (ng + 1)
                 self.exec_stats["n_gliss"] = ng + 1
+                # LA MEDIANE, a cote de la moyenne, et voici pourquoi.
+                #
+                # La moyenne est passee de +1,21 bps sur 14 ouvertures a
+                # +21,32 sur 28 en une heure et demie. Deux lectures
+                # etaient possibles, et elles ne menent pas au meme geste.
+                #
+                # La premiere — celle qui parait dabord evidente — dit que
+                # `sig_px` est la CLOTURE de la barre, un print qui tombe
+                # au bid ou a lask, tandis que le remplissage est un prix
+                # cote : lecart serait du rebond, deja retire par
+                # `_targets` qui simule lentree a louverture suivante, et
+                # le facturer compterait donc deux fois. Cette lecture est
+                # FAUSSE, et le journal la refute : « desk 1m @
+                # 1787842860000 » est journalise a 15:02:26 pour une barre
+                # fermee a 15:02:00, et « desk 15m » a 15:02:32 pour une
+                # barre fermee a 15:00:00. Le moteur ne decide pas a
+                # louverture de la barre suivante ; il decide vingt-six
+                # secondes plus tard sur la 1m, deux minutes et demie plus
+                # tard sur la 15m. Le glissement mesure donc un vrai
+                # retard, que la porte ne modelise pas, et il DOIT etre
+                # facture. Rien de ce qui est charge ne change ici.
+                #
+                # Reste la question que la moyenne ne peut pas trancher :
+                # ces +21 bps decrivent-ils louverture TYPIQUE, ou une
+                # poignee de jambes entrees ensemble apres le plus long
+                # retard ? Les huit ouvertures de 14:53 viennent toutes de
+                # lhorloge 15m, celle qui decide avec cent cinquante-deux
+                # secondes de retard. Une mediane, qui ignore les extremes,
+                # separe les deux cas ; une moyenne ne le peut pas.
+                #
+                # Elle est donc posee A COTE, et branchee sur rien :
+                # `_glissement` continue de ne lire que la moyenne.
+                ech = list(self.exec_stats.get("gliss_ech") or [])
+                ech.append(float(gl))
+                self.exec_stats["gliss_ech"] = ech[-200:]
+                self.exec_stats["gliss_med"] = float(
+                    np.median(np.asarray(ech[-200:], dtype=np.float64)))
             if flatten or retourne:
                 self._compter_realise(inst, fill, cur, None)
             self._record(fill, delta, why, float(lev_ex))

@@ -177,6 +177,7 @@ Chacun était silencieux. Aucun n'apparaissait dans les journaux.
 | le direct comptait 3 jambes simultanées comme 3 résultats | écart-type 44 bps au lieu de 25 ; des mois au lieu de semaines pour trancher | — |
 | actions tokenisées (SNDK, XAU, SKHYNIX) dans le panel crypto | elles publient des bougies plates 24/7, le compte de barres ne les distingue pas | filtre sur l'amplitude du week-end |
 | le même défaut, deux fois de suite : sept actions tokenisées sur vingt places (SNDK, XAU, SKHYNIX, SPCX, SOXL, MU, CRCL) | les deux critères de PRIX lisent la cotation, qu'un teneur de marché produit seul | zéro ligne `scalp recale` en six heures, panel visé 20 le 27/08 |
+| `retard_s` mesurait l'intervalle cible → ordre (0,3 s) et **rien** ne mesurait clôture de barre → décision | l'écran affirmait une exécution immédiate ; le vrai délai vaut 26 s sur la 1m et 152 s sur la 15m, quand la porte simule zéro | `desk 1m @ 1787842860000` journalisé à 15:02:26 pour une barre fermée à 15:02:00 |
 | le critère ne parlait que pour refuser | le défaut a vécu six heures sans laisser trace de POURQUOI les noms passaient | ligne `scalp juge` désormais émise pour tout nom jugé, admis compris |
 
 ---
@@ -964,6 +965,53 @@ La leçon qui tient toujours : le coût d'une colonne ne se voit pas sur
 l'ic — il se voit sur la précision **des barres qui déclenchent**, donc
 sur l'économie.
 
+### Le retard qui n'était pas mesuré, et ce qu'il explique
+
+Le glissement d'entrée mesuré est passé de **+1,21 bps sur 14 ouvertures**
+à **+21,32 sur 28** en une heure et demie. À trente ouvertures il devient
+facturable, et vingt et un points de base fermeraient à eux seuls toutes
+les portes — les seuils de la 1m valent 6,5 à 7,6 bps.
+
+La première explication qui vient est fausse, et il faut la dire parce
+qu'elle est séduisante : `sig_px` est la **clôture** de la barre, un
+*print* qui tombe au bid ou à l'ask selon le rebond, tandis que le
+remplissage est un prix **coté** ; l'écart vaudrait donc un rebond que
+`_targets` retire déjà en simulant l'entrée à l'ouverture suivante, et le
+facturer compterait deux fois. Le journal réfute cette lecture :
+
+| horloge | barre fermée à | décision journalisée à | retard |
+|---|---|---|---|
+| 1m | 15:02:00 | 15:02:26 | **26 s** |
+| 3m | 15:09:00 | 15:09:49 | 49 s |
+| 5m | 15:05:00 | 15:06:00 | 60 s |
+| 15m | 15:00:00 | 15:02:32 | **152 s** |
+
+Le moteur ne décide pas à l'ouverture de la barre suivante ; il décide un
+tiers à une demi-barre plus tard. Le glissement mesure donc un **vrai
+retard**, que la porte ne modélise pas — il doit être facturé, et rien de
+ce qui est chargé n'a été touché.
+
+Deux conséquences, et aucune n'est un ajustement de seuil :
+
+1. `ENTREE_DECALEE = 0` est justifié dans le code par une mesure de
+   **6 s sur la 1m et 43 s sur la 15m**. Le retard a quadruplé depuis,
+   sans que rien ne le dise : `retard_s` mesure l'intervalle entre la
+   cible produite et l'ordre parti (0,3 s sur 4 381 ordres) et affichait
+   donc « exécution immédiate » pendant tout ce temps. Le retard sur la
+   clôture est désormais mesuré par échelle, affiché au relevé et au
+   bandeau d'anomalies.
+2. Ce qui prend ces secondes doit être séparé au chronomètre avant d'y
+   toucher. Le suspect est nommé : à chaque barre nouvelle, les vingt
+   historiques sont **rechargés en entier** — quatre-vingt-dix mille
+   barres par nom, plus quatre tables auxiliaires reprojetées. La ligne
+   `desk` porte donc `charge=Xs calcul=Ys`. Réduire ce retard est le seul
+   geste qui rende à la porte l'hypothèse qu'elle fait déjà.
+
+Une **médiane** est posée à côté de la moyenne du glissement, branchée
+sur rien : les huit ouvertures de 14:53 viennent toutes de l'horloge 15m,
+celle qui décide avec 152 s de retard, et une moyenne ne peut pas dire si
++21 bps décrit l'ouverture typique ou cette poignée-là.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -981,7 +1029,12 @@ sur l'économie.
 4. **Le 1H n'a pas encore rendu de verdict.** C'est l'échelle où
    l'économie est franchement favorable, et son rattrapage d'historique
    (deux ans par instrument) est en cours.
-5. **Le profil chronologique du Sharpe** doit dire si l'avantage est
+5. **Le retard sur la clôture de barre doit descendre.** 26 s sur
+   une barre de 60 s, ce n'est pas « zéro à peu près » : c'est
+   presque une demi-barre, et la porte suppose zéro. La mesure
+   `charge=/calcul=` doit dire si le coût est le rechargement des
+   historiques ou le calcul, avant qu'on touche à l'un ou à l'autre.
+6. **Le profil chronologique du Sharpe** doit dire si l'avantage est
    régulier ou concentré dans la fenêtre récente. Les premiers relevés
    sont croissants, ce qui suggère de la non-stationnarité.
 

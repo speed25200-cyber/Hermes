@@ -1107,3 +1107,24 @@ def test_the_journal_says_how_much_of_the_book_went_short():
     # choisir une cellule a 100 % longue si cest elle qui a la marge.
     assert "part_courte >" not in src and "part_courte <" not in src, \
         "une contrainte a ete posee sur lequilibre long/court sans mesure"
+
+
+def test_the_duration_of_a_bar_has_one_single_source():
+    """« 1H » manquait a `BAR_MS` de lhorloge pendant que le magasin le
+    connaissait depuis toujours : deux tables ecrites a la main, dont une
+    seule etait juste. Le test de couverture attrapait le symptome ; il
+    ne pouvait pas empecher la prochaine divergence.
+
+    La table de lhorloge est desormais DERIVEE de celle du magasin,
+    restreinte aux echelles cherchees. Un nom de BARS sans duree leve a
+    limport — bien plus fort quun `.get(bar, 300_000)` silencieux.
+    """
+    from hermes.data.store import BAR_MS as MAGASIN
+    from hermes.scalp.clock import BAR_MS, BARS
+
+    assert BAR_MS == {b: MAGASIN[b] for b in BARS}, \
+        "la table des durees a re-diverge de celle du magasin"
+    # Et elle ne porte QUE les echelles cherchees : une duree en trop
+    # laisserait croire quune echelle est cherchee alors quelle ne lest
+    # pas.
+    assert set(BAR_MS) == set(BARS)

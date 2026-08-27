@@ -25,7 +25,7 @@ import time
 import numpy as np
 
 from ..backtest.metrics import expected_max_sharpe
-from ..data.store import Candles
+from ..data.store import Candles, BAR_MS as _DUREES
 from ..ml.models import MLPRegressor, RidgeRegressor
 from .economics import QUEUE_MISS
 
@@ -269,8 +269,13 @@ FEE = 7.0  # maker in + taker SL, bps
 #
 # Un test exige desormais que BAR_MS couvre BARS : le defaut silencieux
 # ne peut pas revenir.
-BAR_MS = {"1m": 60_000, "3m": 180_000, "5m": 300_000,
-          "15m": 900_000, "1H": 3_600_000}
+# La duree dune barre a UNE seule definition, celle du magasin, et
+# cette ligne la restreint aux echelles cherchees. Ecrite en dur ici,
+# elle avait diverge : « 1H » manquait alors que le magasin le
+# connaissait depuis toujours. Derivee, lomission devient impossible
+# — un nom de BARS sans duree leve a limport, ce qui est bien plus
+# fort quun `.get(bar, 300_000)` silencieux.
+BAR_MS = {b: _DUREES[b] for b in BARS}
 
 
 def _roll_std(x: np.ndarray, w: int) -> np.ndarray:

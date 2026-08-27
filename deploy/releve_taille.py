@@ -130,13 +130,29 @@ def main() -> int:
     # perdue, elle cesse seulement d etre comptee comme independante.
     n_e = int(ent.get("n_entrees") or 0)
     if n_e:
-        print(f"retard dentree mesure {float(ent.get('retard_s') or 0.0):.1f} s "
+        print(f"retard entre la cible et lordre {float(ent.get('retard_s') or 0.0):.1f} s "
               f"sur {n_e} ordres")
+    # Le retard QUI COMPTE, et qui manquait a ce releve : entre la
+    # CLOTURE de la barre qui decide et la decision. La porte simule
+    # zero ; le journal du 27 aout donne vingt-six secondes sur la 1m et
+    # cent cinquante-deux sur la 15m. Le releve affichait 0,3 s et
+    # laissait croire lexecution immediate.
+    n_b = int(ent.get("n_retard_barre") or 0)
+    if n_b:
+        par = ent.get("retard_par_barre") or {}
+        det = "  ".join(f"{b} {float(v[0]):.0f}s"
+                        for b, v in sorted(par.items()) if int(v[1]) > 0)
+        print(f"retard sur la cloture de barre "
+              f"{float(ent.get('retard_barre_s') or 0.0):.0f} s "
+              f"sur {n_b} decisions (la porte en simule 0)"
+              + (f"   {det}" if det else ""))
     n_g = int(ent.get("n_gliss") or 0)
     if n_g:
         gl = float(ent.get("glissement_bps") or 0.0)
         facture = max(0.0, gl) if n_g >= 30 else 0.0
+        med = float(ent.get("gliss_med") or 0.0)
         print(f"glissement dentree mesure {gl:+.2f} bps sur {n_g} ouvertures"
+              f" (mediane {med:+.2f})"
               f"  -> facture a la porte {facture:+.2f} bps"
               + ("" if n_g >= 30 else "  (moins de 30, pas encore facture)"))
     print(f"plafonds: par nom {lev.get('name_cap')}  brut {lev.get('gross_cap')}"

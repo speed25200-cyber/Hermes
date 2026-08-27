@@ -995,13 +995,27 @@ class LiveRunner:
                         if newest > last_scalp_bar.get(bar, 0):
                             last_scalp_bar[bar] = newest
                             any_new = True
+                            # Le retard entre la cloture dune barre et la
+                            # decision quelle declenche vaut vingt-six
+                            # secondes sur la 1m et cent cinquante-deux sur
+                            # la 15m (journal du 27 aout), quand la porte
+                            # simule zero. Savoir CE QUI prend ce temps
+                            # decide de la suite : recharger vingt
+                            # historiques de quatre-vingt-dix mille barres
+                            # a chaque minute, ou calculer. On separe donc
+                            # les deux au chronometre plutot que de
+                            # supposer.
+                            t_a = time.time()
                             cbar = {inst: self.store.load(inst, bar)
                                     for inst in names}
+                            t_b = time.time()
                             last_rep = self.scalp.tick(cbar, time.time(), bar=bar)
+                            t_c = time.time()
                             live = [p for p in (last_rep.get("preds") or []) if p.get("dir") != "flat"]
                             self.log(f"desk {bar} @ {newest}: eq={last_rep.get('equity', 0):.2f} "
                                      f"live={len(live)}/{len(last_rep.get('preds') or [])} "
-                                     f"hz={last_rep.get('live_bars')}")
+                                     f"hz={last_rep.get('live_bars')} "
+                                     f"charge={t_b - t_a:.1f}s calcul={t_c - t_b:.1f}s")
                     if last_rep and last_rep.get("targets") is not None:
                         self.trader._last_targets = last_rep["targets"]
                     if self.risk.state.killed:

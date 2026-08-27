@@ -2635,3 +2635,208 @@ def test_the_burn_in_schedule_assumes_a_stability_the_search_does_not_give(tmp_p
     eng.live_stats.update({"n": 130, "bps": -0.1})
     assert abs(eng._confiance() - 0.10) < 1e-9, \
         "une moyenne negative ne ramene plus au dixieme"
+
+
+def test_the_median_slippage_stands_beside_the_mean_and_charges_nothing(tmp_path):
+    """La moyenne du glissement est passee de +1,21 bps sur 14 ouvertures
+    a +21,32 sur 28 en une heure et demie.
+
+    Elle mesure une chose reelle — le journal donne vingt-six secondes
+    entre la cloture dune barre 1m et la decision, cent cinquante-deux
+    sur la 15m, quand la porte simule zero — et elle reste donc la seule
+    chose FACTUREE.
+
+    Ce quelle ne peut pas dire, cest si ces +21 bps decrivent
+    louverture typique ou une poignee de jambes entrees ensemble apres le
+    plus long retard. La mediane, qui ignore les extremes, le dit. Elle
+    est posee a cote, branchee sur rien.
+    """
+    inst = "BTC-USDT-SWAP"
+    eng, _ = _moteur_pos(tmp_path)
+    eng.ticks[inst] = {"last": 100.1, "bid": 100.0, "ask": 100.2,
+                       "spread_bps": 2.0}
+    eng.last_preds = [{"inst": inst, "policy": "candle", "bar": "1m",
+                       "dir": "long", "ml": "live", "conf": 1.0, "px": 100.0,
+                       "h_bars": 6, "edge_bps": 12.0, "lev": 1.0,
+                       "vol_bps": 25.0, "tp_bps": 30.0, "sl_bps": 40.0,
+                       "sortie_temps": True}]
+    eng._vol = {inst: 25.0}
+    eng.pending = {inst: 1.0}
+
+    # Un echantillon deja constitue : huit ouvertures sans ecart, une
+    # aberrante a +200 bps. La moyenne en est deja detruite.
+    eng.exec_stats["gliss_ech"] = [0.0] * 8 + [200.0]
+    eng.exec_stats["glissement_bps"] = 200.0 / 9.0
+    eng.exec_stats["n_gliss"] = 9
+
+    eng.execute_pending()
+    assert eng.exec_stats["n_gliss"] == 10, "l ouverture n a pas ete comptee"
+    assert len(eng.exec_stats["gliss_ech"]) == 10, \
+        "l echantillon ne retient pas les mesures"
+
+    med = float(eng.exec_stats["gliss_med"])
+    moy = float(eng.exec_stats["glissement_bps"])
+    assert moy > 15.0, "la moyenne devait rester emportee par l aberration"
+    assert abs(med) < 1.0, \
+        "la mediane suit l aberration : ce n est pas une mediane"
+
+    # CONTRE-EPREUVE : ce qui est FACTURE reste la moyenne, seule. Si la
+    # mediane etait branchee sur le cout, la porte s ouvrirait de 15 bps
+    # d un coup — exactement ce que ce changement ne doit PAS faire.
+    eng.exec_stats["n_gliss"] = 30
+    assert abs(eng._glissement() - moy) < 1e-9, \
+        "la mediane a change ce qui est facture"
+
+    # Et la ligne d anomalie dit les DEUX, sinon la question reste
+    # invisible pour qui lit l ecran.
+    a = next(x for x in eng.anomalies(10_000.0, {})
+             if x["titre"] == "Glissement defavorable")
+    assert f"{moy:+.2f} bps factures" in a["detail"]
+    assert f"mediane {med:+.2f}" in a["detail"], \
+        "l ecran ne montre pas la mediane a cote de la moyenne"
+
+
+def test_the_slippage_sample_cannot_grow_without_bound(tmp_path):
+    """L echantillon vit dans l instantane d etat, relu et reecrit a
+    chaque tour. Sans plafond il grossirait a chaque ouverture pour
+    toujours, et le fichier d etat avec lui.
+    """
+    inst = "BTC-USDT-SWAP"
+    eng, _ = _moteur_pos(tmp_path)
+    eng.ticks[inst] = {"last": 100.1, "bid": 100.0, "ask": 100.2,
+                       "spread_bps": 2.0}
+    eng.last_preds = [{"inst": inst, "policy": "candle", "bar": "1m",
+                       "dir": "long", "ml": "live", "conf": 1.0, "px": 100.0,
+                       "h_bars": 6, "edge_bps": 12.0, "lev": 1.0,
+                       "vol_bps": 25.0, "tp_bps": 30.0, "sl_bps": 40.0,
+                       "sortie_temps": True}]
+    eng._vol = {inst: 25.0}
+    eng.pending = {inst: 1.0}
+    eng.exec_stats["gliss_ech"] = [0.0] * 400
+    eng.exec_stats["n_gliss"] = 400
+
+    eng.execute_pending()
+    assert len(eng.exec_stats["gliss_ech"]) == 200, \
+        "l echantillon de glissement grossit sans fin"
+    # Le plafond garde les DERNIERES mesures : la nouvelle en fait partie.
+    assert eng.exec_stats["gliss_ech"][-1] != 0.0, \
+        "le plafond jette la mesure qui vient d etre prise"
+
+
+def _bougies_a(inst: str, bar: str, dernier_ts: int) -> Candles:
+    """Cinq barres plates dont la DERNIERE souvre a `dernier_ts`."""
+    from hermes.data.store import BAR_MS as _D
+    pas = _D[bar]
+    ts = (np.arange(5) * pas + (dernier_ts - 4 * pas)).astype(np.float64)
+    px = np.full(5, 100.0)
+    return Candles(inst, bar, ts, px, px, px, px, np.ones(5))
+
+
+def test_the_delay_that_matters_is_measured_against_the_bar_close(tmp_path):
+    """`retard_s` mesurait le temps entre la cible produite et lordre
+    parti — 0,3 s sur 4 381 ordres — et cetait le seul retard affiche.
+
+    Le retard qui compte est ailleurs : entre la CLOTURE de la barre qui
+    decide et linstant ou la decision est prise. Mesure au journal du 27
+    aout : « desk 1m @ 1787842860000 » journalise a 15:02:26 pour une
+    barre fermee a 15:02:00, soit vingt-six secondes ; « desk 15m @
+    1787841900000 » a 15:02:32 pour une barre fermee a 15:00:00, soit
+    cent cinquante-deux. La porte, elle, simule lentree a lOUVERTURE de
+    la barre suivante — zero seconde.
+
+    Tant que ce chiffre nest pas mesure, lecart entre la regle validee et
+    la regle jouee reste une supposition, et lecran affiche 0,3 s.
+    """
+    eng, _ = _moteur_pos(tmp_path)
+    # Une barre 1m ouverte a t0, donc fermee a t0 + 60 s. La decision est
+    # prise vingt-six secondes apres cette cloture.
+    t0 = 1_787_842_860_000
+    c = _bougies_a("BTC-USDT-SWAP", "1m", t0)
+    rb = eng._mesurer_retard_barre({"BTC-USDT-SWAP": c},
+                                   t0 / 1000.0 + 60.0 + 26.0, "1m")
+    assert abs(rb - 26.0) < 1e-6, \
+        "le retard nest pas compte depuis la CLOTURE de la barre"
+    assert abs(float(eng.exec_stats["retard_barre_s"]) - 26.0) < 1e-6
+    assert int(eng.exec_stats["n_retard_barre"]) == 1
+
+    # CONTRE-EPREUVE : lhorodatage dune barre est son OUVERTURE. Le
+    # prendre pour sa cloture gonflerait le retard dune duree de barre
+    # entiere — la faute exacte qui avait brievement mis ENTREE_DECALEE
+    # a 1.
+    assert abs(rb - 86.0) > 1.0, "lhorodatage a ete pris pour la cloture"
+
+    # Et une barre 15m fermee depuis 152 s, comptee separement : la
+    # moyenne melangee des deux echelles ne repond a aucune question.
+    t15 = 1_787_841_900_000
+    c15 = _bougies_a("BTC-USDT-SWAP", "15m", t15)
+    eng._mesurer_retard_barre({"BTC-USDT-SWAP": c15},
+                              t15 / 1000.0 + 900.0 + 152.0, "15m")
+    par = eng.exec_stats["retard_par_barre"]
+    assert abs(float(par["1m"][0]) - 26.0) < 1e-6
+    assert abs(float(par["15m"][0]) - 152.0) < 1e-6
+
+
+def test_a_bar_still_open_is_not_a_delay(tmp_path):
+    """Une barre dont la cloture est dans le futur donne un retard
+    negatif. Ce nest pas un retard, cest une barre qui na pas fini — la
+    compter tirerait la moyenne vers le bas et ferait passer le vrai
+    delai pour plus court quil nest.
+    """
+    eng, _ = _moteur_pos(tmp_path)
+    t0 = 1_787_842_860_000
+    c = _bougies_a("BTC-USDT-SWAP", "1m", t0)
+    rb = eng._mesurer_retard_barre({"BTC-USDT-SWAP": c},
+                                   t0 / 1000.0 + 30.0, "1m")
+    assert rb == 0.0
+    assert int(eng.exec_stats["n_retard_barre"]) == 0, \
+        "une barre encore ouverte entre dans la moyenne du retard"
+
+
+def test_the_screen_says_which_delay_it_is_talking_about(tmp_path):
+    """Deux retards, deux ordres de grandeur, un seul mot a lecran :
+    « Retard dentree — 0,3 s ». Le lecteur en concluait que lexecution
+    etait immediate alors que la decision arrivait une demi-barre en
+    retard. Les deux lignes doivent donc dire CE QUELLES MESURENT.
+    """
+    eng, _ = _moteur_pos(tmp_path)
+    eng.exec_stats["retard_s"] = 12.0
+    eng.exec_stats["retard_barre_s"] = 26.0
+    eng.exec_stats["retard_par_barre"] = {"1m": [26.0, 3], "15m": [152.0, 1]}
+    titres = {a["titre"]: a["detail"] for a in eng.anomalies(10_000.0, {})}
+    assert "Retard dentree" in titres
+    assert "cible" in titres["Retard dentree"], \
+        "la ligne ne dit pas quel intervalle elle mesure"
+    assert "Retard sur la cloture de barre" in titres
+    d = titres["Retard sur la cloture de barre"]
+    assert "26 s" in d and "1m 26s" in d and "15m 152s" in d, \
+        "le retard nest pas rendu par echelle"
+    assert "zero" in d, "la ligne ne dit pas ce que la porte suppose"
+
+
+def test_the_two_measures_that_are_not_numbers_survive_a_restart(tmp_path):
+    """La reprise detat ne relit que des NOMBRES, a dessein. Deux mesures
+    nen sont pas : lechantillon de glissement, dou sort la mediane, et le
+    retard par echelle.
+
+    Sans elles, un redemarrage remettrait la mediane a zero pendant que
+    la moyenne, elle, survivrait — et lecran montrerait cote a cote deux
+    chiffres qui ne parlent plus du meme echantillon.
+    """
+    eng, _ = _moteur_pos(tmp_path)
+    eng.exec_stats["glissement_bps"] = 11.0
+    eng.exec_stats["n_gliss"] = 23
+    eng.exec_stats["gliss_ech"] = [0.0, 1.0, 200.0]
+    eng.exec_stats["gliss_med"] = 1.0
+    eng.exec_stats["retard_barre_s"] = 26.0
+    eng.exec_stats["n_retard_barre"] = 4
+    eng.exec_stats["retard_par_barre"] = {"1m": [26.0, 3], "15m": [152.0, 1]}
+    eng._snapshot({"equity": 10_000.0})
+
+    repris, _ = _moteur_pos(tmp_path)
+    assert int(repris.exec_stats["n_gliss"]) == 23
+    assert list(repris.exec_stats["gliss_ech"]) == [0.0, 1.0, 200.0], \
+        "lechantillon du glissement ne survit pas au redemarrage"
+    par = repris.exec_stats["retard_par_barre"]
+    assert abs(float(par["15m"][0]) - 152.0) < 1e-9
+    assert int(par["1m"][1]) == 3
+    assert abs(float(repris.exec_stats["retard_barre_s"]) - 26.0) < 1e-9
