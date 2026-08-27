@@ -909,6 +909,7 @@ class CandleModel:
         self.variant = "abs"   # brut, ou net de la moyenne du panel
         self.pente = 0.0       # ce que la réalité multiplie à l'annonce
         self.se_pente = float("inf")   # et ce que vaut cette mesure
+        self.ecart_sortant = float("nan")  # marge gagnante - sortante
         self.pente_brut = 0.0  # la meme, sur un rendement non stoppe
         self.stop_sig = 3.0    # stop retenu, en sigmas de l'horizon tenu
         self.stop_mode = "fixe"  # "fixe" ou "suiv" (suiveur)
@@ -953,6 +954,7 @@ class CandleModel:
             "n_assets": self.n_assets, "n_periods": self.n_periods,
             "variant": self.variant, "pente": self.pente,
             "se_pente": self.se_pente,
+            "ecart_sortant": self.ecart_sortant,
             "pente_brut": self.pente_brut,
             "stop_sig": self.stop_sig, "stop_mode": self.stop_mode,
             "garde": bool(self.ident is not None
@@ -1057,6 +1059,27 @@ class CandleModel:
         # exactement les mêmes conditions que n'importe quelle autre dans
         # _retenir, et si elle cesse de gagner de l'argent elle n'est même
         # plus candidate.
+        # De COMBIEN la sortante est-elle derriere ? Le journal publiait la
+        # marge de la GAGNANTE et jamais celle de la sortante, si bien que
+        # la question « la bande d hysteresis est-elle a la bonne largeur »
+        # n etait pas decidable sur les donnees publiees.
+        #
+        # Elle est loin d etre theorique. Compte le 27 aout : sur douze
+        # verdicts 1m consecutifs, le mot « gardee » n apparait que QUATRE
+        # fois — la cellule change d identite deux fois sur trois, vit 1,5
+        # ajustement, et le rodage en exige trente fermetures, soit une
+        # quinzaine de changements de regle avant d avoir de quoi juger.
+        # `live_rule` ne mesure donc jamais UNE regle.
+        #
+        # La bande vaut `1/racine(n_per)`, l erreur type d un Sharpe AU
+        # SEIN d un ajustement. Ce qu il faudrait comparer, c est la
+        # dispersion des marges ENTRE ajustements — une autre quantite,
+        # qui inclut le bruit de selection du maximum sur 4 860 cellules.
+        # On journalise l ecart pour pouvoir l estimer ; on ne touche a
+        # rien avant.
+        self.ecart_sortant = float("nan")
+        if sortant is not None and meilleur is not None:
+            self.ecart_sortant = float(meilleur["marge"] - sortant["marge"])
         if (sortant is not None and meilleur is not None
                 and sortant["ident"] != meilleur["ident"]):
             bruit = 1.0 / math.sqrt(max(sortant["n_per"], 1))
@@ -1838,7 +1861,14 @@ class ScaleDesk:
                                               for x in d.get("profil") or ())
                         + " ") if d.get("profil") else "")
                      + f"{'gardee ' if d.get('garde') else ''}"
-                     f"trades={d['n_trades']}/{d['n_holdout']} "
+                     # L ecart au sortant, et la bande qui le tranche :
+                     # sans les deux cote a cote on ne peut pas savoir si
+                     # la bande est a la bonne largeur.
+                     + ((f"ecart={d['ecart_sortant']:+.3f}"
+                         f"/bande={1.0 / math.sqrt(max(d['n_periods'], 1)):.3f} ")
+                        if d.get("ecart_sortant") == d.get("ecart_sortant")
+                        else "")
+                     + f"trades={d['n_trades']}/{d['n_holdout']} "
                      f"instants={d['n_periods']} n={d['n_train']} "
                      f"parjour={d.get('par_jour', 0.0):.1f} "
                      f"gainjour={d.get('gain_jour_bps', 0.0):+.0f}bps")

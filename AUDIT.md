@@ -255,8 +255,16 @@ Les options réelles, aucune mesurée, donc aucune retenue :
   la ferait vivre six heures au lieu d'une, et accumuler neuf fermetures
   au lieu de deux. Ce n'est pas un assouplissement de porte, c'est une
   cadence — mais le modèle vieillit d'autant.
-- **Élargir la bande d'hystérésis.** Elle vaut `1/√n_per`, soit l'erreur
-  type d'un Sharpe : c'est principiel, et l'élargir serait du réglage.
+- **Élargir la bande d'hystérésis** — et c'est la piste la plus sérieuse,
+  parce que la bande compare deux quantités différentes. Elle vaut
+  `1/√n_per`, l'erreur type d'un Sharpe **au sein d'un** ajustement. Ce
+  qu'il faudrait lui opposer, c'est la dispersion des marges **entre**
+  ajustements, qui inclut en plus le bruit de sélection du maximum sur
+  4 860 cellules — une quantité forcément plus grande.
+  La question n'était pas décidable : le journal publiait la marge de la
+  cellule **gagnante** et jamais celle de la **sortante**. L'écart est
+  désormais journalisé à côté de la bande (`ecart=±x.xxx/bande=0.0xx`),
+  et la bande, elle, n'a pas bougé d'un iota. On mesure d'abord.
 - **Mesurer le direct par identité de cellule.** Plus honnête, mais
   chaque identité n'aurait que deux fermetures — inutilisable.
 

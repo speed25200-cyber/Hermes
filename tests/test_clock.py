@@ -1026,3 +1026,42 @@ def test_the_holdout_duration_cross_checks_against_the_stored_history():
     ecart = histoire_impliquee(198_318, 20, "15m", 3) / 365.0
     assert 1.3 < ecart < 1.5, \
         f"lecart du 15m a change ({ecart:.2f}) : le comprendre avant de toucher"
+
+
+def test_the_journal_says_how_far_behind_the_incumbent_cell_was():
+    """La bande d'hystérésis n'était pas décidable sur les données publiées.
+
+    Le journal publiait la marge de la cellule GAGNANTE et jamais celle
+    de la SORTANTE. Or c'est l'écart entre les deux qui dit si la bande
+    `1/√n_per` est à la bonne largeur.
+
+    La question est loin d'être théorique. Compté le 27 août : sur douze
+    verdicts 1m consécutifs, `gardee` n'apparaît que QUATRE fois — la
+    cellule change d'identité deux fois sur trois, vit 1,5 ajustement,
+    et le rodage exige trente fermetures, soit une quinzaine de
+    changements de règle avant d'avoir de quoi juger. `live_rule` ne
+    mesure donc jamais UNE règle, et c'est pourtant lui qui commande
+    `confiance`.
+
+    La bande vaut l'erreur type d'un Sharpe AU SEIN d'un ajustement. Ce
+    qu'il faudrait lui comparer, c'est la dispersion des marges ENTRE
+    ajustements — une autre quantité, qui inclut le bruit de sélection
+    du maximum sur 4 860 cellules. Ce test exige que l'écart soit
+    journalisé À CÔTÉ de la bande, pour que la comparaison devienne
+    possible ; il n'exige aucun changement de la bande.
+    """
+    import inspect
+
+    from hermes.scalp import clock
+
+    src = inspect.getsource(clock)
+    assert "self.ecart_sortant" in src, "lecart au sortant nest pas mesure"
+    assert "meilleur[\"marge\"] - sortant[\"marge\"]" in src, \
+        "lecart nest pas la difference des marges"
+    assert "ecart={d['ecart_sortant']" in src, "lecart natteint pas le journal"
+    assert "bande=" in src, \
+        "la bande nest pas journalisee a cote : la comparaison reste impossible"
+
+    # La bande reste exactement ce qu elle etait — on mesure, on ne regle pas.
+    assert "bruit = 1.0 / math.sqrt(max(sortant[\"n_per\"], 1))" in src, \
+        "la bande dhysteresis a ete modifiee sans mesure"
