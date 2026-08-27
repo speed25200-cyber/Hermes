@@ -879,7 +879,8 @@ class ScalpEngine:
                 causes.append(f"frein du jour x{frein:.2f}")
             dire("attention", "Taille bridee",
                  f"{joue / plein * 100:.0f} % de ce que lavantage justifie"
-                 + (" — " + ", ".join(causes) if causes else ""))
+                 + (" — " + ", ".join(causes) if causes else "")
+                 + self._distance_au_deverrouillage())
 
         # 3. Une position sans regle : ni stop, ni duree, personne pour la
         #    fermer. Mesure : un DOGE -8050 immobile pendant des heures.
@@ -941,6 +942,45 @@ class ScalpEngine:
         rang = {"grave": 0, "attention": 1, "info": 2}
         out.sort(key=lambda a: rang.get(a["niveau"], 3))
         return out
+
+    def _distance_au_deverrouillage(self) -> str:
+        """Combien de mesures manquent pour que la taille monte, et de
+        combien elle montera.
+
+        « Pourquoi les positions sont-elles minuscules » a une reponse
+        exacte, et elle n etait nulle part : le rodage vaut 0,10, il
+        passera a une valeur CALCULABLE des que la moyenne en direct
+        franchira zero, et il faut un nombre CALCULABLE de mesures pour
+        l y amener. Sans ces deux chiffres, « la taille est bridee » est
+        une constatation ; avec eux, c est un compte a rebours.
+
+        Mesure du 25 aout : n=66, bps=-2,21. La confiance passerait de
+        0,10 a 0,42 au franchissement — x4,2 sur la taille, d un coup —
+        et vingt mesures a +7,3 bps y suffisent, ce qui est en dessous du
+        net deflate de la regle retenue (+14,6).
+        """
+        n = int(self.live_stats.get("n") or 0)
+        bps = float(self.live_stats.get("bps") or 0.0)
+        if n < 1 or bps > 0:
+            return ""
+        conf = self._confiance()
+        # ce que vaudrait le rodage si la moyenne franchissait zero, a n
+        # inchange : c est le saut immediat, pas une projection lointaine
+        apres = (min(1.0, 0.1 + 0.9 * min(1.0, (n - 30) / 100.0))
+                 if n >= 30 else 0.1)
+        if apres <= conf * 1.05:
+            return ""
+        # combien de mesures a l avantage deflate annonce, pour ramener la
+        # moyenne courante a zero : n*|bps| / defl
+        defl = max((float(p.get("net_defl") or 0.0)
+                    for p in (self.last_preds or [])), default=0.0)
+        combien = ""
+        if defl > 0.0:
+            k = int(math.ceil(n * abs(bps) / defl))
+            combien = f", soit environ {k} mesure(s) a lavantage annonce"
+        return (f". Le franchissement de zero par la mesure en direct "
+                f"({bps:+.2f} bps sur {n}) ferait passer le rodage de "
+                f"{conf:.2f} a {apres:.2f}{combien}")
 
     def _anomalies_sures(self, eq: float, tg: dict) -> list[dict]:
         """L instantane ne doit JAMAIS echouer a cause du diagnostic.

@@ -2014,3 +2014,54 @@ def test_the_diagnosis_can_never_break_the_snapshot(tmp_path):
         d = json.load(f)
     assert d["anomalies"][0]["titre"] == "Diagnostic indisponible"
     assert d["equity"] == 10_000.0, "linstantane a survecu"
+
+
+def test_the_brake_says_what_would_lift_it(tmp_path):
+    """« Pourquoi les positions sont-elles minuscules » a une reponse
+    EXACTE, et elle n etait nulle part.
+
+    Le rodage vaut 0,10. Il passera a une valeur calculable des que la
+    moyenne en direct franchira zero, et il faut un nombre calculable de
+    mesures pour l y amener. Sans ces deux chiffres, « la taille est
+    bridee » est une constatation ; avec eux, c est un compte a rebours.
+
+    Mesure du 25 aout : n=66, bps=-2,21, net deflate +14,6. La confiance
+    passerait de 0,10 a 0,42 — x4,2 d un coup — et onze mesures a
+    l avantage annonce y suffisent. Vingt mesures a +7,3 bps suffiraient
+    aussi, soit la moitie de l avantage annonce.
+    """
+    inst = "BTC-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path, {inst: 1.0})
+    b.lever = {inst: 5.0}
+    eng.ticks[inst] = {"last": 100.0, "bid": 99.9, "ask": 100.1,
+                       "spread_bps": 2.0}
+    eng.brackets[inst] = {"side": "long", "entry": 100.0, "sl": 99.0,
+                          "tp": 101.0, "sl_bps": 100.0, "tp_bps": 100.0}
+    eng.last_preds = [{"inst": inst, "dir": "long", "poids_plein": 0.50,
+                       "net_defl": 14.6}]
+    eng.live_stats = {"n": 66, "bps": -2.2148, "jambes": 66}
+
+    bride = next(x for x in eng.anomalies(10_000.0, {inst: 0.02})
+                 if x["titre"] == "Taille bridee")
+    d = bride["detail"]
+    assert "0.10 a 0.42" in d, d
+    # 66 x 2,2148 / 14,6 = 10,01 : il en faut ONZE, pas dix. L arrondi
+    # se fait vers le haut — annoncer dix laisserait la moyenne juste en
+    # dessous de zero, donc le rodage a 0,10 malgre le compte atteint.
+    assert "11 mesure" in d, d
+    assert "-2.21 bps sur 66" in d, d
+
+    # Une fois la moyenne positive, il n y a plus de compte a rebours a
+    # afficher : le rodage n est plus ce qui bride.
+    eng.live_stats = {"n": 66, "bps": +1.0, "jambes": 66}
+    bride = next((x for x in eng.anomalies(10_000.0, {inst: 0.02})
+                  if x["titre"] == "Taille bridee"), None)
+    assert bride is None or "franchissement" not in bride["detail"]
+
+    # Et sous trente mesures, franchir zero ne debloque rien : on ne
+    # promet pas un saut qui n aurait pas lieu.
+    eng.live_stats = {"n": 12, "bps": -3.0, "jambes": 12}
+    bride = next((x for x in eng.anomalies(10_000.0, {inst: 0.02})
+                  if x["titre"] == "Taille bridee"), None)
+    assert bride is not None
+    assert "franchissement" not in bride["detail"], bride["detail"]
