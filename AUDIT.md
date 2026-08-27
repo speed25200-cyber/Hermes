@@ -228,9 +228,53 @@ ou non ?
 - Si elle ne l'est pas, le bon correctif est le poids bayésien
   ci-dessus, qui ramène `shrink` vers 1 quand la pente est mal mesurée.
 
-Cela ne se décide pas au raisonnement — c'est précisément l'erreur du
-seuil de 0,15. L'erreur type est donc **mesurée et journalisée**
-(`pente=X+-Y`), branchée à rien, et on tranchera sur les chiffres.
+#### Ni l'un ni l'autre : la pente portait sur un rendement jamais encaissé
+
+Les deux hypothèses ci-dessus ont été essayées en fixture, et **aucune
+ne reproduit −1,53** — zéro tirage sur 200 :
+
+| mécanisme, même ic et même taux de déclenchement | pente obtenue |
+|---|---|
+| atténuation de sélection, vérité linéaire calibrée | +0,93 |
+| modèle qui sur-annonce (pente pleine 0,3) | +0,31 |
+| sur-extrapolation, signal mort au-delà de 2 σ | **+0,06** |
+| sur-extrapolation, signal mort au-delà de 1,5 σ | −0,06 |
+
+La sur-extrapolation — le mécanisme que j'avais invoqué — pousse la
+pente vers **zéro**, pas vers −1,5. Mon explication était fausse.
+
+La vraie raison est plus simple, et elle était sous les yeux : `pente`
+régressait `yho`, la cible **brute** du holdout, alors que `net` vient
+de `gains`, l'issue **après simulation du stop**. Ce ne sont pas les
+mêmes rendements. Une pente OLS sur des queues épaisses est dominée par
+une poignée de points extrêmes — et ce sont précisément ceux que le stop
+coupe. La stratégie ne réalise **jamais** `yho`.
+
+Mesure à l'échelle de la production, 60 tirages par ligne, vérité
+calibrée à 1 :
+
+| queues | pente BRUTE | min | < 0 | pente RÉELLE | min | < 0 |
+|---|---|---|---|---|---|---|
+| df = 2,5 | +0,96 | −1,21 | 13 % | **+1,50** | −0,29 | 3 % |
+| df = 3 | +0,91 | −0,21 | 7 % | +1,23 | +0,02 | 0 % |
+| df = 4 | +0,91 | −0,08 | 3 % | +1,07 | +0,03 | 0 % |
+| df = 8 | +1,06 | +0,13 | 0 % | +1,11 | +0,16 | 0 % |
+
+L'écart se creuse avec l'épaisseur des queues et **disparaît** quand
+elles s'amincissent : c'est la signature du mécanisme. Avec une autre
+graine, le minimum de la pente brute descendait à −5,56 — la statistique
+brute est elle-même instable, et c'est le reproche.
+
+Ce qui est vrai et ce qui ne l'est pas : la pente réelle n'est **pas**
+garantie positive. Elle l'est simplement bien plus souvent, et son pire
+cas est bien moins extrême. Le correctif ne fabrique donc pas un shrink
+positif — il mesure la calibration contre le rendement que la stratégie
+encaisse réellement, ce qu'elle aurait toujours dû faire.
+
+Ce n'est pas un assouplissement de porte : `pente` ne franchit rien,
+elle dimensionne. Et la pente brute reste journalisée à côté
+(`pente=X+-Y(brut Z)`) pour que l'écart soit lisible en production
+plutôt que supposé.
 
 ---
 

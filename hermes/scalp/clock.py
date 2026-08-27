@@ -850,6 +850,7 @@ class CandleModel:
         self.variant = "abs"   # brut, ou net de la moyenne du panel
         self.pente = 0.0       # ce que la réalité multiplie à l'annonce
         self.se_pente = float("inf")   # et ce que vaut cette mesure
+        self.pente_brut = 0.0  # la meme, sur un rendement non stoppe
         self.stop_sig = 3.0    # stop retenu, en sigmas de l'horizon tenu
         self.stop_mode = "fixe"  # "fixe" ou "suiv" (suiveur)
         self._sig_ref = 1e-3   # sigma de repli si l'appelant n'en donne pas
@@ -893,6 +894,7 @@ class CandleModel:
             "n_assets": self.n_assets, "n_periods": self.n_periods,
             "variant": self.variant, "pente": self.pente,
             "se_pente": self.se_pente,
+            "pente_brut": self.pente_brut,
             "stop_sig": self.stop_sig, "stop_mode": self.stop_mode,
             "garde": bool(self.ident is not None
                           and self.ident == self._precedent),
@@ -1233,8 +1235,12 @@ class CandleModel:
                             barre = expected_max_sharpe(self.n_cells, n_per)
                             marge = sr - barre
                             mu = float(np.mean(net))
+                            # Contre ce que la strategie REALISE, pas
+                            # contre `yho` qu elle ne connait pas — voir
+                            # _pente_et_erreur.
                             pente, se_pente = _pente_et_erreur(
-                                pv[m], yho[m])
+                                pv[m], sens * gains)
+                            pente_brut, _ = _pente_et_erreur(pv[m], yho[m])
                             cle = (1 if mu > 0 else 0, marge)
                             ident = (fam, h, float(k), var, mode, float(ks))
                             cellule = {
@@ -1247,6 +1253,7 @@ class CandleModel:
                                 "bps": mu, "sr": sr, "cle": cle, "sd": sd,
                                 "barre": barre, "marge": marge, "pente": pente,
                                 "se_pente": se_pente,
+                                "pente_brut": pente_brut,
                             }
                             if best is None or cle > best["cle"]:
                                 best = cellule
@@ -1312,7 +1319,10 @@ class CandleModel:
                         # une cellule cherchée mais une échelle estimée, et le
                         # Sharpe est invariant d'échelle : la porte n'en est
                         # pas affectée d'un iota.
-                        pente, se_pente = _pente_et_erreur(pv[m], yho[m])
+                        # Contre ce que la strategie REALISE, pas contre
+                        # `yho` qu elle ne connait pas — voir _pente_et_erreur.
+                        pente, se_pente = _pente_et_erreur(pv[m], sens * gains)
+                        pente_brut, _ = _pente_et_erreur(pv[m], yho[m])
                         cle = (1 if mu > 0 else 0, marge)
                         ident = (fam, h, float(k), var, mode, float(ks))
                         cellule = {
@@ -1335,6 +1345,7 @@ class CandleModel:
                             "pnl": rq,
                             "barre": barre, "marge": marge, "pente": pente,
                             "se_pente": se_pente,
+                            "pente_brut": pente_brut,
                         }
                         if best is None or cle > best["cle"]:
                             best = cellule
@@ -1362,6 +1373,7 @@ class CandleModel:
         self.ident = b.get("ident")
         self.pente = float(b.get("pente") or 0.0)
         self.se_pente = float(b.get("se_pente") or float("inf"))
+        self.pente_brut = float(b.get("pente_brut") or 0.0)
         self.stop_sig = float(b.get("stop") or 3.0)
         # Le MODE du stop fait partie de la regle validee au meme titre que
         # sa largeur. Le laisser derriere ferait jouer un stop fixe la ou la
@@ -1713,6 +1725,7 @@ class ScaleDesk:
                      + (f"+-{d['se_pente']:.2f}"
                         if np.isfinite(d.get("se_pente", float("inf")))
                         else "+-?")
+                     + f"(brut {d.get('pente_brut', 0.0):+.2f})" 
                      # Une pente negative rend un shrink nul, et un shrink
                      # nul rend une cellule INERTE : elle gagne la
                      # recherche, en bloque toutes les autres, et ne

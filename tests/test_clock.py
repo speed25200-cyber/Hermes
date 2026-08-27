@@ -687,3 +687,90 @@ def test_the_verdict_line_carries_the_slope_uncertainty():
     assert 'f"pente={d[\'pente\']:.2f}"' in src
     assert '+-{d[\'se_pente\']:.2f}' in src, \
         "lerreur type de la pente natteint pas le journal"
+
+
+def test_the_slope_is_measured_on_what_the_strategy_actually_realises():
+    """Le verdict 1H portait `net=+40.95bps` ET `pente=-1.53`, sur les
+    mêmes lignes. Ce n'est pas une contradiction : ce sont deux
+    rendements différents.
+
+    `pente` régressait `yho` — la cible BRUTE du holdout, queues
+    entières. `net` vient de `gains`, l'issue APRÈS simulation du stop.
+    Une pente OLS sur des queues épaisses est dominée par une poignée de
+    points extrêmes, et ce sont précisément ceux que le stop coupe. La
+    stratégie ne réalise jamais `yho` ; calibrer contre lui la magnitude
+    annoncée, puis s'en servir pour dimensionner une stratégie stoppée,
+    est une erreur de catégorie — et elle coûtait `shrink = 0`, donc
+    l'inertie totale.
+
+    Trois mécanismes bénins avaient été essayés et aucun ne reproduisait
+    −1,53 : atténuation de sélection sur vérité linéaire calibrée
+    (+0,93), modèle qui sur-annonce (+0,31), sur-extrapolation avec
+    signal mort au-delà de 2 σ (+0,06 — elle pousse vers ZÉRO, pas vers
+    −1,5). Seules les queues épaisses non tronquées y parviennent.
+
+    Mesure à l'échelle de la production, 60 tirages par ligne :
+
+        queues   BRUTE  min     <0     RÉELLE  min     <0
+        df=2,5   +0,96  -1,21   13 %   +1,50   -0,29   3 %
+        df=3     +0,91  -0,21    7 %   +1,23   +0,02   0 %
+        df=4     +0,91  -0,08    3 %   +1,07   +0,03   0 %
+        df=8     +1,06  +0,13    0 %   +1,11   +0,16   0 %
+
+    Ce qui est vrai et ce qui ne l'est pas : la pente réelle n'est PAS
+    garantie positive — elle l'est simplement bien plus souvent, et son
+    pire cas est bien moins extrême. L'écart se creuse avec l'épaisseur
+    des queues et disparaît quand elles s'amincissent, ce qui est la
+    signature du mécanisme invoqué. Avec une autre graine le minimum de
+    la pente brute descendait à −5,56 : la statistique brute est
+    elle-même instable, et c'est le reproche.
+    """
+    import numpy as np
+
+    from hermes.scalp.clock import _pente_et_erreur
+
+    def deux_pentes(df, tirages, n=100_000, part=0.0125, stop=3.0, graine=404):
+        rng = np.random.default_rng(graine)
+        brut, reel = [], []
+        for _ in range(tirages):
+            sig = rng.normal(0, 1.0, n)
+            pred = sig + rng.normal(0, 9.0, n)
+            y = sig * 0.6 + rng.standard_t(df, n) * 3.0
+            b0 = float(np.cov(pred, y)[0, 1] / np.var(pred))
+            if abs(b0) > 1e-12:
+                pred = pred * b0                      # pente pleine = 1
+            seuil = np.quantile(np.abs(pred), 1.0 - part)
+            m = np.abs(pred) >= seuil
+            sens = np.sign(pred[m])
+            gains = np.maximum(sens * y[m], -stop * float(np.std(y)))
+            brut.append(_pente_et_erreur(pred[m], y[m])[0])
+            reel.append(_pente_et_erreur(pred[m], sens * gains)[0])
+        return np.asarray(brut), np.asarray(reel)
+
+    # Queues epaisses : la pente reelle domine, et son pire cas est bien
+    # moins extreme. Ce sont les deux seules choses que la mesure permet
+    # d affirmer — pas que la pente reelle soit toujours positive.
+    b25, r25 = deux_pentes(2.5, 25)
+    assert r25.mean() > b25.mean() + 0.15, \
+        f"reelle {r25.mean():+.2f} contre brute {b25.mean():+.2f}"
+    assert r25.min() > b25.min() + 0.30, \
+        f"pire cas reel {r25.min():+.2f} contre brut {b25.min():+.2f}"
+
+    # Queues fines : le stop ne tronque presque rien, les deux pentes se
+    # rejoignent. Si l ecart subsistait la, il viendrait d autre chose
+    # que du mecanisme invoque et l explication serait fausse.
+    b8, r8 = deux_pentes(8.0, 25)
+    assert abs(r8.mean() - b8.mean()) < abs(r25.mean() - b25.mean()), \
+        "lecart ne depend pas de lepaisseur des queues : mecanisme faux"
+
+    # Et le code mesure bien celle-la, avec la brute journalisee a cote.
+    import inspect
+
+    from hermes.scalp import clock
+
+    src = inspect.getsource(clock)
+    assert "_pente_et_erreur(pv[m], sens * gains)" in src, \
+        "la pente est encore mesuree sur un rendement non realise"
+    assert "_pente_et_erreur(pv[m], yho[m])" in src, \
+        "la pente brute nest plus journalisee, la comparaison est perdue"
+    assert "pente_brut" in src
