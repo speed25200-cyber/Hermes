@@ -722,6 +722,52 @@ def _en_risque(net: np.ndarray, ts: np.ndarray,
     return np.bincount(inv, weights=u) / np.bincount(inv)
 
 
+def _pente_et_erreur(x: np.ndarray, y: np.ndarray) -> tuple:
+    """La pente de la realite sur l annonce, ET son erreur type.
+
+    La pente sert a redimensionner la prediction :
+        shrink = max(0 ; 1 + (pente - 1) * credit)
+    Une pente negative rend donc un shrink NUL, et une cellule inerte :
+    elle gagne la recherche, bloque toutes les autres, et ne produit
+    jamais une direction. Le verdict 1H du 27 aout portait -0,70 puis
+    -1,53 sur deux ajustements consecutifs.
+
+    Or cette pente est mesuree sur le SOUS-ENSEMBLE DECLENCHE, celui ou
+    |prediction| depasse k sigma. C est un conditionnement sur la
+    variable explicative, et il attenue la pente vers zero de facon
+    connue : en selectionnant les predictions extremes on selectionne
+    aussi les lignes ou la part de BRUIT de la prediction est extreme, et
+    le realise ne suit pas ce bruit. Avec un ic de 0,010, la part de
+    signal est minuscule et l attenuation peut faire passer la pente sous
+    zero sans qu il y ait la moindre anti-prediction.
+
+    Le point neutre de la formule est 1 — faire confiance a l echelle du
+    modele — et `credit` etait cense s en ecarter « a proportion des
+    preuves ». Mais `credit = n_periods/200` compte des INSTANTS, pas la
+    precision de la pente : a 1 142 instants il vaut 1, et la formule
+    accorde une confiance totale a une pente dont on ignore l erreur.
+
+    On mesure donc cette erreur. La forme `1 + (b - 1) * credit` est
+    exactement la moyenne a posteriori d un b bruite autour d un a priori
+    centre en 1, avec credit = tau2 / (tau2 + se2) : la formule etait
+    juste, c est le poids qui etait faux. Reste a savoir si, sur les
+    donnees reelles, une pente de -1,53 est etablie ou non — et cela ne
+    se decide pas au raisonnement. On journalise, on lit, on tranche.
+    """
+    x = np.asarray(x, dtype=np.float64)
+    y = np.asarray(y, dtype=np.float64)
+    n = len(x)
+    if n < 3:
+        return 0.0, float("inf")
+    vx = float(np.var(x))
+    if vx <= 1e-18:
+        return 0.0, float("inf")
+    b = float(np.cov(x, y)[0, 1]) / vx
+    res = (y - float(np.mean(y))) - b * (x - float(np.mean(x)))
+    se = float(np.std(res, ddof=2)) / (math.sqrt(vx) * math.sqrt(n))
+    return b, (se if np.isfinite(se) and se > 0.0 else float("inf"))
+
+
 def _profil(pnl: np.ndarray, k: int = 3) -> tuple:
     """Le Sharpe par tiers chronologique du holdout.
 
@@ -803,6 +849,7 @@ class CandleModel:
                         * len(THRESHOLDS) * len(HORIZONS) * len(STOPS))
         self.variant = "abs"   # brut, ou net de la moyenne du panel
         self.pente = 0.0       # ce que la réalité multiplie à l'annonce
+        self.se_pente = float("inf")   # et ce que vaut cette mesure
         self.stop_sig = 3.0    # stop retenu, en sigmas de l'horizon tenu
         self.stop_mode = "fixe"  # "fixe" ou "suiv" (suiveur)
         self._sig_ref = 1e-3   # sigma de repli si l'appelant n'en donne pas
@@ -845,6 +892,7 @@ class CandleModel:
             "horizon_bars": self.horizon_bars,
             "n_assets": self.n_assets, "n_periods": self.n_periods,
             "variant": self.variant, "pente": self.pente,
+            "se_pente": self.se_pente,
             "stop_sig": self.stop_sig, "stop_mode": self.stop_mode,
             "garde": bool(self.ident is not None
                           and self.ident == self._precedent),
@@ -1185,9 +1233,8 @@ class CandleModel:
                             barre = expected_max_sharpe(self.n_cells, n_per)
                             marge = sr - barre
                             mu = float(np.mean(net))
-                            vp = float(np.var(pv[m]))
-                            pente = (float(np.cov(pv[m], yho[m])[0, 1]) / vp) \
-                                if vp > 1e-18 else 0.0
+                            pente, se_pente = _pente_et_erreur(
+                                pv[m], yho[m])
                             cle = (1 if mu > 0 else 0, marge)
                             ident = (fam, h, float(k), var, mode, float(ks))
                             cellule = {
@@ -1199,6 +1246,7 @@ class CandleModel:
                                 "n_hold": len(yho), "n_train": n_train,
                                 "bps": mu, "sr": sr, "cle": cle, "sd": sd,
                                 "barre": barre, "marge": marge, "pente": pente,
+                                "se_pente": se_pente,
                             }
                             if best is None or cle > best["cle"]:
                                 best = cellule
@@ -1264,9 +1312,7 @@ class CandleModel:
                         # une cellule cherchée mais une échelle estimée, et le
                         # Sharpe est invariant d'échelle : la porte n'en est
                         # pas affectée d'un iota.
-                        vp = float(np.var(pv[m]))
-                        pente = (float(np.cov(pv[m], yho[m])[0, 1]) / vp) \
-                            if vp > 1e-18 else 0.0
+                        pente, se_pente = _pente_et_erreur(pv[m], yho[m])
                         cle = (1 if mu > 0 else 0, marge)
                         ident = (fam, h, float(k), var, mode, float(ks))
                         cellule = {
@@ -1288,6 +1334,7 @@ class CandleModel:
                             # unites que le `sr` global qu il decompose.
                             "pnl": rq,
                             "barre": barre, "marge": marge, "pente": pente,
+                            "se_pente": se_pente,
                         }
                         if best is None or cle > best["cle"]:
                             best = cellule
@@ -1314,6 +1361,7 @@ class CandleModel:
         self.variant = b.get("var", "abs")
         self.ident = b.get("ident")
         self.pente = float(b.get("pente") or 0.0)
+        self.se_pente = float(b.get("se_pente") or float("inf"))
         self.stop_sig = float(b.get("stop") or 3.0)
         # Le MODE du stop fait partie de la regle validee au meme titre que
         # sa largeur. Le laisser derriere ferait jouer un stop fixe la ou la
@@ -1662,6 +1710,9 @@ class ScaleDesk:
                      f"seuil={d['thr_bps']:.1f}bps/{d.get('thr_k', 0.0):.1f}sig "
                      f"stop={d['stop_sig']:.0f}sig/{d.get('stop_mode', 'fixe')} "
                      f"pente={d['pente']:.2f}"
+                     + (f"+-{d['se_pente']:.2f}"
+                        if np.isfinite(d.get("se_pente", float("inf")))
+                        else "+-?")
                      # Une pente negative rend un shrink nul, et un shrink
                      # nul rend une cellule INERTE : elle gagne la
                      # recherche, en bloque toutes les autres, et ne

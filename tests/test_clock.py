@@ -619,3 +619,71 @@ def test_a_cell_the_engine_cannot_size_says_so():
     for pente, credit, attendu in ((-0.70, 1.0, 0.0), (0.0, 1.0, 0.0),
                                    (1.0, 1.0, 1.0), (2.0, 0.5, 1.5)):
         assert min(3.0, max(0.0, 1.0 + (pente - 1.0) * credit)) == attendu
+
+
+def test_the_slope_reports_how_well_it_is_measured():
+    """Une pente négative annule la cellule ; encore faut-il qu'elle soit vraie.
+
+    `shrink = max(0 ; 1 + (pente − 1)·crédit)`. Le verdict 1H portait
+    −0,70 puis −1,53 sur deux ajustements consécutifs, donc un shrink nul
+    et une cellule inerte — alors que la porte venait de valider son net
+    (+40,95 bps/trade) et son Sharpe SUR LES MÊMES LIGNES. Deux
+    statistiques du même sous-ensemble se contredisent.
+
+    La pente est mesurée sur le sous-ensemble DÉCLENCHÉ, `|pred| ≥ k·σ`.
+    Conditionner sur la variable explicative atténue la pente vers zéro :
+    en sélectionnant les prédictions extrêmes on sélectionne aussi les
+    lignes où la part de BRUIT de la prédiction est extrême, et le réalisé
+    ne suit pas ce bruit. Avec un ic de 0,010 la part de signal est
+    minuscule, et l'atténuation peut faire passer la pente sous zéro sans
+    la moindre anti-prédiction.
+
+    Ce test n'arbitre pas — il exige que l'erreur type soit MESURÉE, pour
+    que la question « cette pente est-elle établie ? » ait une réponse
+    chiffrée au lieu d'un raisonnement.
+    """
+    import numpy as np
+
+    from hermes.scalp.clock import _pente_et_erreur
+
+    rng = np.random.default_rng(31)
+
+    # 1) Une pente parfaitement connue : b proche de 2, erreur petite.
+    x = rng.normal(0, 1, 4000)
+    y = 2.0 * x + rng.normal(0, 0.1, 4000)
+    b, se = _pente_et_erreur(x, y)
+    assert abs(b - 2.0) < 0.02, b
+    assert se < 0.01, se
+    assert abs(b - 2.0) < 4 * se
+
+    # 2) Le cas du 1H : une prédiction presque toute en bruit. La pente
+    #    mesurée part n'importe où, et l'erreur type doit le DIRE.
+    signal = rng.normal(0, 1, 4000)
+    pred = signal + rng.normal(0, 30.0, 4000)      # ic minuscule
+    reel = signal + rng.normal(0, 10.0, 4000)
+    b2, se2 = _pente_et_erreur(pred, reel)
+    assert se2 > 0.0 and np.isfinite(se2)
+    # La vraie pente vaut var(signal)/var(pred) ~ 1/901, soit ~0. Ce qui
+    # compte est que l ecart a 1 soit ENORME en erreurs types : la mesure
+    # dit alors « le modele sur-annonce », pas « il se trompe de sens ».
+    assert abs(b2 - 1.0) / se2 > 3.0
+
+    # 3) Trop peu de points : aucune pente ne peut etre affirmee.
+    b3, se3 = _pente_et_erreur(np.array([1.0, 2.0]), np.array([1.0, 2.0]))
+    assert se3 == float("inf"), se3
+    # Et une prediction constante non plus.
+    b4, se4 = _pente_et_erreur(np.zeros(500), rng.normal(0, 1, 500))
+    assert b4 == 0.0 and se4 == float("inf")
+
+
+def test_the_verdict_line_carries_the_slope_uncertainty():
+    """Le journal doit porter `pente=X+-Y`, sinon la question reste ouverte
+    à chaque relevé et on retombe sur le raisonnement."""
+    import inspect
+
+    from hermes.scalp import clock
+
+    src = inspect.getsource(clock)
+    assert 'f"pente={d[\'pente\']:.2f}"' in src
+    assert '+-{d[\'se_pente\']:.2f}' in src, \
+        "lerreur type de la pente natteint pas le journal"

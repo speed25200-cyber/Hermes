@@ -190,6 +190,50 @@ Chacun était silencieux. Aucun n'apparaissait dans les journaux.
 | sortie postée au take | mesurée à −3,4 bps, 13 remplissages sur 31 | rejetée |
 | 7 colonnes croisées BTC | lead-lag inchangé 3/3 **avec comme sans** — aucun bénéfice | réduites à 1 |
 
+### Ce qui bloque vraiment : pas la porte, ce qui vient juste après
+
+Le 1H nette **+40,95 bps par trade** et son Sharpe est à **0,007** de la
+barre. Mais sa pente vaut −1,53, donc `shrink = max(0 ; 1 + (pente−1)·crédit) = 0`,
+donc `r_bps = raw × shrink = 0`, donc aucune direction, aucune espérance,
+aucun trade. Deux statistiques calculées **sur les mêmes lignes** se
+contredisent : la porte dit « cette cellule trade avec profit », le
+shrink dit « réduis-la à zéro ».
+
+La pente est mesurée sur le sous-ensemble **déclenché**, `|pred| ≥ k·σ`.
+Conditionner sur la variable explicative atténue la pente vers zéro, et
+c'est mécanique : en sélectionnant les prédictions extrêmes on
+sélectionne aussi les lignes où la part de **bruit** de la prédiction est
+extrême, et le réalisé ne suit pas ce bruit. Avec un ic de 0,010 la part
+de signal est minuscule ; l'atténuation peut faire passer la pente sous
+zéro sans la moindre anti-prédiction.
+
+Le point neutre de la formule est 1 — faire confiance à l'échelle du
+modèle — et `crédit` était censé s'en écarter « à proportion des
+preuves ». Mais `crédit = n_periods/200` compte des **instants**, pas la
+précision de la pente : à 1 142 instants il vaut 1, et la formule accorde
+une confiance totale à une pente dont l'erreur n'était pas mesurée.
+
+Or `1 + (b − 1)·crédit` est **exactement** la moyenne a posteriori d'un
+`b` bruité autour d'un a priori centré en 1, avec
+`crédit = τ²/(τ² + se²)`. La forme était juste ; c'est le poids qui était
+faux. Reste la question qui décide entre deux correctifs très
+différents : sur données réelles, une pente de −1,53 est-elle **établie**
+ou non ?
+
+- Si elle l'est (écart à 1 de plusieurs erreurs types), le modèle
+  sur-annonce vraiment sur ses lignes extrêmes, et le bon correctif est
+  de **remplacer** la magnitude annoncée par une magnitude mesurée — le
+  `net` et le `sd` de la cellule, que la porte vient de valider — plutôt
+  que d'annuler une cellule dont le signe et le net sont établis.
+- Si elle ne l'est pas, le bon correctif est le poids bayésien
+  ci-dessus, qui ramène `shrink` vers 1 quand la pente est mal mesurée.
+
+Cela ne se décide pas au raisonnement — c'est précisément l'erreur du
+seuil de 0,15. L'erreur type est donc **mesurée et journalisée**
+(`pente=X+-Y`), branchée à rien, et on tranchera sur les chiffres.
+
+---
+
 ### Deux choses que le journal ne disait pas, et une qu'il disait faux
 
 **L'ic rapporté n'était pas celui de la cellule choisie.** Il était
