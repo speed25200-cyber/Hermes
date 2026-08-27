@@ -377,3 +377,95 @@ def test_the_screen_renders_the_diagnosis_it_does_not_recompute_it(page):
     # taille dans l ecran
     for interdit in ("lev_ech_min", "poids_plein", "round_trip"):
         assert interdit not in bloc, f"{interdit} recalcule a lecran"
+
+
+def test_the_hourly_clock_is_not_invisible_on_screen(page):
+    """« 1H » manquait à la liste des échelles de la carte des preuves.
+
+    `const ordre = ["1m", "3m", "5m", "15m"]` — écrite à la main quand il
+    n'y avait que quatre échelles, et jamais mise à jour quand le 1H a
+    rejoint `BARS`. L'horloge horaire était donc INVISIBLE à l'écran
+    depuis sa création.
+
+    C'est exactement le même défaut que la clé « 1H » absente de
+    `BAR_MS` côté moteur, et il a la même racine : une liste écrite à la
+    main qui doit rester synchrone avec une autre. Le correctif ne se
+    contente donc pas d'ajouter « 1H » — il prend l'ordre voulu PUIS tout
+    ce que le moteur envoie, pour qu'une échelle neuve apparaisse même si
+    personne ne pense à la rajouter ici.
+    """
+    assert '"1m", "3m", "5m", "15m", "1H"' in page, \
+        "la liste des echelles ne contient toujours pas le 1H"
+    assert '["1m", "3m", "5m", "15m"]' not in page, \
+        "lancienne liste tronquee subsiste"
+    # La partie qui compte vraiment : ce que le moteur envoie et qui n est
+    # pas dans la liste doit quand meme s afficher.
+    assert "prefere.indexOf(b) < 0" in page, \
+        "une echelle inconnue de la liste resterait invisible"
+
+
+def test_the_main_page_says_what_is_blocking(page):
+    """« Je peux savoir ce qu'il se passe, ce que tu fais et ce qui bloque,
+    car je comprends rien. »
+
+    La réponse demandait jusqu'ici de lire des journaux en SSH : le
+    Sharpe par échelle vit dans `_echelles`, que l'écran n'affichait que
+    dans un autre onglet ; le rodage vit dans le bandeau sans jamais dire
+    combien de fermetures il manque ; et le rythme de déclenchement
+    n'était nulle part.
+
+    Gagner de l'argent demande cinq choses dans l'ordre, et il suffit
+    qu'une seule manque. La carte les montre toutes, sur la page
+    principale, et nomme celle qui arrête la chaîne.
+    """
+    import re
+
+    # Elle existe, elle est rendue, et elle est sur la page PRINCIPALE.
+    assert 'id="carte-chaine"' in page
+    assert "function rendreChaine" in page
+    assert "rendreChaine(d);" in page, "la carte nest jamais rendue"
+
+    marche = page.split('id="vue-marche"')[1].split("</section>")[0]
+    assert 'id="carte-chaine"' in marche, \
+        "la carte nest pas sur la page principale"
+
+    # Les cinq maillons, dans lordre.
+    for n, mot in ((1, "horloge"), (2, "annonce"), (3, "position"),
+                   (4, "direct"), (5, "taille")):
+        assert re.search(rf'"{n} · [^"]*{mot}', page), \
+            f"le maillon {n} ({mot}) manque"
+
+    # Chacun doit dire COMBIEN il manque, pas seulement que ca bloque.
+    assert "fermetures de plus avant que la mesure" in page, \
+        "le rodage ne dit pas combien de fermetures il manque"
+    assert "il lui manque " in page, \
+        "la marge ne dit pas combien de Sharpe il manque"
+    assert "fois par heure en moyenne" in page, \
+        "le rythme de declenchement nest pas dit"
+
+    # Et le barème du rodage est expliqué par la mesure qui l'a imposé,
+    # pas presente comme une regle arbitraire.
+    assert "609" in page, \
+        "la raison du rodage au dixieme nest pas donnee au lecteur"
+
+
+def test_the_blocking_card_does_not_shadow_the_bps_formatter(page):
+    """`bps` est le formateur global. Une variable locale du même nom le
+    masquerait, et l'appel `bps(...)` planterait la page entière au
+    premier rendu — un écran blanc, pas un chiffre faux.
+
+    Le défaut a été introduit puis corrigé dans la même passe ; ce test
+    empêche qu'il revienne.
+    """
+    import re
+
+    chaine = page.split("function rendreChaine")[1].split("\nfunction ")[0]
+    # Frontiere de mot : `moy_bps = Number(` est legitime, `bps = Number(`
+    # ne lest pas. Sans le \b le test passe sur le defaut quil doit voir.
+    assert not re.search(r"(?<![\w_])bps\s*=\s*Number\(", chaine), \
+        "une variable locale masque le formateur global bps()"
+    assert "moy_bps" in chaine
+    # Contre-epreuve : la forme fautive DOIT etre reconnue, sinon le test
+    # ne prouve rien.
+    assert re.search(r"(?<![\w_])bps\s*=\s*Number\(",
+                     "const n = 0, bps = Number(reg.bps);")

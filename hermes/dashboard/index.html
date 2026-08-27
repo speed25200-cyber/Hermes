@@ -676,6 +676,10 @@ footer{padding-bottom:96px}
            qu il TIENT, ce qu il a FERME et gagne. Les predictions vivaient
            sur un autre onglet, si bien qu on voyait une position sans
            savoir ce que le desk annonce pour les dix-neuf autres. -->
+      <div class="carte" id="carte-chaine">
+        <h2>Ce qui bloque <span class="aide" id="chaine-aide"></span></h2>
+        <div id="chaine"><div class="vide">En attente du moteur.</div></div>
+      </div>
       <div class="carte" id="carte-panel">
         <h2>Prédiction en cours <span class="aide" id="panel-aide"></span></h2>
         <div id="panel"><div class="vide">En attente du desk.</div></div>
@@ -1010,7 +1014,17 @@ function rendrePreuve(d){
   // ce n'est pas « l'horloge de SOL » qui a franchi la barre, c'est
   // l'horloge 3m, sur six actifs à la fois.
   const ech = h._echelles || {};
-  const ordre = ["1m", "3m", "5m", "15m"];
+  // Les cinq echelles, et « 1H » en fait partie depuis qu il a ete ajoute
+  // a BARS. Il manquait ici, si bien que l horloge horaire etait
+  // INVISIBLE a l ecran depuis sa creation — exactement le meme defaut
+  // que la cle « 1H » absente de BAR_MS cote moteur : une liste ecrite a
+  // la main qui n a pas suivi. Une liste qui doit rester synchrone avec
+  // une autre finit toujours par diverger ; on prend donc l ordre voulu
+  // ET tout ce que le moteur envoie, pour qu une echelle neuve apparaisse
+  // meme si personne ne pense a la rajouter ici.
+  const prefere = ["1m", "3m", "5m", "15m", "1H"];
+  const ordre = prefere.concat(
+    Object.keys(ech).filter(b => prefere.indexOf(b) < 0).sort());
   const best = Object.keys(ech).length ? ech : (h._best || {});
   const noms = Object.keys(ech).length
     ? ordre.filter(b => ech[b]) : Object.keys(best).sort();
@@ -1163,6 +1177,123 @@ function rendreBandeau(d){
       bride < 0.5 ? "att" : ""));
   }
   el.innerHTML = t.join("");
+}
+
+/* ── Ce qui bloque : la chaine complete, maillon par maillon ──────
+   « Je peux savoir ce qu il se passe, ce que tu fais et ce qui bloque,
+   car je comprends rien. » La reponse demandait jusqu ici de lire des
+   journaux SSH : le Sharpe par echelle vit dans `_echelles`, que l ecran
+   n affichait que dans un autre onglet ; le rodage vit dans le bandeau
+   sans jamais dire combien il en manque ; et le rythme de declenchement
+   n etait nulle part.
+
+   Gagner de l argent demande CINQ choses dans cet ordre, et il suffit
+   qu une seule manque. La carte les montre toutes, avec l etat de
+   chacune, et nomme celle qui arrete la chaine. */
+function rendreChaine(d){
+  const el = $("chaine"); if (!el) return;
+  const s = d.scalp || {};
+  const ech = (s.horizons || {})._echelles || {};
+  const reg = s.live_rule || {};
+  const pos = Object.entries((d.trader||{}).paper_broker?.pos || s.positions || {})
+                    .filter(([,q]) => Math.abs(q) > 1e-12);
+  const noms = Object.keys(ech);
+  if (!noms.length){
+    el.innerHTML = '<div class="vide">Le moteur n a pas encore publié d horloge.</div>';
+    return;
+  }
+
+  // 1. Une horloge doit battre la barre du hasard.
+  const vives = noms.filter(b => ech[b].status === "live");
+  const marges = noms.map(b => ({
+    bar: b,
+    m: Number(ech[b].holdout_sr || 0) - Number(ech[b].sel_bar || 0),
+  })).sort((a, b) => b.m - a.m);
+  const tete = marges[0] || {bar: "—", m: 0};
+
+  // 2. La regle doit annoncer plus que son seuil, et cela a un RYTHME.
+  //    par_jour compte les instants de declenchement du holdout ramenes
+  //    a une journee : c est l attente moyenne avant une occasion.
+  const viveB = vives.length ? vives[0] : null;
+  const e = viveB ? ech[viveB] : null;
+  const parJour = e ? Number(e.par_jour || 0) : 0;
+  const parHeure = parJour / 24;
+
+  // 3-5. Le direct, puis la taille.
+  // `bps` est le formateur global — surtout ne pas le masquer ici.
+  const n = Number(reg.n) || 0, moy_bps = Number(reg.bps);
+  const conf = Number(reg.confiance);
+  const RODAGE = 30;
+
+  const lien = (ok, titre, valeur, texte) => `<div class="decision">
+    <div class="dtete">
+      <span class="jeton ${ok === true ? "actif" : ok === false ? "stop" : "attente"}"
+        >${ok === true ? "fait" : ok === false ? "bloqué" : "en cours"}</span>
+      <span class="dsym">${esc(titre)}</span>
+      <span class="dpx num">${valeur}</span>
+    </div>
+    <div class="leg"><span>${texte}</span></div>
+  </div>`;
+
+  const t = [];
+  t.push(lien(vives.length > 0,
+    "1 · Une horloge bat le hasard",
+    vives.length ? vives.join(", ") : nf(tete.m, 3),
+    vives.length
+      ? "Le Sharpe hors échantillon dépasse ce que " + (e && e.n_trials || 0)
+        + " essais au hasard auraient produit. Marge " + sgn(tete.m, 3) + "."
+      : "Aucune échelle ne dépasse sa barre. La meilleure est " + esc(tete.bar)
+        + " à " + nf(tete.m, 3) + " — il lui manque " + nf(-tete.m, 3)
+        + " de Sharpe. Rester plat est la décision correcte."));
+
+  t.push(lien(vives.length ? null : false,
+    "2 · Le modèle annonce assez fort",
+    e ? bps(Number(e.thr_bps || 0)) : "—",
+    e
+      ? "Il faut une annonce au-dessus de ce seuil pour qu un trade paie ses frais. "
+        + "Cela arrive " + nf(parHeure, 1) + " fois par heure en moyenne, "
+        + "soit une occasion toutes les " + nf(parHeure > 0 ? 60 / parHeure : 0, 0)
+        + " minutes."
+      : "Sans horloge retenue, aucun seuil ne s applique."));
+
+  t.push(lien(pos.length > 0 ? true : (vives.length ? null : false),
+    "3 · Une position s ouvre",
+    pos.length ? pos.length + (pos.length > 1 ? " ouvertes" : " ouverte") : "aucune",
+    pos.length
+      ? "Chaque position porte son objectif, son stop et sa taille, détaillés plus bas."
+      : "En attente d une annonce au-dessus du seuil."));
+
+  t.push(lien(n >= RODAGE ? true : null,
+    "4 · Le direct se mesure",
+    n + " / " + RODAGE,
+    n >= RODAGE
+      ? "Assez de fermetures pour que la moyenne veuille dire quelque chose."
+      : "Il faut " + (RODAGE - n) + " fermetures de plus avant que la mesure "
+        + "en direct compte. Au rythme actuel, environ "
+        + nf(parHeure > 0 ? (RODAGE - n) / parHeure : 0, 0) + " heures."));
+
+  t.push(lien(isFinite(conf) && conf >= 1 ? true : null,
+    "5 · La taille se libère",
+    "x" + nf(isFinite(conf) ? conf : 0, 2),
+    isFinite(moy_bps) && moy_bps < 0
+      ? "La moyenne en direct vaut " + sgn(moy_bps, 2) + " bps. Tant qu elle est "
+        + "négative la taille reste au dixième, quoi que dise l historique. "
+        + "C est délibéré : une règle à +9 bps hors échantillon a déjà rendu "
+        + "−609 USD en quatre heures de direct."
+      : "La taille suit la preuve accumulée en direct."));
+
+  // Nommer le maillon qui arrete la chaine, pour que la reponse tienne
+  // en une phrase sans avoir a lire les cinq.
+  let arret = "";
+  if (!vives.length) arret = "Aucune horloge ne bat le hasard : rien ne peut partir.";
+  else if (!pos.length) arret = "Une horloge est retenue ; on attend une annonce assez forte.";
+  else if (n < RODAGE) arret = "Le trading a repris ; la mesure en direct s accumule.";
+  else if (isFinite(moy_bps) && moy_bps < 0) arret = "La mesure en direct est encore négative : taille au dixième.";
+  else arret = "La chaîne est complète.";
+  el.innerHTML = '<div class="leg" style="margin-bottom:8px"><span><b>'
+    + esc(arret) + '</b></span></div>' + t.join("");
+  const aide = $("chaine-aide");
+  if (aide) aide.textContent = "Les cinq conditions, dans l ordre où elles s appliquent";
 }
 
 /* ── Le panel : ce que le desk annonce, actif par actif ───────────
@@ -2030,6 +2161,7 @@ function rendre(d){
     el.className = dp >= 0 ? "hausse" : "baisse";
   }
   rendreAlertes(d);
+  rendreChaine(d);
   rendreBandeau(d); rendrePanel(d); rendreClotures(d); rendreLivre(d);
   rendreVerdict(d); rendreDecisions(d); rendrePreuve(d); rendrePositions(d);
   Marche.maj(d);

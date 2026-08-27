@@ -213,6 +213,52 @@ moi compris.
 
 ---
 
+### L'écran ne disait pas ce qui bloque, et la donnée était là
+
+*« Je peux savoir ce qu'il se passe, ce que tu fais et ce qui bloque, car
+je comprends rien. »* La réponse demandait de lire des journaux en SSH,
+alors que le moteur publiait déjà tout dans `_echelles` — Sharpe, barre,
+marge, seuil, rythme, par échelle. Le tableau de bord ne lisait ce champ
+que dans un onglet secondaire.
+
+Une carte **Ce qui bloque** est désormais sur la page principale. Gagner
+de l'argent demande cinq choses dans l'ordre, et il suffit qu'une seule
+manque :
+
+1. **une horloge bat le hasard** — Sharpe hors échantillon contre la
+   barre déflatée, et de combien il manque quand ça ne passe pas ;
+2. **le modèle annonce assez fort** — le seuil en bps, et surtout le
+   *rythme* : combien de fois par heure une occasion se présente ;
+3. **une position s'ouvre** ;
+4. **le direct se mesure** — combien de fermetures sur les trente
+   exigées, et combien d'heures cela représente au rythme mesuré ;
+5. **la taille se libère** — et pourquoi elle reste au dixième, avec la
+   mesure qui l'a imposé (une règle à +9 bps hors échantillon avait rendu
+   −609 USD en quatre heures).
+
+Chaque maillon dit **combien il manque**, pas seulement qu'il bloque, et
+une phrase en tête nomme celui qui arrête la chaîne.
+
+#### Et le même défaut que `BAR_MS`, à l'écran
+
+La carte des preuves écrivait `const ordre = ["1m", "3m", "5m", "15m"]`
+— une liste faite à la main quand il n'y avait que quatre échelles, et
+jamais mise à jour quand le 1H a rejoint `BARS`. **L'horloge horaire
+était invisible depuis sa création.** Deux listes qui doivent rester
+synchrones finissent toujours par diverger.
+
+Le correctif ne se contente donc pas d'ajouter « 1H » : il prend l'ordre
+voulu **puis tout ce que le moteur envoie**, pour qu'une échelle neuve
+apparaisse même si personne ne pense à la déclarer ici.
+
+Un troisième défaut a été introduit puis corrigé dans la même passe :
+une variable locale `bps` masquait le formateur global du même nom, ce
+qui aurait planté la page entière au premier rendu — un écran blanc, pas
+un chiffre faux. Un test l'interdit, avec une contre-épreuve qui vérifie
+que la forme fautive est bien reconnue.
+
+---
+
 ### Le rodage suppose une règle stable ; la recherche n'en produit pas
 
 Ce n'est pas un défaut localisé — c'est une contradiction entre deux
