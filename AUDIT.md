@@ -232,16 +232,31 @@ sur trois d'un ajustement à l'autre.
 | à 1,53 déclenchement par heure | **20 h** |
 | changements de règle d'ici là | **~16** |
 
-Trois conséquences, et la troisième est la vraie :
+Deux conséquences — et une troisième que j'avais écrite et qui était
+fausse.
 
 1. `live_rule` ne mesure **jamais une règle**. Ses 68 mesures sont un
    mélange d'une quinzaine de règles différentes ; son −1,56 bps ne dit
    rien de la cellule actuelle, ni pour ni contre.
-2. C'est pourtant ce mélange qui commande `confiance`. Le rodage reste
-   donc à 0,10 — un dixième de taille — non pas parce que la règle
-   échoue, mais parce qu'aucune règle ne vit assez pour être jugée.
-3. Le système est **structurellement bloqué au dixième de taille**. Même
-   une règle réellement rentable ne pourrait pas grandir.
+2. Le rodage demande trente fermetures, soit **vingt heures** de trading
+   en direct, quoi qu'il arrive. C'est un délai incompressible.
+
+**Ce que j'avais écrit et qui était faux** : « le système est
+structurellement bloqué au dixième de taille — même une règle réellement
+rentable ne pourrait pas grandir ». Non. `confiance` mesure ce que la
+**machine** produit en direct, c'est-à-dire la succession de règles — et
+c'est exactement ce que le compte encaisse. Si cette succession est
+rentable, `live_rule` monte et la taille suit. Le pooling n'est pas un
+défaut : c'est la mesure du bon objet.
+
+Ce qui reste vrai, et seulement cela : une règle **individuelle** ne peut
+pas gagner sa taille sur ses propres mérites, parce qu'elle ne vit pas
+assez longtemps pour être jugée seule. C'est une conséquence assumée du
+choix conservateur — on prend la taille de la pire des deux mesures tant
+qu'elles ne se réconcilient pas — et non une contradiction du système.
+
+Surestimer un défaut structurel coûte autant que d'en manquer un : cela
+justifierait de toucher à un barème qui n'a rien à se reprocher.
 
 Ce qui n'est PAS la réponse : toucher au barème du rodage. Il a été posé
 sur une mesure — une règle à +9/+11 bps hors échantillon avait rendu

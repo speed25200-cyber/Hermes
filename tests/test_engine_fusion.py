@@ -2577,10 +2577,17 @@ def test_the_burn_in_schedule_assumes_a_stability_the_search_does_not_give(tmp_p
     vingt heures, pendant lesquelles la règle change une quinzaine de
     fois.
 
-    Conséquence : `live_rule` ne mesure jamais UNE règle, et c'est
-    pourtant lui qui commande `confiance`. Le système est
-    structurellement bloqué au dixième de taille — même une règle
-    réellement rentable ne pourrait pas grandir.
+    Conséquence : `live_rule` ne mesure jamais UNE règle — ses mesures
+    mélangent une quinzaine de règles différentes.
+
+    ATTENTION à ne pas en conclure trop, ce que j'avais d'abord fait :
+    `confiance` mesure ce que la MACHINE produit en direct, donc la
+    succession de règles, et c'est exactement ce que le compte encaisse.
+    Si cette succession est rentable, `live_rule` monte et la taille
+    suit. Le pooling mesure le bon objet. Ce qui reste vrai, et seulement
+    cela : une règle INDIVIDUELLE ne peut pas gagner sa taille sur ses
+    propres mérites, et le rodage demande vingt heures de trading quoi
+    qu'il arrive — un délai, pas une contradiction.
 
     Ce test ancre l'arithmétique pour qu'elle ne se perde pas, et vérifie
     que le barème du rodage n'a pas été assoupli pour contourner le
