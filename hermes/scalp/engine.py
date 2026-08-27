@@ -610,6 +610,12 @@ class ScalpEngine:
         # simuler, et c est pour cela qu elle separe les deux
         # populations la ou le prix echoue.
         #
+        # ⚠ CE QUI SUIT EST LE RAISONNEMENT DU 26 AOUT, ET LA MESURE
+        # DU 27 LE CONTREDIT SUR L AMPLEUR. Il est garde tel quel :
+        # le mecanisme etait juste, le chiffre etait faux, et
+        # confondre les deux est l erreur qu on repete. Le seuil qui
+        # tranche vraiment est la conjonction posee plus bas ; celui
+        # de 0,15 reste comme plancher absolu.
         # Le seuil est a 0,15, choisi loin des deux populations et non
         # entre elles : une crypto respire plus calmement le week-end
         # sans jamais s arreter, une action dont le sous-jacent est
@@ -707,6 +713,57 @@ class ScalpEngine:
                  + (f"{concentration:.2f}" if concentration == concentration
                     else "non mesure"))
 
+        # LE CRITERE QUI TRANCHE, et c est une CONJONCTION.
+        #
+        # Deux relevés de production, 15h30 et 16h56 le 27 aout, sur le
+        # panel entier — vingt noms juges, cryptos et actions tokenisees
+        # melangees. Trois quantites, et aucune ne suffit seule :
+        #
+        #   volume du week-end   tokenisees 0,59 a 0,72 | cryptos 0,78 a 1,89
+        #   seance/nuit          cryptos jusqu a 1,68   | SNDK 2,98 SOXL 3,05
+        #                        SPCX 4,36 MU 2,63 CRCL 4,22
+        #                        MAIS XAU 1,29 et SKHYNIX 0,79 y echappent
+        #   concentration        cryptos jusqu a 1,73 (BTC) | XAU 1,75
+        #                        SKHYNIX 1,80 MU 1,99 SNDK 2,10 SOXL 2,20
+        #                        SPCX 2,49
+        #
+        # Le volume separe les deux populations avec un ecart franc —
+        # 0,72 contre 0,78 — et 0,75 tombe dedans. Le seuil de 0,15 pose
+        # la veille etait dix fois trop bas : le mecanisme etait juste, on
+        # avait suppose 2 % la ou la mesure donne 60 %. Le perpetuel se
+        # trade le dimanche ; c est le SOUS-JACENT qui dort.
+        #
+        # La concentration, elle, separe TOUT le monde mais de 0,02
+        # seulement — BTC a 1,73, XAU a 1,75. Un seuil a 1,75 pris seul
+        # serait donc un reglage fin entre deux populations qui se
+        # touchent, exactement ce qu on refuse de faire depuis deux jours.
+        # Il ne devient sur qu en CONJONCTION : il ne peut mordre que sur
+        # un nom dont le volume de week-end est deja sous 0,75, et aucune
+        # crypto mesuree ne descend la — la plus calme, TAO, est a 0,78.
+        #
+        # « Seance marquee » accepte deux formes parce que la seance n est
+        # pas toujours new-yorkaise : seance/nuit voit New York, la
+        # concentration voit n importe quelle seance, y compris celle de
+        # Seoul que la fenetre 13h30-20h UTC mesure a l envers.
+        #
+        # Il faut donc les DEUX : un week-end sans contrepartie ET une
+        # journee qui a une seance. Une crypto devrait echouer aux deux
+        # pour etre ecartee ; les sept noms tokenisees du panel echouent
+        # aux deux.
+        seance_marquee = ((rapport_h == rapport_h and rapport_h >= 2.0)
+                          or (concentration == concentration
+                              and concentration >= 1.75))
+        if rapport_v == rapport_v and rapport_v < 0.75 and seance_marquee:
+            self.log(f"scalp recale {c.inst} : le week-end n echange que "
+                     f"{rapport_v * 100:.0f} % du volume des jours ouvres "
+                     f"et la journee a une seance (seance/nuit "
+                     + (f"{rapport_h:.2f}" if rapport_h == rapport_h
+                        else "non mesure")
+                     + ", concentration "
+                     + (f"{concentration:.2f}" if concentration == concentration
+                        else "non mesure")
+                     + ") — un sous-jacent qui ferme, pas une crypto")
+            return False
         if rapport_v == rapport_v and rapport_v < 0.15:
             self.log(f"scalp recale {c.inst} : le week-end n echange que "
                      f"{rapport_v * 100:.1f} % du volume des jours ouvres "

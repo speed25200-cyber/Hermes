@@ -177,6 +177,7 @@ Chacun était silencieux. Aucun n'apparaissait dans les journaux.
 | le direct comptait 3 jambes simultanées comme 3 résultats | écart-type 44 bps au lieu de 25 ; des mois au lieu de semaines pour trancher | — |
 | actions tokenisées (SNDK, XAU, SKHYNIX) dans le panel crypto | elles publient des bougies plates 24/7, le compte de barres ne les distingue pas | filtre sur l'amplitude du week-end |
 | le même défaut, deux fois de suite : sept actions tokenisées sur vingt places (SNDK, XAU, SKHYNIX, SPCX, SOXL, MU, CRCL) | les deux critères de PRIX lisent la cotation, qu'un teneur de marché produit seul | zéro ligne `scalp recale` en six heures, panel visé 20 le 27/08 |
+| le critère 24/7 mesurait trois quantités et n'en branchait qu'une, dix fois trop bas | sept actions tokenisées sur vingt places, zéro ligne de recalage | seuil 0,15 quand la mesure donne 0,59–0,72 pour les tokenisées |
 | `retard_s` mesurait l'intervalle cible → ordre (0,3 s) et **rien** ne mesurait clôture de barre → décision | l'écran affirmait une exécution immédiate ; le vrai délai vaut 26 s sur la 1m et 152 s sur la 15m, quand la porte simule zéro | `desk 1m @ 1787842860000` journalisé à 15:02:26 pour une barre fermée à 15:02:00 |
 | le critère ne parlait que pour refuser | le défaut a vécu six heures sans laisser trace de POURQUOI les noms passaient | ligne `scalp juge` désormais émise pour tout nom jugé, admis compris |
 
@@ -1012,6 +1013,46 @@ sur rien : les huit ouvertures de 14:53 viennent toutes de l'horloge 15m,
 celle qui décide avec 152 s de retard, et une moyenne ne peut pas dire si
 +21 bps décrit l'ouverture typique ou cette poignée-là.
 
+### Le critère 24/7, enfin tranché — par une conjonction
+
+Deux relevés de production du 27 août (15h30 et 16h56), panel entier,
+vingt noms jugés :
+
+| quantité | cryptos | actions tokenisées |
+|---|---|---|
+| volume du week-end | 0,78 (TAO) à 1,89 | **0,59 à 0,72** |
+| séance/nuit | ≤ 1,68 | 2,63 à 4,36 — **sauf XAU 1,29 et SKHYNIX 0,79** |
+| concentration horaire | ≤ 1,73 (BTC) | 1,75 (XAU) à 2,49 (SPCX) |
+
+Aucune des trois ne suffit seule, et chacune échoue pour une raison
+différente :
+
+- Le **volume du week-end** sépare les deux populations avec un écart
+  franc (0,72 contre 0,78) — mais le seuil posé la veille valait **0,15**,
+  dix fois trop bas. Le mécanisme était juste (un teneur de marché
+  fabrique une cotation, pas un volume) ; l'ampleur supposée était fausse.
+  Le perpétuel se trade le dimanche ; c'est le **sous-jacent** qui dort.
+- La **séance/nuit** présuppose New York. Elle rate l'or, qui se traite
+  presque 24 h, et elle rate SKHYNIX : la séance de Séoul tombe dans la
+  fenêtre que ce critère appelle « nuit », d'où un 0,79 sous toutes les
+  cryptos.
+- La **concentration horaire** ne présuppose aucune heure et sépare tout
+  le monde — mais de **0,02**. Un seuil à 1,75 pris seul serait un réglage
+  fin entre deux populations qui se touchent : exactement ce que la barre
+  déflatée existe pour interdire.
+
+Le critère retenu est donc une **conjonction** : un week-end sans
+contrepartie (**volume < 0,75**) **et** une journée qui a une séance
+(séance/nuit ≥ 2,0 **ou** concentration ≥ 1,75). Le seuil fragile ne peut
+mordre que sur un nom déjà sous 0,75, et aucune crypto mesurée n'y
+descend. Une crypto devrait échouer aux **deux** pour être écartée ; les
+sept noms tokenisés du panel échouent aux deux.
+
+Trois tests, contre-épreuves vérifiées : transformer la conjonction en
+disjonction fait échouer le cas « week-end calme sans séance » (et un
+test antérieur, dont la fixture crypto est à 0,65) ; retirer la clause de
+concentration laisse repasser la séance coréenne.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -1081,6 +1122,7 @@ Elles ne se négocient pas, et elles ont toutes été écrites après avoir
 - déployer en `mode=code`, jamais en `mode=full`, pour un changement
   qui ne touche pas la recherche. Un déploiement complet lance une
   passe de recherche derrière lui et le moteur reste **arrêté**
-  jusqu'à ce qu'elle finisse : mesuré le 27 août, une heure et cinq
-  minutes sans un seul trade, pour un changement qui n'en avait pas
-  besoin. `mode=code` relance le moteur immédiatement.
+  jusqu'à ce qu'elle finisse : mesuré le 27 août, **1 h 37 min** sans
+  un seul trade (`hermes-research.service: Consumed 2h 50min CPU over
+  1h 37min wall clock`), pour un changement qui n'en avait pas besoin.
+  `mode=code` relance le moteur immédiatement.

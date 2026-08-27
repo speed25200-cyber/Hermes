@@ -2840,3 +2840,128 @@ def test_the_two_measures_that_are_not_numbers_survive_a_restart(tmp_path):
     assert abs(float(par["15m"][0]) - 152.0) < 1e-9
     assert int(par["1m"][1]) == 3
     assert abs(float(repris.exec_stats["retard_barre_s"]) - 26.0) < 1e-9
+
+
+def _panel_24_7(nom, we_vol=1000.0, seance=False, rng_seed=13):
+    """Une serie dun mois, dont le volume peut avoir une seance."""
+    import numpy as np
+
+    from hermes.data.store import Candles
+    n = 43_200                              # 30 jours de barres 1m
+    ts = np.arange(n, dtype=np.int64) * 60_000
+    we = (((ts // 86_400_000) + 4) % 7) >= 5
+    rng = np.random.default_rng(rng_seed)
+    px = 100 * np.exp(np.cumsum(rng.normal(0, 4e-4, n)))
+    v = np.full(n, 1000.0)
+    if seance:
+        heure = (ts % 86_400_000) / 3_600_000.0
+        dedans = (heure >= 13.5) & (heure < 20.0)
+        v = np.where(dedans, 3000.0, 300.0).astype(np.float64)
+    v[we] = v[we] * (we_vol / 1000.0)
+    return Candles(nom, "1m", ts, px, px, px, px, v)
+
+
+def test_a_name_whose_underlying_closes_is_not_a_crypto(tmp_path):
+    """Sept actions tokenisees sur vingt places, et le critere se taisait.
+
+    Deux relevés de production, 15h30 et 16h56 le 27 aout, sur le panel
+    entier. Aucune des trois quantites ne suffit seule :
+
+      volume du week-end  tokenisees 0,59-0,72 | cryptos 0,78-1,89
+      seance/nuit         cryptos <= 1,68 mais XAU 1,29 et SKHYNIX 0,79
+                          y echappent — lor se traite presque 24 h, et
+                          la seance coreenne tombe dans la fenetre que
+                          ce critere appelle « nuit »
+      concentration       cryptos <= 1,73 (BTC) | tokenisees >= 1,75 —
+                          separation complete, mais de 0,02
+
+    Un seuil a 1,75 pris seul serait un reglage fin entre deux
+    populations qui se touchent. Il ne devient sur quen conjonction avec
+    le volume : il ne peut mordre que sous 0,75, et la crypto la plus
+    calme mesuree, TAO, est a 0,78.
+    """
+    eng, _ = _moteur_pos(tmp_path)
+    dits = []
+    eng.log = dits.append
+    eng.store = type("M", (), {
+        "load": lambda self, i, b, **k: _panel_24_7(i, we_vol=620.0,
+                                                    seance=True)})()
+    assert eng._assez_dhistoire("SNDK-USDT-SWAP") is False, \
+        "une action tokenisee entre encore au panel"
+    assert "SNDK-USDT-SWAP" in eng.recales
+    ligne = next((m for m in dits if "recale SNDK" in m), "")
+    assert "une seance" in ligne, dits
+    assert "seance/nuit" in ligne and "concentration" in ligne, \
+        "le refus ne donne pas les chiffres qui lont motive"
+
+
+def test_the_two_halves_of_the_criterion_must_both_fail(tmp_path):
+    """C est une CONJONCTION, et ce test est la pour quelle le reste.
+
+    En disjonction, le critere ecarterait une crypto au week-end calme
+    (mesure : la plus calme du panel est a 0,78, et le seuil est a 0,75 —
+    lecart est de trois centiemes) ou une crypto dont le volume se masse
+    par hasard sur six heures. Les deux moities doivent tomber ensemble.
+    """
+    # Week-end sans contrepartie, mais AUCUNE seance : rien ne prouve un
+    # sous-jacent qui ferme.
+    a = tmp_path / "a"
+    a.mkdir()
+    eng, _ = _moteur_pos(a)
+    eng.store = type("M", (), {
+        "load": lambda self, i, b, **k: _panel_24_7(i, we_vol=600.0,
+                                                    seance=False)})()
+    assert eng._assez_dhistoire("TAO-USDT-SWAP") is True, \
+        "un week-end calme suffit a ecarter : le critere est devenu une " \
+        "disjonction"
+
+    # Une seance marquee, mais un week-end qui echange normalement : le
+    # sous-jacent ne ferme pas.
+    b = tmp_path / "b"
+    b.mkdir()
+    eng2, _ = _moteur_pos(b)
+    eng2.store = type("M", (), {
+        "load": lambda self, i, b_, **k: _panel_24_7(i, we_vol=1000.0,
+                                                     seance=True)})()
+    assert eng2._assez_dhistoire("BTC-USDT-SWAP") is True, \
+        "une journee irreguliere suffit a ecarter : le critere est devenu " \
+        "une disjonction"
+
+
+def test_the_korean_session_is_caught_by_the_measure_that_does_not_assume_one(
+        tmp_path):
+    """SKHYNIX mesure 0,79 en seance/nuit — SOUS toutes les cryptos —
+    parce que sa seance est coreenne et que la fenetre 13h30-20h UTC
+    mesure sa nuit. C est la concentration, qui ne presuppose aucune
+    heure, qui doit la rattraper.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+
+    def coree(nom):
+        n = 43_200
+        ts = np.arange(n, dtype=np.int64) * 60_000
+        we = (((ts // 86_400_000) + 4) % 7) >= 5
+        rng = np.random.default_rng(17)
+        px = 100 * np.exp(np.cumsum(rng.normal(0, 4e-4, n)))
+        heure = (ts % 86_400_000) / 3_600_000.0
+        seoul = (heure >= 0.0) & (heure < 6.0)      # 9h-15h KST
+        v = np.where(seoul, 3000.0, 300.0).astype(np.float64)
+        v[we] = v[we] * 0.6
+        return Candles(nom, "1m", ts, px, px, px, px, v)
+
+    eng, _ = _moteur_pos(tmp_path)
+    dits = []
+    eng.log = dits.append
+    eng.store = type("M", (), {"load": lambda self, i, b, **k: coree(i)})()
+
+    # D abord la preuve que seance/nuit est bien AVEUGLE ici, sinon le
+    # test passerait pour la mauvaise raison.
+    c = coree("SKHYNIX-USDT-SWAP")
+    assert eng._assez_dhistoire("SKHYNIX-USDT-SWAP") is False, \
+        "la seance coreenne passe encore"
+    juge = next(m for m in dits if "scalp juge SKHYNIX" in m)
+    assert _champ(juge, "seance/nuit") < 2.0, \
+        "seance/nuit voit deja cette seance : le test ne prouve rien"
+    assert _champ(juge, "concentration") >= 1.75
