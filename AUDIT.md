@@ -1053,6 +1053,66 @@ disjonction fait échouer le cas « week-end calme sans séance » (et un
 test antérieur, dont la fixture crypto est à 0,65) ; retirer la clause de
 concentration laisse repasser la séance coréenne.
 
+### Ce que la mesure a répondu, le soir même
+
+Les trois changements sont partis en production à 17h52. Voici ce qu'ils
+ont dit.
+
+**Le retard par échelle, première lecture** (24 décisions depuis le
+redémarrage — les longues horloges sont donc gonflées par le démarrage) :
+
+| horloge | retard mesuré | durée de barre |
+|---|---|---|
+| 1m | **23 s** | 60 s |
+| 3m | 45 s | 180 s |
+| 5m | **345 s** | 300 s |
+| 15m | **731 s** | 900 s |
+| 1H | **4 209 s** | 3 600 s |
+
+La porte simule **zéro**. Sur la 1m le chiffre confirme l'estimation
+tirée des horodatages (26 s). Sur la 5m et la 1H il **dépasse une barre
+entière** : la fenêtre que l'étiquette prédit est déjà écoulée quand
+l'ordre part. Première lecture, contaminée par le démarrage — on la relit
+avant d'en faire une porte.
+
+**Le glissement d'entrée s'est effondré** à mesure que le panel devenait
+crypto :
+
+| | moyenne | n | médiane |
+|---|---|---|---|
+| 15h30 | +21,32 | 28 | — |
+| 17h49 | +16,79 | 35 | — |
+| 18h05 | +16,20 | 36 | +0,00 |
+| **18h21** | **+2,10** | **52** | **−4,68** |
+
+La médiane est **négative** : l'ouverture typique se remplit *mieux* que
+le prix du signal, et la moyenne était portée par une poignée de jambes —
+celles de l'horloge 15m, qui décide avec douze minutes de retard, sur des
+actions tokenisées. Les deux lectures que j'avais opposées étaient donc
+vraies **chacune sur son horloge** : l'artefact print/cotation domine sur
+la 1m, le vrai retard domine sur les longues. Ce qui suit de là, et qui
+n'est pas encore fait : mesurer le glissement **par horloge** au lieu de
+tout verser dans une seule moyenne.
+
+**Le critère 24/7 a écarté sept noms** — SNDK, XAU, SKHYNIX, SOXL, SPCX,
+MU, CRCL — chacun avec ses trois chiffres au journal. XAU (1,75) et
+SKHYNIX (1,80) n'ont été pris que par la **concentration** ; la fenêtre
+new-yorkaise les avait ratés tous les deux.
+
+Et la conjonction s'est justifiée dès la première heure : **LIT échange
+0,73 de son volume de semaine le week-end**, sous le seuil de 0,75 — mais
+sa concentration vaut 1,25 et sa séance/nuit 1,28. Le critère l'a
+**admise**. Le seuil de volume pris seul aurait écarté une vraie crypto
+dès le premier tour.
+
+**Ce qui va mal, et le moteur le dit lui-même** : `les frais dominent le
+brut : c'est un moulin, pas un pari`. La cellule 1m retenue tourne à
+60-65 trades par jour ; en une demi-heure le compte est passé de 72 à 101
+remplissages, pour +0,39 USD de brut réalisé contre 7,53 de frais. Le
+holdout annonce +4,6 bps par trade *après* coûts ; le direct rend −6,0.
+L'écart de dix points de base est exactement de l'ordre de ce que le
+retard d'entrée peut manger — c'est la prochaine chose à instruire.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -1070,12 +1130,17 @@ concentration laisse repasser la séance coréenne.
 4. **Le 1H n'a pas encore rendu de verdict.** C'est l'échelle où
    l'économie est franchement favorable, et son rattrapage d'historique
    (deux ans par instrument) est en cours.
-5. **Le retard sur la clôture de barre doit descendre.** 26 s sur
+5. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
+   et le bandeau d'anomalies dit déjà que les frais dominent le
+   brut. Le holdout annonce +4,6 bps par trade après coûts, le
+   direct rend −6,0 : dix points de base d'écart à instruire avant
+   de toucher à quoi que ce soit.
+6. **Le retard sur la clôture de barre doit descendre.** 26 s sur
    une barre de 60 s, ce n'est pas « zéro à peu près » : c'est
    presque une demi-barre, et la porte suppose zéro. La mesure
    `charge=/calcul=` doit dire si le coût est le rechargement des
    historiques ou le calcul, avant qu'on touche à l'un ou à l'autre.
-6. **Le profil chronologique du Sharpe** doit dire si l'avantage est
+7. **Le profil chronologique du Sharpe** doit dire si l'avantage est
    régulier ou concentré dans la fenêtre récente. Les premiers relevés
    sont croissants, ce qui suggère de la non-stationnarité.
 

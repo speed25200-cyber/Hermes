@@ -980,6 +980,7 @@ class LiveRunner:
                     finally:
                         self.client.timeout, self.client.max_retries = t0, r0
                     from ..scalp.clock import BARS as _BARS
+                    from ..scalp.clock import BAR_MS as _PAS
                     any_new = False
                     last_rep = None
                     for bar in _BARS:
@@ -1005,7 +1006,15 @@ class LiveRunner:
                             # a chaque minute, ou calculer. On separe donc
                             # les deux au chronometre plutot que de
                             # supposer.
+                            #
+                            # Trois nombres, et leur somme est le retard
+                            # complet : `retard` va de la cloture de la
+                            # barre au debut du chargement — cest la
+                            # tournee de rafraichissement qui le remplit —
+                            # puis `charge` et `calcul`. Un seul des trois
+                            # est reductible sans rien changer au sens.
                             t_a = time.time()
+                            retard = t_a - (newest + _PAS.get(bar, 60_000)) / 1000.0
                             cbar = {inst: self.store.load(inst, bar)
                                     for inst in names}
                             t_b = time.time()
@@ -1015,7 +1024,8 @@ class LiveRunner:
                             self.log(f"desk {bar} @ {newest}: eq={last_rep.get('equity', 0):.2f} "
                                      f"live={len(live)}/{len(last_rep.get('preds') or [])} "
                                      f"hz={last_rep.get('live_bars')} "
-                                     f"charge={t_b - t_a:.1f}s calcul={t_c - t_b:.1f}s")
+                                     f"retard={retard:.0f}s charge={t_b - t_a:.1f}s "
+                                     f"calcul={t_c - t_b:.1f}s")
                     if last_rep and last_rep.get("targets") is not None:
                         self.trader._last_targets = last_rep["targets"]
                     if self.risk.state.killed:
