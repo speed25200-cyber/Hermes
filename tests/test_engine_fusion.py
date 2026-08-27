@@ -7,6 +7,22 @@ followed the flow model alone — whose warm-up prior could trade
 unvalidated. These tests pin the repaired wiring.
 """
 
+def _champ(ligne: str, nom: str) -> float:
+    """La valeur qui suit `nom` dans une ligne `scalp juge`.
+
+    Lire par POSITION — `ligne.split(nom)[1].strip()` — casse dès qu'un
+    champ est ajouté après. C'est arrivé : la ligne portait
+    `seance/nuit 4.35`, on y a ajouté `concentration 2.60`, et trois
+    tests se sont mis à lire « 4.35 concentration 2.60 ». Lire par NOM
+    reste vrai quoi qu'on ajoute.
+    """
+    import re
+
+    m = re.search(re.escape(nom) + r"\s+(-?\d+(?:\.\d+)?)", ligne)
+    assert m, f"champ {nom!r} absent de : {ligne}"
+    return float(m.group(1))
+
+
 import time
 
 import numpy as np
@@ -2346,7 +2362,7 @@ def test_the_session_profile_is_measured_and_not_yet_a_gate(tmp_path):
         "le profil horaire sert deja de critere alors quil na pas ete mesure"
     ligne = next(m for m in dits if "scalp juge SPCX-USDT-SWAP" in m)
     assert "seance/nuit" in ligne, ligne
-    valeur = float(ligne.split("seance/nuit")[1].strip())
+    valeur = _champ(ligne, "seance/nuit")
     assert valeur > 3.0, f"le rapport de seance nest pas mesure : {ligne}"
 
     # Et une crypto sans séance donne un rapport voisin de 1.
@@ -2357,7 +2373,7 @@ def test_the_session_profile_is_measured_and_not_yet_a_gate(tmp_path):
     eng2.store = type("M", (), {"load": lambda self, i, b, **k: serie(i, False)})()
     assert eng2._assez_dhistoire("SOL-USDT-SWAP") is True
     ligne2 = next(m for m in dits2 if "scalp juge SOL-USDT-SWAP" in m)
-    v2 = float(ligne2.split("seance/nuit")[1].strip())
+    v2 = _champ(ligne2, "seance/nuit")
     assert abs(v2 - 1.0) < 0.05, f"une crypto sans seance donne {v2:.2f}"
 
 
@@ -2537,8 +2553,8 @@ def test_the_hourly_concentration_finds_a_session_wherever_it_is(tmp_path):
             "load": lambda self, i, b, _p=profil, **k: serie(i, _p)})()
         admis = eng._assez_dhistoire(f"{nom}-USDT-SWAP")
         ligne = next(m for m in dits if "scalp juge" in m)
-        conc = float(ligne.split("concentration")[1].strip())
-        sn = float(ligne.split("seance/nuit")[1].split("concentration")[0])
+        conc = _champ(ligne, "concentration")
+        sn = _champ(ligne, "seance/nuit")
         return admis, sn, conc
 
     a_plat, sn_plat, c_plat = mesure(plat, "SOL")
