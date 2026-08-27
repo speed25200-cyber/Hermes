@@ -1072,8 +1072,31 @@ redémarrage — les longues horloges sont donc gonflées par le démarrage) :
 La porte simule **zéro**. Sur la 1m le chiffre confirme l'estimation
 tirée des horodatages (26 s). Sur la 5m et la 1H il **dépasse une barre
 entière** : la fenêtre que l'étiquette prédit est déjà écoulée quand
-l'ordre part. Première lecture, contaminée par le démarrage — on la relit
-avant d'en faire une porte.
+l'ordre part.
+
+**Seconde lecture, 18h43, 61 décisions** — le démarrage s'est lavé, et
+ce qui reste est le régime permanent :
+
+| horloge | 1re lecture (24) | **2e lecture (61)** | part d'une barre |
+|---|---|---|---|
+| 1m | 23 s | **21 s** | 35 % |
+| 3m | 45 s | **56 s** | 31 % |
+| 5m | 345 s | **197 s** | 66 % |
+| 15m | 731 s | **559 s** | 62 % |
+| 1H | 4 209 s | **2 818 s** | 78 % |
+
+Les longues horloges décident donc **au-delà de la moitié d'une barre**
+après la clôture qui décide, et la porte suppose zéro. Deux lectures
+concordantes : ce n'est plus une observation, c'est un défaut. La 1m,
+elle, est stable à 21-23 s — un tiers de barre, sur un horizon de six
+barres, soit 6 % de la durée de détention.
+
+**Et le moteur prend enfin des positions courtes.** Le 27 août à 18h25,
+pour la première fois au journal : `ouverture UNI −58 @ 4,568750 x5
+(candle −7,6 bps)`, puis XRP −258 (−18,8 bps), BNB −1,05 (−9,9 bps), XRP
+−722 (−8,9 bps). L'exigence « long ET short » du but n'était pas
+vérifiable jusqu'ici ; elle l'est, et la réponse est oui. Le holdout de
+la cellule retenue annonçait `court=13 %`.
 
 **Le glissement d'entrée s'est effondré** à mesure que le panel devenait
 crypto :
@@ -1084,6 +1107,7 @@ crypto :
 | 17h49 | +16,79 | 35 | — |
 | 18h05 | +16,20 | 36 | +0,00 |
 | **18h21** | **+2,10** | **52** | **−4,68** |
+| **18h43** | **+1,02** | **60** | **−4,21** |
 
 La médiane est **négative** : l'ouverture typique se remplit *mieux* que
 le prix du signal, et la moyenne était portée par une poignée de jambes —
