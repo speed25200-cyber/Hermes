@@ -430,3 +430,129 @@ def test_a_pure_bid_ask_bounce_is_not_a_forecast():
         d = CandleModel("5m").fit_panel(marche(10 + seed))
         assert d["status"] != "live", f"le rebond passe la porte : {d}"
         assert abs(d["ic"]) < 0.06, f"le modele voit encore le rebond : ic={d['ic']:+.3f}"
+
+
+def test_the_bar_does_not_move_when_the_aggregation_changes():
+    """Changer la série mesurée sans revérifier la barre, c'est abaisser
+    la porte en silence.
+
+    La barre vaut `expected_max_sharpe(n_cells, instants)` et elle a été
+    calibrée comme le 95e centile du MAX de Sharpe sur n_cells cellules
+    SOUS L'HYPOTHÈSE NULLE. Passer la sélection en unités de risque
+    change la série ; si cela gonflait le max du hasard, le gain mesuré
+    ailleurs serait du hasard réétiqueté.
+
+    Nul DUR, celui qui fait mentir une barre trop optimiste : queues de
+    Student à 3 degrés de liberté (variance finie, kurtosis infinie) et
+    sigma qui respire par régimes — exactement la structure qui crée
+    l'hétéroscédasticité que la nouvelle formule retire.
+    """
+    import math
+
+    import numpy as np
+
+    from hermes.scalp.clock import _en_risque, _portfolio, expected_max_sharpe
+
+    rng = np.random.default_rng(2024)
+    n_cellules, n_inst, n_actifs, df = 300, 1143, 8, 3.0
+
+    b = np.exp(np.cumsum(rng.normal(0, 0.03, (n_cellules, n_inst)), axis=1))
+    b = 10e-4 * b / b.mean(axis=1, keepdims=True)
+    b = np.clip(b, 4e-4, 40e-4)
+    sig = b[:, :, None] * np.exp(rng.normal(0, 0.25, (n_cellules, n_inst, n_actifs)))
+    u = rng.standard_t(df, (n_cellules, n_inst, n_actifs)) / math.sqrt(df / (df - 2.0))
+    net = sig * u * 1e4                       # AUCUN avantage
+
+    ts = np.repeat(np.arange(n_inst), n_actifs)
+    anciens, nouveaux = [], []
+    for i in range(n_cellules):
+        pl = net[i].ravel()
+        sg = sig[i].ravel()
+        a = _portfolio(pl, ts, 1.0 / np.maximum(sg, 1e-12))
+        r = _en_risque(pl, ts, sg)
+        anciens.append(float(np.mean(a)) / float(np.std(a, ddof=1)))
+        nouveaux.append(float(np.mean(r)) / float(np.std(r, ddof=1)))
+
+    # Le max sur n_cells cellules se déduit de l'écart-type des Sharpe
+    # sous le nul : max ≈ z(n_cells) · sd. La fonction vaut
+    # `sqrt(1/(n_obs-1)) · z`, donc z s'en extrait en remultipliant —
+    # elle renvoie 0 pour n_obs < 3 et ne peut pas donner z directement.
+    barre = expected_max_sharpe(4860, n_inst)
+    z = barre * math.sqrt(n_inst - 1)
+    max_a = z * float(np.std(anciens, ddof=1))
+    max_r = z * float(np.std(nouveaux, ddof=1))
+
+    for nom, m in (("ancienne", max_a), ("en risque", max_r)):
+        assert abs(m / barre - 1.0) < 0.10, \
+            f"agregation {nom} : max du hasard {m:.4f} contre barre {barre:.4f}"
+    assert abs(max_r - max_a) / barre < 0.06, \
+        f"les deux agregations ne voient pas le meme hasard : {max_a:.4f} vs {max_r:.4f}"
+
+
+def test_measuring_in_risk_units_never_overshoots_the_book_actually_held():
+    """La preuve qu'il ne s'agit pas de fabriquer du Sharpe.
+
+    Le moteur dimensionne chaque jambe à risque égal — le plafond de
+    ruine donne une taille proportionnelle à 1/sigma. Le P&L en dollars
+    d'un instant vaut donc `somme(r_i / sigma_i)`, et le Sharpe de CETTE
+    série est la vérité terrain, calculée ici indépendamment des deux
+    formules d'agrégation.
+
+    Ce qu'on exige, dans les deux régimes d'avantage — proportionnel à
+    sigma (ce que produit un seuil exprimé en sigma) ET constant en bps
+    (le cas où la nouvelle formule pourrait tricher) :
+
+      ancienne  <=  en risque  <=  vérité
+
+    Autrement dit : la nouvelle mesure retire un biais VERS LE BAS sans
+    jamais en créer un vers le haut. Si elle dépassait la vérité, elle
+    fabriquerait de l'avantage et devrait être rejetée.
+    """
+    import numpy as np
+
+    from hermes.scalp.clock import _en_risque, _portfolio
+
+    def sharpe(x):
+        sd = float(np.std(x, ddof=1))
+        return float(np.mean(x)) / sd if sd > 1e-15 else 0.0
+
+    def panel(rng, mode, n_inst=4000, n_actifs=8, edge=0.05):
+        b = np.exp(np.cumsum(rng.normal(0, 0.03, n_inst)))
+        b = 10e-4 * b / b.mean()
+        b = np.clip(b, 4e-4, 40e-4)          # x3 entre calme et tempete
+        sig = b[:, None] * np.exp(rng.normal(0, 0.25, (n_inst, n_actifs)))
+        mu = sig * edge if mode == "sigma" else np.full_like(sig, 10e-4 * edge)
+        net = (mu + sig * rng.normal(0, 1.0, sig.shape)) * 1e4
+        ts = np.repeat(np.arange(n_inst), n_actifs)
+        return net.ravel(), sig.ravel(), ts
+
+    for mode in ("sigma", "bps"):
+        rng = np.random.default_rng(11 if mode == "sigma" else 12)
+        a = r = v = 0.0
+        tours = 8
+        for _ in range(tours):
+            net, sig, ts = panel(rng, mode)
+            a += sharpe(_portfolio(net, ts, 1.0 / sig))
+            r += sharpe(_en_risque(net, ts, sig))
+            # verite terrain, calculee sans passer par les agregations :
+            # le P&L en dollars du livre a risque constant.
+            _, inv = np.unique(ts, return_inverse=True)
+            v += sharpe(np.bincount(inv, weights=net / sig))
+        a, r, v = a / tours, r / tours, v / tours
+        assert a <= r + 1e-9, \
+            f"[{mode}] la mesure en risque est SOUS l ancienne : {r:.4f} < {a:.4f}"
+        assert r <= v + 1e-9, \
+            f"[{mode}] la mesure en risque DEPASSE le livre tenu : {r:.4f} > {v:.4f}"
+
+    # Contre-épreuve : sans régimes de volatilité, il n'y a rien à
+    # corriger et les deux formules doivent presque coïncider. Sinon le
+    # gain viendrait d'autre chose que de l'hétéroscédasticité.
+    rng = np.random.default_rng(13)
+    n_inst, n_actifs = 4000, 8
+    sig = np.full((n_inst, n_actifs), 10e-4) * np.exp(rng.normal(0, 0.25, (n_inst, n_actifs)))
+    net = (sig * 0.05 + sig * rng.normal(0, 1.0, sig.shape)) * 1e4
+    ts = np.repeat(np.arange(n_inst), n_actifs)
+    a = sharpe(_portfolio(net.ravel(), ts, 1.0 / sig.ravel()))
+    r = sharpe(_en_risque(net.ravel(), ts, sig.ravel()))
+    assert abs(r - a) < 0.15 * max(abs(a), 1e-9), \
+        f"sans regimes, les deux mesures divergent quand meme : {a:.4f} vs {r:.4f}"

@@ -671,6 +671,57 @@ def _portfolio(net: np.ndarray, ts: np.ndarray,
     return np.bincount(inv, weights=w * net) / tot
 
 
+def _en_risque(net: np.ndarray, ts: np.ndarray,
+               sig: np.ndarray) -> np.ndarray:
+    """Le meme portefeuille, mesure en unites de RISQUE et non en bps.
+
+    `_portfolio` divise par la somme des poids 1/sigma. Son numerateur
+    vaut deja somme(net_i/sigma_i) — mais son denominateur, en croissant
+    quand la volatilite baisse, ecrase les instants calmes et gonfle les
+    instants agites. La serie obtenue est celle d un livre a NOTIONNEL
+    constant.
+
+    Or le moteur ne tient pas ce livre-la. Le plafond de ruine donne une
+    taille proportionnelle a 1/sigma : il tient un livre a RISQUE
+    constant. Et le seuil d entree etant lui-meme exprime en sigma, un
+    signal de 3 sigma rapporte mecaniquement plus de bps une heure
+    agitee qu une heure calme — `net` est heteroscedastique par
+    construction, et le Sharpe d une serie heteroscedastique est
+    mecaniquement rabaisse.
+
+    Diviser par le NOMBRE de jambes au lieu de la somme des poids donne
+    la moyenne des rendements en unites de risque. C est le meme argument
+    de fidelite que celui qui a impose la parite de risque ENTRE jambes,
+    applique cette fois DANS LE TEMPS — il n avait ete applique qu a une
+    moitie du probleme.
+
+    Mesure du 27 aout, panel synthetique a regimes de volatilite (x3
+    entre calme et tempete), verite terrain = le Sharpe du P&L en dollars
+    d un livre a risque constant :
+
+        avantage             actuel   en risque   verite
+        proportionnel a sig  0.0697   0.0863      0.1054
+        constant en bps      0.0659   0.1192      0.1451
+
+    Sur les douze cellules essayees, la mesure en risque tombe TOUJOURS
+    entre l ancienne et la verite, et ne la depasse jamais : elle retire
+    un biais vers le bas sans en creer un vers le haut. La moyenne (et
+    non la somme) sur les jambes reste la convention prudente — sommer
+    supposerait les jambes independantes, ce qu elles ne sont pas.
+
+    Et la BARRE ne bouge pas. Sous nul dur (queues de Student a 3 degres
+    de liberte, sigma en regimes), le max de Sharpe sur 4 860 cellules
+    vaut 0,1089 avec l ancienne agregation et 0,1086 avec celle-ci, pour
+    une barre theorique de 0,1093 a 1 143 instants. Le changement ne
+    touche donc pas la porte : il ne change que l estimation du signal.
+    """
+    if len(net) == 0:
+        return np.zeros(0)
+    u = net / np.maximum(np.asarray(sig, dtype=np.float64), 1e-12)
+    _, inv = np.unique(np.asarray(ts), return_inverse=True)
+    return np.bincount(inv, weights=u) / np.bincount(inv)
+
+
 def _profil(pnl: np.ndarray, k: int = 3) -> tuple:
     """Le Sharpe par tiers chronologique du holdout.
 
@@ -1107,8 +1158,14 @@ class CandleModel:
                             n_per = len(pnl)
                             if n_per < MIN_TRADES:
                                 continue
+                            # `sd` reste en BPS : c est lui qui nourrit
+                            # Kelly cote moteur. `sr` se juge en unites de
+                            # risque, parce que c est le livre reellement
+                            # tenu — voir _en_risque.
                             sd = float(np.std(pnl, ddof=1))
-                            sr = float(np.mean(pnl)) / sd if sd > 1e-12 else 0.0
+                            rq = _en_risque(net, tso[m], sgo[m])
+                            sdr = float(np.std(rq, ddof=1))
+                            sr = float(np.mean(rq)) / sdr if sdr > 1e-12 else 0.0
                             barre = expected_max_sharpe(self.n_cells, n_per)
                             marge = sr - barre
                             mu = float(np.mean(net))
@@ -1160,8 +1217,12 @@ class CandleModel:
                         n_per = len(pnl)
                         if n_per < MIN_TRADES:
                             continue
+                        # `sd` en bps pour Kelly, `sr` en unites de risque
+                        # pour la selection — voir _en_risque.
                         sd = float(np.std(pnl, ddof=1))
-                        sr = float(np.mean(pnl)) / sd if sd > 1e-12 else 0.0
+                        rq = _en_risque(net, tso[m], sgo[m])
+                        sdr = float(np.std(rq, ddof=1))
+                        sr = float(np.mean(rq)) / sdr if sdr > 1e-12 else 0.0
                         # On classe les cellules par la MARGE sur leur propre
                         # barre, pas par le Sharpe nu. Un seuil très haut produit
                         # toujours le plus beau Sharpe — sur trente trades, où il
@@ -1204,7 +1265,12 @@ class CandleModel:
                             # flottants ; calculer le profil pour trois
                             # mille cellules couterait le balayage. Seule
                             # la cellule retenue est profilee.
-                            "pnl": pnl,
+                            #
+                            # C est la serie EN RISQUE qu on porte, pas
+                            # celle en bps : le profil par tiers est un
+                            # Sharpe, et il doit se lire dans les memes
+                            # unites que le `sr` global qu il decompose.
+                            "pnl": rq,
                             "barre": barre, "marge": marge, "pente": pente,
                         }
                         if best is None or cle > best["cle"]:

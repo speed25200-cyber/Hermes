@@ -190,6 +190,76 @@ Chacun était silencieux. Aucun n'apparaissait dans les journaux.
 | sortie postée au take | mesurée à −3,4 bps, 13 remplissages sur 31 | rejetée |
 | 7 colonnes croisées BTC | lead-lag inchangé 3/3 **avec comme sans** — aucun bénéfice | réduites à 1 |
 
+### La mesure décrivait un livre que personne ne tient — dans le TEMPS
+
+`_portfolio` pondère les jambes par `1/sigma` puis divise par la **somme
+des poids**. Son numérateur vaut déjà `somme(net_i/sigma_i)` ; c'est le
+dénominateur qui pose problème — en croissant quand la volatilité
+baisse, il écrase les instants calmes et gonfle les instants agités. La
+série obtenue est celle d'un livre à **notionnel constant**.
+
+Or le moteur ne tient pas ce livre-là. Le plafond de ruine
+`0,025/(sl_bps·1e-4)` donne une taille proportionnelle à `1/sigma` : il
+tient un livre à **risque constant**. Et le seuil d'entrée étant
+lui-même exprimé en sigma, un signal de 3 σ rapporte mécaniquement plus
+de points de base une heure agitée qu'une heure calme — `net` est
+hétéroscédastique par construction, et le Sharpe d'une série
+hétéroscédastique est mécaniquement rabaissé.
+
+C'est exactement l'argument qui avait imposé la parité de risque **entre
+jambes**, et il n'avait été appliqué qu'à une moitié du problème.
+
+**Mesure**, panel synthétique à régimes de volatilité (×3 entre calme et
+tempête). Vérité terrain calculée indépendamment des deux formules : le
+Sharpe du P&L en dollars d'un livre à risque constant, `somme(r_i/σ_i)`.
+
+| avantage | régimes | actuel | en risque | vérité |
+|---|---|---|---|---|
+| ∝ σ | non | 0,0833 | 0,0859 | 0,1065 |
+| ∝ σ | oui | 0,0697 | **0,0863** | 0,1054 |
+| constant en bps | non | 0,0870 | 0,0908 | 0,1085 |
+| constant en bps | oui | 0,0659 | **0,1192** | 0,1451 |
+
+Sur les douze cellules essayées, la mesure en risque tombe **toujours**
+entre l'ancienne et la vérité, et ne la dépasse **jamais**. Elle retire
+un biais vers le bas sans en créer un vers le haut. Le second bloc est
+le contre-test qui décide s'il y a triche : un avantage constant en bps
+n'est pas proportionnel à σ, et si la nouvelle formule fabriquait du
+Sharpe elle dépasserait la vérité là. Elle reste en dessous.
+
+La moyenne — et non la somme — sur les jambes reste la convention
+prudente : sommer supposerait les jambes indépendantes, ce qu'elles ne
+sont pas à 0,8 de corrélation. C'est pourquoi les deux estimateurs
+restent sous la vérité, et c'est voulu.
+
+**Et la barre ne bouge pas.** Changer la série mesurée sans revérifier
+la barre serait abaisser la porte en silence. Sous nul dur — queues de
+Student à 3 degrés de liberté et sigma en régimes — le max de Sharpe sur
+4 860 cellules à 1 143 instants :
+
+| | max du hasard | barre théorique |
+|---|---|---|
+| ancienne agrégation | 0,1045 | 0,1089 |
+| en unités de risque | 0,1056 | 0,1089 |
+
+Les deux voient le même hasard, à 1 % de la barre. Le changement ne
+touche donc pas la porte : il ne change que l'estimation du **signal**.
+Les deux résultats sont verrouillés par
+`test_the_bar_does_not_move_when_the_aggregation_changes` et
+`test_measuring_in_risk_units_never_overshoots_the_book_actually_held`.
+
+Ce que cela coûte, et qu'il faut dire : un `sr` plus haut donne un
+`net_defl` plus haut, donc des tailles plus grandes. Le système était
+sous-dimensionné parce qu'il se sous-mesurait, mais la conséquence est
+bien une prise de risque supérieure. Le rodage à 0,10 et le plafond de
+ruine, eux, n'ont pas bougé.
+
+Détail d'implémentation qui compte : `net_sd` reste en **points de
+base**, parce que c'est lui qui nourrit Kelly côté moteur
+(`f* = defl/sd²`). Seul le `sr` de sélection passe en unités de risque.
+
+---
+
 ### La cellule de plus grande marge est-elle la meilleure payeuse ?
 
 Le code posait la question et refusait d'y répondre avant d'avoir publié
