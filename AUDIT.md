@@ -190,6 +190,107 @@ Chacun était silencieux. Aucun n'apparaissait dans les journaux.
 | sortie postée au take | mesurée à −3,4 bps, 13 remplissages sur 31 | rejetée |
 | 7 colonnes croisées BTC | lead-lag inchangé 3/3 **avec comme sans** — aucun bénéfice | réduites à 1 |
 
+### Un embargo que j'ai voulu « corriger » à tort
+
+Ayant trouvé une vraie fuite dans `pas`, j'ai regardé l'embargo voisin
+et cru y voir la même chose. Avec `lag = 0`, l'étiquette de l'indice *i*
+va de l'ouverture de la barre i+1 à la clôture de la barre i+h : elle se
+termine à `ts[i] + (h+1)·pas`. Le code exige `ts[i] < t0 − h·pas`, ce
+qui semble court d'une barre.
+
+Ça ne l'est pas. **L'inégalité est stricte et les horodatages sont sur
+une grille de pas constant** : `< t0 − h·pas` admet au plus
+`ts[i] = t0 − (h+1)·pas`, dont l'étiquette se termine à `t0` pile — à
+l'ouverture de la première barre de test, sans jamais la traverser.
+L'embargo était exactement ajusté ; mon durcissement retirait une barre
+d'entraînement de plus sans retirer la moindre fuite.
+
+C'est le test que j'avais écrit pour prouver le défaut qui m'a arrêté.
+La correction est annulée, et un test ancre désormais l'ajustement dans
+les **deux** sens : durcir à `(h+1)` perd des données pour rien,
+assouplir à `(h−1)` fait fuir. Personne ne le « réparera » à nouveau —
+moi compris.
+
+---
+
+### Le défaut le plus coûteux de la journée : une clé manquante
+
+`BARS` contient cinq échelles ; `BAR_MS` n'en contenait que quatre.
+« 1H » manquait, et le code lisait `BAR_MS.get(bar, 300_000)` — donc
+**cinq minutes** pour l'échelle horaire. Ce n'est pas un défaut
+d'affichage. `pas` gouverne trois choses :
+
+```python
+brut = sum((ts < t0 - h * pas).sum() ...)   # embargo
+tr   = idx[ts[idx] < t0 - h * pas][::saut]  # embargo
+te   = te[(ts[te] // pas) % h == 0]         # etiquettes disjointes
+```
+
+**L'embargo** valait `h × 5 min` au lieu de `h × 60 min` : trente minutes
+là où les étiquettes couvrent six heures. De la fuite pure.
+
+**Le sous-échantillonnage du holdout devenait un no-op.** Les horodatages
+horaires sont des multiples de 3 600 000 ; divisés par 300 000 ils
+donnent `12k`, et `12k % 6` vaut toujours zéro. Le 1H gardait donc ses
+**six étiquettes chevauchantes** au lieu d'une sur six.
+
+| à h = 6 | rapporté | réel |
+|---|---|---|
+| holdout gardé | 60/60 | **10/60** |
+| instants du 1H | 1 257 | ~209 |
+| barre déflatée | 0,102 | **0,251** |
+| embargo | 30 min | **6 h** |
+
+Le 1H n'était pas « à 0,007 de la porte ». **Il en est à un facteur
+2,5.** Et c'est sur ce chiffre que j'ai fondé, toute la journée, le
+raisonnement « le 1H est la meilleure payeuse et la plus proche, portons
+l'effort là ». La cellule la plus prometteuse du système était un
+artefact d'étiquettes chevauchantes.
+
+Second défaut trouvé au même endroit : `par_jour`. Il lui manquait
+**deux** facteurs, et il a fallu deux passes pour les trouver tous les
+deux.
+
+Le **panel** d'abord : `n_hold` compte les lignes du holdout de tout le
+panel, et vingt actifs qui partagent une horloge donnent vingt lignes
+par barre, pas vingt barres.
+
+L'**amincissement** ensuite : le holdout ne garde qu'une barre sur `h`
+— les lignes gardées ne sont pas les barres écoulées.
+
+La première correction seule donnait **348 déclenchements par jour** au
+1m. C'est impossible : à six minutes d'écart il n'en tient que 240 dans
+une journée. Ce plafond arithmétique a révélé le second facteur, et un
+test le garde désormais — une formule qui franchit le plafond est fausse
+quoi qu'elle rende par ailleurs.
+
+Le chiffre juste au 1m est **57,8 par jour**, contre 17,3 annoncés.
+
+Et le recoupement qui donne confiance dans la formule — le seul moyen
+d'en avoir : `DEBUT_TEST = 0,40`, donc la durée du holdout doit valoir
+60 % de l'histoire chargée.
+
+| | holdout | histoire impliquée | histoire réelle |
+|---|---|---|---|
+| 1m | 37,3 j | 62,1 j | 62 j |
+| 3m | 38,1 j | 63,6 j | 60 j |
+| 15m | 309,9 j | 516,5 j | **365 j** |
+
+Les deux premiers tombent au dixième près. **Le troisième non**, et la
+raison n'est pas établie. Un test l'ancre tel quel plutôt que d'ajuster
+la formule pour qu'elle tombe bien : c'est un écart connu, pas un écart
+caché.
+
+Ce que cela dit de la méthode, et qui vaut plus que le correctif :
+`dict.get(clé, défaut)` sur une table de constantes est un piège, parce
+qu'une clé absente ne fait pas de bruit — elle rend une valeur
+plausible. Un test exige désormais que `BAR_MS` couvre `BARS`, et qu'à
+chaque échelle le sous-échantillonnage garde bien une barre sur `h`. Une
+contre-épreuve vérifie que l'ancien pas reproduisait bien le no-op :
+sans elle, le test passerait aussi sur le bug.
+
+---
+
 ### Une correction juste, déployée d'une façon qui l'a rendue muette
 
 La mesure en unités de risque était vérifiée en fixture et sous nul dur.
@@ -497,12 +598,17 @@ un tour complet des cinq échelles :
 | 15m | mlp/h3/abs 2,0σ | −3,54 bps | −0,005 | 0,059 | −0,064 | 1,9 | — |
 | 1H  | ridge/h6/neu 4,0σ | **+43,13 bps** | **+0,094** | 0,109 | **−0,015** | 2,1 | **+91 bps** |
 
-La réponse est **non, il n'y a pas de conflit** : l'échelle de plus
-grande marge (1H, à 0,015 de la barre) est aussi, et de loin, la
-meilleure payeuse — deux fois le 1m en bps par jour, vingt fois en bps
-par trade. Le classement par marge n'a donc pas besoin d'être changé.
-C'est un résultat négatif sur ma propre suspicion, et il vaut d'être
-écrit : le soupçon portait sur le classement, la mesure le disculpe.
+> **⚠ CE TABLEAU EST FAUX, ET LA SECTION SUIVANTE DIT POURQUOI.**
+> `BAR_MS` ne contenait pas « 1H ». Les colonnes `par jour` sont toutes
+> sous-estimées d'un facteur égal à la taille du panel, et la ligne 1H
+> est doublement fausse : sa barre vaut 0,251 et non 0,104. Le 1H
+> n'était pas « à 0,015 de la porte ». Le tableau est conservé tel quel
+> parce qu'effacer une erreur publiée est pire que la corriger.
+
+La conclusion que j'en avais tirée — « l'échelle de plus grande marge
+est aussi la meilleure payeuse, c'est le 1H, portons-y l'effort » — a
+gouverné toute la journée du 27 août. Elle reposait sur une barre
+gonflée d'un facteur 2,5.
 
 Ce que la mesure dit vraiment, c'est **où porter l'effort**. Le 1H est
 la seule échelle où le coût ne mange que 4 % du mouvement, et c'est la

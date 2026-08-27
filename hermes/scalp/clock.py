@@ -247,7 +247,30 @@ ASSETS = ("BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP",
 # BARS. Ils somment a 1.
 W = {"1m": 0.12, "3m": 0.15, "5m": 0.20, "15m": 0.26, "1H": 0.27}
 FEE = 7.0  # maker in + taker SL, bps
-BAR_MS = {"1m": 60_000, "3m": 180_000, "5m": 300_000, "15m": 900_000}
+# La duree de CHAQUE barre de BARS, sans exception. Le defaut de
+# `BAR_MS.get(bar, 300_000)` est un piege : « 1H » y manquait pendant que
+# BARS le contenait, et la recherche retombait donc sur cinq minutes pour
+# l echelle horaire. Trois consequences, et les deux dernieres sont des
+# defauts de MESURE, pas d affichage :
+#
+#   - `par_jour` divisait par le mauvais pas ;
+#   - l EMBARGO valait h x 5 min au lieu de h x 60 min, soit 30 minutes
+#     la ou les etiquettes couvrent six heures : de la fuite pure ;
+#   - le sous-echantillonnage du holdout, `(ts // pas) % h == 0`, devenait
+#     TOUJOURS VRAI. Les horodatages horaires sont des multiples de
+#     3 600 000 ; divises par 300 000 ils donnent 12k, et 12k % 6 vaut
+#     toujours zero. Le 1H gardait donc ses SIX etiquettes chevauchantes
+#     au lieu d une sur six.
+#
+# Mesure du 27 aout : a h=6 le holdout gardait 60 barres sur 60 au lieu
+# de 10, l instants du 1H etait donc gonfle d un facteur six, et sa barre
+# deflatee valait 0,102 au lieu de 0,251. C est ce qui faisait croire que
+# le 1H etait « a 0,007 de la porte » alors qu il en est a un facteur 2,5.
+#
+# Un test exige desormais que BAR_MS couvre BARS : le defaut silencieux
+# ne peut pas revenir.
+BAR_MS = {"1m": 60_000, "3m": 180_000, "5m": 300_000,
+          "15m": 900_000, "1H": 3_600_000}
 
 
 def _roll_std(x: np.ndarray, w: int) -> np.ndarray:
@@ -1105,6 +1128,21 @@ class CandleModel:
             # Le pas d echantillonnage se calcule sur le pli entier, pour
             # que chaque actif soit reduit dans la MEME proportion : un pas
             # par actif donnerait plus de poids aux historiques courts.
+            # L embargo est EXACTEMENT ajuste, et l inegalite stricte y
+            # est pour quelque chose — ne pas la « corriger ».
+            #
+            # Avec `lag = 0`, l etiquette de l indice i va de l OUVERTURE de
+            # la barre i+1 a la CLOTURE de la barre i+h : elle se termine
+            # donc a ts[i] + (h+1) x pas. On pourrait croire qu il faut
+            # exiger ts[i] <= t0 - (h+1) x pas. Mais les horodatages sont
+            # sur une grille de pas constant, et `< t0 - h x pas` admet au
+            # plus ts[i] = t0 - (h+1) x pas : l etiquette se termine alors
+            # a t0 PILE, c est-a-dire a l ouverture de la premiere barre de
+            # test, sans jamais la traverser.
+            #
+            # Verifie en essayant de le durcir : passer a (h+1) retire une
+            # barre d entrainement de plus sans retirer la moindre fuite.
+            # Un test ancre l ajustement exact dans les deux sens.
             brut = sum(int((p["ts"][p["idx"]] < t0 - h * pas).sum())
                        for p in parts)
             saut = max(1, -(-brut // BUDGET_TRAIN))
@@ -1416,10 +1454,36 @@ class CandleModel:
         self.rr, self.nn, self.up, self.dn = b["rr"], b["nn"], b["up"], b["dn"]
         self.ic = b["ic"]
         self.profil = _profil(b.get("pnl", np.zeros(0)))
-        # Frequence et rendement quotidien de la cellule retenue. Le
-        # holdout couvre n_hold instants de `bar` minutes chacun.
-        pas_min = BAR_MS.get(self.bar, 300_000) / 60_000.0
-        jours = max(float(b.get("n_hold") or 0) * pas_min / 1440.0, 1e-9)
+        # Frequence et rendement quotidien de la cellule retenue.
+        #
+        # DEUX facteurs manquaient, et il a fallu deux passes pour les
+        # trouver tous les deux.
+        #
+        # Le PANEL : `n_hold` compte les lignes du holdout de tout le
+        # panel. Vingt actifs qui partagent la meme horloge donnent vingt
+        # lignes par barre, pas vingt barres.
+        #
+        # L AMINCISSEMENT : le holdout ne garde qu une barre sur h
+        # (etiquettes non chevauchantes). Les lignes gardees ne sont donc
+        # pas les barres ECOULEES — il en manque h-1 sur h entre chacune.
+        #
+        # La premiere correction seule donnait 348 declenchements par jour
+        # au 1m, ce qui est impossible : a six minutes d ecart il n en
+        # tient que 240 dans une journee. C est ce plafond arithmetique qui
+        # a revele le second facteur.
+        #
+        # Recoupement, la seule facon de savoir que la formule est juste :
+        # la duree du holdout doit valoir 60 % de l histoire chargee
+        # (DEBUT_TEST = 0,40). Au 1m elle donne 37,3 jours, soit 62,1
+        # d histoire pour 62 stockes ; au 3m 38,1 jours, soit 63,6 pour 60.
+        # Au 15m elle donne 310 jours, soit 516 impliques pour 365 charges
+        # — ce recoupement-la ne tombe PAS juste et la raison n est pas
+        # etablie ; on l ecrit plutot que d ajuster la formule pour qu elle
+        # tombe bien.
+        pas_min = BAR_MS[self.bar] / 60_000.0
+        gardees = float(b.get("n_hold") or 0) / max(int(self.n_assets), 1)
+        barres = gardees * max(int(b.get("h") or 1), 1)
+        jours = max(barres * pas_min / 1440.0, 1e-9)
         self.par_jour = float(b.get("n_per") or 0) / jours
         self.thr_bps = float(b["thr"])
         # Le seuil EN SIGMAS, pas seulement en bps : c est lui qui dit si

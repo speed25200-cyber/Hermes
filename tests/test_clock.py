@@ -841,3 +841,188 @@ def test_the_two_series_share_one_sort_and_agree_with_the_separate_ones():
     assert "_en_risque(net, tso" not in src, \
         "le balayage refait un tri separe pour la serie en risque"
     assert src.count("_agreger(net, tso[m], sgo[m])") == 2
+
+
+def test_every_bar_has_a_duration_and_the_holdout_is_really_subsampled():
+    """« 1H » manquait à `BAR_MS` pendant que `BARS` le contenait.
+
+    `BAR_MS.get(bar, 300_000)` retombait donc sur CINQ MINUTES pour
+    l'échelle horaire, et ce n'était pas un défaut d'affichage :
+
+    - l'EMBARGO valait `h × 5 min` au lieu de `h × 60 min`, soit trente
+      minutes là où les étiquettes couvrent six heures — de la fuite ;
+    - le sous-échantillonnage du holdout, `(ts // pas) % h == 0`,
+      devenait TOUJOURS VRAI. Les horodatages horaires sont des multiples
+      de 3 600 000 ; divisés par 300 000 ils donnent 12k, et `12k % 6`
+      vaut toujours zéro. Le 1H gardait ses six étiquettes chevauchantes
+      au lieu d'une sur six.
+
+    Conséquence mesurée : `instants` gonflé d'un facteur six, donc une
+    barre déflatée de 0,102 au lieu de 0,251. C'est ce qui faisait croire
+    que le 1H était « à 0,007 de la porte » alors qu'il en est à un
+    facteur 2,5.
+    """
+    import math
+
+    import numpy as np
+
+    from hermes.scalp.clock import BAR_MS, BARS
+
+    # 1) Aucune barre ne peut plus tomber dans le défaut silencieux.
+    manquants = [b for b in BARS if b not in BAR_MS]
+    assert not manquants, f"BAR_MS ne couvre pas {manquants}"
+
+    # 2) Le sous-échantillonnage garde bien une barre sur h, à CHAQUE
+    #    échelle. C'est la propriété qui rend les étiquettes disjointes.
+    for bar in BARS:
+        pas = BAR_MS[bar]
+        ts = np.arange(600, dtype=np.int64) * pas
+        for h in (1, 3, 6):
+            garde = ts[(ts // pas) % h == 0]
+            assert len(garde) == 600 // h, \
+                f"{bar} h={h} : {len(garde)} gardes au lieu de {600 // h}"
+
+    # 3) Contre-épreuve : avec l'ancien pas par défaut, le filtre horaire
+    #    ne gardait RIEN du tout — il laissait tout passer. Sans cette
+    #    vérification, le test ci-dessus passerait aussi sur le bug.
+    ts_h = np.arange(600, dtype=np.int64) * 3_600_000
+    for h in (3, 6):
+        garde_faux = ts_h[(ts_h // 300_000) % h == 0]
+        assert len(garde_faux) == 600, \
+            "le defaut ne se reproduit pas : le test ne prouve rien"
+
+    # 4) Et la barre déflatée que cela produisait.
+    from hermes.scalp.clock import expected_max_sharpe
+    gonflee = expected_max_sharpe(4860, 1257)
+    juste = expected_max_sharpe(4860, 1257 // 6)
+    assert gonflee < 0.11 and juste > 0.24, (gonflee, juste)
+    assert juste / gonflee > 2.3
+
+
+def test_the_embargo_is_exactly_tight_and_must_not_be_loosened_or_tightened():
+    """J'ai voulu « corriger » cet embargo, et je me trompais.
+
+    Avec `lag = 0`, l'étiquette de l'indice *i* va de l'OUVERTURE de la
+    barre i+1 à la CLÔTURE de la barre i+h — arithmétique de `_targets` :
+    `base = c.o[1:1+m]`, `fut = px[h:h+m]`. Elle se termine donc à
+    `ts[i] + (h+1)·pas`, ce qui donne envie d'exiger
+    `ts[i] ≤ t0 − (h+1)·pas`.
+
+    C'est déjà le cas. L'inégalité est STRICTE et les horodatages sont
+    sur une grille de pas constant : `ts[i] < t0 − h·pas` admet au plus
+    `ts[i] = t0 − (h+1)·pas`, dont l'étiquette se termine à `t0` pile —
+    à l'ouverture de la première barre de test, sans jamais la traverser.
+
+    Durcir à `(h+1)` retire une barre d'entraînement de plus sans retirer
+    la moindre fuite. Assouplir à `(h−1)` laisse déborder. Ce test ancre
+    l'ajustement dans les DEUX sens, pour que personne — moi compris — ne
+    le « répare » à nouveau.
+    """
+    import inspect
+
+    import numpy as np
+
+    from hermes.scalp import clock
+
+    pas, h, t0 = 60_000, 6, 1_000_000_000
+    ts = np.arange(t0 - 30 * pas, t0, pas, dtype=np.int64)
+    fin = lambda x: x + (h + 1) * pas          # noqa: E731 - fin d etiquette
+
+    juste = ts[ts < t0 - h * pas]
+    assert (fin(juste) <= t0).all(), "lembargo actuel laisse deborder"
+    assert fin(juste[-1]) == t0, \
+        "lembargo actuel nest pas AJUSTE : il laisse une marge inutile"
+
+    trop_serre = ts[ts < t0 - (h + 1) * pas]
+    assert len(trop_serre) == len(juste) - 1
+    assert fin(trop_serre[-1]) == t0 - pas, \
+        "le durcissement retire une barre sans retirer de fuite"
+
+    trop_large = ts[ts < t0 - (h - 1) * pas]
+    assert fin(trop_large[-1]) > t0, \
+        "lassouplissement ne fait pas fuir : le test ne prouve rien"
+
+    # Et le code porte bien la forme juste.
+    src = inspect.getsource(clock)
+    assert "ts[idx] < t0 - h * pas" in src
+    assert "(h + 1) * pas" not in src.split("def _essai")[1].split("def ")[0], \
+        "un durcissement inutile a ete reintroduit dans _essai"
+
+
+def test_the_daily_rate_survives_its_own_arithmetic_ceiling():
+    """`par_jour` était faux de deux facteurs, et il a fallu deux passes.
+
+    Le PANEL : `n_hold` compte les lignes du holdout de tout le panel.
+    Vingt actifs partageant une horloge donnent vingt lignes par barre,
+    pas vingt barres.
+
+    L'AMINCISSEMENT : le holdout ne garde qu'une barre sur `h` — les
+    lignes gardées ne sont pas les barres écoulées.
+
+    La première correction seule donnait 348 déclenchements par jour au
+    1m. C'est **impossible** : à six minutes d'écart il n'en tient que
+    240 dans une journée. Ce plafond arithmétique a révélé le second
+    facteur, et ce test le garde — une formule qui le franchit est fausse
+    quoi qu'elle rende par ailleurs.
+    """
+    from hermes.scalp.clock import BAR_MS
+
+    def par_jour(n_hold, n_per, n_assets, bar, h):
+        pas_min = BAR_MS[bar] / 60_000.0
+        gardees = float(n_hold) / max(int(n_assets), 1)
+        barres = gardees * max(int(h), 1)
+        return n_per / max(barres * pas_min / 1440.0, 1e-9)
+
+    # Le plafond : on ne peut pas declencher plus souvent qu il n y a
+    # d instants distincts dans une journee.
+    for n_hold, n_per, n_assets, bar, h in (
+            (178_942, 2156, 20, "1m", 6),
+            (122_041, 708, 20, "3m", 3),
+            (142_352, 1217, 20, "5m", 3),
+            (198_318, 6650, 20, "15m", 3),
+            (154_991, 1326, 20, "1H", 6)):
+        v = par_jour(n_hold, n_per, n_assets, bar, h)
+        plafond = 1440.0 / (BAR_MS[bar] / 60_000.0 * h)
+        assert v <= plafond + 1e-9, \
+            f"{bar} h={h} : {v:.1f}/jour pour un plafond de {plafond:.1f}"
+
+    # Le cas du 1m, chiffre : 2 156 instants sur 37,3 jours.
+    v = par_jour(178_942, 2156, 20, "1m", 6)
+    assert 55.0 < v < 60.0, v
+
+    # Et les deux formules fausses le franchissent ou s en ecartent — sans
+    # cette contre-epreuve le test passerait aussi sur les bugs.
+    ancien = 2156 / (178_942 * 1.0 / 1440.0)          # ni panel ni amincissement
+    demi = 2156 / (178_942 / 20 * 1.0 / 1440.0)       # panel seul
+    assert ancien < 20.0, ancien
+    assert demi > 1440.0 / 6.0, "la correction intermediaire ne franchit plus le plafond"
+
+
+def test_the_holdout_duration_cross_checks_against_the_stored_history():
+    """La seule façon de savoir qu'une formule de durée est juste.
+
+    `DEBUT_TEST = 0,40` : le test couvre 60 % de la période chargée. La
+    durée du holdout doit donc valoir 0,6 × l'histoire. Mesuré :
+
+        1m   37,3 j de holdout  ->  62,1 j impliqués  (62 stockés)
+        3m   38,1 j             ->  63,6 j            (60 chargés)
+        15m  309,9 j            ->  516,5 j           (365 chargés)
+
+    Les deux premiers tombent au dixième près. Le troisième NON, et la
+    raison n'est pas établie. Ce test verrouille les deux qui recoupent
+    et laisse le troisième visible plutôt que d'ajuster la formule pour
+    qu'elle tombe bien — c'est un écart connu, pas un écart caché.
+    """
+    from hermes.scalp.clock import BAR_MS, DEBUT_TEST
+
+    def histoire_impliquee(n_hold, n_assets, bar, h):
+        pas_min = BAR_MS[bar] / 60_000.0
+        jours = n_hold / n_assets * h * pas_min / 1440.0
+        return jours / (1.0 - DEBUT_TEST)
+
+    assert abs(histoire_impliquee(178_942, 20, "1m", 6) - 62.0) < 1.0
+    assert abs(histoire_impliquee(122_041, 20, "3m", 3) - 60.0) < 4.0
+    # L ecart connu du 15m, ancre tel quel pour qu il ne se perde pas.
+    ecart = histoire_impliquee(198_318, 20, "15m", 3) / 365.0
+    assert 1.3 < ecart < 1.5, \
+        f"lecart du 15m a change ({ecart:.2f}) : le comprendre avant de toucher"
