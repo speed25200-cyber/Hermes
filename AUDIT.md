@@ -365,10 +365,44 @@ en face.
 
 Un seuil posé sans mesure reste un pari tant que la mesure ne l'a pas
 confirmé. Les trois quantités sont donc journalisées pour **tout** nom
-jugé, admis compris : si une vraie crypto tombe sous 0,15, son chiffre
-sera au journal et le seuil sera faux. C'est précisément ce qui manquait
-— un critère qui ne s'explique que lorsqu'il dit non est à moitié
-aveugle, et c'est ce qui a laissé le défaut vivre.
+jugé, admis compris. C'est précisément ce qui manquait — un critère qui
+ne s'explique que lorsqu'il dit non est à moitié aveugle, et c'est ce
+qui a laissé le défaut vivre.
+
+#### La mesure a démenti le seuil, trois heures plus tard
+
+| vraies cryptos | volume WE | | actions tokenisées | volume WE |
+|---|---|---|---|---|
+| BTC | 0,86 | | SNDK | 0,60 |
+| ETH | 0,82 | | XAU | 0,62 |
+| SOL | 0,93 | | SKHYNIX | 0,58 |
+| XRP | 1,18 | | SPCX | 0,61 |
+| DOGE | 1,07 | | SOXL | 0,61 |
+| ZEC | 1,06 | | MU | 0,62 |
+| TAO | 1,90 | | CRCL | 0,72 |
+
+Les actions tokenisées échangent **58 à 72 %** de leur volume de semaine
+le week-end, pas 2 %. Le seuil de 0,15 n'écarte personne, et le panel
+porte toujours les sept.
+
+Le mécanisme invoqué était juste — un teneur de marché fabrique une
+cotation, pas un volume — mais **l'ampleur était fausse**. Le perpétuel
+se trade en continu : on spécule sur SPCX le dimanche, on ne peut
+simplement pas se couvrir sur le sous-jacent. Un volume qui se réduit
+d'un tiers n'est pas un marché mort.
+
+Les deux populations *sont* séparées — toutes les cryptos ≥ 0,82, toutes
+les actions ≤ 0,72 — et je ne place **pas** un seuil dans ce trou. ETH
+est à 0,82 ; un seuil à 0,80 l'emporterait un week-end calme. Vingt
+points ne justifient pas un seuil à 0,08 près, et c'est exactement le
+raisonnement « loin des deux populations » qui vient d'échouer.
+
+Ce qui devrait séparer d'un **ordre de grandeur** plutôt que de 30 %,
+c'est le profil horaire : une action tokenisée suit sa séance, une
+crypto n'en a pas. Cette quantité est désormais mesurée et journalisée
+(`seance/nuit`) — et délibérément branchée à **rien**. Poser un seuil
+dessus avant de l'avoir lue serait refaire, à l'identique et trois
+heures plus tard, l'erreur que cette section décrit.
 
 Conséquence attendue et non garantie : le panel se rétrécit avant de se
 réélargir, le temps que le rattrapage donne assez d'histoire aux vraies

@@ -590,10 +590,44 @@ class ScalpEngine:
             if ouvre_v > 0.0:
                 rapport_v = float(vol[we].mean()) / ouvre_v
 
+        # QUATRIEME quantite, MESUREE SANS ETRE UN CRITERE.
+        #
+        # Le seuil de 0,15 sur le volume du week-end a ete pose sur une
+        # intuition — un teneur de marche fabrique une cotation, pas un
+        # volume — et la mesure du 27 aout la contredit. Les actions
+        # tokenisees echangent 58 a 72 % de leur volume de semaine le
+        # week-end, pas 2 % : le perpetuel se trade en continu, on
+        # speculait sur SPCX le dimanche, on ne pouvait simplement pas se
+        # couvrir sur le sous-jacent. Le mecanisme etait juste, l ampleur
+        # etait fausse, et le critere ne recale personne.
+        #
+        # Ce qui devrait separer d un ORDRE DE GRANDEUR plutot que de
+        # 30 %, c est le profil HORAIRE. Une action tokenisee suit sa
+        # seance : elle doit s animer a l ouverture du cash americain et
+        # s endormir la nuit. Une crypto n a pas de seance.
+        #
+        # Mais poser un seuil sur cette intuition-la sans l avoir mesuree
+        # serait refaire exactement l erreur qu on vient de constater. On
+        # journalise donc le chiffre, on ne s en sert pas, et on decidera
+        # quand les deux populations auront parle.
+        rapport_h = float("nan")
+        if vol.size == len(px) - 1:
+            heure = (np.asarray(ts[1:], dtype=np.float64)
+                     % 86_400_000.0) / 3_600_000.0
+            seance = (heure >= 13.5) & (heure < 20.0) & (~we)
+            hors = (~seance) & (~we)
+            if seance.sum() > 200 and hors.sum() > 200:
+                h_hors = float(vol[hors].mean())
+                if h_hors > 0.0:
+                    rapport_h = float(vol[seance].mean()) / h_hors
+
         self.log(f"scalp juge {c.inst} : week-end amplitude {rapport:.2f} "
                  f"plates {plat_we * 100:.0f}% (semaine "
                  f"{plat_ouvre * 100:.0f}%) volume "
                  + (f"{rapport_v:.2f}" if rapport_v == rapport_v
+                    else "non mesure")
+                 + " seance/nuit "
+                 + (f"{rapport_h:.2f}" if rapport_h == rapport_h
                     else "non mesure"))
 
         if rapport_v == rapport_v and rapport_v < 0.15:

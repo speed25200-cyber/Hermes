@@ -2290,3 +2290,105 @@ def test_a_missing_volume_column_never_rejects_a_name(tmp_path):
     assert eng._assez_dhistoire("BTC-USDT-SWAP") is True, \
         "un volume absent fait passer le nom pour une action tokenisee"
     assert any("volume non mesure" in m for m in dits), dits
+
+
+def test_the_session_profile_is_measured_and_not_yet_a_gate(tmp_path):
+    """Le seuil de 0,15 sur le volume du week-end était faux, mesuré.
+
+    Relevé du 27 août, la fenêtre que j'avais ajoutée pour pouvoir être
+    démenti :
+
+        BTC  volume 0,86    SNDK     volume 0,60
+        ETH  volume 0,82    XAU      volume 0,62
+        SOL  volume 0,93    SKHYNIX  volume 0,58
+        XRP  volume 1,18    SPCX     volume 0,61
+        DOGE volume 1,07    SOXL     volume 0,61
+        ZEC  volume 1,06    MU       volume 0,62
+        TAO  volume 1,90    CRCL     volume 0,72
+
+    Les actions tokenisées échangent 58 à 72 % de leur volume de semaine
+    le week-end, pas 2 %. Le mécanisme invoqué était juste — un teneur de
+    marché fabrique une cotation, pas un volume — mais l'ampleur était
+    fausse : le perpétuel se trade en continu, on spécule sur SPCX le
+    dimanche, on ne peut simplement pas se couvrir sur le sous-jacent.
+
+    Les deux populations SONT séparées (≥ 0,82 contre ≤ 0,72), mais je ne
+    place pas un seuil dans ce trou : ETH est à 0,82. Vingt points ne
+    justifient pas un seuil à 0,08 près.
+
+    Le profil HORAIRE devrait séparer d'un ordre de grandeur. Ce test
+    exige qu'il soit MESURÉ et qu'il ne serve à RIEN — refaire l'erreur
+    consisterait précisément à le brancher tout de suite.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+
+    def serie(nom, seance):
+        """`seance` : le volume se concentre dans les heures de bourse."""
+        n = 40_000
+        ts = np.arange(n, dtype=np.int64) * 60_000
+        rng = np.random.default_rng(21)
+        px = 100 * np.exp(np.cumsum(rng.normal(0, 4e-4, n)))
+        h = (ts % 86_400_000) / 3_600_000.0
+        v = np.full(n, 1000.0)
+        if seance:
+            v = np.where((h >= 13.5) & (h < 20.0), 5000.0, 500.0)
+        return Candles(nom, "1m", ts, px, px, px, px, v)
+
+    eng, _ = _moteur_pos(tmp_path)
+    dits = []
+    eng.log = dits.append
+    eng.store = type("M", (), {"load": lambda self, i, b, **k: serie(i, True)})()
+
+    # MESURÉ : la ligne porte le rapport, et il est franchement grand.
+    assert eng._assez_dhistoire("SPCX-USDT-SWAP") is True, \
+        "le profil horaire sert deja de critere alors quil na pas ete mesure"
+    ligne = next(m for m in dits if "scalp juge SPCX-USDT-SWAP" in m)
+    assert "seance/nuit" in ligne, ligne
+    valeur = float(ligne.split("seance/nuit")[1].strip())
+    assert valeur > 3.0, f"le rapport de seance nest pas mesure : {ligne}"
+
+    # Et une crypto sans séance donne un rapport voisin de 1.
+    eng2, _ = _moteur_pos(tmp_path / "b")
+    (tmp_path / "b").mkdir(exist_ok=True)
+    dits2 = []
+    eng2.log = dits2.append
+    eng2.store = type("M", (), {"load": lambda self, i, b, **k: serie(i, False)})()
+    assert eng2._assez_dhistoire("SOL-USDT-SWAP") is True
+    ligne2 = next(m for m in dits2 if "scalp juge SOL-USDT-SWAP" in m)
+    v2 = float(ligne2.split("seance/nuit")[1].strip())
+    assert abs(v2 - 1.0) < 0.05, f"une crypto sans seance donne {v2:.2f}"
+
+
+def test_the_weekend_volume_threshold_is_recorded_as_measured_not_assumed(tmp_path):
+    """Un nom au volume de week-end de 0,60 n'est PLUS écarté par erreur.
+
+    Ce n'est pas un assouplissement : le seuil de 0,15 n'a jamais écarté
+    personne en production. C'est un ancrage — il dit que la valeur
+    mesurée sur les actions tokenisées (0,58 à 0,72) passe le critère, de
+    sorte que si quelqu'un remonte un jour le seuil à 0,80 pour « régler »
+    le problème, ce test le fera échouer et l'obligera à justifier
+    pourquoi ETH, mesuré à 0,82, ne serait pas emporté avec.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+
+    def serie(nom, part_we):
+        n = 20_000
+        ts = np.arange(n, dtype=np.int64) * 60_000
+        we = (((ts // 86_400_000) + 4) % 7) >= 5
+        rng = np.random.default_rng(22)
+        px = 100 * np.exp(np.cumsum(rng.normal(0, 4e-4, n)))
+        v = np.full(n, 1000.0)
+        v[we] = 1000.0 * part_we
+        return Candles(nom, "1m", ts, px, px, px, px, v)
+
+    for part in (0.58, 0.72, 0.82):
+        eng, _ = _moteur_pos(tmp_path / f"p{int(part * 100)}")
+        (tmp_path / f"p{int(part * 100)}").mkdir(parents=True, exist_ok=True)
+        eng.store = type("M", (), {
+            "load": lambda self, i, b, _p=part, **k: serie(i, _p)})()
+        assert eng._assez_dhistoire("X-USDT-SWAP") is True, \
+            f"un volume de week-end de {part:.2f} est ecarte"
