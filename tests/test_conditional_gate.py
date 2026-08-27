@@ -699,3 +699,41 @@ def test_the_desk_searches_the_scale_where_cost_stops_dominating():
     b0, b1 = expected_max_sharpe(avant, 466), expected_max_sharpe(n, 466)
     assert b1 > b0, "elargir la recherche doit RELEVER la barre"
     assert (b1 / b0 - 1.0) < 0.03, f"cout de la barre {b1 / b0 - 1:.1%}"
+
+
+def test_the_audit_document_cannot_drift_from_the_code():
+    """Un document d audit faux est pire que pas de document.
+
+    AUDIT.md cite les dimensions de la grille cherchee — c est de la que
+    vient la barre deflatee, donc tout le dimensionnement. Ces chiffres
+    changent quand on elargit la recherche, et un lecteur qui fait
+    confiance a un document perime prendrait une decision sur une barre
+    qui n existe plus.
+    """
+    import os
+    import re
+
+    from hermes.scalp.clock import (BARS, FAMILIES, FOLDS, HORIZONS,
+                                    N_CROISE, N_FEATURES, STOPS,
+                                    THRESHOLDS, VARIANTS)
+
+    chemin = os.path.join(os.path.dirname(__file__), "..", "AUDIT.md")
+    if not os.path.exists(chemin):
+        return                       # le document est optionnel
+    with open(chemin, encoding="utf-8") as f:
+        doc = f.read()
+
+    n = (len(BARS) * len(FAMILIES) * len(THRESHOLDS) * len(HORIZONS)
+         * len(STOPS) * len(VARIANTS))
+    # le document ecrit les milliers avec une espace insecable etroite
+    milliers = f"{n:,}".replace(",", " ")
+    assert (milliers in doc or f"{n}" in doc), \
+        f"le nombre de cellules ({n}) nest plus celui du document"
+
+    for valeur, mot in ((len(BARS), "échelles"), (len(FAMILIES), "familles"),
+                        (len(THRESHOLDS), "seuils"), (len(HORIZONS), "horizons"),
+                        (len(STOPS), "stops"), (len(VARIANTS), "variantes"),
+                        (N_FEATURES, "colonnes"), (FOLDS, "plis")):
+        assert re.search(rf"\b{valeur} {mot}\b", doc), \
+            f"« {valeur} {mot} » ne figure plus dans AUDIT.md"
+    assert f"{N_CROISE} colonnes transversales" in doc
