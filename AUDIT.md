@@ -1121,12 +1121,81 @@ lui : la 3m est due un tour sur trois et demi, la 15m un sur dix-huit, la
 Un test compte les appels sur une heure simulée plutôt que de le
 supposer.
 
+### Troisième lecture, 20h13 — la règle « échelle due » a payé
+
+Déployée à 19h05. Le journal porte maintenant les trois nombres par
+ligne de décision, et c'est le **régime permanent** qu'ils montrent, là
+où la moyenne cumulée traîne encore le rattrapage du démarrage :
+
+| horloge | `retard` par ligne | `charge` | `calcul` | avant (2e lecture) |
+|---|---|---|---|---|
+| 1m | **5 à 20 s** (typique 6-10) | 0,3 s | 6,0-6,4 s | 21 s |
+| 3m | **33 à 47 s** | 0,1 s | 2,2 s | 56 s |
+| 5m | **43 s** | 0,2 s | 2,6 s | **197 s** |
+
+La 5m est passée de près de deux cents secondes à une quarantaine —
+l'ordre de grandeur d'un tour, ce qui était exactement l'attendu. Les
+moyennes cumulées (1m 19 s, 3m 53 s, 5m 111 s, 15m 318 s, 1H 1 786 s)
+restent au-dessus parce qu'elles incluent la première décision de chaque
+échelle après le redémarrage, et que la 1H n'en a eu qu'une ou deux en
+une heure.
+
+Le `charge` confirme le recollage de série : **0,1 à 0,4 s** pour vingt
+historiques de quatre-vingt-dix mille barres. Ce n'est plus la base qui
+coûte, ni la tournée d'appels — **c'est le calcul**, 6 s sur la 1m, qui
+domine désormais. Le total clôture → ordre vaut donc environ 14 s sur la
+1m, contre 21 à 26 s avant.
+
+Le glissement facturé suit : **+0,78 bps sur 82 ouvertures** (médiane
+−0,52), contre +21,32 sur 28 à 15h30.
+
+**L'hystérésis, troisième lecture — et la bande n'est pas trop étroite.**
+`ecart=+0,000/bande=0,020`, `+0,044/bande=0,028`, `+0,012/bande=0,025` :
+deux fois sur trois l'écart est SOUS la bande, et `gardee` apparaît sur
+deux des trois derniers verdicts, contre quatre sur douze la veille. La
+piste la plus sérieuse pour débloquer le rodage se referme donc d'
+elle-même : ce n'était pas la largeur de la bande. Rien n'a été changé.
+
+### Ce qui va mal, et il faut le dire sans l'adoucir
+
+L'écart entre le holdout et le direct **s'aggrave** pendant que le
+holdout, lui, s'améliore :
+
+| | holdout de la cellule | direct |
+|---|---|---|
+| 18h43 | +4,6 bps/trade après coûts | −8,5 bps sur 44 fermetures |
+| **20h13** | **+6,1 à +9,1** | **−21,0 bps sur 42 fermetures** |
+
+À 42 fermetures et un écart-type de 51,6 bps par trade, l'erreur type
+vaut 8,0 : **−21 bps est à 2,6 σ de zéro**. Au niveau des JAMBES, ce
+n'est plus indistinguable du bruit — contrairement à la mesure par
+instants de portefeuille (`live_rule` n=95, −4,2 bps, erreur type ~5),
+qui elle reste muette. Les deux mesurent des objets différents et c'est
+la seconde que la porte valide ; il reste que le compte perd 15 USD en
+quatre-vingt-dix minutes, brut réalisé −8,40 contre 15,89 de frais, et
+que le bandeau dit `les frais dominent le brut`.
+
+Le rodage fait exactement ce pour quoi il a été construit : `confiance`
+est à son plancher de 0,10, la taille est au dixième de ce que l'avantage
+justifierait, et la perte est lente et bornée. **Aucune porte n'a été
+touchée, `live_rule` n'a pas été remise à zéro, le barème du rodage est
+intact.** Mais l'écart holdout/direct est désormais LE défaut ouvert, et
+il ne s'explique plus par le retard d'entrée, qui a été divisé par deux
+sans que le direct s'améliore.
+
 **Et le moteur prend enfin des positions courtes.** Le 27 août à 18h25,
 pour la première fois au journal : `ouverture UNI −58 @ 4,568750 x5
 (candle −7,6 bps)`, puis XRP −258 (−18,8 bps), BNB −1,05 (−9,9 bps), XRP
 −722 (−8,9 bps). L'exigence « long ET short » du but n'était pas
 vérifiable jusqu'ici ; elle l'est, et la réponse est oui. Le holdout de
 la cellule retenue annonçait `court=13 %`.
+
+Compté sur les vingt ouvertures de 18h50 à 20h12 : **douze courtes**
+(UNI ×3, XRP ×5, SOL ×4) contre huit longues, soit **60 %** — bien
+au-delà des 12 à 16 % que les verdicts d'horloge annoncent sur leur
+holdout. Ce n'est pas une contradiction : le `court=NN %` porte sur
+des mois, l'échantillon vivant sur quatre-vingt-dix minutes d'un
+marché qui descendait. À noter et à relire, pas à corriger.
 
 **Le glissement d'entrée s'est effondré** à mesure que le panel devenait
 crypto :
@@ -1138,6 +1207,7 @@ crypto :
 | 18h05 | +16,20 | 36 | +0,00 |
 | **18h21** | **+2,10** | **52** | **−4,68** |
 | **18h43** | **+1,02** | **60** | **−4,21** |
+| **20h13** | **+0,78** | **82** | **−0,52** |
 
 La médiane est **négative** : l'ouverture typique se remplit *mieux* que
 le prix du signal, et la moyenne était portée par une poignée de jambes —
@@ -1184,17 +1254,25 @@ retard d'entrée peut manger — c'est la prochaine chose à instruire.
 4. **Le 1H n'a pas encore rendu de verdict.** C'est l'échelle où
    l'économie est franchement favorable, et son rattrapage d'historique
    (deux ans par instrument) est en cours.
-5. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
+5. **L'écart holdout / direct, et il s'aggrave.** Le holdout de la
+   cellule annonce +6,1 à +9,1 bps par trade *après* coûts ; les
+   quarante-deux dernières fermetures rendent −21,0 bps, soit 2,6 σ
+   sous zéro. Le retard d'entrée a été divisé par deux sans que le
+   direct s'améliore : ce n'était donc pas lui, ou pas seulement lui.
+   C'est le défaut ouvert n°1.
+6. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
    et le bandeau d'anomalies dit déjà que les frais dominent le
    brut. Le holdout annonce +4,6 bps par trade après coûts, le
    direct rend −6,0 : dix points de base d'écart à instruire avant
    de toucher à quoi que ce soit.
-6. **Le retard sur la clôture de barre doit descendre.** 26 s sur
-   une barre de 60 s, ce n'est pas « zéro à peu près » : c'est
-   presque une demi-barre, et la porte suppose zéro. La mesure
-   `charge=/calcul=` doit dire si le coût est le rechargement des
-   historiques ou le calcul, avant qu'on touche à l'un ou à l'autre.
-7. **Le profil chronologique du Sharpe** doit dire si l'avantage est
+7. **Le retard sur la clôture de barre : répondu, et ce qui reste.**
+   La question posée ici — chargement ou calcul ? — a sa réponse :
+   `charge` 0,1-0,4 s, `calcul` 6,0-6,4 s. Le rechargement n'est plus
+   le coût. Le total clôture → ordre vaut ~14 s sur la 1m contre 21-26
+   avant, et la 5m est passée de 197 s à ~43. Ce qui reste ouvert est
+   la **décision elle-même**, six secondes pour vingt noms — et elle
+   n'a pas encore été instrumentée.
+8. **Le profil chronologique du Sharpe** doit dire si l'avantage est
    régulier ou concentré dans la fenêtre récente. Les premiers relevés
    sont croissants, ce qui suggère de la non-stationnarité.
 
