@@ -535,8 +535,30 @@ class ScalpEngine:
         if ouvre <= 0.0:
             return True
         rapport = float(amp[we].mean()) / ouvre
-        if rapport >= 0.5:
+
+        # DEUXIEME critere, et c est lui qui tranche vraiment : la part de
+        # barres OU LE PRIX N A PAS BOUGE DU TOUT.
+        #
+        # Mesure du 26 aout : SKHY — une action tokenisee — est entree au
+        # panel et a ete tradee. Le rapport d amplitude ne l avait pas
+        # arretee, et c est comprehensible : une MOYENNE se laisse relever
+        # par quelques mouvements pendant qu un teneur de marche cote la
+        # nuit et le week-end. Elle ne dit donc pas si le sous-jacent VIT.
+        #
+        # La part de barres plates, elle, ne se laisse pas relever : une
+        # crypto bouge presque chaque minute, une action tokenisee hors
+        # seance ne bouge pas du tout, et une cotation de teneur de marche
+        # ne remplit pas les trous — elle les encadre. Les deux criteres
+        # sont independants et il faut passer les DEUX.
+        plat_we = float((amp[we] <= 0.0).mean())
+        plat_ouvre = float((amp[~we] <= 0.0).mean())
+        if plat_we <= 0.5 and rapport >= 0.5:
             return True
+        if plat_we > 0.5:
+            self.log(f"scalp recale {c.inst} : {plat_we * 100:.0f} % de "
+                     f"barres plates le week-end contre "
+                     f"{plat_ouvre * 100:.0f} % en semaine — pas 24/7")
+            return False
         self.log(f"scalp recale {c.inst} : week-end a {rapport:.2f} "
                  f"de l amplitude des jours ouvres — pas 24/7")
         return False

@@ -2065,3 +2065,81 @@ def test_the_brake_says_what_would_lift_it(tmp_path):
                   if x["titre"] == "Taille bridee"), None)
     assert bride is not None
     assert "franchissement" not in bride["detail"], bride["detail"]
+
+
+def test_a_market_maker_quoting_at_night_does_not_make_it_a_crypto(tmp_path):
+    """SKHY — une action tokenisee — est entree au panel et a ete tradee.
+
+    Journal du 26 aout :
+      ouverture SKHY-USDT-SWAP +4.510000 @ 164.172500 x5 (candle +26.2bps)
+
+    Le rapport d AMPLITUDE ne l avait pas arretee, et c est
+    comprehensible : une moyenne se laisse relever par quelques
+    mouvements pendant qu un teneur de marche cote la nuit et le
+    week-end. Elle ne dit pas si le sous-jacent VIT.
+
+    La part de barres OU LE PRIX N A PAS BOUGE DU TOUT ne se laisse pas
+    relever de la meme facon : une cotation de teneur de marche encadre
+    les trous, elle ne les remplit pas. Les deux criteres sont
+    independants et il faut passer les DEUX.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+
+    def serie(nom, teneur):
+        """Hors seance : le prix ne bouge pas. Avec `teneur`, quelques
+        sauts isoles suffisent a relever la MOYENNE sans reveiller le
+        sous-jacent."""
+        n = 20_000
+        ts = np.arange(n, dtype=np.int64) * 60_000
+        jour = ((ts // 86_400_000) + 4) % 7
+        we = jour >= 5
+        rng = np.random.default_rng(3)
+        r = rng.normal(0, 4e-4, n)
+        r[we] = 0.0
+        if teneur:
+            # un teneur de marche : 3 % des barres de week-end bougent, et
+            # fort — de quoi porter la moyenne au-dessus du seuil
+            idx = np.where(we)[0]
+            choisis = rng.choice(idx, size=max(1, len(idx) // 33), replace=False)
+            r[choisis] = rng.normal(0, 60e-4, len(choisis))
+        px = 100 * np.exp(np.cumsum(r))
+        return Candles(nom, "1m", ts, px, px, px, px, np.ones(n))
+
+    eng, _ = _moteur_pos(tmp_path)
+    dits = []
+    eng.log = dits.append
+
+    # Sans teneur : l ancien critere suffisait deja.
+    eng.store = type("M", (), {"load": lambda self, i, b, **k: serie(i, False)})()
+    assert eng._assez_dhistoire("SNDK-USDT-SWAP") is False
+
+    # AVEC teneur : la moyenne passe, les barres plates non.
+    eng2, _ = _moteur_pos(tmp_path / "b")
+    (tmp_path / "b").mkdir(exist_ok=True)
+    dits2 = []
+    eng2.log = dits2.append
+    eng2.store = type("M", (), {"load": lambda self, i, b, **k: serie(i, True)})()
+    assert eng2._assez_dhistoire("SKHY-USDT-SWAP") is False, \
+        "une action tokenisee cotee par un teneur entre au panel"
+    assert "SKHY-USDT-SWAP" in eng2.recales
+    assert any("barres plates" in m for m in dits2), dits2
+
+    # Contre-epreuve indispensable : une vraie crypto, dont le week-end
+    # est plus CALME mais vivant, doit toujours passer.
+    def crypto(nom):
+        n = 20_000
+        ts = np.arange(n, dtype=np.int64) * 60_000
+        jour = ((ts // 86_400_000) + 4) % 7
+        rng = np.random.default_rng(5)
+        r = rng.normal(0, 4e-4, n)
+        r[jour >= 5] *= 0.7
+        px = 100 * np.exp(np.cumsum(r))
+        return Candles(nom, "1m", ts, px, px, px, px, np.ones(n))
+
+    eng3, _ = _moteur_pos(tmp_path / "c")
+    (tmp_path / "c").mkdir(exist_ok=True)
+    eng3.store = type("M", (), {"load": lambda self, i, b, **k: crypto(i)})()
+    assert eng3._assez_dhistoire("DOGE-USDT-SWAP") is True, \
+        "une vraie crypto au week-end calme est ecartee a tort"
