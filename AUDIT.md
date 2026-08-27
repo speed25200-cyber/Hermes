@@ -1091,6 +1091,36 @@ concordantes : ce n'est plus une observation, c'est un défaut. La 1m,
 elle, est stable à 21-23 s — un tiers de barre, sur un horizon de six
 barres, soit 6 % de la durée de détention.
 
+**Où passe ce temps, décomposé au chronomètre** (journal du 27 août,
+horloge 1m) :
+
+| poste | mesure |
+|---|---|
+| tournée de rafraîchissement | **≈ 14 s** |
+| chargement des historiques (`charge`) | **0,6–0,8 s** |
+| décision (`calcul`) | **6,3–6,6 s** |
+
+Le recollage de série a fait son travail : vingt historiques de
+quatre-vingt-dix mille barres se chargent en **moins d'une seconde**, là
+où la relecture complète en coûtait cinq à six sur une machine plus
+rapide. Ce n'est donc plus la base qui coûte — c'est la **tournée
+d'appels** avant elle.
+
+Et pour les échelles lentes le mécanisme était ailleurs, plus bête et
+plus coûteux : la boucle rafraîchissait **une échelle lente par tour, à
+la ronde** — `("3m", "5m", "15m")[rr % 3]`. Un tour dure une
+cinquantaine de secondes, donc chaque échelle n'était relue que toutes
+les deux minutes et demie. **Et le 1H ne figurait pas dans la ronde du
+tout** : il n'était rafraîchi que par la passe de recherche, d'où ses
+2 818 s.
+
+On demande désormais l'échelle **due** — celle dont une barre a fermé
+depuis qu'on l'a vue. Le retard baisse et le compte d'appels baisse avec
+lui : la 3m est due un tour sur trois et demi, la 15m un sur dix-huit, la
+1H un sur soixante-douze, là où la ronde en demandait une à chaque tour.
+Un test compte les appels sur une heure simulée plutôt que de le
+supposer.
+
 **Et le moteur prend enfin des positions courtes.** Le 27 août à 18h25,
 pour la première fois au journal : `ouverture UNI −58 @ 4,568750 x5
 (candle −7,6 bps)`, puis XRP −258 (−18,8 bps), BNB −1,05 (−9,9 bps), XRP

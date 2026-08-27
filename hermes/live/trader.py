@@ -32,6 +32,43 @@ from ..research.validate import ValidatedStrategy, split_is_oos, validate_candid
 # nourrissent que le modele de flux ; les bougies, elles, sont relues
 # pour tout le panel a chaque tour parce que c'est l'horloge qui trade.
 MICRO_PAR_TOUR = 6
+
+# Les echelles lentes du desk, et le 1H en fait partie. Il n y figurait
+# PAS : la rotation valait ("3m", "5m", "15m") et l echelle horaire n
+# etait donc rafraichie que par la passe de recherche. Retard mesure le
+# 27 aout : 2 818 s, soit trois quarts d une barre horaire.
+ECHELLES_LENTES = ("3m", "5m", "15m", "1H")
+
+
+def echelles_dues(maintenant: float, vus: dict,
+                  echelles: tuple = ECHELLES_LENTES) -> list:
+    """Les echelles dont une barre vient de fermer depuis le dernier tour.
+
+    La boucle rafraichissait UNE echelle lente par tour, a la ronde. Un
+    tour dure une cinquantaine de secondes — vingt noms a deux appels,
+    plus les carnets, plus la decision — si bien qu une echelle donnee
+    n etait relue qu une fois sur trois, toutes les deux minutes et
+    demie. Mesure du 27 aout, retard entre la cloture d une barre et la
+    decision qu elle declenche : 5m 197 s, 15m 559 s, 1H 2 818 s, contre
+    21 s pour la 1m qui, elle, est relue a chaque tour.
+
+    On demande donc l echelle qui est DUE — celle dont une barre a ferme
+    depuis qu on l a vue — au lieu de tourner. Le compte d appels BAISSE
+    en meme temps que le retard : la 3m est due un tour sur trois et
+    demi, la 15m un sur dix-huit, la 1H un sur soixante-douze, la ou la
+    ronde en demandait une a chaque tour.
+
+    L index de barre, et non un delai, parce que c est la CLOTURE qui
+    compte : le premier tour qui suit la fermeture est le bon, et un
+    seuil en secondes le raterait d une demi-barre en moyenne.
+    """
+    dus = []
+    for b in echelles:
+        pas = float(BAR_MS[b]) / 1000.0
+        idx = int(float(maintenant) // pas)
+        if idx > int(vus.get(b, -1)):
+            dus.append(b)
+    return dus
 from ..risk import LeverageGovernor, RiskEngine
 from ..strategy.signals import compute_position
 from ..exchange.broker import Broker, PaperBroker
@@ -880,6 +917,7 @@ class LiveRunner:
         last_learn = time.time()
         rr = 0
         book_rr = 0
+        vus_lents: dict = {}
         poll = int((self.cfg.raw.get("scalp") or {}).get("poll_seconds", 5)
                    if self.scalp else self.cfg["live"]["poll_seconds"])
         while True:
@@ -966,16 +1004,21 @@ class LiveRunner:
                                 self.scalp.ingest_trades(inst, self.client.last_trades(inst, limit=50))
                             except Exception:
                                 pass
+                        dues = echelles_dues(time.time(), vus_lents)
                         for inst in names:
                             try:
                                 update_latest(self.client, self.store, inst, "1m", limit=120)
                             except Exception:
                                 pass
-                            slow = ("3m", "5m", "15m")[rr % 3]
-                            try:
-                                update_latest(self.client, self.store, inst, slow, limit=120)
-                            except Exception:
-                                pass
+                            for _b in dues:
+                                try:
+                                    update_latest(self.client, self.store,
+                                                  inst, _b, limit=120)
+                                except Exception:
+                                    pass
+                        for _b in dues:
+                            vus_lents[_b] = int(time.time()
+                                                // (BAR_MS[_b] / 1000.0))
                         rr += 1
                     finally:
                         self.client.timeout, self.client.max_retries = t0, r0

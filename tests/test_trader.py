@@ -3,7 +3,7 @@
 import numpy as np
 
 from hermes.config import Config
-from hermes.data.store import BARS_PER_YEAR
+from hermes.data.store import BAR_MS, BARS_PER_YEAR
 from hermes.data.synthetic import generate
 from hermes.exchange.broker import PaperBroker
 from hermes.live.trader import Registry, Trader
@@ -415,3 +415,69 @@ def test_every_searched_scale_is_actually_followed_live():
     assert "_BARS0" in ligne or "BARS" in ligne, ligne
     for b in BARS:
         assert f'"{b}"' not in ligne, f"{b} ecrit en dur dans la boucle"
+
+
+def test_the_slow_scales_are_refreshed_when_they_are_due_not_in_turn():
+    """La boucle rafraichissait UNE echelle lente par tour, a la ronde.
+
+    Un tour dure une cinquantaine de secondes — vingt noms a deux
+    appels, plus les carnets, plus la decision — si bien qu une echelle
+    donnee n etait relue qu une fois sur trois. Retard mesure le 27 aout
+    entre la cloture dune barre et la decision quelle declenche : 5m
+    197 s, 15m 559 s, contre 21 s pour la 1m qui est relue a chaque tour.
+
+    Et le 1H ne figurait PAS dans la ronde : il n etait rafraichi que
+    par la passe de recherche, dou 2 818 s de retard — trois quarts d une
+    barre horaire.
+    """
+    from hermes.live.trader import ECHELLES_LENTES, echelles_dues
+
+    assert "1H" in ECHELLES_LENTES, "lechelle horaire est encore orpheline"
+
+    # Premier tour : rien n a jamais ete vu, tout est du.
+    vus = {}
+    assert set(echelles_dues(0.0, vus)) == set(ECHELLES_LENTES)
+
+    # On note ce qui vient d etre relu, a un instant pris DANS la barre.
+    t0 = 3_600.0                      # une frontiere horaire pile
+    for b in ECHELLES_LENTES:
+        vus[b] = int(t0 // (BAR_MS[b] / 1000.0))
+    assert echelles_dues(t0 + 1.0, vus) == [], \
+        "une echelle est redemandee alors quaucune barre na ferme"
+
+    # Cent-quatre-vingt-une secondes plus tard, la 3m a ferme : elle et
+    # elle seule est due.
+    assert echelles_dues(t0 + 181.0, vus) == ["3m"]
+    # A cinq minutes, la 3m et la 5m.
+    assert echelles_dues(t0 + 301.0, vus) == ["3m", "5m"]
+    # A une heure, les quatre.
+    assert set(echelles_dues(t0 + 3_601.0, vus)) == set(ECHELLES_LENTES)
+
+
+def test_asking_only_for_what_closed_costs_fewer_calls_than_a_round_robin():
+    """Le retard baisse ET le compte dappels aussi, et ce nest pas une
+    intuition : sur une heure de tours de cinquante secondes, la ronde
+    demandait UNE echelle a chaque tour ; la regle « ce qui a ferme » en
+    demande deux fois moins.
+
+    Sans ce compte, « rafraichir plus souvent » sonnerait comme « appeler
+    plus », et le quota dappels de lechange est une contrainte reelle.
+    """
+    from hermes.live.trader import ECHELLES_LENTES, echelles_dues
+
+    TOUR = 50.0
+    vus = {}
+    demandes = 0
+    t = 0.0
+    for _ in range(72):               # une heure de tours
+        dus = echelles_dues(t, vus)
+        demandes += len(dus)
+        for b in dus:
+            vus[b] = int(t // (BAR_MS[b] / 1000.0))
+        t += TOUR
+    ronde = 72                        # une echelle par tour
+    assert demandes < ronde, \
+        f"la nouvelle regle demande {demandes} echelles contre {ronde}"
+    # Et chaque echelle a bien ete servie autant de fois quelle a ferme
+    # de barres dans lheure, a une pres.
+    assert demandes >= 3_600.0 / 180.0, "la 3m nest pas servie a chaque barre"
