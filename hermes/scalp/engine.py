@@ -177,7 +177,13 @@ class ScalpEngine:
                            "glissement_bps": 0.0, "n_gliss": 0,
                            "gliss_med": 0.0,
                            "retard_barre_s": 0.0, "n_retard_barre": 0,
-                           "retard_par_barre": {}}
+                           "retard_par_barre": {},
+                           "n_ouvre": 0, "n_rouvre": 0, "usd_rouvre": 0.0}
+        # La derniere sortie au TEMPS de chaque nom : instant, sens, et la
+        # duree de la barre de l horloge qui l avait ouverte. Sert a
+        # compter les allers-retours payes pour REPRENDRE une jambe qu on
+        # vient de solder — voir `_compter_rouverture`.
+        self._solde_recent: dict = {}
         self._dernier_net: float | None = None
         # Le paquet de fermetures du meme INSTANT, en attente d etre
         # soldees en un seul rendement de portefeuille.
@@ -1179,6 +1185,17 @@ class ScalpEngine:
             f"{b} {float(v[0]):.0f}s"
             for b, v in sorted(par.items(), key=lambda kv: kv[0])
             if int(v[1]) > 0)
+        # 9. Les allers-retours payes pour REPRENDRE une jambe soldee au
+        #    temps. Ce n est pas encore un cout etabli — c est un compte.
+        n_o = int(self.exec_stats.get("n_ouvre") or 0)
+        n_r = int(self.exec_stats.get("n_rouvre") or 0)
+        if n_o >= 20 and n_r > 0:
+            usd_r = float(self.exec_stats.get("usd_rouvre") or 0.0)
+            dire("attention", "Jambes reprises dans la barre",
+                 f"{n_r} ouvertures sur {n_o} reprennent une jambe soldee "
+                 f"au temps, meme sens, dans la barre qui la fermee — "
+                 f"{usd_r:,.0f} USD de notionnel qui repaie un aller-retour "
+                 f"sans avoir change de position")
         if rb > 5.0:
             dire("attention", "Retard sur la cloture de barre",
                  f"{rb:.0f} s en moyenne entre la cloture qui decide "
@@ -1883,6 +1900,16 @@ class ScalpEngine:
                                             maker_at=maker_at)
             if fill and br and not br.get("explore"):
                 self._compter_realise(inst, fill, qty, maker_at)
+                # Une sortie AU TEMPS ne dit rien du signal : elle dit que
+                # l horizon valide est atteint. Si le desk rouvre la meme
+                # jambe dans la foulee, l aller-retour n a rien achete.
+                if str(reason).startswith("time-stop"):
+                    self._solde_recent[inst] = {
+                        "t": time.time(),
+                        "sens": 1.0 if qty > 0 else -1.0,
+                        "pas_ms": float(BAR_MS.get(
+                            self.opened_h.get(inst) or "1m", 60_000)),
+                        "usd": abs(float(qty)) * float(fill.price)}
             if fill and br and br.get("explore"):
                 entree = float(br.get("entry") or fill.price)
                 # Ce que la sortie obtient par rapport au marché courant —
@@ -2042,6 +2069,47 @@ class ScalpEngine:
             self.log(f"explore {inst} {qty:+.6f} @ {fill.price:.6f} "
                      f"(pnl jour {self.explore_pnl_day:+.2f} USD)")
             return                    # un seul par cycle : pas un moulin
+
+    def _compter_rouverture(self, inst: str, sens: float, usd: float,
+                            maintenant: float) -> bool:
+        """Cette ouverture reprend-elle une jambe soldee AU TEMPS, du meme
+        sens, DANS LA BARRE qui vient de la fermer ?
+
+        Journal du 27 aout, fenetre de deux heures : XRP -900 solde a
+        21:39:45 et XRP -902 rouvert a 21:39:45 — la meme seconde ; SOL
+        -4,56 solde a 22:09:12 et SOL -4,15 rouvert a 22:09:12 ; XRP -532
+        solde a 22:07:43 et -570 rouvert a 22:08:09. Quatre cas au moins
+        sur la fenetre, tous au meme sens et a la meme taille.
+
+        Chacun paie un aller-retour complet — environ 3,5 bps de frais
+        mesures — pour une position qui n a pas change. La sortie au temps
+        ne dit rien du signal : elle dit que l horizon valide est atteint.
+        Si le signal tient encore, le moteur reprend la meme jambe et
+        repaye.
+
+        La fenetre est la DUREE DE BARRE de l horloge qui avait ouvert la
+        position, et ce choix est le seul defendable : une decision prise
+        par une horloge d une minute ne peut pas reposer sur une
+        information neuve a l interieur de cette minute.
+
+        MESURE, BRANCHEE A RIEN. Combien cela coute reellement n est pas
+        encore etabli — un tiers de la perte est une estimation tiree
+        dun partage grossier des frais, pas une mesure. On compte
+        dabord.
+        """
+        d = (self._solde_recent or {}).get(inst)
+        if not isinstance(d, dict):
+            return False
+        pas = float(d.get("pas_ms") or 60_000.0) / 1000.0
+        if float(maintenant) - float(d.get("t") or 0.0) > pas:
+            return False
+        if float(d.get("sens") or 0.0) * float(sens) <= 0.0:
+            return False
+        n = int(self.exec_stats.get("n_rouvre") or 0)
+        self.exec_stats["n_rouvre"] = n + 1
+        self.exec_stats["usd_rouvre"] = (
+            float(self.exec_stats.get("usd_rouvre") or 0.0) + abs(float(usd)))
+        return True
 
     def _mesurer_retard_barre(self, candles: dict, now: float,
                               bar: str) -> float:
@@ -2266,6 +2334,12 @@ class ScalpEngine:
             # chaque ouverture de regle : le prix paye contre le prix sur
             # lequel la decision a ete prise. Positif = paye plus cher que
             # le signal, donc un cout.
+            if why == "open":
+                self.exec_stats["n_ouvre"] = int(
+                    self.exec_stats.get("n_ouvre") or 0) + 1
+                self._compter_rouverture(
+                    inst, float(np.sign(delta)),
+                    abs(float(delta)) * float(fill.price), time.time())
             sig_px = float(plan.get("px") or 0.0)
             if why == "open" and sig_px > 0 and fill.price > 0:
                 gl = (float(np.sign(delta)) * (float(fill.price) - sig_px)

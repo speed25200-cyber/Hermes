@@ -2965,3 +2965,127 @@ def test_the_korean_session_is_caught_by_the_measure_that_does_not_assume_one(
     assert _champ(juge, "seance/nuit") < 2.0, \
         "seance/nuit voit deja cette seance : le test ne prouve rien"
     assert _champ(juge, "concentration") >= 1.75
+
+
+def test_a_leg_taken_back_inside_its_own_bar_is_counted(tmp_path):
+    """Journal du 27 aout, fenetre de deux heures : XRP -900 solde a
+    21:39:45 et XRP -902 rouvert a 21:39:45 — la meme seconde ; SOL -4,56
+    solde a 22:09:12 et SOL -4,15 rouvert a 22:09:12 ; XRP -532 solde a
+    22:07:43 et -570 rouvert a 22:08:09.
+
+    Chacun paie un aller-retour complet — 3,5 bps de frais mesures — pour
+    une position qui na pas change de sens ni de taille. La sortie au
+    temps ne dit rien du signal : elle dit que lhorizon valide est
+    atteint. Si le signal tient, le moteur reprend la meme jambe et
+    repaye.
+
+    La fenetre est la DUREE DE BARRE de lhorloge qui avait ouvert la
+    position : une decision prise par une horloge dune minute ne peut pas
+    reposer sur une information neuve a linterieur de cette minute.
+    """
+    inst = "XRP-USDT-SWAP"
+    eng, _ = _moteur_pos(tmp_path)
+    eng._solde_recent[inst] = {"t": 1000.0, "sens": -1.0,
+                               "pas_ms": 60_000.0, "usd": 1300.0}
+
+    # Meme sens, dans la barre : compte.
+    assert eng._compter_rouverture(inst, -1.0, 1305.0, 1000.0) is True
+    assert int(eng.exec_stats["n_rouvre"]) == 1
+    assert abs(float(eng.exec_stats["usd_rouvre"]) - 1305.0) < 1e-9
+
+    # CONTRE-EPREUVE 1 : le sens OPPOSE nest pas une reprise, cest un
+    # retournement — une decision neuve, qui a le droit de coûter.
+    assert eng._compter_rouverture(inst, +1.0, 1300.0, 1000.0) is False
+    assert int(eng.exec_stats["n_rouvre"]) == 1
+
+    # CONTRE-EPREUVE 2 : au-dela de la barre, linformation a pu changer.
+    assert eng._compter_rouverture(inst, -1.0, 1300.0, 1061.0) is False
+    assert int(eng.exec_stats["n_rouvre"]) == 1
+
+    # Et un nom dont aucune sortie au temps na ete enregistree.
+    assert eng._compter_rouverture("SOL-USDT-SWAP", -1.0, 100.0, 1000.0) \
+        is False
+
+
+def test_the_reopen_window_follows_the_clock_that_opened_the_leg(tmp_path):
+    """Une horloge de quinze minutes ne peut pas apprendre quelque chose
+    de neuf en soixante secondes : la fenetre doit suivre SA barre, pas
+    une constante.
+    """
+    inst = "SOL-USDT-SWAP"
+    eng, _ = _moteur_pos(tmp_path)
+    eng._solde_recent[inst] = {"t": 0.0, "sens": +1.0,
+                               "pas_ms": 900_000.0, "usd": 500.0}
+    assert eng._compter_rouverture(inst, +1.0, 500.0, 800.0) is True, \
+        "la fenetre est figee a une minute au lieu de suivre la barre"
+    assert eng._compter_rouverture(inst, +1.0, 500.0, 901.0) is False
+
+
+def test_the_screen_counts_the_round_trips_that_bought_nothing(tmp_path):
+    """« Il fait n importe quoi » sur un moteur qui solde et reprend la
+    meme jambe dans la seconde ne se voit nulle part : le journal montre
+    une fermeture et une ouverture, et rien ne dit que cest la MEME
+    position. Le bandeau doit le compter.
+    """
+    eng, _ = _moteur_pos(tmp_path)
+    eng.exec_stats["n_ouvre"] = 40
+    eng.exec_stats["n_rouvre"] = 11
+    eng.exec_stats["usd_rouvre"] = 14_300.0
+    a = next((x for x in eng.anomalies(10_000.0, {})
+              if x["titre"] == "Jambes reprises dans la barre"), None)
+    assert a is not None, "lecran ne compte pas les reprises"
+    assert "11 ouvertures sur 40" in a["detail"]
+    assert "14,300 USD" in a["detail"]
+
+    # Sous vingt ouvertures, on se tait : un compte sur si peu ne merite
+    # pas une ligne d alerte.
+    eng2, _ = _moteur_pos(tmp_path / "b")
+    (tmp_path / "b").mkdir(exist_ok=True)
+    eng2.exec_stats["n_ouvre"] = 19
+    eng2.exec_stats["n_rouvre"] = 5
+    assert not any(x["titre"] == "Jambes reprises dans la barre"
+                   for x in eng2.anomalies(10_000.0, {}))
+
+
+def test_only_a_time_stop_arms_the_reopen_counter(tmp_path):
+    """Le compteur ne doit sarmer que sur une sortie AU TEMPS.
+
+    Un stop touche ou un take atteint sont des decisions du marche : y
+    revenir est un trade neuf, qui a le droit de coûter. La sortie au
+    temps, elle, ne dit rien du signal — elle dit seulement que lhorizon
+    valide est atteint. Confondre les deux ferait passer un vrai
+    retournement pour un aller-retour gaspille.
+    """
+    inst = "BTC-USDT-SWAP"
+    # Sortie au TEMPS : le compteur sarme.
+    eng, _ = _moteur_pos(tmp_path, {inst: 1.0})
+    eng.brackets[inst] = {"side": "long", "entry": 100.0, "sl": 90.0,
+                          "tp": 110.0, "sl_bps": 1000.0, "tp_bps": 1000.0,
+                          "sortie_temps": True, "t0": 1}
+    eng.opened_bar[inst] = int(time.time() * 1000) - 600_000
+    eng.hold_ms[inst] = 360_000
+    eng.opened_h[inst] = "1m"
+    eng.ticks[inst] = {"last": 100.0, "bid": 99.9, "ask": 100.1,
+                       "spread_bps": 2.0}
+    assert inst in eng.check_exits()
+    d = eng._solde_recent.get(inst)
+    assert isinstance(d, dict), "la sortie au temps narme pas le compteur"
+    assert d["sens"] == 1.0
+    assert abs(float(d["pas_ms"]) - 60_000.0) < 1e-9, \
+        "la fenetre ne reprend pas la barre de lhorloge qui a ouvert"
+
+    # CONTRE-EPREUVE : un STOP touche ne doit PAS larmer.
+    b = tmp_path / "b"
+    b.mkdir()
+    eng2, _ = _moteur_pos(b, {inst: 1.0})
+    eng2.brackets[inst] = {"side": "long", "entry": 100.0, "sl": 99.0,
+                           "tp": 101.0, "sl_bps": 100.0, "tp_bps": 100.0,
+                           "sortie_temps": True, "t0": 1}
+    eng2.opened_bar[inst] = int(time.time() * 1000)
+    eng2.hold_ms[inst] = 360_000
+    eng2.opened_h[inst] = "1m"
+    eng2.ticks[inst] = {"last": 98.5, "bid": 98.5, "ask": 98.6,
+                        "spread_bps": 2.0}
+    assert inst in eng2.check_exits()
+    assert inst not in eng2._solde_recent, \
+        "un stop touche compte comme une reprise gaspillee"

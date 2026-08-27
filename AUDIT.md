@@ -1208,6 +1208,7 @@ crypto :
 | **18h21** | **+2,10** | **52** | **−4,68** |
 | **18h43** | **+1,02** | **60** | **−4,21** |
 | **20h13** | **+0,78** | **82** | **−0,52** |
+| **22h12** | **+0,72** | **103** | **−0,52** |
 
 La médiane est **négative** : l'ouverture typique se remplit *mieux* que
 le prix du signal, et la moyenne était portée par une poignée de jambes —
@@ -1237,6 +1238,67 @@ holdout annonce +4,6 bps par trade *après* coûts ; le direct rend −6,0.
 L'écart de dix points de base est exactement de l'ordre de ce que le
 retard d'entrée peut manger — c'est la prochaine chose à instruire.
 
+### Quatrième lecture, 22h12 — l'écart se referme, et une jambe reprise apparaît
+
+La question posée était : l'écart holdout / direct se creuse-t-il ? La
+réponse est **non**, et le détail de l'attribution explique pourquoi elle
+semblait dire l'inverse.
+
+| | holdout | direct, tous motifs | dont time-stop |
+|---|---|---|---|
+| 20h13 | +6,1 à +9,1 bps | −21,0 sur 42 | −21,0 (42, seul motif) |
+| **22h12** | **+5,9 à +6,0** | **−10,0 sur 40** | **−8,1 (39)** |
+
+Sur le motif qui porte tout — la sortie au temps — l'écart passe de
+**27 bps à 14 bps**. Il se referme. Ce qui a changé entre les deux, c'est
+le retard d'entrée, divisé encore par deux.
+
+Ce qui l'avait masqué est un motif **neuf** : `TRAIL`, une seule
+fermeture, **−84,6 bps pour 11,11 USD** — un tiers de la perte de la
+fenêtre sur une jambe. Le stop suiveur a fait son travail ; à n=1 on ne
+peut rien en conclure d'autre que : le compter.
+
+**Le retard, quatrième lecture** — cumul 60 s sur 374 décisions (contre
+93 s sur 182) ; par échelle 1m 17 s, 3m 49 s, 5m 80 s, 15m 209 s, 1H
+1 216 s, tous en baisse continue. Par ligne, en régime permanent : 1m
+`retard=2 à 7 s`, `charge=0,3 s`, `calcul=5,7 à 6,0 s`, soit **≈ 10 s**
+entre la clôture et l'ordre, contre 21 à 26 s ce matin.
+
+**L'hystérésis, lectures 4 et 5** : `+0,005/bande=0,028` et
+`+0,000/bande=0,025`, toutes deux `gardee`. **Quatre lectures sur cinq
+sous la bande**, et `gardee` sur les trois derniers verdicts consécutifs.
+La question est tranchée : la bande n'était pas le problème.
+
+### La cause nommée : une jambe reprise dans la barre qui vient de la fermer
+
+Le journal de 20h à 22h montre, en clair :
+
+```
+21:39:45  time-stop 6m XRP -900        21:39:45  ouverture XRP -902
+22:09:12  time-stop 6m SOL -4,56       22:09:12  ouverture SOL -4,15
+22:07:43  time-stop 6m XRP -532        22:08:09  ouverture XRP -570
+21:58:13  time-stop 6m SOL -12,04      21:59:17  ouverture SOL -12,00
+```
+
+Même nom, même sens, même taille, **dans la seconde ou la minute**.
+Chacun paie un aller-retour complet — 3,48 bps de frais mesurés — pour
+une position qui n'a pas changé. La sortie au temps ne dit rien du
+signal : elle dit que l'horizon validé est atteint. Si le signal tient
+encore, le moteur reprend la même jambe et repaie.
+
+Le compte est désormais tenu : nombre d'ouvertures qui reprennent une
+jambe soldée **au temps**, du même sens, **dans la durée de barre de
+l'horloge qui l'avait ouverte** — la seule fenêtre défendable, puisqu'une
+horloge d'une minute ne peut rien apprendre de neuf en moins d'une
+minute. Un stop touché ou un take atteint n'arment pas le compteur : y
+revenir est un trade neuf, qui a le droit de coûter.
+
+**MESURÉ, BRANCHÉ À RIEN.** Combien cela coûte réellement n'est pas
+établi — « un tiers de la perte » serait une estimation tirée d'un
+partage grossier des 26,70 USD de frais, pas une mesure. On compte
+d'abord, on décidera ensuite. C'est exactement la discipline qui a évité
+le seuil de 0,15 et la bande d'hystérésis.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -1254,12 +1316,12 @@ retard d'entrée peut manger — c'est la prochaine chose à instruire.
 4. **Le 1H n'a pas encore rendu de verdict.** C'est l'échelle où
    l'économie est franchement favorable, et son rattrapage d'historique
    (deux ans par instrument) est en cours.
-5. **L'écart holdout / direct, et il s'aggrave.** Le holdout de la
-   cellule annonce +6,1 à +9,1 bps par trade *après* coûts ; les
-   quarante-deux dernières fermetures rendent −21,0 bps, soit 2,6 σ
-   sous zéro. Le retard d'entrée a été divisé par deux sans que le
-   direct s'améliore : ce n'était donc pas lui, ou pas seulement lui.
-   C'est le défaut ouvert n°1.
+5. **L'écart holdout / direct — il se referme, et il reste.** Sur
+   la sortie au temps, il est passé de 27 bps (20h13) à 14 bps
+   (22h12) pendant que le retard d'entrée était divisé par deux.
+   Il reste 14 bps à expliquer. La piste comptée mais non encore
+   chiffrée : les jambes reprises dans leur propre barre, qui
+   repaient un aller-retour sans avoir changé de position.
 6. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
    et le bandeau d'anomalies dit déjà que les frais dominent le
    brut. Le holdout annonce +4,6 bps par trade après coûts, le

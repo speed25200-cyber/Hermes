@@ -146,6 +146,14 @@ def main() -> int:
               f"{float(ent.get('retard_barre_s') or 0.0):.0f} s "
               f"sur {n_b} decisions (la porte en simule 0)"
               + (f"   {det}" if det else ""))
+    # Les allers-retours payes pour REPRENDRE une jambe soldee au temps.
+    # Journal du 27 aout : XRP -900 solde et -902 rouvert la MEME seconde.
+    n_o = int(ent.get("n_ouvre") or 0)
+    n_r = int(ent.get("n_rouvre") or 0)
+    if n_o:
+        print(f"jambes reprises dans la barre {n_r} sur {n_o} ouvertures"
+              f"   {float(ent.get('usd_rouvre') or 0.0):,.0f} USD de"
+              f" notionnel qui repaie un aller-retour")
     n_g = int(ent.get("n_gliss") or 0)
     if n_g:
         gl = float(ent.get("glissement_bps") or 0.0)
