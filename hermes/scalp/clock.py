@@ -712,6 +712,7 @@ class CandleModel:
         self.cost_win = 4.0
         self.thr_bps = 0.0      # sous ce mouvement prévu, l'horloge se tait
         self.thr_k = 0.0        # le même seuil, en sigmas de la prédiction
+        self.par_jour = 0.0     # instants de declenchement par jour
         self.profil = ()        # sr par tiers chronologique du holdout
         self.n_trades = 0       # combien de déclenchements sur le holdout
         self.horizon_bars = 1   # combien de barres la position doit vivre
@@ -752,6 +753,27 @@ class CandleModel:
             "thr_bps": self.thr_bps, "thr_k": self.thr_k,
             "profil": list(self.profil),
             "n_trades": self.n_trades,
+            # Ce que la cellule rapporterait PAR JOUR, et non par trade.
+            # La porte classe par MARGE, c est-a-dire par certitude que
+            # l avantage est reel — ce qui est son travail. Mais entre
+            # deux cellules qui passent toutes les deux, ce n est pas le
+            # meme critere que « laquelle gagne le plus » : une cellule
+            # qui trade quatre fois plus souvent pour la moitie de
+            # l avantage rapporte deux fois plus, et se prouve quatre fois
+            # plus vite.
+            #
+            # Mesure du 25 aout : le seuil retenu est monte a 3-4 sigma et
+            # le rythme des fermetures est tombe de 1,5 a 0,29 par heure.
+            # A 3 sigma sur vingt jambes il sort 0,054 declenchement par
+            # instant — une position toutes les dix-neuf occasions ; a
+            # 4 sigma, une sur 789. C est l explication arithmetique de
+            # « une seule position a la fois ».
+            #
+            # On PUBLIE avant de changer quoi que ce soit : si la cellule
+            # de plus grande marge n est pas la meilleure payeuse, cela se
+            # lira ici, et ce sera un fait mesure plutot qu une intuition.
+            "par_jour": self.par_jour,
+            "gain_jour_bps": self.par_jour * self.net_defl,
             "horizon_bars": self.horizon_bars,
             "n_assets": self.n_assets, "n_periods": self.n_periods,
             "variant": self.variant, "pente": self.pente,
@@ -1197,6 +1219,11 @@ class CandleModel:
         self.rr, self.nn, self.up, self.dn = b["rr"], b["nn"], b["up"], b["dn"]
         self.ic = b["ic"]
         self.profil = _profil(b.get("pnl", np.zeros(0)))
+        # Frequence et rendement quotidien de la cellule retenue. Le
+        # holdout couvre n_hold instants de `bar` minutes chacun.
+        pas_min = BAR_MS.get(self.bar, 300_000) / 60_000.0
+        jours = max(float(b.get("n_hold") or 0) * pas_min / 1440.0, 1e-9)
+        self.par_jour = float(b.get("n_per") or 0) / jours
         self.thr_bps = float(b["thr"])
         # Le seuil EN SIGMAS, pas seulement en bps : c est lui qui dit si
         # la grille est tronquee au bon endroit. Un optimum qui colle a la
@@ -1520,7 +1547,9 @@ class ScaleDesk:
                         + " ") if d.get("profil") else "")
                      + f"{'gardee ' if d.get('garde') else ''}"
                      f"trades={d['n_trades']}/{d['n_holdout']} "
-                     f"instants={d['n_periods']} n={d['n_train']}")
+                     f"instants={d['n_periods']} n={d['n_train']} "
+                     f"parjour={d.get('par_jour', 0.0):.1f} "
+                     f"gainjour={d.get('gain_jour_bps', 0.0):+.0f}bps")
         self.fit_at = time.time()
         self.log(f"desk live={self.live_bars() or ['none']}")
         return out

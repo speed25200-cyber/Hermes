@@ -737,3 +737,74 @@ def test_the_audit_document_cannot_drift_from_the_code():
         assert re.search(rf"\b{valeur} {mot}\b", doc), \
             f"« {valeur} {mot} » ne figure plus dans AUDIT.md"
     assert f"{N_CROISE} colonnes transversales" in doc
+
+
+def test_the_cell_publishes_what_it_earns_per_day_not_only_per_trade():
+    """La porte classe par MARGE — la certitude que l avantage est reel —
+    et c est son travail. Mais entre deux cellules qui passent TOUTES LES
+    DEUX, ce n est pas le meme critere que « laquelle gagne le plus » :
+    une cellule qui trade quatre fois plus souvent pour la moitie de
+    l avantage rapporte deux fois plus, et se prouve quatre fois plus
+    vite.
+
+    Mesure qui a impose cette colonne, 25 aout : le seuil retenu est monte
+    a 3-4 sigma et le rythme des fermetures est tombe de 1,5 a 0,29 par
+    heure. A 3 sigma sur vingt jambes il sort 0,054 declenchement par
+    instant — une position toutes les dix-neuf occasions ; a 4 sigma, une
+    sur 789. C est l explication arithmetique de « une seule position a la
+    fois », et elle n etait visible nulle part.
+
+    On PUBLIE avant de changer quoi que ce soit. Si la cellule de plus
+    grande marge n est pas la meilleure payeuse, cela se lira — et ce sera
+    un fait mesure plutot qu une intuition.
+    """
+    import numpy as np
+
+    from hermes.data.store import Candles
+    from hermes.scalp.clock import BAR_MS, CandleModel
+
+    rng = np.random.default_rng(11)
+    n = 2600
+    z = rng.uniform(-1, 1, n)
+    r = rng.normal(0, 6e-4, n)
+    r[1:] += 9e-4 * z[:-1]
+    px = 100 * np.exp(np.cumsum(np.clip(r, -0.02, 0.02)))
+    o = np.concatenate([[100.0], px[:-1]])
+    w = np.abs(rng.normal(0, 4e-4, n)) * px
+    v = np.abs(rng.normal(1000, 100, n))
+    c = Candles("X", "5m", np.arange(n) * 300_000, o,
+                np.maximum(o, px) + w, np.minimum(o, px) - w, px, v,
+                taker_buy=v * (0.5 + 0.5 * z), taker_sell=v * (0.5 - 0.5 * z))
+    d = CandleModel("5m").fit(c)
+
+    assert "par_jour" in d and "gain_jour_bps" in d
+    assert d["par_jour"] > 0.0, "une horloge vivante declenche"
+    # le gain quotidien est le produit frequence x avantage DEFLATE, pas
+    # l avantage brut : c est le deflate qui dimensionne
+    attendu = d["par_jour"] * d["net_defl"]
+    assert abs(d["gain_jour_bps"] - attendu) < 1e-9
+
+    # la frequence doit etre coherente avec le holdout : n_periods
+    # declenchements sur n_holdout instants de `bar` minutes
+    pas_min = BAR_MS["5m"] / 60_000.0
+    jours = d["n_holdout"] * pas_min / 1440.0
+    assert abs(d["par_jour"] - d["n_periods"] / jours) < 1e-6, (
+        d["par_jour"], d["n_periods"], jours)
+
+
+def test_a_higher_threshold_trades_rarer_and_the_number_shows_it():
+    """Le lien seuil -> frequence doit etre visible, sinon « la regle ne
+    trade plus » et « la regle est devenue selective » se ressemblent
+    exactement — et c est ce qui s est passe le 25 aout apres que j ai
+    elargi la grille des seuils jusqu a 4,0."""
+    from math import erfc, sqrt
+
+    def par_instant(k, n_jambes=20):
+        return n_jambes * erfc(k / sqrt(2.0))
+
+    # sur vingt jambes, passer de 2,5 a 4,0 sigma divise la frequence par
+    # plus de deux cents
+    assert par_instant(2.5) / par_instant(4.0) > 100.0
+    # et a 3 sigma il sort deja moins d une jambe par instant : « une
+    # seule position a la fois » est arithmetique, pas un defaut
+    assert par_instant(3.0) < 0.1
