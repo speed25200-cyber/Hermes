@@ -154,6 +154,27 @@ def main() -> int:
         print(f"jambes reprises dans la barre {n_r} sur {n_o} ouvertures"
               f"   {float(ent.get('usd_rouvre') or 0.0):,.0f} USD de"
               f" notionnel qui repaie un aller-retour")
+    # Ce que la regle PROPOSE contre ce qu elle obtient. La porte met
+    # vingt noms en commun et le livre en tient zero a deux : sans cette
+    # ligne, l ecart entre le livre valide et le livre joue ne se lit
+    # nulle part. « deja tenue » n est PAS un refus — la jambe est la, a
+    # la taille voulue, et il n y a rien a faire.
+    n_v = int(ent.get("n_vise") or 0)
+    if n_v:
+        pl = int(ent.get("refus_plancher") or 0)
+        motifs = "  ".join(
+            f"{m} {int(ent.get('refus_' + m) or 0)}"
+            for m in ("plancher", "arrondi", "prix", "rejet")
+            if int(ent.get("refus_" + m) or 0))
+        print(f"jambes visees par la regle {n_v}"
+              f"   ouvertes ou redimensionnees {int(ent.get('n_ordre') or 0)}"
+              f"   deja tenues {int(ent.get('n_deja') or 0)}"
+              + (f"   refusees: {motifs}" if motifs else "   aucun refus"))
+        if pl:
+            print(f"  dont {pl} jambes sous le plancher dordre"
+                  f" (max 10 USD ou 0,2 % des fonds propres) :"
+                  f" {float(ent.get('usd_refus_plancher') or 0.0):,.0f}"
+                  f" USD de notionnel jamais ouvert")
     n_g = int(ent.get("n_gliss") or 0)
     if n_g:
         gl = float(ent.get("glissement_bps") or 0.0)

@@ -178,7 +178,22 @@ class ScalpEngine:
                            "gliss_med": 0.0,
                            "retard_barre_s": 0.0, "n_retard_barre": 0,
                            "retard_par_barre": {},
-                           "n_ouvre": 0, "n_rouvre": 0, "usd_rouvre": 0.0}
+                           "n_ouvre": 0, "n_rouvre": 0, "usd_rouvre": 0.0,
+                           # Ce que la regle PROPOSE contre ce que le
+                           # moteur ouvre. La porte met vingt noms en
+                           # commun ; le livre en tient zero a deux. Tant
+                           # que les refus sont des `continue` muets,
+                           # l ecart entre le livre valide et le livre
+                           # joue ne se lit nulle part — ni au journal, ni
+                           # a l ecran. Chaque motif est compte a part,
+                           # parce que « trop petit pour un lot » et
+                           # « trop petit pour valoir son aller-retour »
+                           # ne se corrigent pas du tout de la meme
+                           # facon.
+                           "n_vise": 0, "n_ordre": 0, "n_deja": 0,
+                           "refus_prix": 0, "refus_arrondi": 0,
+                           "refus_plancher": 0, "refus_rejet": 0,
+                           "usd_refus_plancher": 0.0}
         # La derniere sortie au TEMPS de chaque nom : instant, sens, et la
         # duree de la barre de l horloge qui l avait ouverte. Sert a
         # compter les allers-retours payes pour REPRENDRE une jambe qu on
@@ -259,6 +274,19 @@ class ScalpEngine:
                              (suivi.get("opened_h") or {}).items()}
         except (OSError, ValueError):
             pass
+
+    def _refus(self, motif: str, vise: bool = True) -> None:
+        """Compte un voeu de la regle que le moteur n a pas honore.
+
+        `vise` porte la seule condition qui compte : une cible nulle est
+        une fermeture, pas une proposition refusee. Le passer en argument
+        plutot que de le retester ici garde la decision a l endroit ou
+        elle est prise, une fois pour toutes, avant l arrondi.
+        """
+        if not vise:
+            return
+        cle = f"refus_{motif}"
+        self.exec_stats[cle] = int(self.exec_stats.get(cle) or 0) + 1
 
     @staticmethod
     def _reprendre(cible: dict, source: object, cles: tuple) -> None:
@@ -1201,6 +1229,21 @@ class ScalpEngine:
                  f"{rb:.0f} s en moyenne entre la cloture qui decide "
                  f"et la decision, quand la porte simule zero"
                  + (f" ({detail})" if detail else ""))
+        # 10. Ce que la regle propose contre ce qu elle obtient. La porte
+        #     met vingt noms en commun, le livre en tient zero a deux :
+        #     tant que les refus etaient des `continue` muets, l ecart
+        #     entre le livre valide et le livre joue ne se lisait nulle
+        #     part. Le seuil de cent voeux evite de commenter un compte
+        #     de dix — c est un compte, pas encore un cout etabli.
+        n_v = int(self.exec_stats.get("n_vise") or 0)
+        n_pl = int(self.exec_stats.get("refus_plancher") or 0)
+        if n_v >= 100 and n_pl > 0:
+            usd_pl = float(self.exec_stats.get("usd_refus_plancher") or 0.0)
+            dire("attention", "Jambes refusees sous le plancher dordre",
+                 f"{n_pl} voeux sur {n_v} valent moins que le plancher "
+                 f"(le plus grand de 10 USD et 0,2 % des fonds propres) et "
+                 f"n ouvrent donc jamais — {usd_pl:,.0f} USD de notionnel "
+                 f"que la regle a demande et que le moteur n a pas joue")
         gl = self._glissement()
         if gl > 0.5:
             dire("attention", "Glissement defavorable",
@@ -2263,11 +2306,28 @@ class ScalpEngine:
         current = self.broker.positions()
         vol = getattr(self, "_vol", {})
         for inst, tgt_qty in list(orders.items()):
+            # Une jambe VISEE est un voeu non nul de la regle ; une cible a
+            # zero est une fermeture, pas une proposition. Le compte se
+            # fait AVANT l arrondi : sinon le lot minimal ferait
+            # disparaitre la jambe du denominateur en meme temps qu il la
+            # refuse, et le taux d ouverture paraitrait parfait.
+            vise = abs(float(tgt_qty)) > 1e-12
+            if vise:
+                self.exec_stats["n_vise"] = int(
+                    self.exec_stats.get("n_vise") or 0) + 1
             last, _, _ = self._px(inst)
             if last <= 0:
+                self._refus("prix", vise)
                 continue
             if hasattr(self.broker, "_round_qty"):
                 tgt_qty = self.broker._round_qty(inst, tgt_qty)
+                # Un voeu que le lot minimal ramene a zero n ouvre rien.
+                # On le COMPTE et on laisse couler : une cible nulle vaut
+                # fermeture, et une position deja ouverte doit pouvoir
+                # etre soldee quand la regle ne sait plus exprimer sa
+                # taille. Poser un `continue` ici la condamnerait a vivre.
+                if vise and abs(tgt_qty) < 1e-12:
+                    self._refus("arrondi", True)
             cur = current.get(inst, 0.0)
             # L'exemption éclaireur doit vivre ICI, à la consommation : le
             # pending construit dans le même tick AVANT l'ouverture porte
@@ -2288,6 +2348,22 @@ class ScalpEngine:
             # produit qu une fois ; le laisser vivre coute une ligne de
             # « micro position » a l ecran pour toujours.
             if abs(tgt_qty) > 1e-9 and abs(delta) * last < max(10.0, 0.002 * equity):
+                # Deux situations que ce meme `continue` confondait. Si la
+                # jambe est DEJA tenue a la taille voulue, il n y a aucun
+                # refus : il n y a rien a faire. Si elle n est pas tenue,
+                # alors le voeu entier est plus petit que le plancher d
+                # ordre et la jambe n ouvrira JAMAIS — c est un refus, et
+                # c est celui qui explique un livre de deux noms en face d
+                # une porte qui en met vingt en commun.
+                if vise:
+                    if self._tient(inst, cur):
+                        self.exec_stats["n_deja"] = int(
+                            self.exec_stats.get("n_deja") or 0) + 1
+                    else:
+                        self._refus("plancher", True)
+                        self.exec_stats["usd_refus_plancher"] = (
+                            float(self.exec_stats.get("usd_refus_plancher")
+                                  or 0.0) + abs(float(tgt_qty)) * float(last))
                 continue
             # « Ouvrir » se juge en ARGENT, comme partout ailleurs. Avec un
             # test a 1e-9, un reliquat de poussiere — 10 DOGE, 92 centimes,
@@ -2327,9 +2403,13 @@ class ScalpEngine:
                 leverage=(None if flatten else lev_ex),
             )
             if not fill:
+                self._refus("rejet", vise)
                 continue
             why = ("close" if flatten
                    else ("open" if (opening or retourne) else "resize"))
+            if vise and not flatten:
+                self.exec_stats["n_ordre"] = int(
+                    self.exec_stats.get("n_ordre") or 0) + 1
             # Ce que le retard coute VRAIMENT, en points de base, sur
             # chaque ouverture de regle : le prix paye contre le prix sur
             # lequel la decision a ete prise. Positif = paye plus cher que

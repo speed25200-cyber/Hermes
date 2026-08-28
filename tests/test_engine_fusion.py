@@ -3089,3 +3089,112 @@ def test_only_a_time_stop_arms_the_reopen_counter(tmp_path):
     assert inst in eng2.check_exits()
     assert inst not in eng2._solde_recent, \
         "un stop touche compte comme une reprise gaspillee"
+
+
+class _BrokerLot(_BrokerPos):
+    """Un broker dont le lot minimal avale les petits voeux."""
+
+    def __init__(self, pos=None, lot=1.0):
+        super().__init__(pos)
+        self.lot = float(lot)
+
+    def _round_qty(self, inst, qty):
+        n = int(abs(float(qty)) / self.lot)
+        return (1.0 if qty > 0 else -1.0) * n * self.lot
+
+
+def _vise(eng, inst, cible, px=100.0):
+    """Arme un voeu de la regle validee et le consomme."""
+    eng.ticks[inst] = {"last": px, "bid": px * 0.999, "ask": px * 1.001,
+                       "spread_bps": 2.0}
+    eng.last_preds = [{"inst": inst, "policy": "candle", "bar": "1m",
+                       "dir": "long" if cible > 0 else "short",
+                       "ml": "live", "conf": 1.0, "h_bars": 6,
+                       "edge_bps": 12.0, "lev": 1.0, "vol_bps": 25.0,
+                       "tp_bps": 30.0, "sl_bps": 40.0,
+                       "sortie_temps": True}]
+    eng._vol = {inst: 25.0}
+    eng.pending = {inst: cible}
+    eng.execute_pending()
+
+
+def test_a_leg_refused_under_the_order_floor_is_counted_not_forgotten(tmp_path):
+    """La porte met vingt noms en commun ; le livre en tient zero a deux.
+    Tant que le refus est un `continue` muet, cet ecart ne se lit nulle
+    part : ni au journal, ni a l ecran, ni au releve. Un voeu de 5 USD
+    contre un plancher de 20 doit se compter comme REFUSE, avec son
+    notionnel — sinon « la regle ne propose rien » et « le moteur refuse
+    tout » restent indiscernables."""
+    inst = "BTC-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path)
+    _vise(eng, inst, 0.05)                      # 5 USD, plancher 20 USD
+    assert eng.exec_stats["n_vise"] == 1, eng.exec_stats
+    assert eng.exec_stats["refus_plancher"] == 1, eng.exec_stats
+    assert eng.exec_stats["n_ordre"] == 0, eng.exec_stats
+    assert abs(eng.exec_stats["usd_refus_plancher"] - 5.0) < 1e-6
+    assert inst not in b.pos, "la jambe refusee a quand meme ete ouverte"
+
+
+def test_a_leg_already_held_at_target_is_not_a_refusal(tmp_path):
+    """Le meme `continue` couvrait deux situations sans rapport : un voeu
+    trop petit pour ouvrir, et une jambe DEJA tenue a la taille voulue.
+    Les confondre ferait passer chaque tour d une position stable pour un
+    refus, et le taux d ouverture serait un pur artefact du nombre de
+    tours."""
+    inst = "BTC-USDT-SWAP"
+    eng, _ = _moteur_pos(tmp_path, {inst: 0.05})
+    _vise(eng, inst, 0.05)
+    assert eng.exec_stats["n_vise"] == 1, eng.exec_stats
+    assert eng.exec_stats["n_deja"] == 1, eng.exec_stats
+    assert eng.exec_stats["refus_plancher"] == 0, eng.exec_stats
+
+
+def test_a_zero_target_is_a_close_not_a_refused_proposal(tmp_path):
+    """Une cible nulle est une fermeture. La compter parmi les jambes
+    visees gonflerait le denominateur de toutes les fermetures du livre
+    et ferait chuter le taux d ouverture sans qu aucune jambe ait ete
+    refusee."""
+    inst = "BTC-USDT-SWAP"
+    eng, _ = _moteur_pos(tmp_path, {inst: 1.0})
+    _vise(eng, inst, 0.0)
+    assert eng.exec_stats["n_vise"] == 0, eng.exec_stats
+    assert eng.exec_stats["refus_plancher"] == 0, eng.exec_stats
+
+
+def test_an_honoured_wish_counts_as_an_order(tmp_path):
+    """Le compteur doit avoir un numerateur, sinon il ne mesure qu une
+    moitie de l ecart."""
+    inst = "BTC-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path)
+    _vise(eng, inst, 1.0)                       # 100 USD, au-dessus du plancher
+    assert eng.exec_stats["n_vise"] == 1, eng.exec_stats
+    assert eng.exec_stats["n_ordre"] == 1, eng.exec_stats
+    assert eng.exec_stats["refus_plancher"] == 0, eng.exec_stats
+    assert abs(b.pos[inst] - 1.0) < 1e-9
+
+
+def test_a_wish_the_lot_rounds_to_zero_is_counted_and_still_closes(tmp_path):
+    """Deux exigences en meme temps, et la seconde est la plus grave. Un
+    voeu que le lot minimal ramene a zero doit se COMPTER ; mais poser un
+    `continue` a cet endroit condamnerait une position deja ouverte a
+    vivre pour toujours, puisque la cible nulle est justement ce qui la
+    ferme. Le compteur ne doit rien changer au comportement."""
+    inst = "BTC-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path, {inst: 3.0})
+    eng.broker = b = _BrokerLot({inst: 3.0}, lot=1.0)
+    _vise(eng, inst, 0.4)                       # arrondi a 0 par le lot
+    assert eng.exec_stats["refus_arrondi"] == 1, eng.exec_stats
+    assert inst not in b.pos, "la position n a pas ete soldee"
+
+
+def test_the_refusal_counters_survive_a_restart(tmp_path):
+    """Un compteur qui repart de zero a chaque mise en ligne ne mesure que
+    le temps ecoule depuis le dernier deploiement."""
+    inst = "BTC-USDT-SWAP"
+    eng, b = _moteur_pos(tmp_path)
+    _vise(eng, inst, 0.05)
+    eng._snapshot({"equity": 10_000.0})
+    repris, _ = _moteur_pos(tmp_path, dict(b.pos))
+    assert repris.exec_stats["n_vise"] == 1, repris.exec_stats
+    assert repris.exec_stats["refus_plancher"] == 1, repris.exec_stats
+    assert abs(repris.exec_stats["usd_refus_plancher"] - 5.0) < 1e-6

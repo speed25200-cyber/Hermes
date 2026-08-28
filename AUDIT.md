@@ -1747,6 +1747,102 @@ de perte brute identifiée à ce jour, ce qui n'est pas la même chose.
 ouvertures, médiane +0,16. Le livre tient deux jambes, BCH court et SOL
 long, pour 0,019 % du plafond.
 
+### Dixième lecture, 14h35 — pas de troisième suiveur, et les refus deviennent visibles
+
+**Première question : non.** La fenêtre de vingt-quatre heures porte
+toujours **exactement deux** sorties au suiveur, les mêmes qu'à 13h33 —
+SOL le 27 à 22h02 (75 bps armés) et TRUMP le 28 à 10h04 (227 bps). Rien
+à ajouter au tableau. Le compte reste à deux, et deux ne suffisent
+toujours pas pour toucher à une largeur.
+
+**Le cumulé** : `live_rule` **n=244 à −12,01 bps**, `en risque` n=176 à
+−16,2, équité **9 264,29** en 551 remplissages, `halted_today` faux,
+`killed` faux, frein 0,99, confiance 0,10. Le brut réalisé passe de
+−26,17 à **−24,42**, les frais de 49,44 à 49,92.
+
+### Deuxième question : le relevé ne pouvait pas y répondre
+
+Compter les jambes que la règle **propose** contre celles que le moteur
+**ouvre** ne demandait pas une fenêtre de journal de plus : il n'y a
+rien à greper. Tous les refus d'`execute_pending` sont des `continue`
+muets. Un `continue` ne laisse aucune trace — ni au journal, ni à
+l'écran, ni au relevé. C'est pour cela que « la règle ne propose rien »
+et « le moteur refuse tout » sont restés indiscernables depuis le début,
+et c'est le dernier écart non instruit entre le livre validé et le livre
+joué.
+
+Chaque motif est compté **séparément**, parce qu'ils ne se corrigent pas
+du tout de la même façon :
+
+| compteur | ce qu'il dit |
+|---|---|
+| `n_vise` | vœux non nuls de la règle, comptés **avant** l'arrondi |
+| `n_ordre` | vœux honorés par un ordre d'ouverture ou de redimensionnement |
+| `n_deja` | jambe **déjà tenue** à la taille voulue — pas un refus, rien à faire |
+| `refus_plancher` | le vœu entier vaut moins que le plancher d'ordre |
+| `refus_arrondi` | le lot minimal de l'échange ramène le vœu à zéro |
+| `refus_prix` | pas de prix pour l'instrument |
+| `refus_rejet` | l'échange a refusé l'ordre |
+
+Trois décisions de conception valaient chacune une contre-épreuve, et
+chacune l'a passée.
+
+**Le compte se fait avant l'arrondi.** Le mesurer après ferait
+disparaître la jambe du dénominateur en même temps que le lot minimal la
+refuse : le taux d'ouverture paraîtrait parfait précisément quand il est
+le pire.
+
+**« Déjà tenue » n'est pas un refus.** Le même `continue` couvrait deux
+situations sans rapport — un vœu trop petit pour ouvrir, et une position
+stable qu'il n'y a rien à faire. Les confondre aurait fait de chaque
+tour d'une position tranquille un refus, et le taux d'ouverture aurait
+été un pur artefact du nombre de tours.
+
+**Et surtout : aucun `continue` après le refus d'arrondi.** C'est la
+contre-épreuve la plus utile de la série. Un vœu que le lot ramène à
+zéro doit être *compté*, mais la cible nulle qui en résulte est aussi ce
+qui **ferme** une position existante. Poser un `continue` là aurait
+condamné toute position dont la règle ne sait plus exprimer la taille à
+vivre indéfiniment. La contre-épreuve D le montre : avec le `continue`,
+la position n'est jamais soldée et le test tombe. **Un compteur ne doit
+rien changer au comportement**, et c'est un test qui le garantit, pas
+une intention.
+
+### Ce que le relevé laisse déjà deviner, et qu'il ne faut pas conclure
+
+Le plancher d'ordre vaut `max(10 USD ; 0,2 % des fonds propres)`, donc
+**18,53 USD** aux fonds propres actuels. Or la table du relevé du 13h30
+portait, en toutes lettres :
+
+```
+BCH    candle  short  6    -8.1    +3.8   60.1  1551    +0.3  -0.0096       -89       +899
+BCH    candle  short  6    -6.3    +3.8   60.1  1551    +0.3  -0.0019       -17       +177
+```
+
+**−17 USD contre un plancher de 18,53.** Cette jambe-là ne pouvait pas
+ouvrir. C'est une lecture ponctuelle sur une ligne, pas une mesure : je
+l'écris comme hypothèse et le compteur la tranchera au prochain relevé.
+Si la majorité des vingt vœux meurent sous le plancher, alors le livre
+de deux noms n'est pas un choix de la règle — c'est un seuil d'exécution
+qui décide à sa place.
+
+### Une cellule à regarder sans y toucher
+
+À 14h04 l'horloge 1H a retenu `[mlp/h1/abs]` avec `ic=0.471`,
+`net=+226,45 bps/trade`, `sr=+1,241`, contre un seuil de 171,5 bps à
+4 σ — sur 317 instants, `parjour=0,8`, `suite=6 %`. Un IC de 0,47 sur
+une horloge horaire n'a aucun précédent dans cette campagne. Je le note
+et **je n'en fais rien** : une cellule qui franchit une barre à 4 σ une
+fois est exactement ce que la barre déflatée existe pour ne pas croire
+sur parole. Le prochain verdict dira si elle est encore là.
+
+**Le reste** : retard 37 s sur 1 889 décisions (1m 16 s, 3m 45 s,
+5m 55 s, 15m 112 s, 1H 496 s). Reprises 80/166. Glissement +0,24 bps sur
+271 ouvertures, médiane +0,16. Les éclaireurs sont de retour — trois en
+deux heures — ce qui est leur rôle prévu : jouer à taille minimale une
+règle validée dont le frein a ramené la taille à zéro, pour qu'elle
+continue d'accumuler de la preuve.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -1773,12 +1869,15 @@ long, pour 0,019 % du plafond.
    34-36 % au holdout contre 51 % en direct, donc la porte facture
    **69 %** du motif, et le surplus vaut moins d'un dollar sur une
    perte de 65. Ce n'était pas là.
-7. **Le livre joué n'est pas le livre validé — mais pas par
-   concentration.** Huit noms distincts sur vingt ouvertures : la
-   piste « une seule jambe en boucle » est infirmée. Ce qui reste :
+7. **Le livre joué n'est pas le livre validé — la mesure est
+   maintenant en place.** Huit noms distincts sur vingt ouvertures :
+   la piste « une seule jambe en boucle » est infirmée. Ce qui reste :
    zéro à deux jambes **simultanées** contre vingt mises en commun par
-   la porte. Compter les jambes proposées contre les jambes ouvertes,
-   et la raison des refus, reste à faire.
+   la porte. Les refus d'`execute_pending` étaient des `continue`
+   muets ; ils sont désormais comptés par motif — plancher d'ordre,
+   lot minimal, prix, rejet — et « déjà tenue » est distingué d'un
+   refus. Le relevé laisse deviner le plancher (une jambe BCH à
+   −17 USD contre un plancher de 18,53) ; le compteur tranchera.
 8. **Le suiveur : répondu, et les deux branches sont vraies.** SOL a
    dépassé sa largeur de 2,6 bps (le stop a tenu), TRUMP de 61,5 bps,
    soit 27 % au-delà (le prix est passé au travers). Deux
