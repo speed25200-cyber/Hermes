@@ -1209,6 +1209,7 @@ crypto :
 | **18h43** | **+1,02** | **60** | **−4,21** |
 | **20h13** | **+0,78** | **82** | **−0,52** |
 | **22h12** | **+0,72** | **103** | **−0,52** |
+| **00h40** | **+0,36** | **123** | **−0,52** |
 
 La médiane est **négative** : l'ouverture typique se remplit *mieux* que
 le prix du signal, et la moyenne était portée par une poignée de jambes —
@@ -1299,6 +1300,71 @@ partage grossier des 26,70 USD de frais, pas une mesure. On compte
 d'abord, on décidera ensuite. C'est exactement la discipline qui a évité
 le seuil de 0,15 et la bande d'hystérésis.
 
+### Cinquième lecture, 00h40 — le compteur répond, et il me contredit
+
+**Les reprises sont fréquentes et coûtent peu.**
+
+```
+jambes reprises dans la barre 7 sur 18 ouvertures   2 959 USD de notionnel
+```
+
+| | |
+|---|---|
+| part des ouvertures | **39 %** — bien au-delà du quart |
+| notionnel repris | 2 959 USD sur 13 981 traités dans la fenêtre, soit 21 % |
+| coût à 3,48 bps | **1,03 USD** |
+| frais de la fenêtre | 4,87 USD — les reprises en font 21 % |
+| résultat de la fenêtre | **+7,16 USD** |
+
+Le critère que j'avais posé demandait les DEUX : plus d'un quart des
+ouvertures **et** un coût comparable à une part sérieuse des frais. Le
+premier est franchement dépassé, le second vaut **un dollar**. Sur une
+fenêtre où le compte a *gagné* 7,16 USD, supprimer les reprises en aurait
+ajouté un. **C'est marginal, et on ne corrige pas.** Le compteur reste,
+il ne coûte rien et il répondra si la cadence change.
+
+### Et l'écart holdout / direct s'est refermé tout seul
+
+| | holdout | direct, time-stop |
+|---|---|---|
+| 20h13 | +6,1 à +9,1 bps | **−21,0** sur 42 |
+| 22h12 | +5,9 à +6,0 | **−8,1** sur 39 |
+| **00h40** | **+5,2** | **+0,5** sur 38 |
+
+27 bps, puis 14, puis **4,7**. Le direct sur la sortie au temps est
+maintenant **positif**.
+
+**J'AI CONCLU TROP VITE À 20h13, et il faut l'écrire.** J'y avais noté :
+« le retard d'entrée a été divisé par deux SANS que le direct s'améliore :
+ce n'était donc pas lui, ou pas seulement lui ». C'était faux, et la
+raison de l'erreur est instructive : l'attribution est une **fenêtre
+glissante d'une quarantaine de fermetures**. Quand le retard tombe à
+l'instant *t*, les fermetures d'avant *t* restent dans la fenêtre pendant
+une heure ou deux et continuent de la tirer vers le bas. Lire une fenêtre
+glissante comme une mesure instantanée, c'est conclure sur un chiffre qui
+décrit surtout le passé. **C'était bien le retard.**
+
+Ce qui reste au passif : `TRAIL`, toujours la même unique fermeture à
+−84,6 bps pour 11,11 USD, qui porte à elle seule les trois quarts du
+−15,26 de la fenêtre. À n=1, on compte, on ne conclut pas.
+
+Les deux mesures du direct suivent : `live_rule` n=125 à **−3,0** bps
+(contre 114 à −4,0), `en risque` n=57 à **−5,7** (contre 46 à −8,0). Le
+brut réalisé du livre remonte de −17,72 à **−7,85**, soit près de dix
+dollars gagnés en deux heures et demie — le premier signe positif du
+compte depuis le matin. L'équité, elle, reste à 9 302,70 (−6,97 %) : les
+frais du moulin mangent encore ce que le brut regagne.
+
+**Le retard, cinquième lecture** : cumul 50 s sur 576 décisions ; 1m 16 s,
+3m 46 s, 5m 69 s, 15m 175 s, 1H 978 s. Tout continue de descendre.
+
+**Mémoire : 3 981 Mo**, contre 3 445 deux heures et demie plus tôt. La
+tendance monte, mais le chiffre reste dans la plage que le moteur
+occupait AVANT le recollage de série (pics de 3,6 à 4 Go relevés à 15h18
+et 17h51). Le cache n'est donc pas manifestement le moteur de cette
+croissance, et poser un plafond maintenant serait agir sur une cause
+supposée. On continue de lire.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -1316,12 +1382,13 @@ le seuil de 0,15 et la bande d'hystérésis.
 4. **Le 1H n'a pas encore rendu de verdict.** C'est l'échelle où
    l'économie est franchement favorable, et son rattrapage d'historique
    (deux ans par instrument) est en cours.
-5. **L'écart holdout / direct — il se referme, et il reste.** Sur
-   la sortie au temps, il est passé de 27 bps (20h13) à 14 bps
-   (22h12) pendant que le retard d'entrée était divisé par deux.
-   Il reste 14 bps à expliquer. La piste comptée mais non encore
-   chiffrée : les jambes reprises dans leur propre barre, qui
-   repaient un aller-retour sans avoir changé de position.
+5. **L'écart holdout / direct — refermé.** 27 bps à 20h13, 14 à
+   22h12, **4,7 à 00h40**, et le direct sur la sortie au temps est
+   repassé positif (+0,5 bps). C'était le retard d'entrée ; ma
+   conclusion contraire de 20h13 lisait une fenêtre glissante comme
+   une mesure instantanée. Ce qui reste ouvert à sa place : le
+   `TRAIL`, une seule fermeture à −84,6 bps qui porte les trois
+   quarts de la perte de sa fenêtre. Il en faut cinq pour parler.
 6. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
    et le bandeau d'anomalies dit déjà que les frais dominent le
    brut. Le holdout annonce +4,6 bps par trade après coûts, le
