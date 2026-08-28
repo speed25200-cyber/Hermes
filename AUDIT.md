@@ -2473,6 +2473,94 @@ arrêtée **parce qu'il ne se passe rien**, ce qui n'est pas la même
 chose qu'arrêtée parce que la règle gagne — et la formule vaut d'être
 répétée telle quelle tant que le livre est vide.
 
+### Dix-huitième lecture, 23h45 — le carnet s'est rouvert, et le plancher a cessé de mordre tout seul
+
+**Le moteur a rejoué**, et la tranche est propre :
+
+| | 22h44 | 23h45 | |
+|---|---|---|---|
+| jambes visées | 182 | 187 | **+5** |
+| ouvertes ou redimensionnées | 48 | 53 | **+5** |
+| refusées au plancher | 127 | 127 | **+0** |
+| remplissages | 667 | 676 | +9 |
+
+**Cinq vœux, cinq ouvertures, aucun refus.** Après quatre lectures où le
+plancher d'ordre effaçait 63 à 74 % des jambes, il n'en a refusé
+**aucune** cette heure-ci. Et la raison se lit dans les notionnels :
+
+```
+BCH     1,38 x 247,83 = 342 USD
+TRUMP 197,50 x   2,74 = 540 USD
+BCH     1,21 x 247,53 = 300 USD
+TRUMP 125,60 x   2,73 = 342 USD          plancher = 18,5 USD
+```
+
+Un **ordre de grandeur** au-dessus des 10 à 50 USD des lectures
+précédentes. La ligne du tableau le confirme : TRUMP porte
+`defl +1,2` et `poids +0,0370`, contre `defl +0,3` et `poids +0,0054`
+pour les cellules suiveuses d'hier.
+
+**C'est un effet en cascade que je n'avais pas prévu.** Durcir le coût
+du suiveur a fait retenir des cellules `fixe` mieux déflatées ; un
+`defl` quatre fois plus grand donne un poids de Kelly sept fois plus
+gros ; et des jambes sept fois plus grosses passent au-dessus du
+plancher. **Le problème du plancher — celui que j'avais renoncé à
+corriger le 18h14 — vient de se dissoudre sans qu'on y touche.** Je
+n'avais pas vu que la cause du refus n'était pas le seuil mais la
+petitesse des poids, et que la petitesse des poids venait en partie de
+la famille de stop retenue. Cinq observations : je le note, je ne le
+conclus pas.
+
+### Mais il faut regarder ce qui a été retenu
+
+```
+23:36:47  15m  live  mlp/h1/abs  net=+101.41bps/trade  stop=4sig/fixe
+```
+
+**Cent un points de base par trade sur la 15m.** Les nets crédibles de
+cette campagne valent +1 à +8. Le seul précédent d'un tel chiffre est
+la cellule 1H à +226 bps aperçue à 14h04 — et **elle avait disparu au
+verdict suivant**, comme celle à h=1 de 09h39 avant elle. La différence
+est que celle-ci est **`live`**, donc elle dimensionne : c'est très
+probablement elle qui porte le `defl +1,2` et les jambes à 540 USD.
+
+Autrement dit : **le carnet s'est rouvert, et peut-être pour une
+mauvaise raison.** Le durcissement a écarté les suiveurs ; parmi les
+cellules fixes restantes, la sélection est allée chercher une valeur
+aberrante. C'est exactement le risque que la barre déflatée existe pour
+contenir, et le fait qu'une telle cellule la franchisse mérite d'être
+suivie nommément au prochain verdict. Je ne touche à rien — mais si
+elle s'évapore comme les deux précédentes, le poids retombera et le
+plancher recommencera à mordre.
+
+**Le compte a repris sa perte** : équité 9 255,81 → **9 254,74**, brut
+réalisé −29,91 → −30,94, frais +1,14 en une heure. Neuf remplissages.
+Une heure, et je n'en conclus rien.
+
+### La part gagnante bouge enfin — sans être confirmée
+
+`8/40 = 20 %` contre `6/41 = 15 %`. **La fenêtre a bougé cette fois**,
+donc ce n'est plus la relecture d'un échantillon figé. Mais elle n'a
+glissé que d'environ cinq fermetures sur quarante et une : les deux
+lectures **partagent près de 88 % de leur échantillon**. Ce n'est
+toujours pas une confirmation indépendante, seulement une mesure qui a
+recommencé à respirer, et elle respire vers le haut.
+
+**La bascule tient : dix-sept verdicts sur dix-sept en `4sig/fixe`**
+depuis 20h47, sans une exception. Trois horloges sont validées
+simultanément — `hz=['15m', '1m', '3m']` — ce qui n'était plus arrivé
+de la journée.
+
+**Le cumulé** : `live_rule` **n=287 à −15,1 bps**, soit **−5,10 σ**
+(contre −5,06). Le n a repris sa marche, le bps est stable. `en risque`
+n=219 à −19,1. Équité 9 254,74 en 676 remplissages. `halted_today`
+faux, `killed` faux. Le `calcul` du desk est à **6,9-7,1 s**, c'est-à-dire
+revenu au niveau d'avant le déploiement : la surestimation d'hier soir
+est doublement infirmée.
+
+**Le suiveur** : toujours trois occurrences dans la campagne, deux dans
+la fenêtre de vingt-quatre heures. Pas de quatrième.
+
 ---
 
 ## 8. Ce qui reste ouvert
