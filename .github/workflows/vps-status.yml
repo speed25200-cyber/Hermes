@@ -119,7 +119,7 @@ jobs:
             echo
             echo "===== éclaireurs et sorties (2 h) ====="
             journalctl -u hermes --since "-2 hours" --no-pager 2>/dev/null \
-              | grep -E "TP .*maker|scalp SL|scalp time-stop|explore |orpheline" \
+              | grep -E "TP .*maker|scalp SL|scalp TRAIL|scalp time-stop|explore |orpheline" \
               | tail -14 || true
             echo
             echo "===== exécution mesurée (éclaireurs) ====="
