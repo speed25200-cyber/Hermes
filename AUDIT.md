@@ -2134,6 +2134,96 @@ faux, `killed` faux. Glissement +0,55 / médiane −0,70 sur 321
 ouvertures — inchangé depuis 17h11, l'écart ne se creuse pas. Retard
 37 s sur 2 208 décisions. Reprises 102/216.
 
+### Quatorzième lecture, 19h15 — la porte facture une sortie que la cellule jouée ne peut pas prendre
+
+Instruction du code, sans rien modifier. Trois pistes examinées, deux
+écartées par la mesure, **une qui tient**.
+
+**Écartée : la latence d'entrée.** `features.py:17` pose
+`px = float(c.c[-1])` — la CLÔTURE de la dernière barre complète. Et
+`engine.py:2423` compare `fill.price` à ce même `plan["px"]`. Donc le
+glissement mesuré **capture déjà** la dérive clôture → remplissage, les
+dix-sept secondes comprises. Il vaut **+0,62 bps** de moyenne (médiane
+−0,70) sur 327 ouvertures. Ce n'est pas là que se trouvent dix-neuf
+points de base, et la question posée à 18h14 a sa réponse : mesurée, pas
+supposée.
+
+**Écartée : le take-profit absent.** `engine.py:1913` garde tout le bloc
+SL/TP derrière `br.get("stop_mode") != "suiv"` : une cellule à stop
+suiveur ne consulte **jamais** son take. J'ai cru tenir un défaut. Non :
+`_suiveur` (`clock.py:610-665`) ne simule pas de take non plus — il sort
+au suiveur touché, sinon à la clôture de la barre h. **La convention est
+la même des deux côtés**, et le commentaire du moteur qui l'affirme dit
+vrai. Ce qui explique `tp_maker: 0` et une attribution qui ne porte que
+`time-stop` et `TRAIL` : c'est voulu.
+
+### Ce qui tient : le coût facturé à la sortie à l'horizon
+
+`clock.py:934` définit `cost_win = 4.0`, et le commentaire dit
+exactement ce que c'est : **« entrée postée + take posé au carnet »**.
+`clock.py:1088` en fait `c_win = 0,75 × 4,0 + 0,25 × 7,0 = **4,75 bps**`
+après la décote de file d'attente. Puis, pour le mode suiveur,
+`clock.py:1396-1398` :
+
+```python
+net = gains - np.where(
+    touche, self.fee,
+    np.where(gains > 0, c_win, self.fee))
+```
+
+**Un chemin qui finit gagnant à l'horizon se voit facturer 4,75 bps —
+le prix d'un take posé au carnet.** Or une cellule suiveuse n'a pas de
+take posé : elle vient d'être établie ci-dessus qu'elle n'en consulte
+jamais. En production ce chemin-là sort au **time-stop**, et
+`engine.py:1942` passe `force_taker=maker_at is None`, donc `True` :
+elle paie **7,0 bps**.
+
+**La porte facture, sur chaque jambe suiveuse gagnante à l'horizon, le
+prix d'une modalité de sortie que cette variante ne peut pas utiliser.**
+L'écart vaut **2,25 bps** par jambe concernée. Le même `np.where` à
+`clock.py:1460` sert au mode fixe, où le take existe bel et bien
+(`engine.py:1913` le consulte) : là, `c_win` est légitime. **Le défaut
+est spécifique au mode `suiv`** — et toutes les cellules retenues de la
+journée portent `stop=3sig/suiv` ou `4sig/suiv`.
+
+**L'ampleur, honnêtement.** 2,25 bps est le maximum, atteint seulement
+si toutes les sorties à l'horizon sont gagnantes ; à une part gagnante
+de la moitié, l'effet moyen vaut ~1,1 bps. **Cela explique un à deux
+points de base sur dix-neuf.** C'est le premier biais identifié dans la
+comptabilité de la porte elle-même, il va dans le sens de l'erreur
+observée — la porte est trop optimiste — et il ne suffit pas.
+
+**La mesure qui manque pour le chiffrer** : la part des fermetures au
+temps qui finissent gagnantes. Elle est à portée — `deploy/releve_taille.py`
+lit déjà `net_bps` par fermeture dans `_attribution` — mais c'est du
+code, et cette lecture-ci est de l'instruction. **Je ne corrige rien.**
+Le corriger reviendrait d'ailleurs à *durcir* la porte, pas à
+l'abaisser : c'est le bon sens du changement, ce qui est une raison de
+plus de le faire proprement plutôt que vite.
+
+**Une note sur les unités, vérifiée et sans écart.** La porte annonce
+`net bps/trade` — par jambe — et `live_rule` compte des **instants** de
+portefeuille. Pour un portefeuille équipondéré, le rendement de
+l'instant est la moyenne des jambes : les deux grandeurs sont donc
+comparables en unité, et il n'y a pas là de biais de moyenne. La
+différence est ailleurs, dans la **variance** — vingt jambes mises en
+commun contre une à trois jouées — et c'est le point de la douzième
+lecture, inchangé.
+
+**Le cumulé** : `live_rule` **n=282 à −15,1 bps**, soit **−5,05 σ**
+contre −5,12 à 18h14. La dégradation monotone **s'est arrêtée cette
+heure-ci** — elle n'est pas inversée, le niveau reste à cinq écarts
+types. `en risque` n=214 à −19,3, équité **9 255,90** en 665
+remplissages, brut −29,85 (contre −31,10), frais −52,88, frein 0,98,
+`halted_today` faux, `killed` faux.
+
+**Pas de quatrième sortie au suiveur** : toujours exactement trois.
+
+Plancher : 181 vœux, 47 ouverts, 127 au plancher = **70,2 %**, 1 025 USD
+jamais ouverts. La tranche neuve ne vaut que huit vœux — encore une
+heure calme, et encore une tranche dont on ne peut rien tirer. Le cumulé
+tient à 70-74 % depuis quatre lectures.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -2183,19 +2273,28 @@ ouvertures — inchangé depuis 17h11, l'écart ne se creuse pas. Retard
    deux premières portaient 62 % de la perte brute du compte ; la
    troisième n'a coûté que 0,74 USD, parce que le rodage avait ramené
    la jambe à 77 USD.
-9. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
+9. **La porte facture une sortie que la cellule jouee ne peut pas
+   prendre.** `clock.py:1396-1398` charge `c_win` = 4,75 bps — le prix
+   d'un take posé au carnet — à toute jambe suiveuse gagnante à
+   l'horizon. Or une cellule `suiv` n'a pas de take (`engine.py:1913`)
+   et sort au time-stop, donc en taker à 7,0 bps
+   (`engine.py:1942`). Écart : **2,25 bps** par jambe concernée, soit
+   un à deux points de base en moyenne. Le corriger *durcit* la
+   porte. Ce qui manque pour le chiffrer : la part des fermetures au
+   temps qui finissent gagnantes.
+10. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
    et le bandeau d'anomalies dit déjà que les frais dominent le
    brut. Le holdout annonce +4,6 bps par trade après coûts, le
    direct rend −6,0 : dix points de base d'écart à instruire avant
    de toucher à quoi que ce soit.
-10. **Le retard sur la clôture de barre : répondu, et ce qui reste.**
+11. **Le retard sur la clôture de barre : répondu, et ce qui reste.**
    La question posée ici — chargement ou calcul ? — a sa réponse :
    `charge` 0,1-0,4 s, `calcul` 6,0-6,4 s. Le rechargement n'est plus
    le coût. Le total clôture → ordre vaut ~14 s sur la 1m contre 21-26
    avant, et la 5m est passée de 197 s à ~43. Ce qui reste ouvert est
    la **décision elle-même**, six secondes pour vingt noms — et elle
    n'a pas encore été instrumentée.
-11. **Le profil chronologique du Sharpe** doit dire si l'avantage est
+12. **Le profil chronologique du Sharpe** doit dire si l'avantage est
    régulier ou concentré dans la fenêtre récente. Les premiers relevés
    sont croissants, ce qui suggère de la non-stationnarité.
 
