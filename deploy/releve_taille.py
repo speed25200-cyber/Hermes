@@ -80,19 +80,29 @@ def _attribution(trades: list) -> None:
     par = {}
     for t in fermes:
         motif = str(t.get("reason") or "?").split()[0]
-        n, tot, usd = par.get(motif, (0, 0.0, 0.0))
+        n, tot, usd, gag = par.get(motif, (0, 0.0, 0.0, 0))
         net = float(t["net_bps"])
         par[motif] = (n + 1, tot + net,
-                      usd + net * 1e-4 * abs(float(t.get("notional") or 0.0)))
+                      usd + net * 1e-4 * abs(float(t.get("notional") or 0.0)),
+                      gag + (1 if net > 0 else 0))
+    # La PART GAGNANTE, par motif. Elle manquait pour chiffrer un ecart
+    # precis : la porte facture 4,75 bps — le prix dun take pose au
+    # carnet — a toute jambe SUIVEUSE gagnante a lhorizon, alors quune
+    # cellule suiveuse na pas de take et sort au time-stop, en taker, a
+    # 7,0. Lecart vaut 2,25 bps par jambe concernee, et cest cette part
+    # qui dit combien de jambes sont concernees.
     print(f"attribution sur les {len(fermes)} dernieres fermetures mesurees")
-    print(f"  {'motif':<12} {'n':>4} {'bps/trade':>10} {'USD':>9}")
-    for motif, (n, tot, usd) in sorted(par.items(), key=lambda kv: -kv[1][2]):
-        print(f"  {motif:<12} {n:>4} {tot / n:>+10.1f} {usd:>+9.2f}")
+    print(f"  {'motif':<12} {'n':>4} {'bps/trade':>10} {'USD':>9} {'gagnantes':>11}")
+    for motif, (n, tot, usd, gag) in sorted(par.items(), key=lambda kv: -kv[1][2]):
+        print(f"  {motif:<12} {n:>4} {tot / n:>+10.1f} {usd:>+9.2f}"
+              f" {gag:>4}/{n:<3} {gag / n * 100:>3.0f}%")
     n = len(fermes)
     tot = sum(float(t["net_bps"]) for t in fermes)
     usd = sum(float(t["net_bps"]) * 1e-4 * abs(float(t.get("notional") or 0.0))
               for t in fermes)
-    print(f"  {'TOTAL':<12} {n:>4} {tot / n:>+10.1f} {usd:>+9.2f}")
+    gag = sum(1 for t in fermes if float(t["net_bps"]) > 0)
+    print(f"  {'TOTAL':<12} {n:>4} {tot / n:>+10.1f} {usd:>+9.2f}"
+          f" {gag:>4}/{n:<3} {gag / n * 100:>3.0f}%")
     print()
 
 

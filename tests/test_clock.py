@@ -1201,3 +1201,74 @@ def test_the_verdict_says_how_often_a_trigger_extends_the_previous():
     # une reprise.
     for champ in ('"ts_tr"', '"inst_tr"', '"sens_tr"'):
         assert champ in src, f"{champ} nest pas porte jusqua la cellule"
+
+
+def _cwin(m):
+    """Le meme melange que la porte : c_win decote par le risque de file."""
+    from hermes.scalp.economics import QUEUE_MISS
+    return (1.0 - QUEUE_MISS) * m.cost_win + QUEUE_MISS * m.fee
+
+
+def test_a_trailing_cell_is_charged_the_exit_it_can_actually_take():
+    """`cost_win` est defini comme « entree postee + take pose au carnet ».
+    Une cellule a stop SUIVEUR n a pas de take : `_suiveur` n en simule
+    aucun, et le moteur garde tout son bloc SL/TP derriere
+    `stop_mode != "suiv"`. Elle sort au suiveur ou au temps, toujours en
+    traversant, et le courtier facture alors 2,0 bps a l entree postee
+    plus 5,0 a la sortie. Lui facturer le prix d un take pose, c est lui
+    facturer une modalite que l execution ne peut pas prendre — et une
+    porte trop genereuse laisse passer des cellules qui perdent."""
+    m = CandleModel("1m")
+    gains = np.array([+50.0, -50.0, +1.0])       # gagnante, perdante, gagnante
+    touche = np.array([False, False, False])     # aucune n a touche le suiveur
+    cout = m._cout_sortie("suiv", touche, gains, _cwin(m))
+    assert np.allclose(cout, m.fee), cout
+    # et la jambe touchee paie la meme chose : elle traverse aussi
+    cout2 = m._cout_sortie("suiv", np.array([True, True, True]), gains, _cwin(m))
+    assert np.allclose(cout2, m.fee), cout2
+
+
+def test_the_fixed_stop_keeps_the_posted_take_price():
+    """Le mode fixe, lui, consulte bien son take : le moteur peut sortir
+    maker quand le prix traverse le niveau. Le prix moyen y reste une
+    approximation, mais d une sortie qui EXISTE. Durcir les deux modes
+    d un seul geste serait aussi faux que de n en durcir aucun."""
+    m = CandleModel("1m")
+    c_win = _cwin(m)
+    gains = np.array([+50.0, -50.0])
+    cout = m._cout_sortie("fixe", np.array([False, False]), gains, c_win)
+    assert abs(cout[0] - c_win) < 1e-12, cout      # gagnante : take pose
+    assert abs(cout[1] - m.fee) < 1e-12, cout      # perdante : traversee
+    # un stop touche traverse, dans les deux modes
+    cout2 = m._cout_sortie("fixe", np.array([True, True]), gains, c_win)
+    assert np.allclose(cout2, m.fee), cout2
+
+
+def test_the_correction_is_worth_the_measured_two_and_a_quarter_bps():
+    """Le chiffre annonce au journal daudit doit etre celui que le code
+    applique, sinon la lecture est une histoire. 7,0 = 2,0 maker a
+    l entree + 5,0 taker a la sortie, ce que le courtier facture ;
+    c_win = 0,75 x 4,0 + 0,25 x 7,0 = 4,75."""
+    m = CandleModel("1m")
+    c_win = _cwin(m)
+    assert abs(c_win - 4.75) < 1e-12, c_win
+    gains = np.array([+50.0])
+    faux = m._cout_sortie("fixe", np.array([False]), gains, c_win)
+    vrai = m._cout_sortie("suiv", np.array([False]), gains, c_win)
+    assert abs((vrai - faux)[0] - 2.25) < 1e-12, (vrai, faux)
+
+
+def test_hardening_the_gate_never_makes_a_cell_look_better():
+    """Un durcissement qui, sur un seul chemin, rendrait une cellule plus
+    belle ne serait pas un durcissement. Le cout suiveur doit etre
+    superieur ou egal a l ancien, chemin par chemin, quel que soit le
+    signe du gain."""
+    m = CandleModel("1m")
+    c_win = _cwin(m)
+    rng = np.random.default_rng(7)
+    gains = rng.normal(0.0, 40.0, 500)
+    touche = rng.random(500) < 0.3
+    ancien = np.where(touche, m.fee, np.where(gains > 0, c_win, m.fee))
+    nouveau = m._cout_sortie("suiv", touche, gains, c_win)
+    assert np.all(nouveau >= ancien - 1e-12), "un chemin est devenu moins cher"
+    assert np.any(nouveau > ancien), "le durcissement n a rien change du tout"

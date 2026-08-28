@@ -2224,6 +2224,83 @@ jamais ouverts. La tranche neuve ne vaut que huit vœux — encore une
 heure calme, et encore une tranche dont on ne peut rien tirer. Le cumulé
 tient à 70-74 % depuis quatre lectures.
 
+### Quinzième lecture, 20h16 — la porte est durcie, et je corrige ce que j'ai écrit hier soir
+
+**D'abord une rectification, parce qu'elle change le diagnostic.** À
+19h15 j'ai écrit : « le défaut est spécifique au mode `suiv` ». **C'est
+faux, et il faut le dire avant tout le reste.** En relisant la branche
+du stop fixe (`clock.py:1478-1484`) : `gains = np.where(touche,
+-0,5×(stop+adverse), sens×yho)`. Il n'y a **aucun take-profit** dans
+cette simulation-là non plus — le chemin non stoppé est simplement le
+rendement à l'horizon. Les deux branches facturent donc `c_win`, « le
+prix d'un take posé au carnet », à un chemin que la simulation elle-même
+sort à l'horizon.
+
+Ce qui distingue vraiment les deux modes n'est pas la simulation, c'est
+**l'exécution** : pour une cellule fixe le moteur consulte bien son take
+(`engine.py:1913-1929`) et peut sortir maker quand le prix traverse le
+niveau — `c_win` y est une approximation grossière d'une sortie qui
+**existe**. Pour une cellule suiveuse elle est **structurellement
+impossible**. C'est cette distinction-là qui justifie de durcir l'une et
+pas l'autre, et ce n'est pas celle que j'avais écrite.
+
+**Le chiffre, lui, est exact et vérifié à la source.**
+`exchange/broker.py:54-55` : `maker_fee_bps = 2.0`, `fee_bps = 5.0`.
+Une jambe suiveuse paie donc 2,0 à l'entrée postée et 5,0 à la sortie
+traversée — **exactement les 7,0 de `FEE`**. Et `cost_win = 4,0` vaut
+2,0 + 2,0, ce qui exige un take posé. La porte facturait
+`c_win = 0,75 × 4,0 + 0,25 × 7,0 = 4,75`. **L'écart est de 2,25 bps, ni
+estimé ni arrondi.** Le « 3,50 bps sur 151 113 traités » du relevé n'est
+que la moyenne (2,0 + 5,0)/2, et il concorde.
+
+### Ce qui a été fait
+
+Un seul point d'entrée, `CandleModel._cout_sortie(mode, touche, gains,
+c_win)`, appelé par les deux branches. Le mode `suiv` paie `self.fee`
+sur **tous** les chemins ; le mode fixe garde l'expression d'origine.
+La distinction vit désormais dans le code, nommée, au lieu d'être
+dupliquée dans deux `np.where` identiques.
+
+Quatre tests neufs, trois contre-épreuves vérifiées une à une :
+
+- **A** — remettre l'ancien coût au suiveur : trois tests tombent ;
+- **B** — durcir *aussi* le mode fixe : le test qui protège le mode fixe
+  tombe. C'est la contre-épreuve qui compte : elle prouve que la
+  correction est bien ciblée et non un durcissement au jugé ;
+- **C** — facturer `c_win` partout au suiveur (donc moins cher
+  qu'avant) : trois tests tombent.
+
+Un quatrième test vérifie la propriété qui définit un durcissement :
+sur cinq cents chemins tirés au hasard, le nouveau coût est **supérieur
+ou égal à l'ancien chemin par chemin**, et strictement supérieur sur au
+moins un. Un « durcissement » qui rendrait une seule cellule plus belle
+n'en serait pas un.
+
+**453 tests verts** (449 + 4), 22 minutes.
+
+**La conséquence, écrite d'avance.** Chaque cellule suiveuse perd
+jusqu'à 2,25 bps par jambe gagnante à l'horizon dans son net annoncé.
+Les seuils récents tournent autour de 8 à 12 bps pour un net de 3 à
+7 bps : **des cellules vont cesser de passer la barre, et le carnet peut
+se vider. Un carnet vide est un résultat honnête**, pas une régression —
+c'est précisément ce que cette correction est censée produire si la
+porte était trop généreuse.
+
+**La part gagnante est maintenant au relevé**, par motif, dans
+`_attribution`. C'est un compteur d'affichage : il ne touche aucun seuil
+et ne change aucun comportement. Le biais moyen vaut
+`part_gagnante × 2,25 bps`, et le prochain relevé le donnera enfin en
+clair au lieu d'un encadrement.
+
+**Le cumulé** : `live_rule` **n=283 à −15,1 bps**, soit **−5,06 σ**
+contre −5,05 à 19h15. La dégradation reste **arrêtée** — deux lectures
+de suite — sans s'inverser. `en risque` n=215 à −19,3, équité
+**9 255,81** en 667 remplissages, brut −29,91, frais −52,91, frein 0,98,
+`halted_today` faux, `killed` faux. L'heure a été très calme : deux
+remplissages seulement, un vœu neuf.
+
+**Pas de quatrième sortie au suiveur** : toujours exactement trois.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -2273,8 +2350,14 @@ tient à 70-74 % depuis quatre lectures.
    deux premières portaient 62 % de la perte brute du compte ; la
    troisième n'a coûté que 0,74 USD, parce que le rodage avait ramené
    la jambe à 77 USD.
-9. **La porte facture une sortie que la cellule jouee ne peut pas
-   prendre.** `clock.py:1396-1398` charge `c_win` = 4,75 bps — le prix
+9. **CORRIGE le 28 au soir.** La porte facturait `c_win` = 4,75 bps —
+   le prix d'un take posé au carnet — à toute jambe suiveuse gagnante
+   à l'horizon, alors qu'une cellule `suiv` sort au time-stop en
+   taker à 7,0 (2,0 maker + 5,0 taker, `broker.py:54-55`). Écart
+   **2,25 bps**, exact. `_cout_sortie` fait désormais payer
+   `self.fee` au mode suiveur et laisse le mode fixe intact — là le
+   moteur consulte bien son take. Reste à voir combien de cellules
+   cessent de passer la barre. *Ancienne formulation :* `clock.py:1396-1398` charge `c_win` = 4,75 bps — le prix
    d'un take posé au carnet — à toute jambe suiveuse gagnante à
    l'horizon. Or une cellule `suiv` n'a pas de take (`engine.py:1913`)
    et sort au time-stop, donc en taker à 7,0 bps

@@ -1147,6 +1147,32 @@ class CandleModel:
             return self.to_dict()
         return self._retenir(meilleur, c_win)
 
+    def _cout_sortie(self, mode: str, touche, gains, c_win: float):
+        """Ce que la sortie coute, selon la modalite qui existe VRAIMENT.
+
+        `cost_win` est defini plus haut comme « entree postee + take pose
+        au carnet », et `c_win` en est la version decotee par le risque de
+        file d attente. Ce prix suppose donc un take POSE.
+
+        Une cellule a stop suiveur n en a pas. `_suiveur` ne simule aucun
+        take — elle sort au suiveur touche, sinon a la cloture de la barre
+        h — et le moteur fait exactement pareil : le bloc SL/TP y est garde
+        derriere `stop_mode != "suiv"`, et la sortie au temps part avec
+        `force_taker`. Le courtier facture alors 2,0 bps a l entree postee
+        et 5,0 a la sortie traversee, soit les 7,0 de `self.fee`. Facturer
+        `c_win` = 4,75 a une jambe suiveuse gagnante a l horizon, c est lui
+        facturer une modalite de sortie que l execution ne peut pas
+        prendre : 2,25 bps de moins que ce qui se paie.
+
+        Le mode fixe garde `c_win` : le moteur y consulte bien le take et
+        peut sortir maker quand le prix traverse le niveau. Le prix moyen
+        y reste une approximation, mais d une sortie qui EXISTE.
+        """
+        if mode == "suiv":
+            return np.full(np.shape(gains), float(self.fee), dtype=np.float64)
+        return np.where(touche, self.fee,
+                        np.where(gains > 0, c_win, self.fee))
+
     def _essai(self, blocs: list, h: int, c_win: float) -> dict | None:
         """Un horizon : validation glissante sur le panel, puis recherche."""
         pas = BAR_MS.get(self.bar, 300_000)
@@ -1395,9 +1421,8 @@ class CandleModel:
                             lig = np.arange(len(sens))
                             touche = sto[m][lig, j, col]
                             gains = sgo2[m][lig, j, col]
-                            net = gains - np.where(
-                                touche, self.fee,
-                                np.where(gains > 0, c_win, self.fee))
+                            net = gains - self._cout_sortie(
+                                mode, touche, gains, c_win)
                             pnl, rq = _agreger(net, tso[m], sgo[m])
                             n_per = len(pnl)
                             if n_per < MIN_TRADES:
@@ -1457,8 +1482,8 @@ class CandleModel:
                         # non arbitraire.
                         gains = np.where(touche, -0.5 * (stop + adverse),
                                          sens * yho[m])
-                        net = gains - np.where(
-                            touche, self.fee, np.where(gains > 0, c_win, self.fee))
+                        net = gains - self._cout_sortie(
+                            mode, touche, gains, c_win)
                         # Un instant = un rendement. Les trades simultanés sur
                         # plusieurs actifs sont UNE position de portefeuille, pas
                         # plusieurs observations indépendantes ; les agréger avant
