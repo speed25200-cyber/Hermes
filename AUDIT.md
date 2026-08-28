@@ -1213,6 +1213,7 @@ crypto :
 | **03h42** | **+0,28** | **200** | **−0,58** |
 | **07h22** | **+0,20** | **229** | **−0,52** |
 | **09h39** | **−0,01** | **240** | **−0,58** |
+| **12h17** | **+0,20** | **265** | **−0,19** |
 
 La médiane est **négative** : l'ouverture typique se remplit *mieux* que
 le prix du signal, et la moyenne était portée par une poignée de jambes —
@@ -1601,6 +1602,76 @@ première pente franchement supérieure à l'unité de toute la campagne —
 minute avec un horizon d'une barre est aussi celle où le retard de 16 s
 pèse le plus lourd.
 
+### Huitième lecture, 12h17 — deux hypothèses tombent, une piste neuve
+
+**Mon hypothèse « une seule jambe en boucle » est infirmée.** Les vingt
+ouvertures de 10h02 à 11h29 portent **huit noms distincts** :
+
+| SOL | BCH | TRUMP | DOGE | ENA | LTC | SUI | XRP |
+|---|---|---|---|---|---|---|---|
+| 5 | 5 | 3 | 3 | 1 | 1 | 1 | 1 |
+
+L'épisode « huit SOL d'affilée » de 08h46-09h35 était un **moment**, pas
+un régime. Ce qui reste vrai : le livre tient **zéro à deux jambes
+simultanées** — `pos: {}` et `utilise 0,000` à l'instant du relevé —
+contre les vingt que la porte met en commun. Mais la cause n'est pas la
+concentration sur un nom.
+
+**Et j'ai commenté une fenêtre courte pour la troisième fois.** À 09h39
+j'écrivais que le compte « s'était presque arrêté de perdre ». Sur
+09h39 → 12h17 : équité 9 272,48 → **9 263,24**, soit **−3,51 USD/h**
+contre −0,64, et un brut réalisé de **−7,22**. La perte a réaccéléré.
+Trois fois maintenant — une fois dans chaque sens, puis encore — j'ai
+tiré une conclusion d'une fenêtre de deux heures. **Règle : ne plus
+commenter les fenêtres courtes du tout.** Seul le cumulé compte.
+
+Le cumulé, justement : `live_rule` **n=238 à −12,7 bps**, erreur type
+3,24, soit **3,9 σ**. `en risque` n=170 à −17,3. Le gouverneur commence à
+freiner de lui-même (`frein 0,99`).
+
+### La piste neuve : le suiveur
+
+```
+attribution sur les 39 dernieres fermetures mesurees
+  TRAIL           1     -295,5     -6,09
+  time-stop      38      -11,0     -6,14
+  TOTAL          39      -18,3    -12,24
+```
+
+**Une seule fermeture fait la moitié de la perte de sa fenêtre.** C'est
+le deuxième `TRAIL` de la campagne, après −84,6 bps hier soir. Deux
+occurrences, toutes deux dévastatrices, dans un flot de sorties au temps
+à −11 bps.
+
+**Et ce motif était invisible au relevé.** La fenêtre « éclaireurs et
+sorties » grepe `TP`, `SL`, `time-stop`, `explore`, `orpheline` — **mais
+pas `TRAIL`**. Or la ligne du journal porte la largeur armée : `scalp
+TRAIL 120bps SOL-USDT-SWAP +2.410000 @ 105.980000`. Le motif le plus
+coûteux du relevé était précisément celui qu'on ne montrait pas. Corrigé
+— changement de workflow seulement, effet immédiat, sans déploiement et
+sans redémarrer le moteur.
+
+**L'ambiguïté à trancher, et elle est nette.** Le suiveur sort à
+`sommet × (1 − largeur)`. Pour un long dont le sommet vaut au moins
+l'entrée, la perte rapportée à l'entrée **ne peut pas dépasser la
+largeur** — sauf si le prix a sauté par-dessus le suiveur entre deux
+tours. Donc :
+
+- si la largeur armée vaut ≈ 295 bps, **le stop a parfaitement tenu**, et
+  −295,5 est simplement ce que coûte un stop à 4 σ sur un nom agité
+  quand il est touché. Rien à corriger ;
+- si elle vaut 120 ou 150, **le prix a traversé** et le suiveur ne
+  protège pas ce qu'il prétend protéger.
+
+La ligne du journal donne la réponse dès la prochaine occurrence, sans
+attendre d'en avoir cinq. C'est pour cela que le grep valait la peine.
+
+**Le reste tient.** `suite` = 32, 34, 36, 36, 40 % sur cinq verdicts —
+stable autour de 36 %, la lecture de 09h39 est confirmée. Reprises 78/160
+= 49 %. Retard : cumul 38 s sur 1 673 décisions ; 1m 16 s, 15m 116 s, 1H
+535 s. Mémoire 3 380 Mo, plate. La cellule à h=1 aperçue à 09h39 n'est
+plus dans les verdicts : elle n'a pas tenu.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -1627,25 +1698,30 @@ pèse le plus lourd.
    34-36 % au holdout contre 51 % en direct, donc la porte facture
    **69 %** du motif, et le surplus vaut moins d'un dollar sur une
    perte de 65. Ce n'était pas là.
-7. **Le livre joué n'est pas le livre validé.** La porte mesure un
-   `panel[20]` ; le moteur tient **une à deux jambes** et occupe
-   0,15 % de son plafond de notionnel. Huit ouvertures d'affilée sur
-   le seul SOL entre 08h46 et 09h35. Compter les jambes proposées
-   contre les jambes ouvertes, et la raison des refus, est la
-   prochaine mesure — pas encore faite.
-8. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
+7. **Le livre joué n'est pas le livre validé — mais pas par
+   concentration.** Huit noms distincts sur vingt ouvertures : la
+   piste « une seule jambe en boucle » est infirmée. Ce qui reste :
+   zéro à deux jambes **simultanées** contre vingt mises en commun par
+   la porte. Compter les jambes proposées contre les jambes ouvertes,
+   et la raison des refus, reste à faire.
+8. **Le suiveur : deux fermetures, −84,6 puis −295,5 bps**, la seconde
+   faisant la moitié de la perte de sa fenêtre. Le motif était absent
+   du relevé ; il y est maintenant, avec sa largeur armée. La question
+   se tranche à la prochaine occurrence : largeur tenue, ou prix qui
+   saute par-dessus le suiveur ?
+9. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
    et le bandeau d'anomalies dit déjà que les frais dominent le
    brut. Le holdout annonce +4,6 bps par trade après coûts, le
    direct rend −6,0 : dix points de base d'écart à instruire avant
    de toucher à quoi que ce soit.
-9. **Le retard sur la clôture de barre : répondu, et ce qui reste.**
+10. **Le retard sur la clôture de barre : répondu, et ce qui reste.**
    La question posée ici — chargement ou calcul ? — a sa réponse :
    `charge` 0,1-0,4 s, `calcul` 6,0-6,4 s. Le rechargement n'est plus
    le coût. Le total clôture → ordre vaut ~14 s sur la 1m contre 21-26
    avant, et la 5m est passée de 197 s à ~43. Ce qui reste ouvert est
    la **décision elle-même**, six secondes pour vingt noms — et elle
    n'a pas encore été instrumentée.
-10. **Le profil chronologique du Sharpe** doit dire si l'avantage est
+11. **Le profil chronologique du Sharpe** doit dire si l'avantage est
    régulier ou concentré dans la fenêtre récente. Les premiers relevés
    sont croissants, ce qui suggère de la non-stationnarité.
 
@@ -1684,6 +1760,10 @@ Elles ne se négocient pas, et elles ont toutes été écrites après avoir
 - ne jamais toucher au barème du rodage pendant qu'on le mesure ;
 - n'abaisser aucune porte, jamais — un carnet vide est un résultat
   honnête ;
+- ne jamais conclure sur une fenêtre glissante de quelques dizaines de
+  fermetures : elle décrit surtout le passé, et l'erreur a été commise
+  **trois fois** en une nuit — une fois dans chaque sens. Seul le
+  compteur cumulé (`live_rule` n et bps) tranche ;
 - ne pas raccourcir l'historique pour retrouver un meilleur chiffre :
   choisir la fenêtre qui flatte est exactement le biais que la barre
   déflatée existe pour empêcher ;
