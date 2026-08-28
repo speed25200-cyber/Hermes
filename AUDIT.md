@@ -1843,6 +1843,101 @@ deux heures — ce qui est leur rôle prévu : jouer à taille minimale une
 règle validée dont le frein a ramené la taille à zéro, pour qu'elle
 continue d'accumuler de la preuve.
 
+### Onzième lecture, 16h09 — l'hypothèse est confirmée, et la boucle est vicieuse
+
+Le compteur déployé à 15h02 a parlé au premier relevé :
+
+```
+jambes visees par la regle 79   ouvertes ou redimensionnees 23   deja tenues 0
+  refusees: plancher 50  arrondi 6  rejet 6
+  dont 50 jambes sous le plancher dordre : 484 USD de notionnel jamais ouvert
+```
+
+**Soixante-trois pour cent des vœux de la règle meurent sous le plancher
+d'ordre.** Vingt-neuf pour cent seulement deviennent un ordre.
+L'hypothèse écrite à 14h35 n'était pas seulement juste : elle était en
+dessous de la vérité.
+
+Et le même relevé porte la démonstration dans son propre tableau, au
+même instant, sur les six jambes proposées :
+
+| nom | USD joué | USD plein | plancher 18,52 |
+|---|---|---|---|
+| BTC | 50 | 508 | ouvre |
+| DOGE | 32 | 326 | ouvre |
+| SOL | 28 | 282 | ouvre |
+| ENA | **12** | 120 | **refusé** |
+| TRUMP | **11** | 109 | **refusé** |
+| PUMP | **10** | 100 | **refusé** |
+
+Trois sur six, sur cette ligne-là. Et la colonne « USD plein » multipliée
+par le rodage (0,10) redonne la colonne jouée **à l'unité près** :
+508 × 0,10 = 51, 120 × 0,10 = 12, 100 × 0,10 = 10. La chaîne est
+complète, sans trou.
+
+### La boucle, et c'est elle qui compte
+
+1. l'avantage seul justifie des jambes de **100 à 508 USD** ;
+2. le **rodage** les divise par dix → 10 à 51 USD ;
+3. le **plancher d'ordre**, à `max(10 USD ; 0,2 % des fonds propres)` =
+   18,52 USD, **supprime** toutes celles dont la taille pleine valait
+   moins de ~185 USD.
+
+Et le rodage attend **trente fermetures mesurées** pour se lever. Le
+plancher supprime 63 % des jambes qui les produiraient. **Le rodage
+rapetisse les jambes, le plancher efface les jambes rapetissées, et les
+jambes effacées sont exactement celles qui produiraient les mesures que
+le rodage attend.** Ce n'est pas une inefficacité : c'est un verrou qui
+se tient tout seul.
+
+**Le second effet est pire que le premier.** Le plancher ne coupe pas au
+hasard : il garde les jambes de plus fort poids. La porte valide un
+`panel[20]` — un portefeuille mis en commun, dont la variance suppose la
+diversification. Le moteur joue les **trois plus gros noms** de six
+proposés, sur vingt mis en commun. Ce n'est pas le portefeuille validé
+en plus petit : c'est un **autre** portefeuille, plus concentré, donc de
+variance plus élevée à avantage égal. Voilà, enfin mesuré, le « livre
+joué n'est pas le livre validé » qui traîne depuis le début.
+
+**Ce que je ne fais pas.** Je ne touche pas au plancher. C'est une
+première lecture, et la règle du paragraphe 10 vaut ici comme ailleurs.
+Le plancher existe pour une raison écrite dans le code — économiser les
+frais d'un ajustement qui ne vaut pas son aller-retour — et cette raison
+est bonne **pour un redimensionnement**. La question qui reste ouverte,
+et qu'il faudra instruire avec plus d'une lecture, est de savoir si elle
+vaut aussi pour une **ouverture**, où la bonne question n'est pas « cet
+ajustement paie-t-il son aller-retour » mais « cette jambe paie-t-elle
+le sien ». Une jambe de 11 USD à +12,7 bps rapporte 0,014 USD brut
+contre 0,008 de frais : positive, mais d'une marge dérisoire. Ce n'est
+pas le gain de la jambe qui est en jeu, c'est la diversification qu'elle
+apporte au portefeuille que la porte a validé.
+
+**Une honnêteté sur les compteurs eux-mêmes** : `deja tenues 0`. La
+branche que la contre-épreuve B protège ne se déclenche jamais en
+production — chaque tour reconstruit un vœu neuf. La distinction reste
+juste, mais elle n'a rien porté ici, et je préfère l'écrire que laisser
+croire qu'elle a servi.
+
+### Les deux questions secondaires
+
+**Pas de troisième sortie au suiveur.** Toujours exactement deux sur
+vingt-quatre heures, les mêmes.
+
+**La cellule 1H à `ic=0,471` a disparu.** Les trois verdicts 1H de 15h07,
+15h26 et 15h57 portent tous `[ridge/h3/neu]` à `ic=0,014` et
+`+9,09 bps/trade`. Elle n'a pas tenu — exactement comme la cellule à
+h=1 aperçue à 09h39. Deux fois maintenant qu'une cellule spectaculaire
+s'évapore au verdict suivant : la barre déflatée fait son travail, et
+c'est une raison de plus de ne jamais commenter un verdict isolé.
+
+**Le cumulé** : `live_rule` **n=259 à −13,6 bps**, `en risque` n=191 à
+−17,7, équité **9 260,91** en 612 remplissages, `halted_today` faux,
+`killed` faux. Brut réalisé −26,83, frais −51,15. Retard 38 s sur 2 007
+décisions. Reprises 95/198. Glissement : moyenne +0,65, **médiane
+−0,69** — les deux ont divergé depuis 14h35 (+0,24 / +0,16), ce qui
+désigne une poignée de remplissages très défavorables plutôt qu'une
+dégradation d'ensemble. À suivre, pas à conclure.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -1876,8 +1971,14 @@ continue d'accumuler de la preuve.
    la porte. Les refus d'`execute_pending` étaient des `continue`
    muets ; ils sont désormais comptés par motif — plancher d'ordre,
    lot minimal, prix, rejet — et « déjà tenue » est distingué d'un
-   refus. Le relevé laisse deviner le plancher (une jambe BCH à
-   −17 USD contre un plancher de 18,53) ; le compteur tranchera.
+   refus. **Le compteur a tranché : 50 vœux sur 79 meurent sous le
+   plancher d'ordre**, 484 USD de notionnel jamais ouvert, et le
+   moteur garde les trois plus gros noms de six proposés sur vingt
+   mis en commun. Le rodage divise les jambes par dix, le plancher
+   efface celles qui tombent en dessous, et ce sont exactement celles
+   qui produiraient les trente mesures que le rodage attend. Ce qui
+   reste ouvert : le plancher a une bonne raison d'exister pour un
+   **redimensionnement** — l'a-t-il pour une **ouverture** ?
 8. **Le suiveur : répondu, et les deux branches sont vraies.** SOL a
    dépassé sa largeur de 2,6 bps (le stop a tenu), TRUMP de 61,5 bps,
    soit 27 % au-delà (le prix est passé au travers). Deux
