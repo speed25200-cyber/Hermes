@@ -123,9 +123,12 @@ jobs:
             # ouvertures qui precedent, pour avoir le prix dentree en
             # face du prix de sortie. La ligne porte la largeur armee.
             echo "===== sorties au suiveur, avec la largeur armee (24 h) ====="
+            # Lappariement se fait par le NOM de linstrument lu au motif,
+            # jamais par la position du champ : cest la lecon du 26 aout.
             journalctl -u hermes --since "-24 hours" --no-pager 2>/dev/null \
               | grep -E "ouverture |scalp TRAIL" \
-              | grep -B 2 -E "scalp TRAIL" | tail -20 \
+              | awk "{ if (match(\$0, /[A-Z0-9]+-USDT-SWAP/)) { k=substr(\$0, RSTART, RLENGTH); if (\$0 ~ / ouverture /) e[k]=\$0; else if (\$0 ~ / scalp TRAIL /) { if (k in e) print e[k]; print \$0; print \"--\" } } }" \
+              | tail -30 \
               || echo "aucune sortie au suiveur en vingt-quatre heures"
             echo
             echo "===== éclaireurs et sorties (2 h) ====="
