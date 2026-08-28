@@ -1672,6 +1672,81 @@ stable autour de 36 %, la lecture de 09h39 est confirmée. Reprises 78/160
 535 s. Mémoire 3 380 Mo, plate. La cellule à h=1 aperçue à 09h39 n'est
 plus dans les verdicts : elle n'a pas tenu.
 
+### Neuvième lecture, 13h33 — le suiveur répond, et les deux branches sont vraies
+
+La question posée à 12h17 était binaire : la largeur armée tient-elle,
+ou le prix passe-t-il au travers ? Il a fallu élargir la fenêtre pour le
+savoir — le relevé de 13h25 ne montrait **aucune** ligne `TRAIL`, non
+pas parce que le grep la ratait encore, mais parce que la fenêtre des
+sorties couvre **deux heures** et que la fermeture était plus vieille
+que cela. La preuve était dans le même relevé : la table d'attribution
+portait toujours `TRAIL n=1 −295,5 bps`. L'événement était là, hors de
+la fenêtre censée le montrer.
+
+Deux corrections de portée, workflow seul, sans déploiement : une
+fenêtre dédiée sur **vingt-quatre heures**, puis un `awk` qui apparie
+chaque sortie avec **l'ouverture du même titre** — le contexte de deux
+lignes remontait les deux ouvertures qui précèdent, donc ENA et LTC pour
+un `TRAIL` de TRUMP. L'instrument est lu **au motif**
+`[A-Z0-9]+-USDT-SWAP`, jamais par la position du champ : c'est la leçon
+du 26 août, appliquée.
+
+Les deux occurrences de la campagne, entrée et sortie en face :
+
+| jambe | entrée | sortie | perte brute | largeur armée | dépassement |
+|---|---|---|---|---|---|
+| SOL court, 27/08 22h02 | 108,6375 | 109,4800 | **77,6 bps** | **75** | **+2,6 bps (+3,4 %)** |
+| TRUMP long, 28/08 10h04 | 2,712250 | 2,634000 | **288,5 bps** | **227** | **+61,5 bps (+27,1 %)** |
+
+**Les deux branches sont vraies, une chacune.** Sur SOL le suiveur a
+tenu : 2,6 points de base de dépassement, l'ordre de grandeur d'un tour
+d'horloge, rien à corriger. Sur TRUMP **le prix est passé au travers**,
+de 61,5 bps, soit **27 % au-delà de la largeur armée**. Le mécanisme
+n'est plus une hypothèse : il est mesuré. Le sommet ne se met à jour
+qu'aux fermetures du moteur, et TRUMP a perdu 288 bps en six minutes ;
+entre deux tours, le suiveur ne protège pas ce qu'il annonce.
+
+**Et le recoupement tombe à la décimale.** 288,5 bps de brut calculés
+depuis les deux prix **remplis**, plus 7,0 bps de frais aller-retour
+(3,5 × 2), font **295,5** — exactement ce qu'annonce la table
+d'attribution. La chaîne de mesure est vérifiée de bout en bout : les
+bps de la table sont nets de frais et partent bien des prix remplis.
+C'était le premier recoupement indépendant de cette table.
+
+**Ce que pèsent ces deux fermetures, en cumulé et non en fenêtre
+glissante.** SOL portait 1 303,65 USD de notionnel, TRUMP 212,37 :
+
+```
+SOL    -10,11 USD de brut
+TRUMP   -6,13 USD de brut
+somme  -16,24 USD  sur un brut realise de -26,17 USD sur la vie du compte
+```
+
+**Deux remplissages sur 541, soit 0,37 %, portent 62 % de toute la
+perte brute réalisée du compte.** Cet énoncé-là est cumulé, il ne
+dépend d'aucune fenêtre, et il survivra au prochain relevé.
+
+**Ce que je ne fais pas, et pourquoi.** La largeur de 227 bps sur un
+signal dont l'avantage attendu vaut 8,5 bps n'est pas une bévue : le
+stop est à `4σ` par construction, et sur TRUMP à six barres 4σ vaut bien
+227 bps. Un stop à 4σ n'est touché que par un mouvement à 4σ, donc
+rarement et cher. **Je ne touche à aucune largeur : j'ai deux
+occurrences.** Poser un seuil sur deux lectures est exactement l'erreur
+que le paragraphe 10 interdit. La mesure est faite, elle est écrite,
+elle attend la troisième.
+
+**Et il faut le dire dans l'autre sens aussi** : avec 49,46 USD de frais
+contre 26,17 de brut, le suiveur n'est pas *la* cause de la
+non-rentabilité — le moulin l'est. Il est la plus grosse concentration
+de perte brute identifiée à ce jour, ce qui n'est pas la même chose.
+
+**Le cumulé au moment du relevé** : `live_rule` **n=241 à −12,62 bps**,
+`en risque` n=173 à −17,1, équité **9 263,75**, 541 remplissages,
+`halted_today` faux, `killed` faux, frein 0,99, confiance 0,10. Retard
+37 s sur 1 790 décisions. Reprises 79/165. Glissement +0,22 bps sur 270
+ouvertures, médiane +0,16. Le livre tient deux jambes, BCH court et SOL
+long, pour 0,019 % du plafond.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -1704,11 +1779,12 @@ plus dans les verdicts : elle n'a pas tenu.
    zéro à deux jambes **simultanées** contre vingt mises en commun par
    la porte. Compter les jambes proposées contre les jambes ouvertes,
    et la raison des refus, reste à faire.
-8. **Le suiveur : deux fermetures, −84,6 puis −295,5 bps**, la seconde
-   faisant la moitié de la perte de sa fenêtre. Le motif était absent
-   du relevé ; il y est maintenant, avec sa largeur armée. La question
-   se tranche à la prochaine occurrence : largeur tenue, ou prix qui
-   saute par-dessus le suiveur ?
+8. **Le suiveur : répondu, et les deux branches sont vraies.** SOL a
+   dépassé sa largeur de 2,6 bps (le stop a tenu), TRUMP de 61,5 bps,
+   soit 27 % au-delà (le prix est passé au travers). Deux
+   remplissages sur 541 portent **62 % de la perte brute du compte**.
+   Ce qui reste ouvert est la **fréquence** : deux occurrences ne
+   permettent de toucher à aucune largeur, et je n'y touche pas.
 9. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
    et le bandeau d'anomalies dit déjà que les frais dominent le
    brut. Le holdout annonce +4,6 bps par trade après coûts, le
