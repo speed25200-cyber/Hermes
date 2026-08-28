@@ -1211,6 +1211,7 @@ crypto :
 | **22h12** | **+0,72** | **103** | **−0,52** |
 | **00h40** | **+0,36** | **123** | **−0,52** |
 | **03h42** | **+0,28** | **200** | **−0,58** |
+| **07h22** | **+0,20** | **229** | **−0,52** |
 
 La médiane est **négative** : l'ouverture typique se remplit *mieux* que
 le prix du signal, et la moyenne était portée par une poignée de jambes —
@@ -1445,6 +1446,78 @@ tendance de deux points était la bonne décision.
 16 s, 3m 45 s, 5m 62 s, 15m 144 s, 1H 737 s. Le glissement facturé vaut
 +0,28 bps sur 200 ouvertures, médiane −0,58.
 
+### Septième lecture, 07h22 — la conclusion est établie
+
+`live_rule` **n=203, −11,7 bps**, erreur type 3,51 : **3,3 σ sous zéro**,
+sur plus de deux cents instants. La condition que je m'étais fixée — plus
+de 3 σ sur n > 200 — est remplie. **La règle jouée perd de l'argent, et
+ce n'est plus une question de bruit.** `en risque` : n=135 à −17,1.
+
+Le livre sur la fenêtre 03h42 → 07h22 (3 h 40) :
+
+| | |
+|---|---|
+| équité | 9 279,69 → **9 273,94** (−5,75, soit −1,57 USD/h) |
+| brut réalisé | −20,35 → −19,66 — **+0,69, positif sur la fenêtre** |
+| frais | −38,59 → **−45,03** (−6,44) |
+| remplissages | 401 → 459 (+58, contre +158 sur la fenêtre précédente) |
+
+**Toute la perte de la fenêtre vient des frais.** Le brut est positif ;
+c'est littéralement ce que le bandeau répète depuis six heures.
+
+Gardes-fous intacts : `halted_today` faux, `killed` faux, recul depuis le
+pic de 10 308,48 = **10,04 %** ; le coupe-circuit agit à 25 %, soit
+7 731,36 — **1 543 USD de marge**.
+
+### Le compteur de reprises : troisième lecture, et le coût explose
+
+| | 00h40 | 03h42 | **07h22** |
+|---|---|---|---|
+| part des ouvertures | 39 % (7/18) | 54 % (51/95) | **51 % (63/124)** |
+| notionnel repris | 2 959 USD | 8 873 | **12 231** |
+| coût à 3,50 bps | 1,03 USD | 3,11 | **4,28** |
+| part des frais de la fenêtre | 21 % | 44 % | **66 %** |
+| part de la perte de la fenêtre | — | 13 % | **74 %** |
+
+Trois lectures, une part stable autour de la moitié. Sur la dernière
+fenêtre, **les allers-retours de reprise coûtent 4,28 USD sur une perte
+de 5,75** — les trois quarts. Sans eux, la perte serait de 1,47.
+
+### La sonde : la porte voit-elle la même chose ?
+
+C'est la question qui décide si c'est un **défaut** ou une **règle qui
+fait ce qu'on a validé**, et elle est enfin posable.
+
+Le holdout est aminci à `(ts // pas) % h == 0` : deux instants de test
+consécutifs d'un même nom sont donc **exactement h barres l'un de
+l'autre** — précisément le motif « solder au temps puis rouvrir ». La
+comparaison est donc licite, et elle ne coûte rien.
+
+Le verdict d'horloge porte désormais `suite=NN%`, la part des
+déclenchements qui prolongent le précédent : même nom, exactement h
+barres plus tard, même sens. Calculée **pour la seule cellule retenue** —
+la porter sur les 4 860 coûterait le balayage. Elle exige une étiquette
+d'instrument sur chaque instant du holdout, qui n'existait pas : sans
+elle, deux noms différents qui se suivent dans le temps passeraient pour
+une reprise.
+
+- Si `suite` vaut aussi la moitié, la porte facture déjà ces
+  allers-retours et le direct ne fait que ce qu'elle a mesuré. La cause
+  de la perte est ailleurs.
+- Si `suite` est nettement plus basse, le moteur rouvre bien plus souvent
+  que la règle validée, et l'écart est un vrai défaut.
+
+**MESURÉE, BRANCHÉE À RIEN.** On la journalise ; on ne décide rien avec
+avant de l'avoir lue.
+
+**Le retard continue de descendre** : cumul 39 s sur 1 226 décisions ; 1m
+16 s, 3m 45 s, 5m 57 s, 15m 123 s, 1H 562 s. Glissement +0,20 bps sur 229
+ouvertures, médiane −0,52.
+
+**La mémoire remonte** : 4 357 Mo contre 4 001, soit +97 Mo/h après trois
+heures de plateau. Toujours sous les 5 Go, et toujours dans la plage
+historique du moteur — mais la question se rouvre.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -1468,11 +1541,12 @@ tendance de deux points était la bonne décision.
    c'est le résultat lui-même. Le rodage tient la taille au dixième,
    la perte est lente et bornée, mais elle est réelle.
 6. **Une sortie conditionnée au signal n'existe pas dans la grille.**
-   54 % des ouvertures reprennent une jambe soldée au temps, pour
-   3,11 USD d'aller-retours sur 7,02 de frais. La supprimer exigerait
-   de tenir au-delà de l'horizon validé — donc de jouer une règle que
-   la porte n'a pas mesurée. C'est une famille à **chercher**, pas un
-   correctif à appliquer.
+   Environ la moitié des ouvertures reprennent une jambe soldée au
+   temps — **4,28 USD d'allers-retours sur 5,75 de perte** à 07h22.
+   La supprimer exigerait de tenir au-delà de l'horizon validé, donc de
+   jouer une règle que la porte n'a pas mesurée. La sonde `suite=NN%`
+   dit maintenant si la porte facture déjà ce motif ; **il faut la lire
+   avant de décider quoi que ce soit.**
 7. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
    et le bandeau d'anomalies dit déjà que les frais dominent le
    brut. Le holdout annonce +4,6 bps par trade après coûts, le

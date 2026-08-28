@@ -1128,3 +1128,76 @@ def test_the_duration_of_a_bar_has_one_single_source():
     # laisserait croire quune echelle est cherchee alors quelle ne lest
     # pas.
     assert set(BAR_MS) == set(BARS)
+
+
+def test_a_trigger_that_extends_the_previous_one_is_counted():
+    """Le moteur solde au temps a h barres puis rouvre si le signal tient.
+    Mesure EN DIRECT, trois lectures du 27-28 aout : 39 % des ouvertures
+    (7/18), puis 54 % (51/95), puis 51 % (63/124) reprennent une jambe que
+    le time-stop vient de solder, du meme sens, dans la barre. A 07h22 cela
+    faisait 4,28 USD dallers-retours sur 6,44 de frais.
+
+    La question est de savoir si la PORTE voit la meme chose. Le holdout
+    est aminci a `(ts // pas) % h == 0`, donc deux instants de test
+    consecutifs dun meme nom sont exactement h barres lun de lautre —
+    EXACTEMENT le motif « solder puis rouvrir ». La comparaison est licite.
+    """
+    import numpy as np
+
+    from hermes.scalp.clock import _part_prolongee
+
+    pas, h = 60_000.0, 6
+    pas_h = pas * h
+    # Trois declenchements du meme nom, espaces de h barres, meme sens :
+    # deux prolongent le precedent.
+    ts = np.array([0.0, pas_h, 2 * pas_h])
+    ins = np.array([0, 0, 0])
+    sg = np.array([1.0, 1.0, 1.0])
+    assert abs(_part_prolongee(ts, ins, sg, pas, h) - 2.0 / 3.0) < 1e-9
+
+    # CONTRE-EPREUVE 1 : le sens OPPOSE nest pas une reprise, cest un
+    # retournement — une decision neuve, qui a le droit de couter.
+    assert _part_prolongee(ts, ins, np.array([1.0, -1.0, 1.0]), pas, h) == 0.0
+
+    # CONTRE-EPREUVE 2 : deux NOMS differents qui se suivent dans le temps
+    # ne sont pas une reprise. Sans letiquette dinstrument, ils passeraient
+    # pour telle — cest la raison detre de `insto`.
+    assert _part_prolongee(ts, np.array([0, 1, 2]), sg, pas, h) == 0.0
+
+    # CONTRE-EPREUVE 3 : un ecart qui nest PAS exactement h barres nest
+    # pas le motif « solder au temps puis rouvrir ».
+    assert _part_prolongee(np.array([0.0, pas_h + pas, 2 * pas_h]),
+                           ins, sg, pas, h) == 0.0
+
+    # Un seul declenchement ne prolonge rien.
+    assert _part_prolongee(np.array([0.0]), np.array([0]),
+                           np.array([1.0]), pas, h) == 0.0
+
+    # Et une cellule construite sans ces series — un test en fabrique une a
+    # la main — doit rendre zero, PAS lever : une sonde ne peut jamais
+    # avoir le pouvoir darreter la porte.
+    assert _part_prolongee(None, None, None, pas, h) == 0.0
+
+
+def test_the_verdict_says_how_often_a_trigger_extends_the_previous():
+    """Sans ce chiffre au journal, « le moteur rouvre tout le temps » et
+    « la porte a mesure cela » se ressemblent exactement — et cest la
+    difference entre un defaut et une regle qui fait ce quon a valide.
+    """
+    import inspect
+
+    from hermes.scalp import clock as C
+
+    src = inspect.getsource(C)
+    assert "suite=" in src, "le verdict ne publie pas la part prolongee"
+    assert "part_suite" in src
+    # Et elle est calculee POUR LA SEULE CELLULE RETENUE : la porter sur
+    # les 4 860 cellules couterait le balayage. Un seul appel dans tout le
+    # module, hors la definition elle-meme.
+    assert src.count("_part_prolongee(") == 2, \
+        "la sonde est appelee ailleurs que sur la cellule retenue"
+    # Le modele qui la calcule doit avoir recu les trois series : sans
+    # letiquette dinstrument, deux noms qui se suivent passeraient pour
+    # une reprise.
+    for champ in ('"ts_tr"', '"inst_tr"', '"sens_tr"'):
+        assert champ in src, f"{champ} nest pas porte jusqua la cellule"

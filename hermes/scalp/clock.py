@@ -750,6 +750,50 @@ def _en_risque(net: np.ndarray, ts: np.ndarray,
     return np.bincount(inv, weights=u) / np.bincount(inv)
 
 
+def _part_prolongee(ts_tr, inst_tr, sens_tr, pas_ms: float, h: int) -> float:
+    """La part des declenchements qui PROLONGENT le precedent.
+
+    Le moteur solde au temps a h barres, puis rouvre si le signal tient
+    encore. Mesure en direct du 27-28 aout, trois lectures : 39 % des
+    ouvertures (7/18), puis 54 % (51/95), puis 51 % (63/124) reprennent
+    une jambe que le time-stop vient de solder, du meme sens, dans la
+    barre. A 07h22 cela representait 4,28 USD dallers-retours sur 6,44 de
+    frais — 74 % de la perte de la fenetre.
+
+    La question est de savoir si la PORTE voit la meme chose. Le holdout
+    est aminci a `(ts // pas) % h == 0` : deux instants de test consecutifs
+    dun meme nom sont donc exactement h barres lun de lautre, ce qui est
+    EXACTEMENT le motif « solder au temps puis rouvrir ». La comparaison
+    est donc licite, et bon marche.
+
+    Si la part mesuree ici vaut aussi la moitie, alors la porte facture
+    deja ces allers-retours et le direct ne fait que ce quelle a mesure.
+    Si elle est nettement plus basse, le moteur rouvre bien plus souvent
+    que la regle validee, et lecart est un vrai defaut.
+
+    MESUREE, BRANCHEE A RIEN. On la journalise ; on ne decide rien avec.
+    """
+    # Une cellule peut etre construite sans ces series — un test en
+    # fabrique une a la main, et `_retenir` doit rester appelable sur
+    # un dict minimal. Sans mesure, la reponse est zero, pas une
+    # exception : une sonde ne doit jamais pouvoir arreter la porte.
+    if ts_tr is None or inst_tr is None or sens_tr is None:
+        return 0.0
+    n = len(ts_tr)
+    if n < 2:
+        return 0.0
+    ts_tr = np.asarray(ts_tr, dtype=np.float64)
+    inst_tr = np.asarray(inst_tr)
+    sens_tr = np.asarray(sens_tr, dtype=np.float64)
+    o = np.lexsort((ts_tr, inst_tr))
+    t, i, sg = ts_tr[o], inst_tr[o], sens_tr[o]
+    pas_h = float(pas_ms) * max(int(h), 1)
+    suite = ((i[1:] == i[:-1])
+             & (np.abs((t[1:] - t[:-1]) - pas_h) < 1.0)
+             & (sg[1:] * sg[:-1] > 0.0))
+    return float(suite.sum()) / float(n)
+
+
 def _pente_et_erreur(x: np.ndarray, y: np.ndarray) -> tuple:
     """La pente de la realite sur l annonce, ET son erreur type.
 
@@ -917,6 +961,7 @@ class CandleModel:
         self.ecart_sortant = float("nan")  # marge gagnante - sortante
         self.pente_brut = 0.0  # la meme, sur un rendement non stoppe
         self.part_courte = 0.0  # part de trades COURTS du holdout
+        self.part_suite = 0.0  # part de declenchements qui PROLONGENT
         self.stop_sig = 3.0    # stop retenu, en sigmas de l'horizon tenu
         self.stop_mode = "fixe"  # "fixe" ou "suiv" (suiveur)
         self._sig_ref = 1e-3   # sigma de repli si l'appelant n'en donne pas
@@ -963,6 +1008,7 @@ class CandleModel:
             "ecart_sortant": self.ecart_sortant,
             "pente_brut": self.pente_brut,
             "part_courte": self.part_courte,
+            "part_suite": self.part_suite,
             "stop_sig": self.stop_sig, "stop_mode": self.stop_mode,
             "garde": bool(self.ident is not None
                           and self.ident == self._precedent),
@@ -1149,12 +1195,20 @@ class CandleModel:
         hors = {f: [] for f in FAMILIES}
         yho, sgo, tso, upo, dno = [], [], [], [], []
         sto, sgo2 = [], []
+        # Quel INSTRUMENT porte chaque instant du holdout. Les
+        # series sont empilees par nom puis par pli, et rien ne
+        # disait de qui venait quelle ligne — or « ce declenchement
+        # prolonge-t-il le precedent » n a de sens que POUR UN MEME
+        # NOM. Sans cette etiquette, deux noms differents se
+        # suivraient dans le temps et passeraient pour une reprise.
+        insto: list = []
         for k in range(FOLDS):
             t0, t1 = bornes[k], bornes[k + 1]
             if t1 <= t0:
                 continue
             Xtr, ytr, Xte, yte, sgte, tste = [], [], [], [], [], []
             upte, dnte, stte, sgte2 = [], [], [], []
+            inste: list = []
             # Le pas d echantillonnage se calcule sur le pli entier, pour
             # que chaque actif soit reduit dans la MEME proportion : un pas
             # par actif donnerait plus de poids aux historiques courts.
@@ -1176,7 +1230,7 @@ class CandleModel:
             brut = sum(int((p["ts"][p["idx"]] < t0 - h * pas).sum())
                        for p in parts)
             saut = max(1, -(-brut // BUDGET_TRAIN))
-            for p in parts:
+            for i_part, p in enumerate(parts):
                 ts, idx, sg = p["ts"], p["idx"], p["sg"]
                 # embargo : une étiquette d'entraînement dont la fenêtre de
                 # h barres traverse la frontière a vu le pli de test.
@@ -1199,6 +1253,7 @@ class CandleModel:
                 yte.append(p["y"][te] * 1e4)
                 sgte.append(sg[te])
                 tste.append(ts[te])
+                inste.append(np.full(len(te), i_part, dtype=np.int32))
                 upte.append(p["up"][te] * 1e4)
                 dnte.append(p["dn"][te] * 1e4)
                 stte.append(p["st"][te])
@@ -1219,6 +1274,7 @@ class CandleModel:
             yho.append(np.concatenate(yte))
             sgo.append(np.concatenate(sgte))
             tso.append(np.concatenate(tste))
+            insto.append(np.concatenate(inste))
             upo.append(np.concatenate(upte))
             dno.append(np.concatenate(dnte))
             sto.append(np.concatenate(stte))
@@ -1230,6 +1286,7 @@ class CandleModel:
         sgo, tso = np.concatenate(sgo), np.concatenate(tso)
         upo, dno = np.concatenate(upo), np.concatenate(dno)
         sto, sgo2 = np.concatenate(sto), np.concatenate(sgo2)
+        insto = np.concatenate(insto)
         if len(yho) < 200:
             return None
         # Les modèles qui iront en direct sont le pli suivant de la même
@@ -1366,6 +1423,8 @@ class CandleModel:
                             cellule = {
                                 "fam": fam, "rr": rr, "nn": nn, "up": up,
                                 "dn": dn, "h": h, "pred": pv[m], "y": yho[m],
+                                "ts_tr": tso[m], "inst_tr": insto[m],
+                                "sens_tr": sens,
                                 "ic": ic, "thr": thr, "n_tr": n_tr,
                                 "n_per": n_per, "var": var, "ident": ident, "k": float(k),
                                 "stop": float(ks), "mode": mode,
@@ -1449,6 +1508,8 @@ class CandleModel:
                         cellule = {
                             "fam": fam, "rr": rr, "nn": nn, "up": up, "dn": dn,
                             "h": h, "pred": pv[m], "y": yho[m], "ic": ic,
+                            "ts_tr": tso[m], "inst_tr": insto[m],
+                            "sens_tr": sens,
                             "thr": thr, "n_tr": n_tr, "n_per": n_per,
                             "var": var, "ident": ident, "stop": float(ks), "k": float(k),
                             "mode": mode,
@@ -1497,6 +1558,13 @@ class CandleModel:
         self.se_pente = float(b.get("se_pente") or float("inf"))
         self.pente_brut = float(b.get("pente_brut") or 0.0)
         self.part_courte = float(b.get("part_courte") or 0.0)
+        # La part des declenchements qui prolongent le precedent, calculee
+        # POUR LA SEULE CELLULE RETENUE : la porter sur les 4 860 cellules
+        # couterait le balayage, et la question ne se pose que pour celle
+        # qui va trader.
+        self.part_suite = _part_prolongee(
+            b.get("ts_tr"), b.get("inst_tr"), b.get("sens_tr"),
+            float(BAR_MS.get(self.bar, 60_000)), int(b.get("h") or 1))
         self.stop_sig = float(b.get("stop") or 3.0)
         # Le MODE du stop fait partie de la regle validee au meme titre que
         # sa largeur. Le laisser derriere ferait jouer un stop fixe la ou la
@@ -1898,6 +1966,14 @@ class ScaleDesk:
                         if d.get("ecart_sortant") == d.get("ecart_sortant")
                         else "")
                      + f"court={100.0 * d.get('part_courte', 0.0):.0f}% "
+                     # La part des declenchements qui PROLONGENT le
+                     # precedent, a comparer aux 39-54 % mesures EN DIRECT
+                     # sur les reprises de jambe. Si les deux se
+                     # ressemblent, la porte facture deja ces
+                     # allers-retours ; sinon le moteur rouvre plus
+                     # souvent que la regle validee.
+                     + (f"suite={100.0 * d['part_suite']:.0f}% "
+                        if d.get("part_suite") is not None else "")
                      + f"trades={d['n_trades']}/{d['n_holdout']} "
                      f"instants={d['n_periods']} n={d['n_train']} "
                      f"parjour={d.get('par_jour', 0.0):.1f} "
