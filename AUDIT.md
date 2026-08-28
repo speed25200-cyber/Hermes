@@ -2402,6 +2402,77 @@ qui n'est pas la même chose que d'être arrêtée parce que la règle gagne.
 
 **Pas de quatrième sortie au suiveur** : toujours exactement trois.
 
+### Dix-septième lecture, 22h44 — trois faits, dont un qui me contredit
+
+**La bascule vers le stop fixe tient : treize verdicts sur treize.**
+De 20h47 à 22h37, sans une seule exception, `stop=4sig/fixe`. Ce
+n'était donc pas l'effet d'une heure : le durcissement a durablement
+retiré au suiveur la préférence que la sous-facturation lui donnait.
+
+**Une horloge est redevenue validée, et elle est meilleure que celles
+qu'elle remplace.** À 22h19, la 1m repasse `live` :
+
+```
+clock 1m panel[20] live [mlp/h6/abs] ic=0.088 net=+4.83bps/trade
+  sr=+0.114 seuil=7.8bps/2.5sig stop=4sig/fixe pente=0.82+-0.09
+  profil=+0.12/+0.12/+0.10 gardee parjour=47.1
+```
+
+Le `profil` — le Sharpe par tiers chronologique du holdout — vaut
+**+0,12 / +0,12 / +0,10**. Plat et positif sur les trois tiers. C'est
+exactement la question que le paragraphe 8 posait depuis le début sur
+la non-stationnarité, et cette cellule-ci y répond bien. La pente
+0,82 ± 0,09 est la plus proche de l'unité de toute la campagne.
+
+**Mais le carnet reste vide, et pas pour la raison que je croyais.**
+`live=0/20`, aucune position, l'équité figée à **9 255,81 depuis
+20h15** — trois heures sans un seul remplissage. Or `jambes visées`
+reste bloqué à **182**, exactement comme à 21h43 : **la règle n'a pas
+proposé une seule jambe**. Ce n'est donc pas le plancher d'ordre qui
+refuse, c'est le seuil qui n'est pas franchi. Deux causes très
+différentes d'un même carnet vide, et je serais passé à côté sans le
+compteur.
+
+### Ce qui me contredit : le coût de calcul
+
+Hier soir j'ai écrit que `_cout_sortie` avait fait passer le `calcul`
+du desk 1m de ~6,9 s à 10,3-10,8 s, et que c'était « une dépense que
+j'ai créée ». **La mesure suivante l'infirme : le calcul est
+redescendu à 7,5-7,8 s.**
+
+Le pic de 10,5 s était un **transitoire de redémarrage** — modèles à
+réajuster, caches froids — et non le coût de mon changement. Le coût
+durable est de l'ordre de **+0,8 s**, pas +3,5 : je l'ai surestimé
+d'un facteur quatre et j'ai attribué à mon code ce qui appartenait au
+redéploiement. La leçon est la même que pour les fenêtres glissantes,
+sous un autre déguisement : **une mesure prise juste après un
+redémarrage ne mesure pas le régime, elle mesure le redémarrage.**
+
+### Ce qui n'est PAS une confirmation
+
+La part gagnante affiche encore `6/41 = 15 %`. **Ce n'est pas une
+deuxième lecture.** Le bloc d'attribution est identique au caractère
+près — mêmes 42 fermetures, mêmes −41,9 bps, mêmes −7,86 USD — parce
+qu'aucune fermeture nouvelle n'a eu lieu. Relire deux fois le même
+échantillon ne le confirme pas. C'est le piège de la fenêtre glissante
+sous une forme que je n'avais pas prévue : non plus une fenêtre qui
+bouge trop vite, mais une fenêtre **qui ne bouge pas du tout** et
+qu'on prendrait pour une répétition. Le compteur de 15 % attend
+toujours sa première confirmation.
+
+**Le suiveur** : toujours exactement trois occurrences dans la
+campagne, mais **deux seulement dans la fenêtre de vingt-quatre
+heures** — celle de SOL du 27 à 22h02 vient d'en sortir par l'âge.
+Rien n'a disparu, c'est la fenêtre qui a glissé, et il faut le dire
+ainsi pour ne pas relire un vieillissement comme un événement.
+
+**Le cumulé, strictement inchangé** : `live_rule` n=283 à −15,1 bps,
+**−5,06 σ** ; `en risque` n=215 à −19,3 ; équité 9 255,81 en 667
+remplissages ; `halted_today` faux, `killed` faux. La dégradation est
+arrêtée **parce qu'il ne se passe rien**, ce qui n'est pas la même
+chose qu'arrêtée parce que la règle gagne — et la formule vaut d'être
+répétée telle quelle tant que le livre est vide.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -2528,6 +2599,14 @@ Elles ne se négocient pas, et elles ont toutes été écrites après avoir
 - un plan que je me suis écrit à moi-même une heure plus tôt n'est pas
   un ordre : quand la mesure nouvelle le contredit, c'est le plan qui
   cède, et il faut écrire pourquoi ;
+- une mesure prise juste apres un redemarrage ne mesure pas le regime,
+  elle mesure le redemarrage : le `calcul` du desk affichait 10,5 s a
+  chaud et 7,7 s une heure plus tard, et j'avais impute l'ecart a mon
+  propre code ;
+- relire deux fois le meme echantillon ne le confirme pas : quand la
+  fenetre d'attribution est identique au caractere pres, c'est qu'il
+  ne s'est rien ferme, et le compteur attend toujours sa premiere
+  confirmation ;
 - ne pas raccourcir l'historique pour retrouver un meilleur chiffre :
   choisir la fenêtre qui flatte est exactement le biais que la barre
   déflatée existe pour empêcher ;
