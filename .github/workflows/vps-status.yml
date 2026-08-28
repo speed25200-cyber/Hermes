@@ -117,6 +117,17 @@ jobs:
               | grep -E "ouverture |fermeture " | tail -20 \
               || echo "aucune position sur règle validée"
             echo
+            # Le suiveur ne se declenche que deux fois par campagne : une
+            # fenetre de deux heures ne le montre jamais. Celle-ci le
+            # cherche sur vingt-quatre heures et remonte les deux
+            # ouvertures qui precedent, pour avoir le prix dentree en
+            # face du prix de sortie. La ligne porte la largeur armee.
+            echo "===== sorties au suiveur, avec la largeur armee (24 h) ====="
+            journalctl -u hermes --since "-24 hours" --no-pager 2>/dev/null \
+              | grep -E "ouverture |scalp TRAIL" \
+              | grep -B 2 -E "scalp TRAIL" | tail -20 \
+              || echo "aucune sortie au suiveur en vingt-quatre heures"
+            echo
             echo "===== éclaireurs et sorties (2 h) ====="
             journalctl -u hermes --since "-2 hours" --no-pager 2>/dev/null \
               | grep -E "TP .*maker|scalp SL|scalp TRAIL|scalp time-stop|explore |orpheline" \
