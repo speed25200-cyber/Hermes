@@ -2049,6 +2049,91 @@ Glissement : moyenne +0,54 contre médiane −0,70 sur 315 ouvertures
 désignent toujours une poignée de remplissages très défavorables, pas
 une dégradation d'ensemble. Rien à conclure.
 
+### Treizième lecture, 18h14 — je n'implémente pas, et ce n'est pas la mesure qui a échoué
+
+J'avais écrit à 17h11 que la troisième lecture concordante autoriserait
+à coder la correction du plancher. Elle concorde. **Je ne code pas.**
+Deux raisons, et la seconde annule la première.
+
+**Un : la troisième tranche ne pèse rien.** L'heure a été calme — neuf
+vœux seulement contre quatre-vingt-cinq à la tranche précédente :
+
+| | vœux | ouverts | plancher | notionnel |
+|---|---|---|---|---|
+| cumul 16h09 | 79 | 29,1 % | **63,3 %** | 484 USD |
+| cumul 17h11 | 164 | 21,3 % | **74,4 %** | 978 USD |
+| cumul 18h14 | 173 | 23,7 % | **72,3 %** | 996 USD |
+| tranche 16h→17h | 85 | 14,1 % | 84,7 % | 494 USD |
+| **tranche 17h→18h** | **9** | 66,7 % | 33,3 % | 18 USD |
+
+Le cumulé est stable à 72-74 %, rien ne contredit la mesure. Mais la
+tranche neuve vaut **neuf** observations : elle ne constitue pas une
+troisième confirmation indépendante, elle relit surtout le même
+échantillon. Si j'avais lu « 33 % au plancher » comme un démenti,
+j'aurais commis pour la quatrième fois l'erreur de la fenêtre trop
+courte — dans l'autre sens. Le mesure tient donc sur **deux**
+échantillons indépendants (79 vœux à 63 %, 85 vœux à 85 %) plus la
+démonstration arithmétique de la chaîne. C'est solide, et c'est moins
+que ce que j'avais annoncé exiger.
+
+**Deux, et c'est décisif : la règle en direct est maintenant à 5,1 σ
+sous zéro, et elle s'y enfonce de façon monotone.**
+
+| lecture | n | bps | σ |
+|---|---|---|---|
+| 12h17 | 238 | −12,70 | −3,90 |
+| 14h35 | 244 | −12,01 | −3,73 |
+| 16h09 | 259 | −13,60 | −4,36 |
+| 17h11 | 272 | −15,10 | −4,96 |
+| **18h14** | **275** | **−15,50** | **−5,12** |
+
+(σ calculé avec la dispersion de 50,2 bps par instant déduite de la
+lecture de 12h17 ; je la suppose inchangée et je le dis, faute d'une
+mesure fraîche de l'écart type.)
+
+**Or la correction que j'avais analysée fait ouvrir PLUS de jambes.**
+Son argument est celui de la diversification : la porte valide un
+`panel[20]` dont la variance suppose plusieurs jambes, donc en refuser
+les deux tiers dégrade le Sharpe à espérance égale. L'argument est juste
+**à condition que l'avantage validé existe en production**. Le compteur
+cumulé dit qu'il n'existe pas : cinq écarts types sous zéro, sur 275
+instants, ce n'est plus du bruit qu'on attend de dissiper.
+
+Le calcul le dit sans détour : **996 USD de notionnel refusé, à −15,5 bps
+mesurés, valent environ 1,54 USD de perte évitée.** Sur ce livre-ci, tel
+qu'il se comporte, **le plancher d'ordre est en train de protéger le
+compte.** Lever un frein sur un livre qui perd à 5 σ n'est pas corriger
+un biais, c'est augmenter la cadence d'une perte mesurée.
+
+**Ce que cela ne veut pas dire.** Le plancher reste mal placé
+conceptuellement : il décide d'une ouverture par un montant absolu, là
+où le dimensionnement devrait décider. La concentration du livre — trois
+plus gros noms sur vingt mis en commun — reste réelle, mesurée, et reste
+une explication candidate de l'écart holdout/direct. Rien de tout cela
+n'est rétracté. Ce qui change est **l'ordre des opérations** : on ne
+corrige pas la composition d'un livre qui perd à 5 σ, on cherche d'abord
+pourquoi il perd. Corriger la diversification d'un portefeuille dont
+l'espérance est négative revient à mieux répartir une perte.
+
+**Et il faut se dire la chose désagréable.** L'écart n'est plus « le
+direct n'a pas encore convergé vers le holdout ». Le holdout annonce
++4 à +7 bps par trade, le direct rend −15,5, et l'écart **se creuse**
+lecture après lecture. Aucun des mécanismes instruits jusqu'ici — le
+retard sur la clôture (divisé par trois), les reprises dans la barre
+(69 % facturées par la porte), le glissement (+0,55 bps), le suiveur
+(trois occurrences, deux conformes) — n'a l'ampleur nécessaire pour
+expliquer dix-neuf points de base. La prochaine question n'est pas un
+réglage : c'est de savoir si la porte mesure bien ce que le moteur joue.
+
+**Quatrième sortie au suiveur : non.** Toujours exactement trois sur
+vingt-quatre heures, les mêmes.
+
+**Le reste** : `en risque` n=207 à −20,0, équité **9 254,85** en 651
+remplissages, brut −31,10, frais −52,54, frein 0,98, `halted_today`
+faux, `killed` faux. Glissement +0,55 / médiane −0,70 sur 321
+ouvertures — inchangé depuis 17h11, l'écart ne se creuse pas. Retard
+37 s sur 2 208 décisions. Reprises 102/216.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -2153,6 +2238,13 @@ Elles ne se négocient pas, et elles ont toutes été écrites après avoir
   fermetures : elle décrit surtout le passé, et l'erreur a été commise
   **trois fois** en une nuit — une fois dans chaque sens. Seul le
   compteur cumulé (`live_rule` n et bps) tranche ;
+- ne pas corriger la composition d'un livre dont l'espérance mesurée
+  est négative à plusieurs écarts types : mieux répartir une perte
+  reste une perte, et lever un frein sur un livre qui perd augmente la
+  cadence de la perte. On cherche d'abord POURQUOI il perd ;
+- un plan que je me suis écrit à moi-même une heure plus tôt n'est pas
+  un ordre : quand la mesure nouvelle le contredit, c'est le plan qui
+  cède, et il faut écrire pourquoi ;
 - ne pas raccourcir l'historique pour retrouver un meilleur chiffre :
   choisir la fenêtre qui flatte est exactement le biais que la barre
   déflatée existe pour empêcher ;
