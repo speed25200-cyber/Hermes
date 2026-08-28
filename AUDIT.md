@@ -1938,6 +1938,117 @@ décisions. Reprises 95/198. Glissement : moyenne +0,65, **médiane
 désigne une poignée de remplissages très défavorables plutôt qu'une
 dégradation d'ensemble. À suivre, pas à conclure.
 
+### Douzième lecture, 17h11 — la mesure est établie, et un troisième suiveur tranche le motif
+
+**Le plancher : les proportions ne s'effondrent pas, elles montent.**
+
+| | vœux | ouverts | refusés au plancher | notionnel refusé |
+|---|---|---|---|---|
+| 16h09 | 79 | 23 (29,1 %) | 50 (**63,3 %**) | 484 USD |
+| 17h11 | 164 | 35 (21,3 %) | 122 (**74,4 %**) | 978 USD |
+| **tranche seule** | **85** | **12 (14,1 %)** | **72 (84,7 %)** | **494 USD** |
+
+L'échantillon a doublé et la part refusée a *augmenté*. Sur les
+quatre-vingt-cinq vœux formés entre les deux lectures, **quatre-vingt-cinq
+pour cent** meurent sous le plancher et quatorze pour cent seulement
+deviennent un ordre. Ce n'est plus une lecture unique : c'est une mesure.
+
+**Le troisième suiveur, et le recoupement tombe encore à la décimale.**
+
+```
+Aug 28 16:22:21  ouverture   BTC-USDT-SWAP +0.001000 @ 77558.025000
+Aug 28 16:25:45  scalp TRAIL 85bps BTC-USDT-SWAP +0.001000 @ 76868.900000
+```
+
+Perte brute **88,9 bps** contre une largeur armée de **85** :
+dépassement +3,9 bps, soit **+5 %**. Et 88,9 + 7,0 de frais aller-retour
+= **95,9**, exactement ce qu'annonce l'attribution. Deuxième recoupement
+exact de la chaîne de mesure, sur une jambe et un nom entièrement
+différents.
+
+| jambe | largeur armée | perte brute | dépassement |
+|---|---|---|---|
+| SOL court, 27/08 | 75 | 77,6 | +2,6 (**+3 %**) |
+| TRUMP long, 28/08 | 227 | 288,5 | +61,5 (**+27 %**) |
+| BTC long, 28/08 | 85 | 88,9 | +3,9 (**+5 %**) |
+
+**Deux sur trois tiennent à 3-5 % près ; TRUMP est l'exception.** Le
+suiveur fait donc son travail dans le cas ordinaire, et cède sur un
+mouvement violent. Trois occurrences ne permettent toujours pas de
+toucher à une largeur — mais elles permettent de dire que le
+dépassement typique est de l'ordre de quelques pour cent, et que le
++27 % de TRUMP n'est pas la norme. Une remarque en passant : le TRAIL de
+BTC n'a coûté que **0,74 USD**, contre 10,11 pour SOL, parce que le
+rodage avait ramené la jambe à 77 USD de notionnel. Le même mécanisme
+qui empêche de gagner limite aussi ce qu'on perd.
+
+### La correction candidate — écrite, pas codée
+
+Le plancher vaut `max(10 USD ; 0,2 % des fonds propres)` et s'applique à
+`|delta| × prix`, **sans distinguer le cas**. Or les deux cas ne posent
+pas la même question.
+
+**Pour un redimensionnement, la raison écrite dans le code est bonne et
+elle tient.** Ajuster une position de 100 USD de 10 USD ne change
+presque rien à l'exposition et paie deux fois 3,5 bps sur le delta. La
+question « cet ajustement paie-t-il son aller-retour » est la bonne, et
+la réponse est non. Rien à changer.
+
+**Pour une ouverture, le cadre lui-même est faux.** Là `delta` vaut la
+jambe entière, et la question devient « cette jambe paie-t-elle son
+aller-retour ». Formulée ainsi, elle donne : une jambe de 11 USD à
++12,7 bps rapporte 0,014 USD brut contre 0,008 de frais — positive, mais
+dérisoire, donc « autant ne pas la prendre ». **Ce raisonnement
+jambe-par-jambe est exactement le mauvais.** La porte ne valide pas des
+jambes indépendantes : elle valide un `panel[20]`, un portefeuille mis
+en commun dont la variance suppose la diversification. Une jambe de
+11 USD n'est pas là pour son espérance propre, elle est là pour
+décorréler. La refuser laisse l'espérance par unité inchangée et
+augmente la variance — donc dégrade précisément le Sharpe que la porte a
+validé.
+
+L'ordre de grandeur, et je le donne comme tel : passer de six jambes
+proposées à trois jouées multiplie l'écart-type relatif par environ
+√2 ; face aux vingt mises en commun, le facteur est bien plus grand. Un
+Sharpe validé à +0,10-0,14 devient mécaniquement plus faible sur le
+livre joué à espérance égale — et c'est le genre d'écart qui transforme
+un +4 bps annoncé en un négatif réalisé.
+
+La forme que prendrait la correction, si une troisième lecture la
+confirme : le critère d'**ouverture** ne devrait pas porter sur un
+montant absolu. Écrire « l'avantage de la jambe couvre ses frais avec
+une marge » donne
+`|tgt| × prix × edge > k × |tgt| × prix × frais`, qui se simplifie en
+**`edge_bps > k × frais_bps`** — une condition **indépendante de la
+taille**. C'est-à-dire : si la règle a un avantage suffisant, la taille
+de la jambe ne doit pas décider seule de son ouverture ; c'est le rôle
+du dimensionnement, pas d'un seuil d'exécution. Il resterait un plancher
+absolu, mais dicté par l'échange — lot minimal, notionnel minimum —
+c'est-à-dire `refus_arrondi`, qui n'a compté que **7 fois sur 164**.
+
+**La tension qu'il faut dire, et ne pas cacher.** Lever le plancher
+augmenterait le nombre de trades, et le bandeau répète que « les frais
+dominent le brut : c'est un moulin, pas un pari ». Les deux diagnostics
+tirent en sens opposé. Ils ne s'excluent pas — le plancher explique la
+concentration du livre, les frais expliquent le moulin — mais on ne peut
+pas les traiter comme s'ils étaient indépendants. Je ne saurai jamais
+directement si les jambes refusées auraient été profitables. **Aucun
+code sur cette lecture.**
+
+**Le cumulé, et il faut le regarder en face** : `live_rule` **n=272 à
+−15,1 bps**, contre 259 à −13,6 à 16h09 et 244 à −12,01 à 14h35. Trois
+lectures, dégradation monotone. **Ce n'est pas une fenêtre glissante,
+c'est le compteur cumulé** — donc c'est le seul chiffre qui a le droit
+de conclure, et il conclut que ça empire. `en risque` n=204 à −19,5,
+équité **9 258,29** en 641 remplissages, brut −28,75, frais −51,59,
+frein 0,98, `halted_today` faux, `killed` faux.
+
+Glissement : moyenne +0,54 contre médiane −0,70 sur 315 ouvertures
+(c'était +0,65 / −0,69 sur 303). L'écart entre les deux passe de 1,34 à
+1,24 : il ne se creuse pas. Deux signes opposés qui se maintiennent
+désignent toujours une poignée de remplissages très défavorables, pas
+une dégradation d'ensemble. Rien à conclure.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -1979,12 +2090,14 @@ dégradation d'ensemble. À suivre, pas à conclure.
    qui produiraient les trente mesures que le rodage attend. Ce qui
    reste ouvert : le plancher a une bonne raison d'exister pour un
    **redimensionnement** — l'a-t-il pour une **ouverture** ?
-8. **Le suiveur : répondu, et les deux branches sont vraies.** SOL a
-   dépassé sa largeur de 2,6 bps (le stop a tenu), TRUMP de 61,5 bps,
-   soit 27 % au-delà (le prix est passé au travers). Deux
-   remplissages sur 541 portent **62 % de la perte brute du compte**.
-   Ce qui reste ouvert est la **fréquence** : deux occurrences ne
-   permettent de toucher à aucune largeur, et je n'y touche pas.
+8. **Le suiveur : trois occurrences, et le motif se dessine.** SOL
+   +3 %, BTC +5 %, TRUMP +27 % au-delà de la largeur armée. Le stop
+   tient dans le cas ordinaire et cède sur un mouvement violent ;
+   TRUMP est l'exception, pas la norme. Trois lectures ne permettent
+   toujours de toucher à aucune largeur, et je n'y touche pas. Les
+   deux premières portaient 62 % de la perte brute du compte ; la
+   troisième n'a coûté que 0,74 USD, parce que le rodage avait ramené
+   la jambe à 77 USD.
 9. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
    et le bandeau d'anomalies dit déjà que les frais dominent le
    brut. Le holdout annonce +4,6 bps par trade après coûts, le
