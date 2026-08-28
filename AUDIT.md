@@ -1210,6 +1210,7 @@ crypto :
 | **20h13** | **+0,78** | **82** | **−0,52** |
 | **22h12** | **+0,72** | **103** | **−0,52** |
 | **00h40** | **+0,36** | **123** | **−0,52** |
+| **03h42** | **+0,28** | **200** | **−0,58** |
 
 La médiane est **négative** : l'ouverture typique se remplit *mieux* que
 le prix du signal, et la moyenne était portée par une poignée de jambes —
@@ -1365,6 +1366,85 @@ et 17h51). Le cache n'est donc pas manifestement le moteur de cette
 croissance, et poser un plafond maintenant serait agir sur une cause
 supposée. On continue de lire.
 
+### Sixième lecture, 03h42 — le direct dit maintenant que la règle perd
+
+**Et je me suis trompé une seconde fois, de la même façon.** À 00h40
+j'écrivais que le direct sur la sortie au temps était « repassé positif »
+(+0,5 bps sur 38) et j'y voyais la fin de l'histoire. Trois heures plus
+tard la même fenêtre glissante donne **−25,9 bps sur 44**. Je venais
+d'expliquer, dans le paragraphe précédent, qu'une fenêtre glissante ne
+se lit pas comme une mesure instantanée — et je l'ai relue ainsi dès
+qu'elle m'était favorable. La règle vaut dans les deux sens ou elle ne
+vaut rien.
+
+Ce qui, lui, ne glisse pas, c'est le compteur cumulé du direct :
+
+| | n | bps | erreur type | écart à zéro |
+|---|---|---|---|---|
+| 22h12 | 114 | −4,0 | 4,7 | 0,9 σ |
+| 00h40 | 125 | −3,0 | 4,5 | 0,7 σ |
+| **03h42** | **179** | **−11,4** | **3,7** | **3,0 σ** |
+
+`en risque` suit : n=111 à **−18,2** bps, contre 57 à −5,7. **À trois
+sigma, ce n'est plus du bruit : la règle jouée perd de l'argent, et la
+mesure le dit maintenant avec assez de matière pour être crue.** C'est le
+résultat de la nuit, et il est négatif.
+
+Le livre sur la fenêtre 00h40 → 03h42 : équité 9 302,70 → **9 279,69**
+(−23,01), brut réalisé −7,85 → **−20,35** (−12,50), frais −31,57 →
+−38,59 (−7,02), et **158 remplissages en trois heures** — 53 par heure.
+
+### Le compteur de reprises franchit son critère
+
+```
+jambes reprises dans la barre 51 sur 95 ouvertures   8 873 USD de notionnel
+```
+
+| | 00h40 | **03h42** |
+|---|---|---|
+| part des ouvertures | 39 % (7/18) | **54 % (51/95)** |
+| coût à 3,50 bps | 1,03 USD | **3,11 USD** |
+| part des frais de la fenêtre | 21 % | **44 %** |
+
+Le critère posé la veille demandait les deux — plus d'un quart des
+ouvertures **et** une part sérieuse des frais. À n=95, les deux sont
+franchis. Ce n'est plus marginal : 3,11 USD sur 7,02 de frais, soit 13 %
+d'une perte de 23 USD.
+
+**Et pourtant la correction évidente n'est pas disponible.** Supprimer
+l'aller-retour demande de *ne pas solder* une jambe que le signal veut
+garder — donc de la tenir **au-delà de l'horizon de h barres que la porte
+a validé**. Ce n'est pas exécuter moins cher : c'est jouer une autre
+règle. La porte a mesuré « entrer, tenir six barres, sortir » ; « tenir
+tant que le signal dépasse le seuil » est une **règle différente**, dont
+personne n'a mesuré l'économie.
+
+Il y aurait une variante comptable — enregistrer la fermeture au prix
+marqué sans passer l'ordre — mais elle remplacerait un prix *rempli* par
+un prix *coté* dans la mesure du direct, soit un demi-spread de flatterie
+à chaque trade. Exactement le genre de chiffre plus beau que la réalité
+que tout le reste de ce document existe pour empêcher.
+
+**Donc : rien n'est corrigé.** Ce qui est nommé ici n'est pas un défaut
+d'exécution mais **une famille de sortie que la recherche ne cherche
+pas** : la grille contient `fixe` et `suiv` comme gardes-fous, et un
+horizon `h` fixe, mais aucune sortie conditionnée au maintien du signal.
+L'ajouter est un travail de recherche — une dimension de plus dans la
+grille, donc une barre déflatée plus haute — pas un correctif de nuit.
+
+### Deux questions se ferment
+
+**La mémoire n'est pas une fuite.** 4 001 Mo à 03h42 contre 3 981 à
+00h40 : **+20 Mo en trois heures**, après +536 sur les deux heures
+précédentes. La croissance s'est arrêtée d'elle-même, dans la plage que
+le moteur occupait déjà avant le recollage de série. Le plafond du cache
+n'a pas lieu d'être posé — et ne pas l'avoir posé sur la foi d'une
+tendance de deux points était la bonne décision.
+
+**Le retard continue de descendre** : cumul 43 s sur 868 décisions ; 1m
+16 s, 3m 45 s, 5m 62 s, 15m 144 s, 1H 737 s. Le glissement facturé vaut
++0,28 bps sur 200 ouvertures, médiane −0,58.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -1382,26 +1462,30 @@ supposée. On continue de lire.
 4. **Le 1H n'a pas encore rendu de verdict.** C'est l'échelle où
    l'économie est franchement favorable, et son rattrapage d'historique
    (deux ans par instrument) est en cours.
-5. **L'écart holdout / direct — refermé.** 27 bps à 20h13, 14 à
-   22h12, **4,7 à 00h40**, et le direct sur la sortie au temps est
-   repassé positif (+0,5 bps). C'était le retard d'entrée ; ma
-   conclusion contraire de 20h13 lisait une fenêtre glissante comme
-   une mesure instantanée. Ce qui reste ouvert à sa place : le
-   `TRAIL`, une seule fermeture à −84,6 bps qui porte les trois
-   quarts de la perte de sa fenêtre. Il en faut cinq pour parler.
-6. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
+5. **La règle jouée perd, et c'est mesuré.** `live_rule` n=179 à
+   −11,4 bps, erreur type 3,7 : **trois sigma sous zéro**. `en risque`
+   n=111 à −18,2. Ce n'est plus l'écart au holdout qui est en cause —
+   c'est le résultat lui-même. Le rodage tient la taille au dixième,
+   la perte est lente et bornée, mais elle est réelle.
+6. **Une sortie conditionnée au signal n'existe pas dans la grille.**
+   54 % des ouvertures reprennent une jambe soldée au temps, pour
+   3,11 USD d'aller-retours sur 7,02 de frais. La supprimer exigerait
+   de tenir au-delà de l'horizon validé — donc de jouer une règle que
+   la porte n'a pas mesurée. C'est une famille à **chercher**, pas un
+   correctif à appliquer.
+7. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
    et le bandeau d'anomalies dit déjà que les frais dominent le
    brut. Le holdout annonce +4,6 bps par trade après coûts, le
    direct rend −6,0 : dix points de base d'écart à instruire avant
    de toucher à quoi que ce soit.
-7. **Le retard sur la clôture de barre : répondu, et ce qui reste.**
+8. **Le retard sur la clôture de barre : répondu, et ce qui reste.**
    La question posée ici — chargement ou calcul ? — a sa réponse :
    `charge` 0,1-0,4 s, `calcul` 6,0-6,4 s. Le rechargement n'est plus
    le coût. Le total clôture → ordre vaut ~14 s sur la 1m contre 21-26
    avant, et la 5m est passée de 197 s à ~43. Ce qui reste ouvert est
    la **décision elle-même**, six secondes pour vingt noms — et elle
    n'a pas encore été instrumentée.
-8. **Le profil chronologique du Sharpe** doit dire si l'avantage est
+9. **Le profil chronologique du Sharpe** doit dire si l'avantage est
    régulier ou concentré dans la fenêtre récente. Les premiers relevés
    sont croissants, ce qui suggère de la non-stationnarité.
 
