@@ -1212,6 +1212,7 @@ crypto :
 | **00h40** | **+0,36** | **123** | **−0,52** |
 | **03h42** | **+0,28** | **200** | **−0,58** |
 | **07h22** | **+0,20** | **229** | **−0,52** |
+| **09h39** | **−0,01** | **240** | **−0,58** |
 
 La médiane est **négative** : l'ouverture typique se remplit *mieux* que
 le prix du signal, et la moyenne était portée par une poignée de jambes —
@@ -1518,6 +1519,88 @@ ouvertures, médiane −0,52.
 heures de plateau. Toujours sous les 5 Go, et toujours dans la plage
 historique du moteur — mais la question se rouvre.
 
+### La sonde a répondu : la porte voit l'essentiel du motif
+
+Deux verdicts d'horloge portent le champ neuf :
+
+```
+live [mlp/h6/abs] net=+4.36bps ... court=13% suite=36% parjour=45.6
+live [mlp/h6/abs] net=+4.76bps ... court=20% suite=34% parjour=38.6
+```
+
+| | |
+|---|---|
+| holdout, `suite` | **34 à 36 %** |
+| direct, reprises de jambe | **51 %** (69/135) |
+| écart | 16 points, rapport 1,46 |
+
+J'avais posé deux bornes avant de lire : ≈50 % signifierait que la porte
+facture déjà ces allers-retours, moins de 25 % qu'elle ne les voit pas.
+La réponse tombe **entre les deux, nettement plus près de la première** :
+la porte facture **69 %** du motif que le direct paie.
+
+Et les deux quantités ne sont pas rigoureusement le même objet, ce qui
+explique une part de l'écart sans qu'on ait besoin d'un défaut : `suite`
+compte les *déclenchements* du holdout, le compteur direct compte les
+*ouvertures effectives*, qui doivent en plus passer les plafonds,
+l'arrondi de lot et le plancher de poussière.
+
+Le surplus non modélisé vaut environ 16 points sur 135 ouvertures, soit
+une vingtaine d'allers-retours — **moins d'un dollar** sur une perte
+cumulée de 65. **Marginal. La cause de la perte est ailleurs**, et cette
+piste-là est close.
+
+### La piste suivante, et son chiffre de départ
+
+Ce que la porte valide et ce que le moteur joue ne sont pas le même
+livre :
+
+| | la porte | le direct |
+|---|---|---|
+| portefeuille | `panel[20]`, 3 792 trades sur 174 024 barres-instrument | **1 à 2 jambes tenues** |
+| notionnel brut | plafond 20,0 des fonds propres | `utilise 0,029` — **0,15 % du plafond** |
+
+Les huit ouvertures de 08h46 à 09h35 sont **toutes SOL**, toutes longues,
+toutes refermées au temps à six minutes, sur un prix qui oscille entre
+105,97 et 106,55. Le moteur rejoue une seule jambe en boucle là où la
+porte a mesuré un portefeuille de vingt noms dont les erreurs se
+compensent.
+
+L'espérance d'une jambe isolée est celle du portefeuille, mais sa
+variance est bien plus grande — et surtout, **si seules les jambes assez
+grosses franchissent le plancher de poussière, ce ne sont pas un
+échantillon au hasard du portefeuille**. Le rodage à 0,10 réduit la
+taille au dixième ; à ce niveau, une bonne part des jambes que la cible
+propose ne peut plus être ouverte du tout.
+
+C'est **testable** : compter les jambes que la cible propose contre
+celles qui sont réellement ouvertes, et la raison des refus. Le moteur a
+déjà `poussiere_usd` et `_tient()` ; il ne lui manque que le compte.
+
+### Le compte, lui, s'est presque arrêté de perdre
+
+| | 07h22 → 09h39 (2 h 17) |
+|---|---|
+| équité | 9 273,94 → **9 272,48** (−1,46, soit **−0,64 USD/h** contre −1,57) |
+| brut réalisé | −19,66 → −18,94 — **+0,72, positif** |
+| frais | −45,03 → −46,67 (−1,64) |
+| remplissages | +22, contre +58 sur la fenêtre précédente et +158 avant |
+
+La cadence s'effondre — de 53 remplissages par heure à 10 — et avec elle
+la perte. `live_rule` reste à **n=212, −11,6 bps, 3,4 σ** : la conclusion
+tient, mais le saignement s'est presque arrêté.
+
+Le glissement d'entrée est tombé à **−0,01 bps sur 240 ouvertures** :
+facturé zéro. Le retard tient à 40 s de cumul sur 1 412 décisions. La
+mémoire est retombée à 3 424 Mo après le redémarrage de 08h15.
+
+**Une cellule à h=1 est apparue** : `net=+15,47 bps/trade`, `sr=+0,196`,
+`pente=1,45 ± 0,03` — soit quinze erreurs types au-dessus de 1, la
+première pente franchement supérieure à l'unité de toute la campagne —
+`parjour=85,7`, `gainjour=+878 bps`. À surveiller : une horloge d'une
+minute avec un horizon d'une barre est aussi celle où le retard de 16 s
+pèse le plus lourd.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -1540,26 +1623,29 @@ historique du moteur — mais la question se rouvre.
    n=111 à −18,2. Ce n'est plus l'écart au holdout qui est en cause —
    c'est le résultat lui-même. Le rodage tient la taille au dixième,
    la perte est lente et bornée, mais elle est réelle.
-6. **Une sortie conditionnée au signal n'existe pas dans la grille.**
-   Environ la moitié des ouvertures reprennent une jambe soldée au
-   temps — **4,28 USD d'allers-retours sur 5,75 de perte** à 07h22.
-   La supprimer exigerait de tenir au-delà de l'horizon validé, donc de
-   jouer une règle que la porte n'a pas mesurée. La sonde `suite=NN%`
-   dit maintenant si la porte facture déjà ce motif ; **il faut la lire
-   avant de décider quoi que ce soit.**
-7. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
+6. **Les reprises : piste close.** La sonde a répondu — `suite` vaut
+   34-36 % au holdout contre 51 % en direct, donc la porte facture
+   **69 %** du motif, et le surplus vaut moins d'un dollar sur une
+   perte de 65. Ce n'était pas là.
+7. **Le livre joué n'est pas le livre validé.** La porte mesure un
+   `panel[20]` ; le moteur tient **une à deux jambes** et occupe
+   0,15 % de son plafond de notionnel. Huit ouvertures d'affilée sur
+   le seul SOL entre 08h46 et 09h35. Compter les jambes proposées
+   contre les jambes ouvertes, et la raison des refus, est la
+   prochaine mesure — pas encore faite.
+8. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
    et le bandeau d'anomalies dit déjà que les frais dominent le
    brut. Le holdout annonce +4,6 bps par trade après coûts, le
    direct rend −6,0 : dix points de base d'écart à instruire avant
    de toucher à quoi que ce soit.
-8. **Le retard sur la clôture de barre : répondu, et ce qui reste.**
+9. **Le retard sur la clôture de barre : répondu, et ce qui reste.**
    La question posée ici — chargement ou calcul ? — a sa réponse :
    `charge` 0,1-0,4 s, `calcul` 6,0-6,4 s. Le rechargement n'est plus
    le coût. Le total clôture → ordre vaut ~14 s sur la 1m contre 21-26
    avant, et la 5m est passée de 197 s à ~43. Ce qui reste ouvert est
    la **décision elle-même**, six secondes pour vingt noms — et elle
    n'a pas encore été instrumentée.
-9. **Le profil chronologique du Sharpe** doit dire si l'avantage est
+10. **Le profil chronologique du Sharpe** doit dire si l'avantage est
    régulier ou concentré dans la fenêtre récente. Les premiers relevés
    sont croissants, ce qui suggère de la non-stationnarité.
 
