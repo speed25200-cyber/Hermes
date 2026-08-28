@@ -2301,6 +2301,107 @@ remplissages seulement, un vœu neuf.
 
 **Pas de quatrième sortie au suiveur** : toujours exactement trois.
 
+### Seizième lecture, 21h43 — le durcissement a changé la FAMILLE retenue, pas seulement le compte
+
+**L'effet est total et il tombe exactement à la frontière du
+déploiement.** Les verdicts, dans l'ordre, avec le mode du stop :
+
+| heure | horloge | | mode |
+|---|---|---|---|
+| 19h53 | 1H | veto | `3sig/suiv` |
+| 20h31 | 1m | **live** | `4sig/suiv` |
+| 20h36 | 3m | veto | `3sig/suiv` |
+| 20h42 | 5m | **live** | `4sig/suiv` |
+| — | | | **déploiement 20h42** |
+| 20h47 | 1m | **live** | `4sig/fixe` |
+| 20h51 | 3m | veto | `4sig/fixe` |
+| 20h58 | 5m | veto | `4sig/fixe` |
+| 21h05 | 15m | veto | `4sig/fixe` |
+| 21h11 | 1H | veto | `4sig/fixe` |
+| 21h17 | 1m | veto | `4sig/fixe` |
+| 21h24 | 3m | veto | `4sig/fixe` |
+| 21h35 | 5m | veto | `4sig/fixe` |
+
+**Quatre verdicts avant, quatre en `suiv`. Huit verdicts après, huit en
+`fixe`. Zéro exception des deux côtés.** Le marché n'a pas changé, les
+données non plus : la seule chose qui a bougé est ce que coûte une
+sortie de cellule suiveuse. C'est une expérience naturelle aussi propre
+qu'on peut l'espérer en production.
+
+Et c'est **plus intéressant que ce que j'attendais**. J'avais écrit que
+des cellules cesseraient de passer la barre. Ce qui s'est produit est
+autre chose : la surcharge a fait **perdre au suiveur la comparaison
+contre le stop fixe** dans la sélection. La porte ne retient plus la
+même *famille de sortie*. Elle préférait les suiveurs en partie parce
+qu'elle les sous-facturait.
+
+**Le carnet s'est vidé, et c'est le résultat honnête annoncé
+d'avance** : `hz=[]` — aucune horloge validée —, `live=0/20`, l'équité
+figée à **9 255,81** depuis 20h15, un seul verdict `live` sur les huit
+qui ont suivi. Je ne défais rien. Un carnet vide est un résultat.
+
+### Le biais chiffré, et mon encadrement était trop large
+
+La colonne neuve donne la part gagnante :
+
+```
+  motif           n  bps/trade       USD   gagnantes
+  TRAIL           1      -95,9     -0,74    0/1     0%
+  time-stop      41      -40,6     -7,13    6/41   15%
+  TOTAL          42      -41,9     -7,86    6/42   14%
+```
+
+À 15 % de part gagnante, le biais moyen vaut **0,34 bps**, pas les « un
+à deux » que j'avais écrits : j'avais supposé une part gagnante de
+moitié, la réalité en donne le tiers. **Mon encadrement était trois à
+six fois trop grand.**
+
+**Mais il faut être précis sur ce que ce chiffre mesure**, et je ne
+l'avais pas vu en écrivant la consigne : 15 % est la part gagnante
+**réalisée par le moteur**, pas celle que la porte simule sur son
+holdout. Le biais de la comptabilité de la porte dépend de **sa** part
+gagnante à elle, qui est forcément plus haute puisque ses cellules
+annoncent un net positif. Le 0,34 bps est donc le biais *tel que
+l'expérience du moteur l'implique*, pas l'erreur de la porte. La mesure
+que j'ai ajoutée répond à une question voisine de celle qu'il fallait
+poser.
+
+**Et pourtant la correction était décisive.** Une surcharge de 2,25 bps
+dont l'effet moyen se compte en dixièmes de point de base a **retourné
+la totalité** des cellules retenues d'une famille de stop à l'autre.
+C'est la leçon de cette lecture, et elle vaut au-delà d'ici : *sur une
+grille de plusieurs milliers de cellules, un biais minuscule mais
+systématique ne déplace pas le résultat, il déplace l'argmax.* Le
+comparer à la taille de l'avantage recherché ne dit rien de son effet.
+
+### Ce qui devient la question la plus vive
+
+**Quatorze pour cent de fermetures gagnantes.** Une règle sans
+take-profit, coupée au suiveur et sinon rendue à l'horizon, aurait
+besoin de gagnantes six fois plus grosses que les perdantes pour
+seulement rentrer dans ses frais. Ce n'est pas la forme d'un avantage de
+momentum à +8 bps sur six barres. C'est une fenêtre glissante de
+quarante-deux fermetures et **je n'en conclus rien** — mais c'est
+désormais la mesure que je veux voir se répéter, devant toutes les
+autres.
+
+**Un coût que j'ai introduit et que je signale.** Le `calcul` du desk 1m
+passe de ~6,9 s à **10,3-10,8 s**, en même temps que le déploiement.
+`_cout_sortie` alloue un tableau par cellule suiveuse, ce qui est la
+cause la plus probable. Cela reste très à l'intérieur de la barre de
+soixante secondes, et le retard total ne bouge pas — mais c'est une
+dépense que j'ai créée, elle doit être dite, et elle doit être
+surveillée.
+
+**Le cumulé, inchangé au chiffre près** : `live_rule` n=283 à
+−15,1 bps, **−5,06 σ**, `en risque` n=215 à −19,3, équité 9 255,81, 667
+remplissages, `halted_today` faux, `killed` faux. Rien n'a bougé de
+l'heure : le moteur n'a pas ouvert une seule jambe depuis 20h15. La
+dégradation est arrêtée, mais elle l'est parce que le livre est vide, ce
+qui n'est pas la même chose que d'être arrêtée parce que la règle gagne.
+
+**Pas de quatrième sortie au suiveur** : toujours exactement trois.
+
 ---
 
 ## 8. Ce qui reste ouvert
