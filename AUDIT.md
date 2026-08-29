@@ -2753,6 +2753,79 @@ se chevauchent ne font toujours pas quatre échantillons.
 brut −32,62, frais −56,31. `halted_today` faux, `killed` faux. **Pas de
 quatrième sortie au suiveur.**
 
+### Vingt-et-unième lecture, 02h47 — le barème du frein manquant, écrit avant d'être codé
+
+Ce qui suit est écrit **avant** de regarder ce que le barème donnerait
+sur les chiffres de ce soir. Choisir une pente après avoir vu son effet
+sur le cas courant, c'est ajuster rétrospectivement — précisément le
+biais que la barre déflatée existe pour empêcher. L'ordre compte, donc
+il est respecté et consigné.
+
+**Le principe.** La porte établit qu'une règle a un avantage sur
+l'histoire ; le compteur en direct dit ce qu'elle fait maintenant. Quand
+le compteur dit, avec assez de preuve, qu'elle perd, la taille doit
+tomber — **proportionnellement à la force de la preuve, pas au montant
+déjà perdu**. C'est exactement ce que `_risk_scale` ne fait pas : lui
+répond au montant perdu.
+
+**La statistique.** `t = bps / (sd / √n)`, calculée sur le **même
+échantillon cumulé** que `bps` : un échantillon, une moyenne, une
+dispersion. Cela demande d'accumuler la somme des carrés des rendements
+par instant, à côté de la moyenne déjà accumulée. Ce compteur repart de
+zéro : le frein restera donc **inerte tant qu'il n'aura pas trente
+instants**, le même seuil que `_confiance` utilise déjà. Aucun frein
+sans preuve est le comportement correct, et il faut dire qu'il sera
+inerte un moment plutôt que de le découvrir ensuite.
+
+**Le barème, et d'où viennent ses deux nombres.** Je refuse de choisir
+une pente librement. La porte elle-même exige entre **2,5 et 4,0 σ**
+pour laisser une cellule trader — c'est l'échelle `seuil=...bps/2.5sig`
+… `/4.0sig` qu'on lit à chaque verdict. Je reprends **la même échelle,
+retournée** : ce qu'il faut de preuve pour être admis est ce qu'il faut
+de preuve contraire pour être expulsé.
+
+```
+t >= -2,5            ->  1,00   rien n etabli, le frein ne fait rien
+-4,0 < t < -2,5      ->  interpolation lineaire de 1,00 a 0,00
+t <= -4,0            ->  0,00
+```
+
+Zéro paramètre libre : les deux bornes sont celles que la porte
+s'impose déjà à elle-même. Le frein est **monotone** en t, **borné**,
+et il **se relâche** — si `bps` redevient positif, t remonte et le frein
+revient à 1,0. Ce n'est pas un interrupteur à sens unique.
+
+**Le plancher est zéro, et c'est argumenté, pas choisi.** L'objection
+évidente : une taille nulle arrête le trading, donc `live_rule` cesse
+d'accumuler, donc la règle ne peut plus jamais être réhabilitée. Cette
+objection **a déjà sa réponse dans le code** : `_explore`
+(`engine.py:2043-2075`) joue *exactement* une règle validée dont la
+taille a été ramenée à zéro « par le frein du gouverneur », à taille
+minimale, précisément pour qu'elle continue d'accumuler de la preuve.
+Le mécanisme existe et son commentaire dit qu'il est là pour ce cas. Le
+plancher peut donc être zéro sans condamner personne — et c'est mieux
+qu'un plancher arbitraire à 0,25, qui laisserait une règle
+certainement perdante jouer un quart de taille indéfiniment. C'est le
+défaut que le rodage à 0,1 a déjà : **0,1 est un plancher, pas un
+fond.**
+
+**Il ne peut jamais augmenter une taille.** Il entre par un `min` avec
+`_risk_scale`, jamais autrement. Un frein ne desserre rien ; s'il
+pouvait desserrer, ce ne serait pas un frein mais un levier, et un
+levier indexé sur une bonne passe est la façon la plus rapide de
+transformer du bruit en risque.
+
+**Ce qu'il ne fait pas.** Il ne touche pas au rodage : `_confiance`
+reste tel quel, à son barème, et les deux se multiplient. Il ne touche
+à aucune porte de validation, à aucune largeur de stop, ni au plancher
+d'ordre. Il ne remet aucun compteur à zéro.
+
+**La conséquence, écrite d'avance.** Si la mesure en direct est
+nettement négative, les tailles vont chuter — peut-être jusqu'à zéro,
+avec les éclaireurs qui prennent le relais à taille minimale. **C'est le
+but.** Un carnet plus petit sur une règle mesurée perdante est un
+résultat honnête, et le voir se produire ne sera pas une régression.
+
 ---
 
 ## 8. Ce qui reste ouvert
