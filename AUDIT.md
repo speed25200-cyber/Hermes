@@ -4291,6 +4291,89 @@ Le carnet a rejoué : trois ouvertures et trois clôtures en dix-huit
 minutes, une horloge validée depuis 20h46. Et `n_carre` est à **deux**
 observations de trente. Ce que j'attends peut arriver dans l'heure.
 
+### Trente-neuvième lecture, 23h09 — le comptage avance enfin, et le frein est à une clôture
+
+**Une seule récupération de journal a suffi.** Cent trente-deux lignes
+contiennent les cinq fenêtres, prix remplis et cumulé compris. Hier il en
+fallait quatre. Le réordonnancement est validé par l'usage, pas par
+l'intention.
+
+### La clôture annoncée est arrivée exactement
+
+J'avais écrit d'avance que la clôture ENA de 22h07:21 valait **+85,67
+bps nets** et n'était pas encore comptée. Le cumulé passe de n=331 /
+−16,610 à n=332 / −16,301, ce qui **impose +85,699**. Écart **0,033
+bps**, et la granularité d'ENA (six décimales sur 0,155) vaut 0,06 bps
+par unité du dernier chiffre — l'écart est du même ordre que
+l'affichage.
+
+`live_rule` remonte donc de **−6,02 σ à −5,92 σ**. **Ce n'est pas une
+amélioration du carnet, c'est une jambe** — et je l'avais dit avant de la
+voir, ce qui est la seule façon honnête de le dire.
+
+### Le comptage des fraîches acceptées a avancé : quatre → cinq
+
+```
+22:51  3m live [mlp/h3/abs]  sr=+0,176  vs bar=0,156  →  1,128
+```
+
+Pas de `gardee` : c'est bien une sélection fraîche, et la porte l'a
+acceptée. Les cinq fraîches acceptées valent maintenant :
+
+```
++1,021   +1,039   +1,094   +1,128   +7,941
+```
+
+**Quatre entre 1,02 et 1,13 — elles raclent — et une à 7,94.** La
+cinquième observation renforce la forme au lieu de la diluer : le
+domaine d'acceptation est `[1, +∞)` et la masse reste collée contre 1,
+avec un unique tirage à huit fois. Cinq observations ne fondent toujours
+aucun seuil, et je n'en pose aucun.
+
+### Le barreau, et le cas le plus violent de la campagne
+
+La 3m a vu ses instants déclenchés **tomber de 1 063 à 558** en une
+heure — presque de moitié — et son barreau **monter de 38 %** :
+
+```
+observé ×1,3805     prédit ×1,3802     écart 0,02 %
+```
+
+C'est de très loin le plus grand mouvement de barreau que j'aie mesuré,
+et c'est aussi le recoupement le plus précis. Avec les quatre autres
+paires de l'heure (max 0,76 %), **trente-six paires** au total et
+**aucune au-dessus de 0,88 %**. La loi `barreau ∝ 1/√instants` n'a plus
+d'exception connue.
+
+### Le frein de mesure est à une clôture
+
+`n_carre` **28 → 29**. **Il en manque une.** Le frein a été écrit il y a
+vingt-et-une heures et n'a jamais parlé ; la prochaine clôture le fera
+franchir trente. Quand il parlera, `t_direct` devrait sortir vers **−5,9**
+et `frein_mesure` tomber à **zéro** — le barème met le frein à 0 dès
+−4,0 σ.
+
+Je note cela comme une **prédiction**, à vérifier et non à supposer : la
+dispersion que le frein utilise est celle de ses vingt-neuf points, pas
+celle de 50,2 bps que j'emploie pour le cumulé. Les deux peuvent
+diverger, et c'est précisément ce qu'il faudra lire.
+
+### Le reste : rien
+
+Aucune ouverture, aucune clôture au-delà de l'ENA. Vœux **280**,
+ouvertures **99**, remplissages **773**, plancher **174** / **1 353 USD**
+— tous inchangés. Équité **9 217,40**, brut −59,16, frais −62,07.
+`halted_today` faux, `killed` faux. Pas de second aller-retour perdant :
+le motif PUMP de 21h49–22h02 ne s'est pas répété.
+
+### Ce que je ne fais pas
+
+**Aucun déploiement.** Le frein va parler tout seul ; il n'y a rien à
+coder pour cela, et tout à observer.
+
+**Rappel à une heure.** Une seule clôture sépare le frein de son premier
+mot, et c'est la première fois depuis qu'il existe.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -4409,6 +4492,12 @@ sans le frein ni le rodage.
 ---
 
 ## 10. Règles de conduite
+
+- **Annoncer un chiffre avant de le voir est la seule façon honnête de
+  dire qu'il n'améliore rien.** La clôture ENA à +85,67 a remonté le
+  cumulé de −6,02 à −5,92 σ ; l'avoir écrite d'avance au relevé
+  précédent empêche de la présenter comme un progrès. Quand une
+  quantité connue va bouger un chiffre suivi, l'écrire avant.
 
 - **La précision d'un recoupement est bornée par la résolution du prix
   imprimé.** Sur PUMP à 0,005022, une unité du dernier chiffre imprimé
