@@ -60,31 +60,6 @@ jobs:
               | grep -E "flow (90s|300s|900s) (live|veto)|clock .* (live|veto) \[" \
               | tail -14 || true
             echo
-            # Le 29 aout, la cellule 5m [mlp/h1/abs] a ete lue deux fois :
-            # a 11h55 net=+55,93 sur 887 instants declenches, a 12h55
-            # net=+18,34 sur 2551. Meme signature, meme seuil dentree,
-            # « gardee » — et le net divise par trois. Le mot gardee ne
-            # protege que letiquette : le modele, lui, est refit a chaque
-            # cycle. Sans une fenetre qui met les verdicts successifs
-            # dune meme signature cote a cote, cette deflation nest
-            # visible que si je suis la a lheure ou elle arrive.
-            # La projection tient quarante lignes sur 24 h la ou la
-            # fenetre complete au-dessus nen tient que quatorze.
-            # Le 29 aout au soir jai verifie sur dix-neuf verdicts quel
-            # couple decide reellement du live : « sr contre vs bar »
-            # donne 19 sur 19, « net contre seuil » seulement 11 sur 19.
-            # Le champ seuil est le seuil DENTREE de la regle, pas le
-            # barreau dacceptation. La projection porte donc sr et
-            # vs bar — sans eux elle montrait tout sauf le critere.
-            # gainjour saute pour garder la ligne courte.
-            # NB: aucune apostrophe ici, la commande ssh en est entouree.
-            echo "===== deflation dun verdict a lautre : meme signature, deux lectures (24 h) ====="
-            journalctl -u hermes --since "-24 hours" --no-pager 2>/dev/null \
-              | grep -E "clock .* (live|veto) \[" \
-              | sed -E "s/^[A-Za-z]+ [0-9]+ ([0-9]+:[0-9]+):[0-9]+ .*\] clock /\1 /" \
-              | sed -E "s/panel\[[0-9]+\] //; s/ic=[^ ]+ //; s/stop=[^ ]+ //; s/pente=[^(]*\([^)]*\) //; s/profil=[^ ]+ //; s/ecart=[^ ]+ //; s/court=[^ ]+ //; s/suite=[^ ]+ //; s/trades=[^ ]+ //; s/ n=[0-9]+//; s/parjour=[^ ]+ //; s/gainjour=[^ ]+//; s/bps\/trade//" \
-              | tail -40 || true
-            echo
             # Le panel top-20 ne peut accueillir un nom quapres son
             # rattrapage dhistoire. Sans cette fenetre, « le classement ne
             # marche pas » et « le rattrapage nest pas fini » se
@@ -204,6 +179,39 @@ jobs:
             else
               echo ".env absent — the installer will mint a token on next run"
             fi
+            echo
+            # Cette fenetre est placee en DERNIER, et pour une raison
+            # bete : je lis le rapport par la fin, et tant quelle etait
+            # en tete il fallait rapatrier tout le rapport pour
+            # latteindre. Le 29 aout au soir jai fini un releve sans
+            # avoir pu repondre a ma propre question principale faute
+            # dy arriver. Une fenetre couteuse a lire est une fenetre
+            # quon finit par ne pas lire.
+            echo
+            # Le 29 aout, la cellule 5m [mlp/h1/abs] a ete lue deux fois :
+            # a 11h55 net=+55,93 sur 887 instants declenches, a 12h55
+            # net=+18,34 sur 2551. Meme signature, meme seuil dentree,
+            # « gardee » — et le net divise par trois. Le mot gardee ne
+            # protege que letiquette : le modele, lui, est refit a chaque
+            # cycle. Sans une fenetre qui met les verdicts successifs
+            # dune meme signature cote a cote, cette deflation nest
+            # visible que si je suis la a lheure ou elle arrive.
+            # La projection tient quarante lignes sur 24 h la ou la
+            # fenetre complete au-dessus nen tient que quatorze.
+            # Le 29 aout au soir jai verifie sur dix-neuf verdicts quel
+            # couple decide reellement du live : « sr contre vs bar »
+            # donne 19 sur 19, « net contre seuil » seulement 11 sur 19.
+            # Le champ seuil est le seuil DENTREE de la regle, pas le
+            # barreau dacceptation. La projection porte donc sr et
+            # vs bar — sans eux elle montrait tout sauf le critere.
+            # gainjour saute pour garder la ligne courte.
+            # NB: aucune apostrophe ici, la commande ssh en est entouree.
+            echo "===== deflation dun verdict a lautre : meme signature, deux lectures (24 h) ====="
+            journalctl -u hermes --since "-24 hours" --no-pager 2>/dev/null \
+              | grep -E "clock .* (live|veto) \[" \
+              | sed -E "s/^[A-Za-z]+ [0-9]+ ([0-9]+:[0-9]+):[0-9]+ .*\] clock /\1 /" \
+              | sed -E "s/panel\[[0-9]+\] //; s/ic=[^ ]+ //; s/stop=[^ ]+ //; s/pente=[^(]*\([^)]*\) //; s/profil=[^ ]+ //; s/ecart=[^ ]+ //; s/court=[^ ]+ //; s/suite=[^ ]+ //; s/trades=[^ ]+ //; s/ n=[0-9]+//; s/parjour=[^ ]+ //; s/gainjour=[^ ]+//; s/bps\/trade//" \
+              | tail -40 || true
             echo
             echo "===== disk / memory ====="
             df -h / | tail -1; free -m | head -2

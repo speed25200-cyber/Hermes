@@ -4135,6 +4135,66 @@ négative à 5,7 erreurs types.
 un comptage ; les jambes proposées restent-elles à un dollar ; et
 `n_carre` atteint-il 30.
 
+### Trente-septième lecture, 20h33 — je n'ai pas pu répondre à ma propre question, et j'écris pourquoi
+
+**L'heure est vide.** Chaque nombre est identique à celui d'il y a une
+heure, au chiffre près : vœux **277**, ouvertures **96**, refus au
+plancher **174** pour **1 353 USD**, remplissages **767**, équité
+**9 221,75**, brut −55,30, frais −61,58, `live_rule` **n=329 à
+−15,886 bps** (**−5,74 σ**), `n_carre` **26**, `frein_mesure` 1,0,
+`t_direct` 0,0. Aucune ouverture, aucune clôture, **aucun vœu nouveau**.
+La fenêtre des sorties sur deux heures est vide pour la première fois de
+la campagne. `halted_today` faux, `killed` faux.
+
+Le dernier verdict de la 1m la met en **veto** : `sr=+0,093 vs
+bar=0,098`. C'était la dernière horloge validée.
+
+### Ce que je n'ai pas pu faire
+
+La question principale que je m'étais posée était : **combien de
+sélections fraîches acceptées nouvelles ?** Je n'y réponds pas. Je n'ai
+pas atteint la fenêtre « déflation dun verdict a lautre » dans mes
+lectures du journal.
+
+La raison est bête et entièrement de mon fait. Je lis le rapport **par la
+fin**, en demandant un nombre croissant de lignes ; or cette fenêtre est
+placée **en tête**, juste après les verdicts. Pour l'atteindre il faut
+rapatrier la quasi-totalité du rapport, et je m'y suis repris quatre fois
+sans y arriver. J'ai donc terminé une heure entière avec une question
+posée, un instrument qui contient la réponse, et aucune réponse.
+
+**Une fenêtre coûteuse à lire est une fenêtre qu'on finit par ne pas
+lire.** C'est le même défaut que celui que je me suis noté deux fois déjà
+sous une autre forme — une quantité qui n'est affichée nulle part est
+inutile ; une quantité affichée mais qui n'est pas la bonne l'est aussi —
+et voici la troisième forme : une quantité affichée, juste, et
+inatteignable en pratique.
+
+### La correction, et elle ne coûte rien
+
+Le workflow est lu dans le dépôt, jamais installé sur la machine. J'ai
+**déplacé la fenêtre en avant-dernière position**, juste avant le bloc
+disque. Elle est désormais la première chose qu'une lecture par la fin
+rencontre. L'ordre des sections est vérifié, le fichier repasse à quatre
+apostrophes, le YAML et `bash -n` passent.
+
+Je ne recopie pas ici un comptage que je n'ai pas fait. Il sera fait au
+prochain relevé, sur la fenêtre complète, en une seule lecture.
+
+### Je ralentis le rappel, et je dis pourquoi
+
+Deux heures sur trois n'ont produit strictement rien, et **toutes les
+horloges sont maintenant en veto**. Ce que j'attends ne peut arriver que
+par une reprise du carnet : `n_carre` a besoin de quatre clôtures, et il
+n'y a rien d'ouvert ; le cumulé ne bouge que sur des clôtures ; les vœux
+eux-mêmes se sont arrêtés.
+
+Seuls les verdicts continuent, à raison d'un par horloge et par heure —
+c'est la seule chose qui avance, et une heure et demie en apporte sept ou
+huit au lieu de cinq. **Je passe le rappel à quatre-vingt-dix minutes.**
+Ce n'est pas un abandon de la surveillance : c'est la cadence de ce que
+je mesure réellement. Si le carnet repart, je reviens à une heure.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -4253,6 +4313,20 @@ sans le frein ni le rodage.
 ---
 
 ## 10. Règles de conduite
+
+- **Une fenêtre coûteuse à lire est une fenêtre qu'on finit par ne pas
+  lire.** Troisième forme du même défaut, après « affichée nulle part »
+  et « affichée mais pas la bonne » : affichée, juste, et inatteignable
+  en pratique. Placer ce qu'on lit le plus souvent là où la lecture
+  l'atteint le moins cher, et le vérifier une fois en le lisant
+  vraiment.
+- **Quand une question reste sans réponse, l'écrire comme telle.** Ne
+  jamais combler par une estimation la case qu'on n'a pas pu remplir,
+  ni recopier le comptage de l'heure précédente comme s'il était neuf.
+- **La cadence doit suivre ce qui bouge, pas l'habitude.** Un carnet à
+  l'arrêt ne produit ni clôtures ni vœux ; seuls les verdicts avancent.
+  Espacer alors le rappel est une décision de mesure, et elle se motive
+  par écrit.
 
 - **Ne pas mélanger deux populations dans un même comptage.** « Huit
   sélections fraîches, sept près du barreau et une à 7,94 » mélangeait
