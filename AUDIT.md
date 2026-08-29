@@ -3929,6 +3929,127 @@ affichage, et l'affichage ne passe pas par la machine.
 corrigée permettra enfin de poser proprement : sur le Sharpe et son
 barreau, combien de paires, et dans quel sens.
 
+### Trente-cinquième lecture, 18h31 — une horloge autre que la 1m a enfin ouvert, et le barreau se laisse mesurer exactement
+
+```
+17:31:13  ouverture ZEC-USDT-SWAP +0,030000 @ 827,952500 x5 (candle +11.3bps h=15)
+17:46:36  scalp time-stop 15m ZEC-USDT-SWAP +0,030000 @ 834,210000
+```
+
+**`h=15`. La première ouverture de toute la campagne qui ne porte pas
+`h=6`.** Le champ `h` est en minutes — `h=6` va avec `time-stop 6m`,
+`h=15` avec `time-stop 15m`. Quinze minutes, parmi les horloges validées
+à 17h31 (la 3m depuis 16h51, la 5m depuis 16h58), ne peut être que
+**5m × h3**, et la cellule 5m était `[ens/h3/abs]`.
+
+**Ma phrase répétée pendant quatre relevés — « la 3m et la 5m n'ont
+jamais ouvert une jambe » — était vraie jusqu'à 17h31 et ne l'est plus.**
+Elle a produit **+75,58 bps bruts, +68,58 nets**, et le cumulé le
+confirme au millième : passant de n=328/−16,143 à n=329/−15,886, il
+impose **+68,578**. Écart **0,000 bps**.
+
+Une jambe ne conclut rien sur une espérance. Mais elle vaut d'être
+regardée pour une autre raison : **cette cellule n'était pas une
+aberration.** Son Sharpe valait +0,144 contre un barreau de 0,141, soit
+**1,02 fois le barreau** — l'acceptation la plus banale possible. Les
+cellules qui promettaient trente-quatre trades par jour à +55 bps n'ont
+rien produit ; celle qui a effleuré le barreau a produit une jambe à
++68,58.
+
+### Le barreau déflaté suit exactement 1/√instants
+
+Premier passage de la fenêtre corrigée, qui porte enfin `sr` et
+`vs bar`. Sur les **quinze paires** à signature identique :
+
+| écart entre `barreau_après/barreau_avant` et `√(inst_avant/inst_après)` |
+|---|
+| médian **0,21 %**, maximum **0,88 %**, sur 15 paires |
+
+Le cas le plus violent le montre le mieux : 3m de 13h50 à 14h52, les
+instants passent de 901 à 1603 et le barreau de 0,123 à 0,092 —
+observé ×0,7480, prédit ×0,7497, **0,23 % d'écart**.
+
+Le barreau est donc une **fonction pure de la taille d'échantillon**, le
+nombre d'essais de la grille étant fixe. Il ne sait rien de la cellule
+qu'il juge : ni de quelle famille elle sort, ni combien de fois elle a
+été re-tirée. C'est correct pour une cellule spécifiée d'avance ; ce
+n'est pas ce que fait le moteur, qui re-sélectionne à chaque cycle.
+
+### Ce que le barreau accepte, mesuré sur ses propres unités
+
+Neuf des vingt-sept verdicts sont au-dessus de leur barreau, médiane
+0,55 — mais dix-neuf portent `gardee`, donc leur Sharpe est celui de la
+cellule **conservée**, pas du meilleur candidat. Le seul sous-échantillon
+interprétable est celui des **huit sélections fraîches** :
+
+```
+18:06  15m  ridge/h1/abs   sr/barreau = -0,118
+17:06  15m  mlp/h6/abs                  +0,434
+14:59  5m   ens/h3/abs                  +0,553
+16:00  5m   mlp/h3/neu                  +0,750
+16:58  5m   ens/h3/abs                  +1,021
+16:51  3m   mlp/h3/abs                  +1,039
+13:57  5m   ens/h3/neu                  +1,094
+16:07  15m  mlp/h1/abs                  +7,941
+```
+
+**Sept entre −0,12 et 1,09, et une à 7,94.** Si la grille de 4 860
+cellules était gaussienne, le maximum aurait une espérance de 4,12 σ et
+un écart-type de 0,243 σ : le rapport max/E[max] aurait un écart-type de
+**5,9 %**. Un tirage à 7,94 est à cent dix-huit écarts-types de ce
+modèle — ce qui ne veut pas dire « très rare », mais **« le modèle ne
+décrit pas ces données »**.
+
+**Le caveat, et il compte** : quatre des huit sélections fraîches sont
+nettement *sous* 1. Un argmax de grille comparé à son propre E[max] ne
+devrait pas faire cela. Donc soit la cellule fraîchement retenue n'est
+pas l'argmax en Sharpe, soit le barreau n'est pas exactement l'espérance
+du maximum de cette grille. Dans les deux cas la comparaison n'est pas
+propre, et le « cent dix-huit » ne doit pas être lu comme une
+probabilité.
+
+Ce qui survit sans aucune modélisation : **la porte a accepté une
+cellule à huit fois le barreau qu'elle avait elle-même calculé, et une
+heure plus tard la même horloge lisait 0,43 fois ce barreau.** C'est un
+fait, pas un modèle.
+
+### L'anticorrélation, sur l'échantillon propre de la fenêtre
+
+Quinze paires, dont **quatre seulement** à instants mobiles de plus de
+5 % : r = −0,869 sur les quinze, −0,915 sur les quatre, test de signe
+3 sur 4. **Ce n'est pas la continuation du comptage des relevés
+précédents** — c'est un échantillon différent, plus court, tiré de la
+seule fenêtre de six heures que la version corrigée couvre. Je le donne
+comme tel et je ne le compose pas avec les nombres d'hier.
+
+Je n'ai pas calculé la version en Sharpe : le `sr` change de signe sur
+la 3m et la 15m, un rapport logarithmique n'y a pas de sens, et le
+calculer en valeur absolue produirait un nombre qui ne veut rien dire.
+
+### Le reste
+
+`live_rule` **n=329 à −15,886 bps**, soit **−5,74 σ** — la jambe à
++68,58 l'a relevé de 0,26 bps, ce qui ne change rien à la conclusion.
+`en risque` n=261 à −19,5. Équité **9 221,75**, brut −55,30, frais
+−61,58. Vœux **274**, ouvertures **96**, remplissages **767**. Plancher
+**171** et **1 349 USD**, inchangés depuis six heures. `n_carre` **26** :
+quatre observations avant que le frein de mesure puisse parler.
+`halted_today` faux, `killed` faux. Aucun `SL`, aucun `TRAIL`.
+
+### Ce que je ne fais pas
+
+**Aucun déploiement.** Le résultat de l'heure est un fait sur la porte,
+pas un défaut à corriger — et je ne touche pas à une porte de validation
+sans savoir ce que je durcis. La question à instruire est celle que la
+mesure vient de poser : le barreau suppose une queue gaussienne, et les
+Sharpe de cellules sur des rendements à queues lourdes n'en ont pas.
+C'est testable, et c'est le prochain travail.
+
+**Rappel à une heure.** Trois questions : le frein atteint-il 30 ; la 5m
+en produit-elle d'autres, et à quel rendement ; et combien de sélections
+fraîches nouvelles, pour que le « sept sur huit près du barreau, une à
+huit fois » devienne un comptage plutôt qu'une anecdote.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -4047,6 +4168,22 @@ sans le frein ni le rodage.
 ---
 
 ## 10. Règles de conduite
+
+- **Une observation répétée est datée : la redire, c'est la revérifier.**
+  « La 3m et la 5m n'ont jamais ouvert une jambe » a été vraie quatre
+  relevés de suite et fausse au cinquième, à 17h31. Une phrase que je
+  recopie d'un relevé à l'autre doit être testée à chaque fois, pas
+  héritée.
+- **Ne pas composer deux comptages tirés d'échantillons différents.** La
+  fenêtre corrigée ne couvre que six heures ; ses quinze paires ne
+  prolongent pas les trente-quatre d'hier, elles les remplacent sur un
+  domaine plus court. Donner le nouveau chiffre comme nouveau.
+- **Quand une comparaison n'est pas propre, le dire avant de donner le
+  nombre.** Le rapport sr/barreau sur les sélections fraîches vaut 7,94
+  pour l'aberration de la 15m, mais quatre des huit fraîches sont sous
+  1, ce qu'un argmax ne devrait pas faire : la comparaison au maximum
+  gaussien n'est donc pas apples-to-apples, et le « cent dix-huit
+  écarts-types » n'est pas une probabilité.
 
 - **Vérifier quel champ décide, plutôt que de le supposer d'après son
   nom.** Pendant une journée entière j'ai pris `seuil` pour le barreau
