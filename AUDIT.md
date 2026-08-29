@@ -3709,6 +3709,110 @@ corriger, et l'espérance mesurée reste négative à 5,7 erreurs types — le
 (c'est la seule qui trade) ; le frein atteint-il 30 ; et les paires
 nouvelles font-elles remonter ou descendre encore le comptage.
 
+### Trente-troisième lecture, 16h30 — la sixième aberration tombe sur l'horloge que je citais en exemple
+
+```
+15:07  15m veto [ridge/h1/abs]  net=  +1,89  instants=1314
+16:07  15m live [mlp/h1/abs]    net=+115,93  instants=1308   seuil=69,9bps/4,0sig
+```
+
+**Le net multiplié par soixante-et-un, le nombre d'instants déclenchés
+inchangé** (−0,5 %). C'est la plus grosse aberration de la journée, et
+elle tombe sur la 15m — l'horloge dont j'écrivais il y a deux heures
+qu'elle avait **0 changement de signature sur 7**, des instants figés à
+1 % et un net entre +1,13 et +1,96. Je la citais en exemple de ce que
+donne une signature stable.
+
+**Une stabilité observée neuf heures n'est pas une propriété, c'est une
+série.** Règle ajoutée au §10.
+
+### Et cette aberration-là ne passe pas par mon mécanisme
+
+L'hypothèse que je porte depuis deux relevés — seuil libellé en sigmas,
+refit qui change l'échelle de la distribution prédictive, donc
+sélectivité économique différente — **exige que le nombre de
+déclenchements bouge**. Ici il n'a pas bougé : 1314 → 1308. Ce qui a
+changé, c'est la famille de modèle, `ridge` → `mlp`, à horizon et seuil
+identiques.
+
+Il y a donc **au moins deux routes** vers une aberration :
+- **changement de signature à compte constant** — la 15m ce soir, et
+  c'est de la prime de sélection pure : soixante fois le net annoncé
+  pour le même nombre de trades ;
+- **signature conservée, compte qui bouge** — la 5m de 11h55 et la 3m de
+  12h50, où le refit redéfinit la sélectivité.
+
+Je n'avais qu'une des deux en tête, et j'essayais d'expliquer les six
+aberrations avec elle.
+
+### L'hypothèse continue de s'affaiblir, trois heures de suite
+
+| relevé | paires à instants mobiles | r sans l'extrême |
+|---|---|---|
+| 31e | 6 | **−0,813** |
+| 32e | 7 | **−0,681** |
+| 33e | **9** | **−0,648** |
+
+Test de signe : **7 sur 10** en sens opposé, p unilatérale **0,172**. Les
+deux paires nouvelles se partagent (1m 14h46→15h46 opposée, 3m
+14h52→15h52 **dans le même sens**). Le déclin est monotone depuis trois
+relevés. Je continue de compter et je continue de le rapporter tel quel.
+
+**La 3m, quatre lectures consécutives de `[mlp/h1/abs]` :** +21,83 (1330
+instants) → +37,11 (901) → +1,89 (1603) → +3,39 (1770). La dernière
+transition monte des deux côtés — contre l'hypothèse.
+
+Changements de signature sur **50 verdicts** : 1H **0/9**, 1m **0/9**,
+15m **1/9**, 5m **4/9**, 3m **6/9**.
+
+### La chaîne, et une clôture qui n'est pas encore comptée
+
+Quatre clôtures, toutes `time-stop 6m`, appariées par prix remplis :
+
+| jambe | brut | net |
+|---|---|---|
+| ENA long 0,156502 → 0,156570 | +4,34 | −2,66 |
+| TRUMP long 2,654250 → 2,645000 | −34,85 | −41,85 |
+| LIT long 3,505075 → 3,502100 | −8,49 | −15,49 |
+| *TRUMP long 2,658250 → 2,643000* | *−57,37* | *−64,37* |
+
+Les **trois premières** donnent **−19,997** de moyenne ; le cumulé
+passant de n=324 / −15,959 à n=327 / −15,996 impose **−20,008**. Écart
+**0,011 bps**.
+
+La quatrième est fermée à 16h29:34, **trente-sept secondes** avant la
+lecture de l'état : elle n'est pas encore dans le cumulé. Elle vaut
+−64,37 bps et le tirera vers le bas au prochain relevé. Je l'écris
+maintenant pour ne pas la « découvrir » dans une heure comme une
+dégradation.
+
+### Le cumulé
+
+`live_rule` **n=327 à −15,996 bps**, soit **−5,76 σ**. `en risque` n=259
+à −19,7. Équité **9 221,58**, brut réalisé −55,49, frais **−61,56**.
+Vœux **273**, ouvertures **95**, remplissages **765**. Le plancher n'a
+toujours rien refusé de neuf — **171 et 1 349 USD inchangés depuis
+quatre heures** ; les quatre vœux nouveaux sont devenus quatre
+ouvertures. `n_carre` **21 → 24**, `t_direct` 0,0, `frein_mesure` 1,0 :
+six observations avant qu'il puisse parler. `halted_today` faux,
+`killed` faux.
+
+**Toutes les ouvertures portent encore `h=6`**, y compris celle de
+16h23:29 postérieure au passage en validé de la 15m. La 15m n'avait que
+vingt-trois minutes de vie au moment du relevé — c'est trop court pour
+conclure, et je le note comme une question, pas comme un fait.
+
+### Ce que je ne fais pas
+
+**Aucun déploiement.** L'espérance mesurée est à −5,76 σ ; mon hypothèse
+s'affaiblit à chaque comptage plutôt que de se confirmer ; et je viens
+de découvrir qu'elle n'explique pas la moitié des cas. Rien de tout cela
+ne se corrige par du code ce soir.
+
+**Rappel à une heure.** La question est nette : la 15m à +115,93
+survit-elle à son verdict de ~17h07 ? Cinq aberrations sur cinq ont
+disparu ; celle-ci est la sixième et la plus grosse.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -3827,6 +3931,18 @@ sans le frein ni le rodage.
 ---
 
 ## 10. Règles de conduite
+
+- **Une stabilité observée n'est pas une propriété, c'est une série.**
+  Le 29 août j'ai cité la 15m en exemple de signature stable — zéro
+  changement en sept transitions, instants figés à 1 %, net entre +1,13
+  et +1,96. Une heure plus tard elle produisait la plus grosse
+  aberration de la journée, +115,93. Ne jamais présenter neuf lectures
+  calmes comme une caractéristique du mécanisme.
+- **Quand une explication couvre la moitié des cas, le dire.** Le
+  mécanisme « seuil en sigmas + refit » exige que le nombre de
+  déclenchements bouge ; l'aberration de la 15m est arrivée à compte
+  constant, par changement de famille de modèle. Deux routes, pas une —
+  et j'essayais d'expliquer les six avec la seule que j'avais en tête.
 
 - **Ne pas conjuguer au futur une conséquence tirée d'un état qui
   bascule d'une heure sur l'autre.** Le 29 août j'ai écrit que le frein
