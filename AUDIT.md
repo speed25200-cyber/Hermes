@@ -4195,6 +4195,102 @@ huit au lieu de cinq. **Je passe le rappel à quatre-vingt-dix minutes.**
 Ce n'est pas un abandon de la surveillance : c'est la cadence de ce que
 je mesure réellement. Si le carnet repart, je reviens à une heure.
 
+### Trente-huitième lecture, 22h07 — le carnet repart par un aller-retour perdant, et franchit six sigma
+
+**La fenêtre déplacée fonctionne** : cinquante-deux lignes de journal
+suffisent désormais à la lire en entier, contre plus de deux cents hier.
+Le correctif est validé par l'usage.
+
+### Le carnet a repris, et il a perdu des deux côtés
+
+```
+21:49:20  ouverture PUMP −47000 @ 0,005022   →  21:55:33  time-stop @ 0,005103
+21:56:22  ouverture PUMP +46000 @ 0,005052   →  22:02:30  time-stop @ 0,005004
+22:01:16  ouverture ENA  +1520  @ 0,155073   →  22:07:21  time-stop @ 0,156510
+```
+
+La règle a **vendu PUMP à découvert pendant qu'il montait**, encaissé
+**−161,29 bps** bruts en six minutes, puis **acheté PUMP quarante-neuf
+secondes plus tard, pendant qu'il redescendait**, pour **−95,01** de
+plus. Deux retournements consécutifs, faux tous les deux, **−256 bps
+bruts en treize minutes sur le même instrument**. C'est le premier
+aller-retour de ce type que j'observe explicitement.
+
+La troisième, ENA à **+85,67 nets**, est fermée **deux secondes** avant
+la lecture de l'état : elle n'est pas comptée. Elle le sera au prochain
+relevé et relèvera le cumulé — je l'écris d'avance pour ne pas la
+présenter comme une amélioration.
+
+### La chaîne, et la limite de ce qu'elle peut vérifier
+
+Les deux clôtures comptées donnent **−135,151** bps de moyenne à la
+main ; le cumulé, passant de n=329 / −15,886 à n=331 / −16,610, impose
+**−135,649**. Écart **0,498 bps** — dix fois plus que les quatre
+recoupements précédents (0,043 / 0,011 / 0,001 / 0,000).
+
+**Et c'est explicable exactement.** Le journal imprime six décimales. Sur
+PUMP à 0,005022, une unité du dernier chiffre vaut
+`1e−6 / 5,022e−3` = **1,99 bps**. Chaque prix est donc arrondi à ±1 bps,
+chaque jambe en porte deux, et une moyenne sur deux jambes hérite d'un
+demi-point de base d'incertitude. **0,498 tombe dedans.**
+
+La chaîne n'a pas failli : c'est sa précision qui est bornée par la
+résolution imprimée, et sur un instrument sous le centime cette borne
+vaut environ un point de base. Les recoupements précédents portaient sur
+TRUMP, ZEC et SOL, où la résolution est cent fois plus fine.
+
+### Six sigma
+
+`live_rule` **n=331 à −16,610 bps**, soit **−6,02 σ**. C'est le premier
+franchissement des six erreurs types. `en risque` n=263 à −20,4. Équité
+**9 217,40** (−4,35 sur l'heure et demie), brut réalisé **−59,16**, frais
+**−62,07**. Vœux **280**, ouvertures **99**, remplissages **773**.
+Plancher **174** et **1 353 USD** inchangés — les trois vœux nouveaux
+sont tous devenus des ouvertures. `n_carre` **26 → 28** : **deux**
+observations avant que le frein de mesure puisse parler. `halted_today`
+faux, `killed` faux.
+
+### Le comptage n'a pas avancé, et je le dis
+
+Deux sélections fraîches nouvelles, **toutes deux refusées** :
+`19:49 3m ens/h1/abs` à **0,792** et `21:51 3m mlp/h3/abs` à **0,894**.
+**Le comptage des fraîches acceptées reste à quatre.** Il n'a pas bougé.
+Je ne le présente pas autrement.
+
+En revanche la distribution complète des fraîches, verdicts confondus,
+compte maintenant **onze** tirages :
+
+```
+−0,273  −0,118  +0,434  +0,553  +0,750  +0,792  +0,894  +1,021  +1,039  +1,094  +7,941
+```
+
+**Dix sur onze tiennent dans [−0,27 ; +1,09], et une est à +7,94 — sept
+fois plus loin que la suivante.** Cet énoncé-là ne suppose rien sur ce
+qu'est l'argmax : il décrit ce que la sélection fraîche produit, point.
+
+### Le barreau, définitivement
+
+Douze paires nouvelles : écart médian **0,15 %**, maximum **0,72 %**.
+Avec les précédentes, **trente-et-une paires** et **aucune au-dessus de
+0,88 %**. Le barreau déflaté est `∝ 1/√instants`, sans exception connue.
+
+### Le rapport est réordonné
+
+Il m'a fallu **quatre rapatriements** du journal pour réunir dans ce
+relevé les prix remplis et le cumulé qui les recoupe : ils étaient
+séparés par cent lignes de profondeurs et d'état que je ne lis presque
+jamais. Les cinq fenêtres que je lis à chaque fois — ouvertures,
+sorties, exécution, chaîne de taille, déflation — sont maintenant les
+**dernières du rapport, dans cet ordre**. Une seule lecture les réunit.
+Ordre vérifié, quatre apostrophes, YAML et `bash -n` passent, coût
+moteur nul.
+
+### Je reviens à une heure
+
+Le carnet a rejoué : trois ouvertures et trois clôtures en dix-huit
+minutes, une horloge validée depuis 20h46. Et `n_carre` est à **deux**
+observations de trente. Ce que j'attends peut arriver dans l'heure.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -4313,6 +4409,17 @@ sans le frein ni le rodage.
 ---
 
 ## 10. Règles de conduite
+
+- **La précision d'un recoupement est bornée par la résolution du prix
+  imprimé.** Sur PUMP à 0,005022, une unité du dernier chiffre imprimé
+  vaut 1,99 bps ; un écart de 0,5 bps sur une moyenne de deux jambes
+  est donc du bruit d'affichage, pas une faute de chaîne. Vérifier la
+  granularité avant de s'alarmer d'un écart — et avant de se féliciter
+  d'un écart nul obtenu sur un instrument à quatre chiffres utiles.
+- **Un relevé doit tenir dans une seule lecture.** Quatre rapatriements
+  pour réunir deux quantités qui se recoupent, c'est une faute
+  d'agencement, pas de fatalité. Ce qu'on lit à chaque fois se met à la
+  fin, dans l'ordre où on le lit.
 
 - **Une fenêtre coûteuse à lire est une fenêtre qu'on finit par ne pas
   lire.** Troisième forme du même défaut, après « affichée nulle part »

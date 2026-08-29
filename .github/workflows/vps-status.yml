@@ -112,6 +112,47 @@ jobs:
               | sed -E "s/ic=.*net=/net=/" \
               | tail -12 || true
             echo
+            echo "===== profondeur par instrument (panel des horloges) ====="
+            # NB: commande ssh dejà entre apostrophes — aucune apostrophe ici,
+            # et une seule ligne, sinon le bloc YAML se casse sur l|indentation.
+            # Les six noms du panel etaient ecrits EN DUR ici, si bien que
+            # la fenetre ne pouvait pas repondre a la seule question qui
+            # compte : pourquoi les quatorze autres n entrent pas. On liste
+            # donc tous les instruments par profondeur 1m decroissante, avec
+            # une marque quand le seuil dadmission (5000 barres) est franchi.
+            # NB: aucune apostrophe ici, la commande ssh en est entouree ;
+            # le nom de barre voyage en parametre pour eviter den avoir.
+            /root/venv/bin/python -c "import sqlite3; q=sqlite3.connect(\"/root/hermes/data/market.db\").execute(\"SELECT inst,COUNT(*) FROM candles WHERE bar=? GROUP BY inst ORDER BY COUNT(*) DESC LIMIT 26\",(\"1m\",)); [print(f\"  {i.split(chr(45))[0]:12s} 1m {n:8d}  {chr(9989) if n>=5000 else chr(46)}\") for i,n in q]" 2>/dev/null || echo "  base illisible"
+            echo
+            echo "===== deployed book (registry summary) ====="
+            grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
+            echo
+            echo "===== hermes state ====="
+            cd /root/hermes 2>/dev/null && /root/venv/bin/python -m hermes status 2>/dev/null | head -40 || echo "no state yet"
+            echo
+            echo "===== dashboard access ====="
+            # Printed on purpose: without it the owner cannot open their own
+            # console. The token already travels in cleartext in the URL of a
+            # plain-HTTP page, so a private Actions log adds little exposure —
+            # but it does persist, so rotate the token if that matters:
+            #   sed -i /^HERMES_DASH_TOKEN=/d /root/hermes/.env
+            #   bash /root/hermes/deploy/install.sh
+            if [ -f /root/hermes/.env ]; then
+              TOK=$(grep "^HERMES_DASH_TOKEN=" /root/hermes/.env | tail -1 | cut -d= -f2-)
+              [ -n "$TOK" ] && echo "url: http://178.104.191.79:8899/?key=$TOK" \
+                            || echo "no HERMES_DASH_TOKEN in .env"
+            else
+              echo ".env absent — the installer will mint a token on next run"
+            fi
+            echo
+            # Ordre delibere a partir dici. Les cinq fenetres que je lis
+            # a CHAQUE releve — ouvertures, sorties, execution, chaine
+            # de taille, deflation — sont les dernieres du rapport, et
+            # dans cet ordre. Le 29 aout au soir il ma fallu quatre
+            # rapatriements pour reunir les prix remplis et le cumule
+            # qui les recoupe, parce quils etaient separes par cent
+            # lignes de profondeurs et detat que je ne lis presque
+            # jamais. Un releve doit tenir dans une seule lecture.
             echo "===== règle validée : ouvertures et fermetures (12 h) ====="
             journalctl -u hermes --since "-12 hours" --no-pager 2>/dev/null \
               | grep -E "ouverture |fermeture " | tail -20 \
@@ -147,38 +188,6 @@ jobs:
             python3 /root/hermes/deploy/releve_taille.py 2>/dev/null \
               || echo "releve de taille indisponible"
             echo
-            echo "===== profondeur par instrument (panel des horloges) ====="
-            # NB: commande ssh dejà entre apostrophes — aucune apostrophe ici,
-            # et une seule ligne, sinon le bloc YAML se casse sur l|indentation.
-            # Les six noms du panel etaient ecrits EN DUR ici, si bien que
-            # la fenetre ne pouvait pas repondre a la seule question qui
-            # compte : pourquoi les quatorze autres n entrent pas. On liste
-            # donc tous les instruments par profondeur 1m decroissante, avec
-            # une marque quand le seuil dadmission (5000 barres) est franchi.
-            # NB: aucune apostrophe ici, la commande ssh en est entouree ;
-            # le nom de barre voyage en parametre pour eviter den avoir.
-            /root/venv/bin/python -c "import sqlite3; q=sqlite3.connect(\"/root/hermes/data/market.db\").execute(\"SELECT inst,COUNT(*) FROM candles WHERE bar=? GROUP BY inst ORDER BY COUNT(*) DESC LIMIT 26\",(\"1m\",)); [print(f\"  {i.split(chr(45))[0]:12s} 1m {n:8d}  {chr(9989) if n>=5000 else chr(46)}\") for i,n in q]" 2>/dev/null || echo "  base illisible"
-            echo
-            echo "===== deployed book (registry summary) ====="
-            grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
-            echo
-            echo "===== hermes state ====="
-            cd /root/hermes 2>/dev/null && /root/venv/bin/python -m hermes status 2>/dev/null | head -40 || echo "no state yet"
-            echo
-            echo "===== dashboard access ====="
-            # Printed on purpose: without it the owner cannot open their own
-            # console. The token already travels in cleartext in the URL of a
-            # plain-HTTP page, so a private Actions log adds little exposure —
-            # but it does persist, so rotate the token if that matters:
-            #   sed -i /^HERMES_DASH_TOKEN=/d /root/hermes/.env
-            #   bash /root/hermes/deploy/install.sh
-            if [ -f /root/hermes/.env ]; then
-              TOK=$(grep "^HERMES_DASH_TOKEN=" /root/hermes/.env | tail -1 | cut -d= -f2-)
-              [ -n "$TOK" ] && echo "url: http://178.104.191.79:8899/?key=$TOK" \
-                            || echo "no HERMES_DASH_TOKEN in .env"
-            else
-              echo ".env absent — the installer will mint a token on next run"
-            fi
             echo
             # Cette fenetre est placee en DERNIER, et pour une raison
             # bete : je lis le rapport par la fin, et tant quelle etait
