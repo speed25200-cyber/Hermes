@@ -2992,6 +2992,87 @@ remplissages. `halted_today` faux, `killed` faux. **Pas de quatrième
 sortie au suiveur** — toujours trois dans la campagne, deux dans la
 fenêtre de vingt-quatre heures.
 
+### Vingt-quatrième lecture, 05h17 — la question est tranchée, et ce n'était pas le frein
+
+Le grep corrigé donne enfin la réponse en clair :
+
+```
+"n_carre": 5        "t_direct": 0.0        "frein_mesure": 1.0
+```
+
+**Le frein de mesure est inerte, exactement comme annoncé.** Cinq
+instants de dispersion sur les trente qu'il exige. Il n'a donc joué
+aucun rôle dans le plancher qui s'est remis à mordre : c'est le **cas
+(a)**, et la cause est ailleurs.
+
+**Et la cause se lit maintenant dans le tableau.** TRUMP porte
+`defl +1,6`, `poids +0,0491`, **`USD +454`** — contre `+0,3`, `+0,0111`
+et `+102` deux lectures plus tôt. Le poids a **quadruplé**, la jambe est
+quatre fois plus grosse. Ce n'est donc pas un effondrement des tailles.
+
+Alors pourquoi 171 refus ? **Parce que le nombre de vœux a explosé** :
+
+| tranche | vœux | ouvertes | refus | part |
+|---|---|---|---|---|
+| 02h53 → 04h15 | **33** | 2 | 31 | 94 % |
+| 04h15 → 05h17 | **19** | 6 | 13 | 68 % |
+
+Contre +5, +5, +3, +5 aux quatre tranches précédentes. **Le nombre de
+propositions a été multiplié par quatre à six.** Plus d'horloges
+validées, donc plus de noms proposés — et le `panel[20]` a une queue de
+petits poids qui tombe sous les 18,5 USD pendant que les gros passent
+largement. Ce n'est pas la taille moyenne qui s'est effondrée, c'est la
+**dispersion des poids entre noms** qui devient visible dès qu'on
+propose vingt noms au lieu de trois.
+
+Les quatre tranches à zéro refus n'étaient donc pas la disparition du
+problème du plancher : c'étaient les heures où **seuls les gros noms
+proposaient**. Je l'avais lu comme une dissolution ; c'était un effet de
+composition. La onzième lecture reste juste sur le mécanisme — la
+bascule vers `fixe` a bien relevé les poids — mais ma conclusion « le
+problème s'est dissous sans qu'on y touche » était **prématurée**.
+
+**Mon annonce de six heures était deux fois trop optimiste.** `n_carre`
+monte d'environ 2,4 par heure, pas 5 : il faudra encore une dizaine
+d'heures, soit **vers 15h30 UTC**, pour que le frein ait ses trente
+instants. Aucune ligne `explore` non plus, ce qui est cohérent : le
+relais n'a rien à relayer tant que le frein ne coupe rien.
+
+### Le cumulé, et une divergence qu'il faut nommer
+
+| lecture | n | bps | σ |
+|---|---|---|---|
+| 01h47 | 296 | −15,20 | −5,21 |
+| 02h53 | 299 | −15,08 | −5,19 |
+| 04h15 | 303 | −14,60 | −5,06 |
+| **05h17** | **308** | **−14,47** | **−5,06** |
+
+**Troisième lecture consécutive d'amélioration du bps.** Le σ, lui, est
+stable : le gain sur la moyenne est exactement compensé par la preuve
+qui s'accumule.
+
+**Mais l'équité baisse pendant que le bps monte** : 9 250,70 →
+**9 246,67**, soit −4,03 USD sur onze remplissages. Le brut ne perd que
+0,41 ; **les frais en prennent 1,88 sur l'heure**. Les deux chiffres ne
+se contredisent pas — le bps est une moyenne *par instant*, les frais
+s'accumulent *par trade* — et leur divergence est la définition même du
+moulin que le bandeau annonce depuis le début. Une règle peut s'améliorer
+par trade et appauvrir le compte plus vite, simplement en tradant
+davantage. C'est exactement ce que fait cette heure-ci, avec quatre à
+six fois plus de vœux qu'avant.
+
+**La part gagnante monte pour la cinquième lecture d'affilée** : 15 →
+20 → 21 → 18 → 24 → 28 → **29 %**. Et l'attribution ne porte **plus
+aucun `TRAIL`** : la fenêtre de trente-huit fermetures est désormais
+entièrement du time-stop, à −9,5 bps — le motif le plus coûteux de la
+campagne est sorti de la fenêtre par l'âge, pas par correction.
+
+`en risque` n=240 à −18,0. `frein_risque` 0,97 (contre 0,98) : il
+descend, lentement, avec le recul depuis le sommet. 722 remplissages.
+`halted_today` faux, `killed` faux. **Pas de quatrième sortie au
+suiveur** — toujours trois dans la campagne, deux dans la fenêtre de
+vingt-quatre heures.
+
 ---
 
 ## 8. Ce qui reste ouvert
