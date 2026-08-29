@@ -68,15 +68,21 @@ jobs:
             # cycle. Sans une fenetre qui met les verdicts successifs
             # dune meme signature cote a cote, cette deflation nest
             # visible que si je suis la a lheure ou elle arrive.
-            # La projection ne garde que les six quantites qui la
-            # montrent, ce qui permet den tenir quarante sur 24 h la ou
-            # la fenetre complete au-dessus nen tient que quatorze.
+            # La projection tient quarante lignes sur 24 h la ou la
+            # fenetre complete au-dessus nen tient que quatorze.
+            # Le 29 aout au soir jai verifie sur dix-neuf verdicts quel
+            # couple decide reellement du live : « sr contre vs bar »
+            # donne 19 sur 19, « net contre seuil » seulement 11 sur 19.
+            # Le champ seuil est le seuil DENTREE de la regle, pas le
+            # barreau dacceptation. La projection porte donc sr et
+            # vs bar — sans eux elle montrait tout sauf le critere.
+            # gainjour saute pour garder la ligne courte.
             # NB: aucune apostrophe ici, la commande ssh en est entouree.
             echo "===== deflation dun verdict a lautre : meme signature, deux lectures (24 h) ====="
             journalctl -u hermes --since "-24 hours" --no-pager 2>/dev/null \
               | grep -E "clock .* (live|veto) \[" \
               | sed -E "s/^[A-Za-z]+ [0-9]+ ([0-9]+:[0-9]+):[0-9]+ .*\] clock /\1 /" \
-              | sed -E "s/panel\[[0-9]+\] //; s/ic=[^ ]+ //; s/sr=[^ ]+ //; s/vs bar=[^ ]+ //; s/stop=[^ ]+ //; s/pente=[^(]*\([^)]*\) //; s/profil=[^ ]+ //; s/ecart=[^ ]+ //; s/court=[^ ]+ //; s/suite=[^ ]+ //; s/trades=[^ ]+ //; s/ n=[0-9]+//; s/parjour=[^ ]+ //; s/bps\/trade//" \
+              | sed -E "s/panel\[[0-9]+\] //; s/ic=[^ ]+ //; s/stop=[^ ]+ //; s/pente=[^(]*\([^)]*\) //; s/profil=[^ ]+ //; s/ecart=[^ ]+ //; s/court=[^ ]+ //; s/suite=[^ ]+ //; s/trades=[^ ]+ //; s/ n=[0-9]+//; s/parjour=[^ ]+ //; s/gainjour=[^ ]+//; s/bps\/trade//" \
               | tail -40 || true
             echo
             # Le panel top-20 ne peut accueillir un nom quapres son

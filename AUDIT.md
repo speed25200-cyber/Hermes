@@ -3813,6 +3813,122 @@ ne se corrige par du code ce soir.
 survit-elle à son verdict de ~17h07 ? Cinq aberrations sur cinq ont
 disparu ; celle-ci est la sixième et la plus grosse.
 
+### Trente-quatrième lecture, 17h30 — six sur six, et je lisais la mauvaise colonne
+
+```
+16:07  15m live [mlp/h1/abs]  net=+115,93  instants=1308
+17:06  15m veto [mlp/h6/abs]  net=  +0,11  instants= 382
+```
+
+**Six aberrations sur six.** Celle-ci est morte par changement de
+signature, avec un net divisé par **mille**. La 15m est repassée en
+`veto` et son horizon a changé de `h1` à `h6`.
+
+Elle n'a rien ouvert de son heure de vie. La seule ouverture de la
+fenêtre, à 16h23:29, porte `h=6` — donc la 1m, qui était validée à
+15h46. **Trois horloges sur cinq ont maintenant été validées sans jamais
+ouvrir une jambe** : la 3m trois heures, la 5m trois heures, la 15m une
+heure. Toutes les ouvertures de la campagne, sans exception, viennent de
+la 1m.
+
+### La correction, et elle est sérieuse
+
+Depuis ce matin je traite le champ `seuil=Xbps/Ysig` comme le barreau
+d'acceptation de la porte. **C'est faux.** J'ai testé les deux
+candidats sur dix-neuf verdicts dont je possède la ligne complète :
+
+| critère testé | accord avec le verdict |
+|---|---|
+| `sr` > `vs bar` | **19 / 19** |
+| `net` > `seuil` | 11 / 19 |
+
+Le champ `seuil` est le **seuil d'entrée de la règle** — X bps étant
+l'équivalent en bps de Y sigmas de la distribution prédictive. Le
+barreau d'acceptation est le **Sharpe déflaté**, `vs bar`, comparé au
+`sr`. Huit verdicts contredisent frontalement ma lecture : la 1m était
+`live` à +5,35, +5,45, +5,67, +5,82 et +4,70 avec des `seuil` de 8,3 à
+9,1, et la 1H `veto` à +11,59 contre un `seuil` de 10,7.
+
+**Et la fenêtre que j'ai ajoutée hier projetait `net` et `seuil` —
+c'est-à-dire tout sauf le critère.** J'ai construit un instrument pour
+mesurer une porte et je lui ai fait afficher deux quantités qui ne la
+décrivent pas. C'est exactement la faute que je m'étais notée au §10
+— *une quantité qui n'est affichée nulle part est inutile* — dans sa
+version symétrique : une quantité affichée mais qui n'est pas la bonne.
+
+### Ce que la conclusion du 30e devient, relue sur les bonnes quantités
+
+J'avais écrit que la porte ne voit pas la déflation « parce que son
+barreau descend exactement aussi vite que l'estimation ». Vérification
+sur `sr` et `vs bar`, les vraies quantités :
+
+```
+11:55  5m  sr=+0,560  vs bar=0,124  instants= 887
+12:55  5m  sr=+0,324  vs bar=0,073  instants=2551
+       sr x0,58   barreau x0,59   instants x2,88
+```
+
+**L'argument tient, et mieux qu'avant.** Le barreau déflaté suit
+exactement `1/√n` : ×2,88 sur les instants prédit ×0,59 sur le barreau,
+et la mesure donne ×0,59. Le Sharpe, lui, tombe de ×0,58 — au même
+rythme. La cellule reste validée d'un bout à l'autre parce que le
+barreau fait correctement son travail statistique pendant que
+l'estimation se dégonfle.
+
+Le raisonnement était juste ; la quantité que je nommais était fausse.
+Je l'écris dans cet ordre parce que c'est l'ordre honnête : la
+conclusion n'était pas sauvée par chance, elle a été **revérifiée** sur
+les bons chiffres.
+
+### La correction de l'instrument
+
+Le workflow est lu dans le dépôt et jamais installé sur la machine :
+le modifier ne coûte aucune seconde de moteur. La projection porte
+désormais **`sr` et `vs bar`** en plus du `net`, du `seuil` et des
+`instants`. `gainjour` saute pour garder la ligne courte. Testée hors
+ligne sur les lignes réelles ; fichier toujours à quatre apostrophes,
+YAML et `bash -n` vérifiés.
+
+**Conséquence sur le comptage des paires : je ne le refais pas ce
+soir.** L'anticorrélation que je suis depuis trois relevés porte sur le
+`net`, qui reste la quantité économiquement intéressante — mais si je
+veux savoir ce que la *porte* voit, c'est sur le Sharpe qu'il faut
+compter, et je n'ai le Sharpe que pour les dix-neuf verdicts dont je
+possède la ligne entière. La fenêtre corrigée les fournira toutes à
+partir du prochain relevé. Compter maintenant sur un échantillon
+biaisé par ce que j'ai eu le temps de recopier serait pire que
+d'attendre une heure.
+
+### Le reste de l'heure : rien
+
+La clôture TRUMP annoncée est arrivée exactement comme prévu : le
+cumulé passe de n=327 à n=328 et impose **−64,369 bps** pour cette
+unique clôture, contre **−64,37** calculé au relevé précédent depuis
+les prix remplis. Aucune ouverture après 16h23:29, aucune clôture après
+16h29:34.
+
+`live_rule` **n=328 à −16,143 bps**, soit **−5,82 σ**. `en risque` n=260
+à −19,8. Équité **9 221,58** inchangée, brut −55,49, frais −61,56. Vœux
+273, ouvertures 95, remplissages 765 — tous inchangés. Plancher 171 et
+1 349 USD, inchangés depuis cinq heures. `n_carre` **25**, `t_direct`
+0,0, `frein_mesure` 1,0 : cinq observations avant qu'il puisse parler.
+`halted_today` faux, `killed` faux.
+
+**L'univers a été recalculé à 16h35** et les sept actions tokenisées
+(SPCX, SNDK, XAU, MU, SKHYNIX, SOXL, CRCL) ont disparu de la tête du
+classement : `scalp universe 20: BTC,ETH,SOL,XRP,DOGE,BNB,TRUMP,ZEC,
+HYPE,ENA,PUMP,PEPE…`. Trois noms refusés faute d'historique (DOS, AEON,
+TURBO, zéro barre). Le critère 24/7 fait son travail.
+
+### Ce que je ne fais pas
+
+**Aucun déploiement moteur.** La seule chose qui devait changer est un
+affichage, et l'affichage ne passe pas par la machine.
+
+**Rappel à une heure.** La question suivante est celle que la fenêtre
+corrigée permettra enfin de poser proprement : sur le Sharpe et son
+barreau, combien de paires, et dans quel sens.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -3931,6 +4047,17 @@ sans le frein ni le rodage.
 ---
 
 ## 10. Règles de conduite
+
+- **Vérifier quel champ décide, plutôt que de le supposer d'après son
+  nom.** Pendant une journée entière j'ai pris `seuil` pour le barreau
+  d'acceptation de la porte parce qu'il s'appelle « seuil ». Testé sur
+  dix-neuf verdicts, « sr > vs bar » donne 19/19 et « net > seuil »
+  11/19. Un instrument que je construis pour observer un critère doit
+  afficher le critère, et je dois avoir vérifié lequel c'est.
+- **Ne pas recompter sur l'échantillon qu'on a sous la main quand on
+  vient de découvrir qu'il est le mauvais.** Attendre une heure que
+  l'instrument corrigé fournisse la série complète vaut mieux qu'un
+  comptage sur les seules lignes que j'avais recopiées entières.
 
 - **Une stabilité observée n'est pas une propriété, c'est une série.**
   Le 29 août j'ai cité la 15m en exemple de signature stable — zéro
