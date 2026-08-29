@@ -161,6 +161,7 @@ class ScalpEngine:
         # holdout est une mesure ; le direct en est une autre, et quand les
         # deux se contredisent on ne choisit pas la plus flatteuse.
         self.live_stats = {"n": 0, "bps": 0.0, "jambes": 0,
+                           "carre": 0.0, "somme": 0.0, "n_carre": 0,
                            "n_risque": 0, "bps_risque": 0.0}
         # Le retard reel entre la cloture de barre qui a produit la cible
         # et l'ordre qui la joue. La porte mesure une entree AU PRIX DE
@@ -223,6 +224,7 @@ class ScalpEngine:
             # par un détail de persistance, pas par ses résultats.
             self._reprendre(self.live_stats, prev.get("live_rule"),
                             ("n", "bps", "jambes",
+                             "carre", "somme", "n_carre",
                              "n_risque", "bps_risque"))
             self._reprendre(self.explore_stats, prev.get("explore"),
                             tuple(self.explore_stats))
@@ -383,6 +385,8 @@ class ScalpEngine:
             # « la règle ne trade plus » et « la règle est freinée » se
             # ressemblent trop.
             "frein_risque": self._risk_scale(),
+            "frein_mesure": self._frein_mesure(),
+            "t_direct": self._t_direct(),
             # Ce qui cloche, dit par la machine. Les deux defauts les plus
             # couteux de la nuit etaient VISIBLES a l ecran et personne ne
             # les a vus : un ecran qui affiche « LEVIER x1,0 » sans rien
@@ -1325,6 +1329,74 @@ class ScalpEngine:
             return max(0.25, 1.0 - (used - 0.4 * lim) / (0.45 * lim))
         return min(taper(dd, dd_lim), taper(day, day_lim))
 
+    # Les deux bornes du frein de mesure ne sont pas choisies : ce sont
+    # celles que la porte s impose deja a elle-meme pour ADMETTRE une
+    # cellule — on lit `seuil=...bps/2.5sig` a `/4.0sig` a chaque verdict.
+    # Ce qu il faut de preuve pour entrer est ce qu il faut de preuve
+    # contraire pour sortir.
+    SIG_RIEN = 2.5      # en deca, rien n est etabli : le frein se tait
+    SIG_TOUT = 4.0      # au dela, la taille tombe a zero
+    N_PREUVE = 30       # le meme seuil que le rodage : pas de frein sans
+
+    def _t_direct(self) -> float:
+        """Le nombre d ecarts types qui separe la mesure en direct de zero.
+
+        Negatif = la regle est mesuree perdante. Rend 0,0 — donc « rien
+        d etabli » — tant que l echantillon est trop court ou la
+        dispersion inconnue : un frein qui reagit au bruit est pire que
+        pas de frein du tout.
+        """
+        n = int(self.live_stats.get("n") or 0)
+        nc = int(self.live_stats.get("n_carre") or 0)
+        if n < self.N_PREUVE or nc < self.N_PREUVE:
+            return 0.0
+        # La DISPERSION vient du sous-echantillon qui porte les carres,
+        # avec sa propre moyenne et son propre compte. L ERREUR TYPE, elle,
+        # se divise par le n cumule : on a bel et bien n observations de la
+        # moyenne, on n a simplement pas garde leurs carres. Melanger les
+        # deux comptes dans la meme division est l erreur qui aurait rendu
+        # ce frein dangereux.
+        carre = float(self.live_stats.get("carre") or 0.0)
+        somme = float(self.live_stats.get("somme") or 0.0)
+        var = (carre - somme * somme / nc) / (nc - 1)
+        if not (var > 0.0) or var != var:
+            return 0.0
+        se = math.sqrt(var / n)
+        if not (se > 0.0):
+            return 0.0
+        return float(self.live_stats.get("bps") or 0.0) / se
+
+    def _frein_mesure(self) -> float:
+        """Ce que la MESURE en direct autorise, entre 0 et 1.
+
+        `_risk_scale` repond a « combien ai-je perdu » ; celui-ci repond a
+        « ce que je joue a-t-il un avantage mesure ». Les deux se
+        composent par un `min` : un frein ne desserre jamais rien. S il
+        pouvait desserrer, ce ne serait pas un frein mais un levier, et un
+        levier indexe sur une bonne passe est la facon la plus rapide de
+        transformer du bruit en risque.
+
+        Il se relache : si la moyenne redevient positive, `t` remonte et
+        le frein revient a 1. Ce n est pas un interrupteur a sens unique.
+
+        Son plancher est ZERO, et l objection evidente a deja sa reponse
+        dans le code : une taille nulle arreterait la mesure, donc la
+        regle ne pourrait plus jamais etre rehabilitee — sauf que
+        `_explore` joue justement une regle validee dont le frein a
+        ramene la taille a zero, a taille minimale, pour qu elle continue
+        d accumuler de la preuve. Un plancher arbitraire laisserait au
+        contraire une regle certainement perdante jouer indefiniment une
+        fraction de taille : c est le defaut que le rodage a deja, ou 0,1
+        est un plancher et non un fond.
+        """
+        t = self._t_direct()
+        if t >= -self.SIG_RIEN:
+            return 1.0
+        if t <= -self.SIG_TOUT:
+            return 0.0
+        return float(1.0 - (-t - self.SIG_RIEN)
+                     / (self.SIG_TOUT - self.SIG_RIEN))
+
     def _levier_echange(self, notionnel: float, equity: float) -> int:
         """Le levier d echange : une affaire de MARGE, pas de taille.
 
@@ -1437,7 +1509,19 @@ class ScalpEngine:
         # pour qu une jambe agrandie reste bornee par son propre plafond
         # de ruine.
         kelly *= max(float(parite), 0.0)
-        lev = kelly * (self._risk_scale() if frein is None else float(frein))
+        # Les deux freins se composent par un `min`, jamais autrement : le
+        # frein de CAPITAL repond a « combien ai-je perdu », le frein de
+        # MESURE a « ce que je joue a-t-il un avantage mesure ». Le
+        # deuxieme manquait, et sans lui une regle etablie perdante a cinq
+        # ecarts types gardait 98 % de sa taille jusqu a ce que le capital
+        # ait recule d un cinquieme.
+        #
+        # `frein=1.0` passe par l appelant pour calculer « USD plein » —
+        # ce que l avantage SEUL justifierait — et doit continuer de
+        # court-circuiter les DEUX freins, sans quoi cette colonne
+        # changerait de sens.
+        lev = kelly * (min(self._risk_scale(), self._frein_mesure())
+                       if frein is None else float(frein))
         lev = min(lev, 0.025 / (sl * 1e-4), self.lev_max, self.max_name)
         # Rendu SANS troncature. Le levier que l'échange accepte est un
         # entier, mais la TAILLE d'une position ne l'est pas : elle se
@@ -1628,6 +1712,21 @@ class ScalpEngine:
         moy = float(self.live_stats.get("bps") or 0.0)
         self.live_stats["bps"] = (moy * n + net) / (n + 1)
         self.live_stats["n"] = n + 1
+        # La dispersion, accumulee au meme endroit que la moyenne. Trois
+        # compteurs et non un seul, et c est la lecon d une erreur que
+        # j allais deployer : `carre` ne commence a s accumuler qu a la
+        # mise en ligne, alors que `n` en porte deja plusieurs centaines.
+        # Diviser l un par l autre sous-estimait la variance d un facteur
+        # dix-huit — donc surestimait `t` d un facteur quatre — et le
+        # frein aurait mordu sur du bruit, exactement ce que son bareme
+        # lui interdit. La variance se lit donc sur le SOUS-ECHANTILLON
+        # qui porte les carres, avec SA moyenne et SON compte.
+        self.live_stats["carre"] = (
+            float(self.live_stats.get("carre") or 0.0) + net * net)
+        self.live_stats["somme"] = (
+            float(self.live_stats.get("somme") or 0.0) + net)
+        self.live_stats["n_carre"] = int(
+            self.live_stats.get("n_carre") or 0) + 1
         self.live_stats["jambes"] = int(self.live_stats.get("jambes") or 0) + len(nets)
 
         # LA MEME MESURE, EN UNITES DE RISQUE — en parallele, sans rien

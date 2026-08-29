@@ -2826,6 +2826,88 @@ avec les éclaireurs qui prennent le relais à taille minimale. **C'est le
 but.** Un carnet plus petit sur une règle mesurée perdante est un
 résultat honnête, et le voir se produire ne sera pas une régression.
 
+### Vingt-deuxième lecture, 02h53 — le frein est écrit, et j'ai failli déployer un défaut
+
+Le barème de la lecture précédente est codé : `_t_direct` et
+`_frein_mesure`, composés par un `min` avec `_risk_scale` dans
+`_pick_lev`. Dix tests neufs, **sept contre-épreuves** vérifiées une à
+une. **463 verts.**
+
+**Mais deux d'entre elles ont trouvé des défauts réels, dont un dans ma
+conception même.** Il faut les dire.
+
+**Le premier était dans un test.** « Un frein ne peut jamais agrandir
+une position » comparait `min(a, b)` à `a` — une tautologie. Il ne
+testait rien du moteur. Réécrit pour interroger `_pick_lev`, il restait
+borgne : avec un frein de capital à 1,0, composer par `max` au lieu de
+`min` laisse la taille **constante**, donc « jamais plus grande » reste
+vrai et un frein qui ne descend jamais passerait pour un frein. Il a
+fallu une seconde dent — *une mauvaise mesure doit avoir réduit la
+taille au moins une fois* — pour que la contre-épreuve morde enfin. Un
+test qui affirme une tautologie est pire que pas de test : il donne la
+confiance sans la preuve.
+
+**Le second était dans le code, et je l'ai vu juste avant de
+déployer.** `carre` ne commence à s'accumuler qu'à la mise en ligne,
+alors que `n` en porte déjà **299**. Diviser la somme des carrés par le
+n **cumulé** donnait :
+
+```
+var = carre/299 - moy^2 = 137   au lieu de   2 500
+```
+
+**Un facteur dix-huit de sous-estimation de la variance, donc un facteur
+quatre de surestimation de `t`** — et le frein aurait mordu à fond sur
+du bruit, exactement ce que son propre barème lui interdit. La
+correction : la **dispersion** se lit sur le sous-échantillon qui porte
+les carrés, avec *sa* moyenne et *son* compte (`somme`, `n_carre`) ;
+l'**erreur type**, elle, se divise par le n cumulé — on a bien 299
+observations de la moyenne, on n'a simplement pas gardé leurs carrés.
+Deux tests de non-régression gardent la porte, et leurs contre-épreuves
+tombent quand on remet la division fautive.
+
+C'est la deuxième fois de la campagne qu'écrire le barème **avant** le
+code paie : la contradiction ne portait pas sur la pente — celle-là a
+tenu — mais sur la façon de l'alimenter, et je ne l'aurais pas vue en
+codant d'abord.
+
+**Ce que le frein fera, et quand.** Le compteur de dispersion repart de
+zéro : tant qu'il n'a pas ses trente instants à lui, le frein se tait,
+quelle que soit la moyenne. Au rythme actuel — cinq instants par heure —
+il sera **inerte environ six heures**. Ensuite, si la mesure reste où
+elle est (n=299, −15,1 bps, dispersion ~50 bps, soit `t ≈ −5,2`), le
+barème donne **`frein_mesure = 0,00`** : la taille de la règle tombe à
+zéro et les éclaireurs prennent le relais à taille minimale. C'est le
+but, c'est écrit d'avance, et ce ne sera pas une régression.
+
+### Le relevé, avant le changement
+
+Ce relevé est donc une **ligne de base** : la production tourne encore
+`1ffb82f`, sans le frein.
+
+`live_rule` **n=299 à −15,08 bps**, soit **−5,20 σ** contre −5,21. Le
+bps s'est très légèrement **amélioré** (−15,2 → −15,08) et l'équité a
+**monté** pour la première fois d'une heure à l'autre : 9 249,71 →
+**9 250,95**, +1,24 USD sur neuf remplissages. Une heure, et je n'en
+conclus rien.
+
+**Quatrième tranche de suite sans aucun refus au plancher** : 200 vœux,
+66 ouvertures, 127 refus inchangés. Le poids est retombé (TRUMP
+`defl +0,3`, `poids +0,0111`, `USD +102` contre `+0,0363` et `+336`) —
+mais 102 USD reste cinq fois au-dessus du plancher de 18,5. Le plancher
+ne mord toujours pas.
+
+**La part gagnante monte** : 15 → 20 → 21 → 18 → **24 %**. Cinq
+lectures, et la fenêtre a enfin assez glissé pour que ce ne soit plus la
+même. C'est encore une fenêtre de trente-neuf fermetures et je ne
+conclus pas, mais la direction est constante depuis cinq lectures.
+
+`en risque` n=231 à −18,9. Brut −31,82, frais −56,61, 706 remplissages.
+Nouveau jour ouvert à 9 253,58. `halted_today` faux, `killed` faux.
+**Pas de quatrième sortie au suiveur** — toujours trois dans la
+campagne, et seulement deux dans la fenêtre de vingt-quatre heures,
+celle de SOL en étant sortie par l'âge.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -2972,6 +3054,13 @@ Elles ne se négocient pas, et elles ont toutes été écrites après avoir
   fenetre d'attribution est identique au caractere pres, c'est qu'il
   ne s'est rien ferme, et le compteur attend toujours sa premiere
   confirmation ;
+- un test qui affirme une tautologie est pire que pas de test : il
+  donne la confiance sans la preuve. Toute contre-epreuve doit MORDRE,
+  et si elle ne mord pas c'est le test qu'il faut renforcer, pas la
+  contre-epreuve qu'il faut abandonner ;
+- une dispersion ne s'emprunte pas a un compte qu'elle ne possede pas :
+  diviser une somme de carres fraiche par un compteur cumule
+  sous-estimait la variance d'un facteur dix-huit ;
 - ne pas raccourcir l'historique pour retrouver un meilleur chiffre :
   choisir la fenêtre qui flatte est exactement le biais que la barre
   déflatée existe pour empêcher ;

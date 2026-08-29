@@ -3198,3 +3198,187 @@ def test_the_refusal_counters_survive_a_restart(tmp_path):
     assert repris.exec_stats["n_vise"] == 1, repris.exec_stats
     assert repris.exec_stats["refus_plancher"] == 1, repris.exec_stats
     assert abs(repris.exec_stats["usd_refus_plancher"] - 5.0) < 1e-6
+
+
+def _mesure(eng, n, bps, sd=50.0):
+    """Arme la mesure en direct : n instants de moyenne bps, dispersion sd."""
+    eng.live_stats["n"] = int(n)
+    eng.live_stats["bps"] = float(bps)
+    # Le sous-echantillon qui porte la dispersion : sa somme, ses carres
+    # et son compte, coherents entre eux.
+    nc = int(n)
+    eng.live_stats["n_carre"] = nc
+    eng.live_stats["somme"] = float(bps) * nc
+    eng.live_stats["carre"] = (sd * sd * (nc - 1) / nc + bps * bps) * nc
+
+
+def test_the_measure_brake_says_nothing_below_the_gates_own_bar(tmp_path):
+    """La porte exige entre 2,5 et 4,0 sigma pour ADMETTRE une cellule.
+    Le frein de mesure reprend la meme echelle, retournee. Sous 2,5 sigma
+    rien n est etabli et il doit se taire : un frein qui reagit au bruit
+    est pire que pas de frein, parce qu il ecrase les tailles au hasard
+    et rend la mesure suivante encore plus lente a converger."""
+    eng, _ = _moteur_pos(tmp_path)
+    _mesure(eng, 100, -10.0)                 # t = -2,0
+    assert abs(eng._t_direct() + 2.0) < 1e-9, eng._t_direct()
+    assert eng._frein_mesure() == 1.0, eng._frein_mesure()
+
+
+def test_the_measure_brake_reaches_zero_at_four_sigma(tmp_path):
+    """Et au-dela de ce que la porte demande de plus fort pour admettre,
+    la taille tombe a zero. Le plancher est zero et non un quart : les
+    eclaireurs jouent deja une regle mise a zero par le frein, a taille
+    minimale, donc elle continue d accumuler de la preuve et peut etre
+    rehabilitee. Un plancher arbitraire laisserait au contraire une regle
+    certainement perdante jouer indefiniment une fraction de taille."""
+    eng, _ = _moteur_pos(tmp_path)
+    _mesure(eng, 100, -20.0)                 # t = -4,0
+    assert abs(eng._t_direct() + 4.0) < 1e-9, eng._t_direct()
+    assert eng._frein_mesure() == 0.0, eng._frein_mesure()
+    _mesure(eng, 100, -40.0)                 # bien au-dela
+    assert eng._frein_mesure() == 0.0, eng._frein_mesure()
+
+
+def test_the_measure_brake_is_monotone_between_the_two_bars(tmp_path):
+    """Entre les deux bornes, la taille descend avec la preuve et jamais
+    autrement. Une marche d escalier laisserait une regle sauter de la
+    taille pleine a zero sur un instant de plus."""
+    eng, _ = _moteur_pos(tmp_path)
+    freins = []
+    for bps in (-13.0, -14.0, -15.0, -16.25, -17.5, -19.0):
+        _mesure(eng, 100, bps)
+        freins.append(eng._frein_mesure())
+    assert all(a >= b for a, b in zip(freins, freins[1:])), freins
+    assert freins[0] < 1.0 and freins[-1] > 0.0, freins
+    _mesure(eng, 100, -16.25)                # milieu exact des deux bornes
+    assert abs(eng._frein_mesure() - 0.5) < 1e-9, eng._frein_mesure()
+
+
+def test_the_measure_brake_releases_when_the_rule_earns_again(tmp_path):
+    """Il doit se relacher, sinon c est un interrupteur a sens unique qui
+    condamne toute regle apres une mauvaise passe — et une regle
+    condamnee ne se reprend jamais, quoi qu elle fasse ensuite."""
+    eng, _ = _moteur_pos(tmp_path)
+    _mesure(eng, 100, -20.0)
+    assert eng._frein_mesure() == 0.0
+    _mesure(eng, 100, +3.0)                  # la mesure redevient positive
+    assert eng._frein_mesure() == 1.0, eng._frein_mesure()
+
+
+def test_the_measure_brake_stays_silent_without_enough_evidence(tmp_path):
+    """Vingt-neuf instants ne prouvent rien, si mauvais soient-ils. Le
+    frein reste muet jusqu au meme seuil que le rodage utilise deja."""
+    eng, _ = _moteur_pos(tmp_path)
+    _mesure(eng, 29, -100.0)                 # catastrophique, mais trop court
+    assert eng._t_direct() == 0.0, eng._t_direct()
+    assert eng._frein_mesure() == 1.0, eng._frein_mesure()
+    _mesure(eng, 30, -100.0)                 # un instant de plus, et il parle
+    assert eng._frein_mesure() < 1.0, eng._frein_mesure()
+
+
+def test_a_brake_can_never_enlarge_a_position(tmp_path):
+    """La propriete qui DEFINIT un frein. S il pouvait desserrer, ce ne
+    serait pas un frein mais un levier — et un levier indexe sur une
+    bonne passe est la facon la plus rapide de transformer du bruit en
+    risque. Verifie sur la composition elle-meme, pour toute mesure."""
+    inst = "BTC-USDT-SWAP"
+    eng, _ = _moteur_pos(tmp_path)
+    p = {"inst": inst, "edge_bps": 30.0, "vol_bps": 25.0, "tp_bps": 30.0,
+         "sl_bps": 40.0, "h_bars": 6, "sortie_temps": False}
+    # La reference : la MEME taille avec une mesure neutre. On interroge
+    # donc le moteur, pas une expression ecrite dans le test — une
+    # premiere version comparait `min(a, b)` a `a`, ce qui est une
+    # tautologie et ne prouvait rien du chemin de dimensionnement.
+    _mesure(eng, 200, 0.0)
+    neutre = eng._pick_lev(p)
+    assert neutre > 0.0, neutre
+    rng = np.random.default_rng(11)
+    plus_petit = False
+    for bps in rng.normal(-10.0, 20.0, 300):
+        _mesure(eng, 200, float(bps))
+        taille = eng._pick_lev(p)
+        assert taille <= neutre + 1e-12, (bps, taille)
+        plus_petit = plus_petit or taille < neutre - 1e-12
+        assert 0.0 <= eng._frein_mesure() <= 1.0, bps
+    # Sans cette seconde dent le test est borgne : avec un frein de
+    # capital a 1,0, composer par `max` au lieu de `min` laisse la taille
+    # CONSTANTE, donc « jamais plus grande » reste vrai — et un frein qui
+    # ne descend jamais passerait pour un frein.
+    assert plus_petit, "une mauvaise mesure na jamais reduit la taille"
+
+
+def test_the_full_size_column_still_bypasses_both_brakes(tmp_path):
+    """`USD plein` dit ce que l avantage SEUL justifierait, freins retires.
+    Si le frein de mesure s y invitait, la colonne changerait de sens et
+    le releve ne pourrait plus montrer ce que les freins coutent."""
+    inst = "BTC-USDT-SWAP"
+    eng, _ = _moteur_pos(tmp_path)
+    _mesure(eng, 200, -30.0)                 # frein de mesure a zero
+    assert eng._frein_mesure() == 0.0
+    # L avantage doit franchir le cout, sinon Kelly rend zero pour une
+    # raison qui n a rien a voir avec les freins et le test ne prouve rien.
+    p = {"inst": inst, "edge_bps": 30.0, "vol_bps": 25.0, "tp_bps": 30.0,
+         "sl_bps": 40.0, "h_bars": 6, "sortie_temps": False}
+    assert eng._pick_lev(p) == 0.0, eng._pick_lev(p)
+    assert eng._pick_lev(p, frein=1.0) > 0.0, eng._pick_lev(p, frein=1.0)
+
+
+def test_the_squares_counter_survives_a_restart(tmp_path):
+    """La dispersion doit venir du MEME echantillon cumule que la moyenne.
+    Si elle repartait de zero a chaque mise en ligne, le frein
+    redeviendrait muet a chaque deploiement — et il suffirait de
+    redeployer pour desserrer un frein, ce qui serait pire que de ne pas
+    en avoir."""
+    eng, b = _moteur_pos(tmp_path)
+    _mesure(eng, 120, -18.0)
+    avant = eng._frein_mesure()
+    assert 0.0 < avant < 1.0, avant
+    eng._snapshot({"equity": 10_000.0})
+    repris, _ = _moteur_pos(tmp_path, dict(b.pos))
+    assert repris.live_stats["n"] == 120, repris.live_stats
+    assert abs(repris._frein_mesure() - avant) < 1e-9, repris.live_stats
+
+
+def test_the_dispersion_never_borrows_a_count_it_does_not_own(tmp_path):
+    """Le defaut que jallais deployer, en un test.
+
+    `carre` ne commence a saccumuler qua la mise en ligne, alors que `n`
+    en porte deja plusieurs centaines. Diviser la somme des carres par le
+    n CUMULE sous-estimait la variance dun facteur dix-huit, donc
+    surestimait `t` dun facteur quatre, et le frein aurait mordu sur du
+    bruit — exactement ce que son bareme lui interdit.
+
+    Ici : trois cents instants de moyenne connue, mais seulement quarante
+    dont on a garde les carres. La dispersion doit se lire sur ces
+    quarante-la, avec LEUR moyenne et LEUR compte."""
+    eng, _ = _moteur_pos(tmp_path)
+    eng.live_stats["n"] = 300           # la moyenne porte trois cents
+    eng.live_stats["bps"] = -15.0
+    nc, sd = 40, 50.0                   # les carres nen portent que quarante
+    eng.live_stats["n_carre"] = nc
+    eng.live_stats["somme"] = -15.0 * nc
+    eng.live_stats["carre"] = (sd * sd * (nc - 1) / nc + 225.0) * nc
+    # se = sd / racine(n cumule) = 50 / racine(300) = 2,887
+    attendu = -15.0 / (sd / 300 ** 0.5)
+    assert abs(eng._t_direct() - attendu) < 1e-6, (eng._t_direct(), attendu)
+    # et surtout : PAS le t qu on obtiendrait en divisant les carres par
+    # le n cumule, qui vaut plus de quatre fois plus en valeur absolue.
+    faux_var = eng.live_stats["carre"] / 300 - 225.0
+    assert faux_var > 0.0
+    faux_t = -15.0 / (faux_var / 300) ** 0.5
+    assert abs(faux_t) > 3.0 * abs(attendu), (faux_t, attendu)
+
+
+def test_the_brake_stays_silent_while_the_squares_are_still_catching_up(tmp_path):
+    """Le compteur de dispersion repart de zero a sa premiere mise en
+    ligne, pendant que la moyenne porte tout lhistorique. Tant quil na
+    pas ses trente instants a lui, le frein doit se taire — meme si la
+    moyenne, elle, est massivement negative et depuis longtemps."""
+    eng, _ = _moteur_pos(tmp_path)
+    eng.live_stats["n"] = 300
+    eng.live_stats["bps"] = -15.0
+    eng.live_stats["n_carre"] = 29      # un de moins que le seuil
+    eng.live_stats["somme"] = -15.0 * 29
+    eng.live_stats["carre"] = (2500.0 * 28 / 29 + 225.0) * 29
+    assert eng._t_direct() == 0.0, eng._t_direct()
+    assert eng._frein_mesure() == 1.0, eng._frein_mesure()
