@@ -2908,6 +2908,90 @@ Nouveau jour ouvert à 9 253,58. `halted_today` faux, `killed` faux.
 campagne, et seulement deux dans la fenêtre de vingt-quatre heures,
 celle de SOL en étant sortie par l'âge.
 
+### Vingt-troisième lecture, 04h15 — le plancher remord violemment, et je ne peux pas dire pourquoi
+
+**La tranche est spectaculaire, et je ne sais pas l'expliquer.**
+
+| | 02h53 | 04h15 | tranche |
+|---|---|---|---|
+| jambes visées | 200 | **233** | +33 |
+| ouvertes | 66 | **68** | **+2** |
+| refusées au plancher | 127 | **158** | **+31** |
+
+**Trente-trois vœux, deux ouvertures, trente et un refus — 94 % de la
+tranche.** Après quatre lectures consécutives à zéro refus, le plancher
+d'ordre s'est remis à mordre d'un coup, et plus fort que jamais.
+
+C'est exactement la conséquence que j'avais écrite d'avance *si les
+tailles chutaient*. Sauf que **je ne peux pas vérifier que c'est bien
+cela** :
+
+- le frein de mesure devrait encore être **inerte** — son compteur de
+  dispersion repart de zéro et il lui faut trente instants, soit environ
+  six heures ; le déploiement date d'une heure ;
+- le tableau du bas est **vide** au moment du relevé, donc ni `defl` ni
+  `poids` ni `USD` à lire ;
+- et surtout : **`frein_mesure` et `t_direct` n'apparaissent nulle
+  part**.
+
+### Le défaut est le mien, et c'est exactement celui que je corrige depuis hier
+
+J'ai ajouté ces deux mesures au snapshot **sans les afficher nulle
+part** : ni dans `releve_taille.py`, ni dans le grep du workflow. Deux
+quantités muettes. C'est mot pour mot le défaut que la vingtième lecture
+a mis dix heures à débusquer — *« tant que les refus sont des `continue`
+muets, l'écart ne se lit nulle part »* — et je viens de le reproduire
+sur mon propre instrument, la nuit même. **Une quantité qui ne se lit
+pas ne sert à rien.**
+
+Corrigé : le grep du workflow porte maintenant `frein_mesure`,
+`t_direct` et `n_carre` (changement de workflow seul, effet immédiat), et
+`releve_taille.py` affiche une ligne dédiée qui dit aussi, en toutes
+lettres, quand le frein est **inerte faute de trente instants**. Cette
+seconde partie n'est pas déployée — je ne redéploie pas pour de
+l'affichage —, mais le grep suffira dès le prochain relevé.
+
+**Donc la réponse honnête à « le frein a-t-il pris effet » est : je ne
+sais pas encore.** Deux causes restent possibles pour le plancher qui
+remord — le frein neuf, ou un poids de Kelly retombé parce que la
+cellule retenue a changé — et je refuse de choisir entre elles sans la
+mesure. Le prochain relevé tranchera.
+
+**Un indice, tout de même, et il va contre le frein** : aucune ligne
+`explore` dans la fenêtre de deux heures. Le relais des éclaireurs est
+précisément ce qui doit apparaître quand le frein met une règle à zéro.
+Son absence est cohérente avec un frein encore inerte — mais c'est un
+argument négatif, pas une mesure.
+
+### Ce que le cumulé dit, et il dit quelque chose de neuf
+
+| lecture | n | bps | σ |
+|---|---|---|---|
+| 00h46 | 292 | −15,20 | −5,17 |
+| 01h47 | 296 | −15,20 | −5,21 |
+| 02h53 | 299 | −15,08 | −5,19 |
+| **04h15** | **303** | **−14,60** | **−5,06** |
+
+**Le σ recule pour la première fois de la campagne.** Non pas parce que
+n a baissé — il monte — mais parce que le bps s'améliore assez vite pour
+l'emporter sur l'accumulation de preuve : −15,20 → −15,08 → −14,60. Deux
+lectures consécutives d'amélioration. Le brut réalisé aussi : −31,82 →
+**−31,05**, soit **+0,77 USD** gagnés sur l'heure.
+
+Je ne conclus rien : deux lectures, et le compteur reste à cinq écarts
+types sous zéro. Mais c'est le premier mouvement dans le bon sens depuis
+que je le suis, et il mérite d'être noté comme tel plutôt que passé sous
+silence.
+
+**La part gagnante monte pour la quatrième lecture d'affilée** : 15 →
+20 → 21 → 18 → 24 → **28 %**. Six lectures, dont les trois dernières
+sur des fenêtres suffisamment glissées pour ne plus être la même.
+
+`en risque` n=235 à −18,2 (contre −18,9). Équité 9 250,70 en 711
+remplissages. `halted_today` faux, `killed` faux. **Pas de quatrième
+sortie au suiveur** — toujours trois dans la campagne, deux dans la
+fenêtre de vingt-quatre heures.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -3058,6 +3142,10 @@ Elles ne se négocient pas, et elles ont toutes été écrites après avoir
   donne la confiance sans la preuve. Toute contre-epreuve doit MORDRE,
   et si elle ne mord pas c'est le test qu'il faut renforcer, pas la
   contre-epreuve qu'il faut abandonner ;
+- une quantite qui ne se lit nulle part ne sert a rien : ajouter une
+  mesure au snapshot sans l'afficher, c'est refaire le defaut des
+  `continue` muets sur son propre instrument — verifier l'affichage EN
+  MEME TEMPS que la mesure, pas au releve suivant ;
 - une dispersion ne s'emprunte pas a un compte qu'elle ne possede pas :
   diviser une somme de carres fraiche par un compteur cumule
   sous-estimait la variance d'un facteur dix-huit ;

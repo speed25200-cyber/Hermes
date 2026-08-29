@@ -140,8 +140,8 @@ jobs:
             # NB: toute cette commande ssh est déjà entre apostrophes —
             # aucun script inséré ici ne doit en contenir une seule.
             tr "," "\n" < /root/hermes/state/scalp.json 2>/dev/null \
-              | grep -E "tp_maker|tp_taker|entry_edge_bps|exit_maker_bps|exit_taker_bps|pnl_day_usd|confiance|frein_risque|\"bps\"|\"n\"|retard_s|n_entrees|budget_usd|\"sl\"|\"time\"|\"trades\"" \
-              | head -16 || echo "pas encore de scalp.json"
+              | grep -E "tp_maker|tp_taker|entry_edge_bps|exit_maker_bps|exit_taker_bps|pnl_day_usd|confiance|frein_risque|frein_mesure|t_direct|n_carre|\"bps\"|\"n\"|retard_s|n_entrees|budget_usd|\"sl\"|\"time\"|\"trades\"" \
+              | head -20 || echo "pas encore de scalp.json"
             echo
             echo "===== chaine de taille : pourquoi la position fait CETTE taille ====="
             python3 /root/hermes/deploy/releve_taille.py 2>/dev/null \

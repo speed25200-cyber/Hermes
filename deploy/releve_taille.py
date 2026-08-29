@@ -138,6 +138,18 @@ def main() -> int:
     # compter chaque jambe separement gonflerait la confiance qu on croit
     # avoir. Le nombre de jambes reste affiche : l information n est pas
     # perdue, elle cesse seulement d etre comptee comme independante.
+    # Le frein de MESURE, a cote du frein de capital. Je les avais ajoutes
+    # au snapshot sans les afficher nulle part : deux mesures muettes,
+    # exactement le defaut que le compteur de refus vient de corriger
+    # ailleurs. Une quantite qui ne se lit pas ne sert a rien.
+    fm = d.get("frein_mesure")
+    if fm is not None:
+        td = float(d.get("t_direct") or 0.0)
+        nc = int(reg.get("n_carre") or 0)
+        print(f"frein de mesure {float(fm):.2f}"
+              f"   t direct {td:+.2f} sigma"
+              f"   dispersion sur {nc} instants"
+              + ("   (inerte : moins de 30)" if nc < 30 else ""))
     n_e = int(ent.get("n_entrees") or 0)
     if n_e:
         print(f"retard entre la cible et lordre {float(ent.get('retard_s') or 0.0):.1f} s "
