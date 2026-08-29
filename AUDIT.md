@@ -3316,6 +3316,161 @@ la fenêtre de vingt-quatre heures. `halted_today` faux, `killed` faux.
 
 **Je repasse le rappel à une heure** : le carnet a repris.
 
+### Trentième lecture, 13h22 — cinq sur cinq, et la cinquième est morte autrement
+
+**La cinquième aberration n'a pas survécu.** Le verdict 5m suivant est
+tombé à 12h55:29, et il faut le lire à côté de celui de 11h55:41, car
+c'est **la même cellule** :
+
+```
+11h55:41  5m live [mlp/h1/abs]  ic=0,468  net=+55,93  seuil=40,3bps/3,5sig
+          pente=1,11±0,02  profil=+0,53/+0,58/+0,58  instants=887
+12h55:29  5m live [mlp/h1/abs]  ic=0,164  net=+18,34  seuil=14,1bps/3,5sig
+          pente=1,15±0,04  profil=+0,27/+0,37/+0,35  instants=2551  gardee
+```
+
+Même signature, même seuil d'entrée (3,5 σ), même stop (4 σ fixe), et le
+mot **`gardee`** : l'hystérésis a tenu, la cellule n'a pas été remplacée.
+Et pourtant `ic` est divisé par 2,9, le `net` par 3,0, le `profil` par
+deux sur les trois tiers. **Les quatre premières aberrations étaient
+remplacées au verdict suivant ; celle-ci a été conservée, et c'est son
+propre chiffre qui s'est effondré.** Le résultat est le même : cinq sur
+cinq, aucune n'a tenu.
+
+### Ce que `gardee` protège, et ce qu'il ne protège pas
+
+Le nombre d'instants déclenchés est passé de **887 à 2551** — presque le
+triple — pendant que la base d'entraînement ne gagnait que 252 lignes
+(n=715 410 → 715 662). Une règle fixe sur des données quasi identiques ne
+peut pas tripler son nombre de déclenchements. La seule explication est
+que **le modèle a été réajusté** : le `mlp` est refit à chaque cycle, et
+un seuil d'entrée à 3,5 σ appliqué à une distribution prédictive
+différente ne coupe pas au même endroit.
+
+Donc `gardee` **préserve l'étiquette, pas le prédicteur**. La cellule
+« conservée » n'est pas la même fonction d'une heure sur l'autre. C'est
+une conclusion plus dure que celle que je cherchais : je surveillais la
+rotation des signatures comme mesure d'instabilité, et la rotation n'est
+pas nécessaire pour que tout change.
+
+Et la porte ne peut pas voir cela, parce que **son barreau descend
+exactement aussi vite que l'estimation** : `seuil` 40,3 → 14,1, soit le
+même facteur 2,9 que le `net`. La cellule reste `live` d'un bout à
+l'autre de la déflation. Le barreau déflaté est calculé sur le nombre
+d'essais et la taille d'échantillon ; il ne sait rien de la *fraîcheur*
+de la sélection, et c'est précisément le défaut par lequel cette cellule
+passe.
+
+### La correction que je me dois, et elle porte sur mon argument, pas sur un chiffre
+
+J'avais écrit une heure plus tôt que cette cellule différait des autres
+parce que sa `pente` valait 1,11 ± 0,02, « le contraire du profil d'un
+artefact de sélection ». **La pente est la seule chose qui a survécu** :
+1,11 ± 0,02 → 1,15 ± 0,04. Le `net`, lui, a été divisé par trois.
+
+J'ai donc pris une quantité stable pour une caution d'une autre
+quantité. Une pente à l'unité dit que ce qui est annoncé est annoncé à
+la bonne **échelle** — c'est un énoncé d'étalonnage. Elle ne dit rien de
+l'**ampleur** exploitable une fois les coûts et la prime de sélection
+retirés. Les deux se lisent sur la même ligne de journal et n'ont pas la
+même valeur probante. La règle est ajoutée au §10.
+
+### Ni les 3m ni les 5m n'ont ouvert quoi que ce soit
+
+Les trois ouvertures de l'heure portent toutes `h=6` :
+
+```
+12h17:13  SOL   −1,420000 @ 103,857500  x5  (candle −9,0bps h=6)
+12h35:33  TRUMP +55,000000 @   2,693250  x5  (candle +8,0bps h=6)
+12h51:31  TRUMP +11,600000 @   2,678250  x5  (candle +16,6bps h=6)
+```
+
+Les trois horloges validées sont `1m`, `3m`, `5m`. La 5m est en `h1`
+depuis 11h55 et la 3m est passée en `h1` à 12h50 — donc par élimination
+un signal `h=6` ne peut venir que de la **1m**, seule cellule en `h6`.
+Autrement dit : les deux cellules aux gros chiffres (`3m` à +21,83,
+`5m` à +18,34, `parjour` 33,9 chacune) **n'ont produit aucune jambe**,
+et la cellule modeste à +5,67 a produit les trois. Une cellule qui
+promet trente-quatre trades par jour et n'en ouvre aucun dans l'heure
+qui suit sa sélection n'est pas seulement optimiste sur son gain : elle
+n'est pas exécutable dans le carnet tel qu'il tourne.
+
+### La chaîne de mesure, recoupée une fois de plus
+
+Les trois clôtures de l'heure sont des `time-stop 6m`, chacune appariable
+à son ouverture par **prix remplis** :
+
+| jambe | brut | frais | net |
+|---|---|---|---|
+| SOL court 103,8575 → 103,800 | +5,54 | 7,0 | **−1,46** |
+| TRUMP long 2,693250 → 2,709000 | +58,48 | 7,0 | **+51,48** |
+| TRUMP long 2,678250 → 2,670000 | −30,80 | 7,0 | **−37,80** |
+| moyenne des trois | | | **+4,071** |
+
+Et le cumulé, lu indépendamment, passe de n=315 à −16,047 vers n=318 à
+−15,857, ce qui **impose** une moyenne de `+4,047` bps sur les trois
+nouveaux instants. Écart entre le calcul à la main et le cumulé :
+**0,024 bps**. La chaîne tient, des prix remplis jusqu'au registre.
+
+Trois clôtures ne concluent rien, et le fait qu'elles soient favorables
+ne change pas cette phrase d'un mot.
+
+### Le cumulé, et le frein qui attend encore
+
+`live_rule` **n=318 à −15,857 bps**, soit **−5,63 σ** avec la dispersion
+de 50,2 bps par instant. `en risque` n=250 à −19,6. Équité **9 222,77**
+(+0,66 sur l'heure), brut réalisé −55,09, frais **−60,78** — les frais
+dominent toujours le brut, c'est toujours un moulin. `frein_risque`
+0,953, `confiance` 0,10, `halted_today` faux, `killed` faux.
+
+`n_carre` **12 → 15**, `t_direct` 0,0, `frein_mesure` 1,0. Le frein de
+mesure gagne **trois observations par heure**, exactement le rythme des
+clôtures : il lui reste **cinq heures** avant de pouvoir seulement
+parler. Pendant ce temps le cumulé est à −5,6 σ.
+
+Cet écart est le prix d'un choix que je maintiens. La variance n'était
+pas suivie avant que j'écrive le frein ; réutiliser le n cumulé pour
+diviser une dispersion que je n'ai mesurée que sur quinze points serait
+exactement la faute que le §10 interdit — *une dispersion ne doit pas
+emprunter un compte qu'elle ne possède pas*. Je note le coût, je ne le
+contourne pas.
+
+### Le plancher n'a rien refusé de neuf
+
+Vœux 259 → **261**, ouvertures 81 → **83**, remplissages 736 → **741**.
+Refus au plancher **171**, et **1 349 USD** de notionnel jamais ouvert —
+les deux chiffres **identiques** à ceux de l'heure précédente. Les deux
+vœux nouveaux sont devenus deux ouvertures. L'identité `83 + 171 + 7
+(rejet) = 261` boucle exactement ; les 7 `arrondi` chevauchent, par
+construction, puisque ce compteur n'interrompt pas la boucle.
+
+### Ce que je change, et ce que je ne change pas
+
+**Je ne déploie pas.** Le carnet a une espérance mesurée négative à 5,6
+erreurs types ; en corriger la composition est interdit par le §10, et
+poser une règle « deux verdicts consécutifs avant de dimensionner » sur
+**une seule** paire observée serait poser un seuil sur une quantité lue
+une fois. Le moteur ne s'arrête pas ce tour-ci.
+
+**Je change le relevé, et cela ne coûte rien au moteur.** Le workflow est
+lu par Actions dans le dépôt, jamais installé sur la machine : le
+modifier n'arrête pas une seconde de moteur. J'ajoute une fenêtre qui
+projette chaque verdict sur les six quantités qui montrent la déflation
+— heure, horloge, verdict, signature, `net`, `seuil`, `instants`,
+`gardee` — sur **vingt-quatre heures** et quarante lignes, là où la
+fenêtre complète n'en tient que quatorze sur douze heures. C'est ce qui
+transformera « une paire observée » en un comptage, et c'est seulement
+alors qu'un seuil sera légitime. La projection est testée hors ligne sur
+les lignes réelles, le fichier repasse à quatre apostrophes, le YAML et
+le shell sont vérifiés.
+
+**Je garde le rappel à une heure.** La question du prochain relevé est
+nette : le verdict 5m de ~13h55 doit dire si le `net` continue de
+descendre vers la ligne de fond des autres horloges (~+5 bps) ou s'il se
+stabilise vers +18. Et la 3m, passée en `h1` à 12h50 avec +21,83 sur un
+barreau de 17,5, aura son propre verdict vers 13h50 : c'est une
+deuxième paire, indépendante, sur le même mécanisme.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -3434,6 +3589,18 @@ sans le frein ni le rodage.
 ---
 
 ## 10. Règles de conduite
+
+- **Une pente bien estimée certifie l'étalonnage, pas l'ampleur.** Une
+  pente à l'unité avec une erreur type minuscule dit que ce qui est
+  annoncé l'est à la bonne échelle ; elle ne dit rien de la stabilité
+  du net après coûts et prime de sélection. Le 29 août la pente a
+  survécu (1,11±0,02 → 1,15±0,04) pendant que le net était divisé par
+  trois sur la même cellule. Ne jamais faire cautionner une quantité
+  par la précision d'une autre.
+- **`gardee` préserve l'étiquette, pas le prédicteur.** Une cellule
+  conservée par l'hystérésis est refit à chaque cycle : même
+  signature, modèle différent. La rotation des signatures n'est donc
+  pas une mesure suffisante de l'instabilité.
 
 Elles ne se négocient pas, et elles ont toutes été écrites après avoir
 été tentées :
