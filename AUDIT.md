@@ -4050,6 +4050,91 @@ en produit-elle d'autres, et à quel rendement ; et combien de sélections
 fraîches nouvelles, pour que le « sept sur huit près du barreau, une à
 huit fois » devienne un comptage plutôt qu'une anecdote.
 
+### Trente-sixième lecture, 19h33 — séparer les fraîches acceptées des fraîches refusées, et le plancher qui remord autrement
+
+**Je mélangeais deux populations.** Hier j'ai donné « huit sélections
+fraîches, sept près du barreau et une à 7,94 ». Mais une sélection
+fraîche peut être **acceptée** ou **refusée** : une fraîche `veto` n'est
+pas une cellule que la porte a laissé passer, c'est l'hystérésis qui a
+lâché et un nouveau meilleur candidat qui échoue quand même. Les
+mélanger n'apprend rien. Séparées, avec la dixième arrivée à 18h51 :
+
+```
+fraiches et LIVE (4)                    fraiches et VETO (5)
+  16:58  5m  ens/h3/abs    +1,021         18:51  3m   mlp/h1/abs   -0,273
+  16:51  3m  mlp/h3/abs    +1,039         18:06  15m  ridge/h1/abs -0,118
+  13:57  5m  ens/h3/neu    +1,094         17:06  15m  mlp/h6/abs   +0,434
+  16:07  15m mlp/h1/abs    +7,941         14:59  5m   ens/h3/abs   +0,553
+                                          16:00  5m   mlp/h3/neu   +0,750
+```
+
+**Parmi les quatre cellules que la porte a fraîchement acceptées, trois
+sont entre 1,02 et 1,09 fois le barreau — elles ont raclé — et une est à
+7,94.** Le domaine d'acceptation est `[1, +∞)` et la masse est collée
+contre 1. C'est exactement la forme qu'on attend si les Sharpe sous-
+jacents vivent autour du barreau : on n'accepte que la queue droite, et
+elle est mince. Sauf une fois.
+
+Quatre observations ne fondent aucun seuil, et je n'en pose aucun. Mais
+la forme est maintenant lisible et c'est le comptage qui tranchera.
+
+### Le barreau tient sa loi
+
+Quatre paires nouvelles, écarts entre `barreau_après/barreau_avant` et
+`√(inst_avant/inst_après)` de **0,00 %, 0,05 %, 0,08 % et 0,54 %**. Avec
+les quinze d'hier, **dix-neuf paires** et aucune au-dessus de 0,88 %. Le
+barreau déflaté est une fonction pure de la taille d'échantillon, et
+c'est établi.
+
+### Le plancher remord, et pas de la façon dont je le racontais
+
+Après sept heures immobile, il a bougé : vœux **274 → 277**, ouvertures
+**96 → 96**, refus au plancher **171 → 174**. Les trois vœux nouveaux
+sont morts sous le plancher, tous les trois.
+
+Mais le notionnel refusé ne monte que de **1 349 à 1 353 USD** — quatre
+dollars pour trois jambes, soit **1,33 USD la jambe**. Les cent
+soixante-et-onze précédentes valaient **7,89 USD** en moyenne. Le
+plancher vaut `max(10 ; 0,2 % de 9 221,75)` = **18,44 USD**.
+
+**Ces trois-là sont quatorze fois sous le plancher.** Ce ne sont pas des
+jambes que le plancher ampute de peu : ce sont des jambes que la règle
+propose **à un dollar pièce**. J'ai passé plusieurs relevés à traiter le
+plancher comme le coupable ; sur ces trois-ci il ne l'est pas, c'est la
+taille proposée qui l'est.
+
+Trois jambes ne concluent rien sur une tendance. L'arithmétique, elle,
+est exacte, et elle distingue deux régimes que je confondais : *refusé
+de peu* et *proposé pour rien*.
+
+### Le reste : rien
+
+Aucune ouverture, aucune clôture. `live_rule` **n=329 à −15,886 bps**,
+soit **−5,74 σ** — inchangé. `en risque` n=261 à −19,5. Équité
+**9 221,75**, brut −55,30, frais −61,58, remplissages 767 : tout
+identique au relevé précédent. `n_carre` **26**, `t_direct` 0,0,
+`frein_mesure` 1,0 — quatre observations manquantes.
+`halted_today` faux, `killed` faux.
+
+Une seule horloge validée, `hz=['1m']`, et elle est **exactement sur son
+barreau** : `sr=+0,101 vs bar=0,101`. La 3m, la 5m, la 15m et la 1H sont
+toutes en veto. Le carnet ne peut proposer que par la 1m, et la 1m ne
+propose plus qu'à un dollar.
+
+### Ce que je ne fais pas
+
+**Aucun déploiement.** Rien de neuf ne l'exige : la loi du barreau est
+une mesure, la forme des acceptations fraîches est un comptage de
+quatre, et la taille des jambes refusées est une observation de trois.
+On ne touche pas à une porte, ni à un plancher, sur des comptages
+pareils — et surtout pas sur un carnet dont l'espérance mesurée est
+négative à 5,7 erreurs types.
+
+**Rappel à une heure.** Trois questions : combien de fraîches
+**acceptées** nouvelles, pour que « trois collées à 1, une à 8 » devienne
+un comptage ; les jambes proposées restent-elles à un dollar ; et
+`n_carre` atteint-il 30.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -4168,6 +4253,19 @@ sans le frein ni le rodage.
 ---
 
 ## 10. Règles de conduite
+
+- **Ne pas mélanger deux populations dans un même comptage.** « Huit
+  sélections fraîches, sept près du barreau et une à 7,94 » mélangeait
+  les acceptées et les refusées. Séparées, l'énoncé devient net : parmi
+  les quatre acceptées, trois ont raclé le barreau et une était à huit
+  fois. Avant de compter, demander de quelle population chaque ligne
+  vient.
+- **« Refusé de peu » et « proposé pour rien » ne sont pas le même
+  problème.** Les trois jambes refusées le 29 août au soir valaient
+  1,33 USD contre un plancher de 18,44 — quatorze fois dessous, quand
+  les cent soixante-et-onze précédentes valaient 7,89. Un même compteur
+  de refus recouvre deux régimes ; lire le notionnel, pas seulement le
+  compte.
 
 - **Une observation répétée est datée : la redire, c'est la revérifier.**
   « La 3m et la 5m n'ont jamais ouvert une jambe » a été vraie quatre
