@@ -2561,6 +2561,104 @@ est doublement infirmée.
 **Le suiveur** : toujours trois occurrences dans la campagne, deux dans
 la fenêtre de vingt-quatre heures. Pas de quatrième.
 
+### Dix-neuvième lecture, 00h46 — l'aberration s'évapore, ma prédiction tombe, et le compte perd plus vite
+
+**La cellule 15m à +101 bps a disparu.** Le verdict suivant rend
+`ridge/h1/abs`, `net=+1,48 bps`, `ic=0,032`, **veto** — contre
+`mlp/h1/abs`, `net=+101,41`, `ic=0,391`, `live` une demi-heure plus
+tôt. **Troisième aberration de la campagne à s'évaporer au verdict
+suivant**, après la 1H à +226 bps (14h04) et la h=1 de 09h39. La barre
+déflatée fait son travail : ces cellules n'ont jamais tenu deux
+verdicts.
+
+**Et ma prédiction est infirmée.** J'avais écrit que si elle
+disparaissait, « le poids retombera et le plancher recommencera à
+mordre ». Il n'en est rien :
+
+| | 23h45 | 00h46 |
+|---|---|---|
+| jambes visées | 187 | 192 (**+5**) |
+| ouvertes | 53 | 58 (**+5**) |
+| refusées au plancher | 127 | 127 (**+0**) |
+
+Deuxième tranche de suite à cinq vœux, cinq ouvertures, **zéro refus**.
+La raison est dans le tableau : **BCH** porte `defl +1,4`,
+`poids +0,0363`, `USD +336` — une cellule `candle` à h=6 sur la 1m,
+pas la 15m aberrante.
+
+**Mon attribution d'hier soir était fausse.** J'avais écrit : « c'est
+très probablement elle qui porte le `defl +1,2` et les jambes à
+540 USD ». Non. J'ai lié deux faits simultanés qui ne l'étaient pas.
+Le gros poids vient des cellules `fixe` **ordinaires**, pas de
+l'aberration — et la conclusion en cascade de la dix-huitième lecture
+en sort **renforcée**, pas affaiblie : c'est bien la bascule vers
+`fixe` qui a relevé le `defl`, donc le poids, donc la taille des
+jambes au-dessus du plancher. Dix vœux, dix ouvertures, aucun refus
+sur deux tranches.
+
+### Ce qu'il faut dire franchement
+
+**Le compte perd plus vite qu'avant.**
+
+```
+equite   9 254,74 -> 9 250,81   (-3,93 USD en une heure, 14 remplissages)
+brut       -30,94 ->   -32,34
+frais      -54,05 ->   -55,44
+```
+
+Contre environ −1 USD/h auparavant, avec des jambes sept fois plus
+petites. Et le cumulé — le seul chiffre qui a le droit de conclure —
+se dégrade : **−5,06 → −5,10 → −5,17 σ** sur trois lectures.
+
+Il faut le formuler sans détour : **le durcissement de la porte a eu
+pour effet net d'augmenter la taille des positions d'une règle dont la
+mesure en direct est à 5,2 σ sous zéro.** Ce n'est pas ce que je
+visais, et c'est le contraire de ce qu'on veut. La correction était
+juste — la porte facturait une sortie impossible — mais son effet de
+second ordre, via `defl` → poids de Kelly → taille, va dans le mauvais
+sens tant que la règle perd.
+
+**Je ne défais pas le durcissement.** Annuler une correction correcte
+parce que son effet indirect déplaît serait exactement le raisonnement
+que le paragraphe 10 interdit. Ce qui est en cause n'est pas la
+facturation, c'est ce qui laisse une règle à −5 σ prendre des jambes
+plus grosses.
+
+### Ce qui devient la question centrale
+
+```
+frein 0.98   confiance 0.10   direct n=292 bps=-15.2   (-5,17 sigma)
+```
+
+Le rodage est à son **plancher** de 0,10 : il fait son travail, il ne
+peut pas faire plus. Mais le **frein de risque vaut 0,98** — il n'a
+pratiquement pas bougé — pendant que la mesure en direct est à cinq
+écarts types sous zéro depuis une dizaine d'heures. **Une règle mesurée
+si nettement perdante devrait voir sa taille écrasée, et elle ne l'est
+pas.** C'est la prochaine chose à instruire, et ce serait un
+durcissement, donc légitime. Je l'écris ; je ne touche à rien avant de
+l'avoir lu dans le code.
+
+### Le reste
+
+**Première exception à la bascule, et elle ne compte pas vraiment.** À
+00h44 la **1H** retient `ridge/h3/neu` en `3sig/suiv` — le premier
+`suiv` depuis 20h47. Mais elle **veto** (`net=+12,90` contre un seuil
+de 10,8, `pente=0,78±0,61`), et c'est l'horloge la moins active du
+panel (`parjour=1,9`). Les quatre horloges qui tradent — 1m, 3m, 5m,
+15m — restent toutes en `4sig/fixe`, quinze verdicts sur quinze. Ce
+n'est donc pas un contre-exemple sur une horloge qui joue.
+
+**La part gagnante** : 15 % → 20 % → **20-21 %**. Trois lectures
+cohérentes, mais le recouvrement reste d'environ 82 % : ce n'est
+toujours pas trois échantillons indépendants, c'est une même fenêtre
+qui glisse lentement dans la bonne direction.
+
+`en risque` n=224 à −19,3. Équité 9 250,81 en 690 remplissages.
+`halted_today` faux, `killed` faux — le recul du jour vaut −0,54 %
+contre une limite de 8 %, et le recul depuis le sommet −10,3 % contre
+un arrêt à 25 %. **Pas de quatrième sortie au suiveur.**
+
 ---
 
 ## 8. Ce qui reste ouvert
