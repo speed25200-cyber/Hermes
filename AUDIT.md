@@ -3206,6 +3206,28 @@ d'autre qu'attendre qu'il ait ses trente.** `t_direct` 0,0,
 `en risque` n=247 à −19,9. Frais −60,55, 735 remplissages, `frein_risque`
 0,95, `halted_today` faux, `killed` faux.
 
+### Vingt-septième lecture, 08h19 — rien. Et c'est tout ce qu'il y a à en dire
+
+Le relevé est **identique au caractère près** à celui de 07h18 :
+`live_rule` n=315 à −16,047, `n_carre` 12, équité 9 222,14, brut −55,94,
+frais −60,55, 735 remplissages, 258 vœux, 80 ouvertures, 171 refus,
+attribution inchangée. **Zéro remplissage en une heure.**
+
+Le moteur vit — `n_entrees` passe de 6 893 à 6 966, les décisions de
+3 397 à 3 495, le service est actif, le desk tourne à `calcul` 6,6-6,9 s
+— mais une seule horloge est validée (`hz=['5m']`, `net=+9,21`) et elle
+n'a rien proposé.
+
+**Donc la part gagnante de 32 % n'est pas une dixième lecture : c'est la
+même.** La règle que je me suis donnée s'applique littéralement — relire
+deux fois le même échantillon ne le confirme pas — et je note la valeur
+sans l'ajouter à la série.
+
+Ni nouveau `SL` ni quatrième `TRAIL`. Le `SL 527` de 06h07 vient de
+sortir de la fenêtre de deux heures ; les deux `TRAIL` du 28 restent dans
+celle de vingt-quatre. `frein_mesure` 1,0, `t_direct` 0,0, aucune ligne
+`explore`. `halted_today` faux, `killed` faux.
+
 ---
 
 ## 8. Ce qui reste ouvert
