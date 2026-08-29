@@ -3580,6 +3580,135 @@ jamais ouvert une jambe) ; la 3m ou la 5m ouvrent-elles enfin quelque
 chose ; et combien de paires nouvelles à signature identique, pour faire
 monter le comptage de l'anticorrélation au-dessus de six.
 
+### Trente-deuxième lecture, 15h28 — les trois questions ont une réponse, et j'avais tort sur la quatrième
+
+**Question 1 — la 1m est-elle revenue ? Oui**, à 14h46, `live [mlp/h6/abs]
+net=+5,82 seuil=9,1 gardee`. Et elle est désormais **la seule** :
+`hz=['1m']`. La 3m est passée en veto à 14h52, la 5m à 14h59.
+
+**Question 2 — la 3m ou la 5m ont-elles ouvert quelque chose ? Non, et
+c'est maintenant définitif.** La 3m a été validée de 11h50 à 14h52, la 5m
+de 11h55 à 14h59 : **trois heures chacune, zéro jambe**. Les huit
+ouvertures de l'heure portent toutes `h=6`, comme les vingt précédentes.
+Sur douze heures, **toutes les ouvertures sans exception viennent de la
+1m** — l'horloge à la signature la plus stable et au net le plus modeste
+(+5,8). Les deux horloges aux chiffres spectaculaires n'ont jamais rien
+produit.
+
+### La 3m, trois lectures de la même signature
+
+```
+12:50  3m [mlp/h1/abs]  net=+21,83  instants=1330
+13:50  3m [mlp/h1/abs]  net=+37,11  instants= 901   gardee
+14:52  3m [mlp/h1/abs]  net= +1,89  instants=1603   gardee
+```
+
+Un facteur **vingt** entre deux lectures consécutives de ce que la porte
+appelle la même règle conservée. Rien de ce que j'ai écrit sur
+l'instabilité des cellules n'était aussi net que ces trois lignes.
+
+Sur les **45 verdicts** de la fenêtre, les changements de signature par
+transition : 1H **0/8**, 15m **0/8**, 1m **0/8**, 5m **3/8**, 3m **6/8**.
+
+### Et l'anticorrélation s'affaiblit quand on la compte mieux
+
+Deux paires nouvelles, donc **8 paires** à instants réellement mobiles au
+lieu de 6. Le résultat va dans le mauvais sens pour mon hypothèse :
+
+| jeu | n | r |
+|---|---|---|
+| toutes les paires | 31 | −0,791 |
+| sans la paire extrême 5m de 06h56 | 30 | −0,667 |
+| instants bougeant de >5 % | 8 | −0,815 |
+| **idem sans l'extrême** | **7** | **−0,681** *(était −0,813 sur 6)* |
+
+Et le test de signe est **6 sur 8** dans le sens attendu — deux paires
+(1m 06h44→07h45, 5m 09h55→10h58) ont le net et les instants qui baissent
+**ensemble**. Six sur huit vaut p ≈ 0,14 : rien.
+
+**Ajouter deux paires a affaibli la preuve, pas renforcé.** L'hypothèse
+garde son mécanisme — seuil libellé en sigmas, refit qui change
+l'échelle — mais elle n'est pas établie, et je l'écris parce que c'est le
+contraire de ce que j'espérais lire.
+
+### Deuxième `SL`, et le stop fixe tient encore
+
+```
+14:47:24  ouverture ZEC-USDT-SWAP −0,030000 @ 827,257500  (candle −8,6bps h=6)
+14:47:43  scalp SL 185bps ZEC-USDT-SWAP −0,030000 @ 842,660000
+```
+
+**Dix-neuf secondes.** ZEC est monté de 1,86 % contre un court, et le
+stop a payé **186,19 bps** contre **185 armés** — un dépassement de
+**+0,64 %**. Le premier `SL` (TRUMP) avait tenu à +0,9 %. Les deux stops
+fixes touchés de la campagne ont donc tenu leur largeur à moins de 1 %
+près, là où les trois suiveurs dépassaient de 3 à 27 %.
+
+Trois recoupements indépendants sur ce seul stop : mon calcul depuis les
+prix remplis donne **−193,19 bps** nets ; la table d'attribution (2 `SL`
+à −366,0 de moyenne, le premier valant −538,7) impose **−193,3** ; les
+deux se rejoignent. La règle a immédiatement re-shorté ZEC à 14h48:10 @
+839,7075 et **cette jambe-là a gagné** (+39,27 bruts).
+
+### La chaîne, recoupée sur huit jambes et six instants
+
+| instant | jambes | moyenne nette |
+|---|---|---|
+| 14:47:43 | ZEC (SL) | **−193,19** |
+| 14:53:39 | SOL + BCH | −3,57 |
+| 14:54:37 | ZEC | +32,27 |
+| 14:55:37 | LTC | −3,44 |
+| 15:02:32 | SOL + PUMP | −6,82 |
+| 15:11:38 | ZEC | +47,01 |
+| **moyenne** | | **−21,290** |
+
+Le cumulé passant de n=318 / −15,857 à n=324 / −15,959 **impose**
+−21,333. Écart **0,043 bps**. Huit jambes, six instants — les deux
+paires simultanées comptent pour un instant chacune, et `jambes` passe
+bien de 347 à 355.
+
+### Le cumulé
+
+`live_rule` **n=324 à −15,959 bps**, soit **−5,72 σ**. `en risque` n=256
+à −19,7. Équité **9 222,94**, brut réalisé −54,46, frais **−61,22** — les
+frais dominent toujours. Vœux **269**, ouvertures **91**, remplissages
+**757**. Le plancher n'a **rien** refusé de neuf (171 et 1 349 USD
+inchangés) : les huit vœux nouveaux sont devenus huit ouvertures.
+`halted_today` faux, `killed` faux.
+
+Le glissement d'entrée moyen bascule de +0,19 à **−0,22 bps** sur 371
+ouvertures : les huit nouvelles ont été remplies environ 19 bps en notre
+faveur, dans un marché qui bougeait de 1,86 % en dix-neuf secondes. La
+porte facture **+0,00** — elle refuse de se créditer d'un glissement
+favorable, et c'est la bonne convention.
+
+### Ce que j'ai écrit il y a une heure et qui était faux
+
+J'avais écrit du frein de mesure : *« il n'en gagnera plus aucune »*. Il
+en a gagné **six** dans l'heure : `n_carre` **15 → 21**. La 1m est
+revenue validée et le carnet a rouvert.
+
+L'erreur n'est pas d'avoir mal prévu, c'est d'avoir **conjugué au futur
+une conséquence tirée d'un état qui bascule d'une heure sur l'autre**.
+La 1m a fait trois bascules validé/veto en huit transitions dans la
+fenêtre même que je lisais. J'avais le compteur sous les yeux et j'ai
+traité une lecture comme un état terminal. Règle ajoutée au §10.
+
+Ce qui reste vrai, et qu'il fallait dire ainsi : le frein n'avance que
+lorsque la 1m est validée, et il lui manque **neuf** observations.
+
+### Ce que je ne fais pas
+
+**Aucun déploiement.** Rien de neuf ne le demande : l'anticorrélation
+s'est affaiblie plutôt que confirmée, le fait majeur (3m et 5m ne
+produisent rien) est une observation à poursuivre et non un défaut à
+corriger, et l'espérance mesurée reste négative à 5,7 erreurs types — le
+§10 interdit d'en retoucher la composition.
+
+**Rappel à une heure.** Trois questions : la 1m tient-elle sa validation
+(c'est la seule qui trade) ; le frein atteint-il 30 ; et les paires
+nouvelles font-elles remonter ou descendre encore le comptage.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -3698,6 +3827,18 @@ sans le frein ni le rodage.
 ---
 
 ## 10. Règles de conduite
+
+- **Ne pas conjuguer au futur une conséquence tirée d'un état qui
+  bascule d'une heure sur l'autre.** Le 29 août j'ai écrit que le frein
+  de mesure « n'en gagnera plus aucune » observation parce que la 1m était
+  en veto ; il en a gagné six dans l'heure. La 1m avait fait trois
+  bascules en huit transitions dans la fenêtre que je lisais au même
+  moment. Dire « tant que X » et non « désormais ».
+- **Compter mieux peut affaiblir une hypothèse, et il faut l'écrire.**
+  Passer de six à huit paires a fait tomber le r de −0,81 à −0,68 et
+  laissé un test de signe à 6/8 (p ≈ 0,14). Une hypothèse qui perd du
+  terrain quand l'échantillon grandit doit être rapportée comme telle,
+  pas reconduite parce qu'elle a un joli mécanisme.
 
 - **Une question posée sur « la prochaine lecture de cette cellule »
   n'est testable que si la cellule survit.** Le 29 août j'ai demandé si
