@@ -3228,6 +3228,46 @@ sortir de la fenêtre de deux heures ; les deux `TRAIL` du 28 restent dans
 celle de vingt-quatre. `frein_mesure` 1,0, `t_direct` 0,0, aucune ligne
 `explore`. `halted_today` faux, `killed` faux.
 
+### Vingt-huitième lecture, 10h19 — trois heures sans un trade, et ce que cela révèle du frein
+
+Troisième relevé identique : `live_rule` n=315 à −16,047, `n_carre` 12,
+équité 9 222,14, brut −55,94, frais −60,55, 735 remplissages, 258 vœux,
+171 refus, attribution inchangée. **Aucun remplissage depuis 06h23.**
+
+**Un point de conception que ces trois heures mettent au jour.**
+`n_carre` ne monte qu'aux **fermetures**. Si le carnet reste vide, le
+frein de mesure reste inerte **indéfiniment** — il ne s'activera jamais
+par le seul passage du temps. Ce n'est pas un défaut : un carnet vide ne
+perd rien, donc il n'y a rien à freiner. Mais il faut le dire
+explicitement, parce que j'ai passé quatre lectures à annoncer des dates
+d'activation comme si elles dépendaient de l'horloge. **Elles dépendent
+de l'activité.** Le frein est un dispositif pour un régime actif ; il
+attendra que le moteur reprenne, et c'est tout.
+
+**Une quatrième aberration, évaporée elle aussi.** La fenêtre 1m sur
+douze heures porte une ligne
+`live [mlp/h1/abs] net=+12,97bps/trade sr=+0,184 pente=1,69±0,05
+profil=+0,03/+0,08/+0,51 parjour=95,9 gainjour=+833bps`. Les deux
+verdicts 1m qui suivent (08h46, 09h44) sont `veto` à +2,82 et +4,18, en
+`mlp/h6/abs`. Elle n'a pas tenu — comme la 1H à +226, la h=1 de 09h39 et
+la 15m à +101. **Quatre sur quatre.** La barre déflatée fait son travail
+avec une régularité qui mérite d'être notée pour elle-même.
+
+**Ce que la rafale de TRUMP montre, rétrospectivement.** Le journal de
+douze heures porte, entre 04h46 et 06h23, **douze ouvertures
+consécutives sur le seul TRUMP**, de 3,026 à 2,700, à 154-182 unités
+(460-550 USD la jambe). C'est cette rafale qui a produit le `SL 527`, et
+c'est elle qui a fait tout le brut de la journée. Depuis, plus rien. La
+concentration sur un nom que la huitième lecture avait cherchée puis
+infirmée sur vingt ouvertures existe bel et bien — mais par épisodes,
+pas en régime.
+
+Le `SL 527` est sorti de la fenêtre de deux heures, le `TRAIL 227` de
+celle de vingt-quatre : il ne reste que le `TRAIL 85` du 28. Huit noms
+écartés à 04h39 faute d'historique (XAG, NVDA, LIGHT, CHIP, EDEN, MSTR,
+BICO, INTC), ONDO admis. `frein_risque` 0,952, `frein_mesure` 1,0,
+`t_direct` 0,0, `halted_today` faux, `killed` faux.
+
 ---
 
 ## 8. Ce qui reste ouvert
