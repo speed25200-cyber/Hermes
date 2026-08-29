@@ -3471,6 +3471,115 @@ stabilise vers +18. Et la 3m, passée en `h1` à 12h50 avec +21,83 sur un
 barreau de 17,5, aura son propre verdict vers 13h50 : c'est une
 deuxième paire, indépendante, sur le même mécanisme.
 
+### Trente-et-unième lecture, 14h26 — ma prédiction était fausse, et la vraie relation est ailleurs
+
+**J'avais annoncé une déflation. La deuxième paire a fait l'inverse.** La
+cellule 3m `[mlp/h1/abs]`, sélectionnée fraîche à 12h50 avec +21,83, a
+été **gardée** à 13h50 et son net est **monté à +37,11**. Le plan écrit
+il y a une heure cède devant la mesure, et voici ce que la mesure dit à
+la place.
+
+La nouvelle fenêtre a fonctionné du premier coup : **quarante verdicts
+sur huit heures**, projetés sur les six quantités utiles. Elle permet
+enfin de compter au lieu de commenter une paire.
+
+### Ce que quarante verdicts disent de la stabilité des signatures
+
+| horloge | changements de signature | instants | net |
+|---|---|---|---|
+| 1H | **0 / 7** | 787–793 (×1,01) | +11,42…+12,23 (×1,1) |
+| 15m | **0 / 7** | 1311–1319 (×1,01) | +1,13…+1,96 (×1,7) |
+| 1m | **0 / 7** | 1259–1551 (×1,23) | +2,82…+6,27 (×2,2) |
+| 3m | **6 / 7** | 518–1757 (×3,4) | +0,59…**+37,11** (×63) |
+| 5m | **2 / 7** | 712–2551 (×3,6) | +0,24…**+55,93** (×233) |
+
+La phrase que j'avais écrite dans les commentaires du relevé — *une règle
+qui change d'identité à chaque refit n'a pas de mesure en direct du tout*
+— est maintenant **mesurée** et non plus affirmée : la 3m a eu **sept
+identités en huit heures**. Et les deux horloges qui produisent toutes
+les aberrations sont exactement les deux dont les chiffres balaient un à
+deux ordres de grandeur. Les trois horloges à signature stable ont des
+chiffres stables.
+
+### La relation qui explique les deux paires avec une seule histoire
+
+Sur les **27 paires à signature identique d'un verdict au suivant**, le
+net par trade et le nombre d'instants déclenchés bougent en sens
+**opposé** :
+
+```
+5m  11:55->12:55  net x0,33   instants x2,88
+3m  12:50->13:50  net x1,70   instants x0,68
+5m  06:56->07:57  net x38,4   instants x0,42
+5m  09:55->10:58  net x0,52   instants x0,92
+1m  07:45->08:46  net x0,61   instants x1,23
+```
+
+Corrélation de `log(instants après/avant)` contre `log(net après/avant)` :
+**r = −0,77** sur les 27 paires ; **−0,62** en retirant la paire extrême
+5m de 06h56 ; **−0,81** sur les six paires où les instants bougent de
+plus de 5 % et sans l'extrême. Les 1H et 15m ont des instants figés à
+1 % près : elles ne peuvent pas porter la relation, elles ne font qu'y
+ajouter du bruit vertical — et elle survit quand même.
+
+**Le mécanisme se nomme.** Le seuil d'entrée est libellé en **sigmas de
+la distribution prédictive du modèle**. Le refit change l'échelle de
+cette distribution. Le même nombre de sigmas correspond donc, d'une
+heure sur l'autre, à une **sélectivité économique différente** : moins de
+déclenchements, plus triés, net par trade plus haut ; plus de
+déclenchements, dilués, net par trade plus bas. Cela explique le signe
+dans **les deux** paires, ce que ma lecture « déflation » ne faisait pas.
+
+Six paires à mouvement réel ne fondent aucun seuil, et les paires
+consécutives partagent une extrémité, ce qui rend le t optimiste. C'est
+une hypothèse avec un mécanisme et une première quantification, pas une
+loi. La fenêtre est en place pour la compter.
+
+### Le fait le plus important de l'heure n'est pas là
+
+**La 1m est passée en veto à 13h45** (+4,28 contre un barreau de 9,1).
+`hz=['3m', '5m']`.
+
+Or les **vingt ouvertures** de la fenêtre de douze heures portent
+**toutes** `h=6`, et la 1m était la **seule** cellule en `h6` de toute la
+fenêtre. Les deux horloges encore validées sont la 3m et la 5m — celles
+dont l'identité change presque à chaque cycle — et **ni l'une ni l'autre
+n'a ouvert une seule jambe** depuis sa sélection, alors qu'elles
+promettent 22,9 et 11,2 trades par jour.
+
+Le carnet est donc fermé. Rien n'a bougé de l'heure : `live_rule`
+**n=318 à −15,857** (−5,63 σ) inchangé, `n_carre` **15** inchangé,
+équité **9 222,77** inchangée, vœux 261 / ouvertures 83 / remplissages
+741 inchangés, refus au plancher 171 et 1 349 USD inchangés. Aucun
+nouveau `SL`, aucun nouveau `TRAIL`. `halted_today` faux, `killed` faux.
+
+### Et cela bloque le frein de mesure une deuxième fois
+
+Le frein a besoin de **30** observations et en a **15**. Il les gagnait à
+raison de trois par heure — par les clôtures. Avec la 1m en veto il n'y a
+plus de clôtures du tout, donc **il n'en gagnera plus aucune**.
+
+Le frein de mesure est ainsi bloqué deux fois : par son seuil de trente,
+et par l'arrêt de la seule chose qui le nourrit. Un organe qui
+n'apprend que de l'activité ne peut rien dire d'un carnet à l'arrêt —
+et c'est précisément quand le cumulé est à −5,6 σ qu'on voudrait qu'il
+parle. Je note la conséquence ; je ne la contourne pas en lui faisant
+emprunter le n cumulé.
+
+### Ce que je ne fais pas
+
+**Aucun déploiement.** L'espérance mesurée reste négative à 5,6 erreurs
+types, six paires ne fondent pas un seuil, et rien de ce qui précède ne
+demande une modification du moteur pour être mesuré davantage — la
+fenêtre ajoutée à l'heure précédente suffit à accumuler les paires. Le
+moteur ne s'arrête pas ce tour-ci non plus.
+
+**Je garde le rappel à une heure.** Trois questions nettes pour le
+prochain relevé : la 1m redevient-elle validée (c'est la seule qui ait
+jamais ouvert une jambe) ; la 3m ou la 5m ouvrent-elles enfin quelque
+chose ; et combien de paires nouvelles à signature identique, pour faire
+monter le comptage de l'anticorrélation au-dessus de six.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -3589,6 +3698,16 @@ sans le frein ni le rodage.
 ---
 
 ## 10. Règles de conduite
+
+- **Une question posée sur « la prochaine lecture de cette cellule »
+  n'est testable que si la cellule survit.** Le 29 août j'ai demandé si
+  le net de la 5m continuerait de descendre ; la cellule avait été
+  remplacée, et la question n'avait plus d'objet. Poser d'abord la
+  question de la survie, ensuite celle de la valeur.
+- **Une horloge dont la signature change à chaque cycle n'a pas de
+  mesure en direct.** Mesuré le 29 août : 3m six changements sur sept
+  transitions, contre zéro pour la 1m, la 15m et la 1H — et ce sont
+  exactement les horloges instables qui produisent les aberrations.
 
 - **Une pente bien estimée certifie l'étalonnage, pas l'ampleur.** Une
   pente à l'unité avec une erreur type minuscule dit que ce qui est
