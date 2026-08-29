@@ -3165,6 +3165,47 @@ pas la taille qui varie, c'est le **nombre de noms qui parlent**.
 le recul du jour reste très en deçà des 8 %. **Pas de quatrième sortie
 au suiveur.**
 
+### Vingt-sixième lecture, 07h18 — une heure calme, et je la rapporte comme telle
+
+Trois remplissages, un vœu, zéro refus. **Il ne s'est presque rien
+passé**, et cette lecture sera courte : gonfler le compte rendu d'une
+heure morte serait exactement la façon de rendre les lectures illisibles
+le jour où il se passera quelque chose.
+
+**L'accident du `SL` était bien un accident.** Le brut réalisé remonte
+de −59,01 à **−55,94** (+3,07 USD) et l'équité de 9 218,47 à
+**9 222,14**. Le σ suit : **−5,80 → −5,67**.
+
+| lecture | n | bps | σ |
+|---|---|---|---|
+| 05h17 | 308 | −14,47 | −5,06 |
+| 06h17 | 313 | −16,45 | −5,80 |
+| **07h18** | **315** | **−16,05** | **−5,67** |
+
+Deux lectures, et je ne conclus rien — d'autant que la règle écrite
+l'heure dernière vaut dans les deux sens : une jambe suffit à déplacer
+la moyenne de deux points, donc la récupération partielle n'est pas plus
+concluante que la chute ne l'était.
+
+**Ni nouveau `SL`, ni quatrième sortie au suiveur.** Le journal de
+vingt-quatre heures porte exactement trois lignes de stop : `TRAIL 227`
+et `TRAIL 85` du 28, et le `SL 527` de 06h07. Toutes trois appariées et
+vérifiées.
+
+**Le frein de mesure : j'arrête de prédire son activation.** `n_carre`
+vaut 12 — il est monté de 5, puis de 2. J'ai annoncé six heures, puis
+dix, puis quatre ; la cadence des instants suit le nombre d'horloges
+validées, qui varie d'un facteur six d'une heure à l'autre. **La bonne
+réponse est que je ne sais pas quand, et qu'il n'y a rien à faire
+d'autre qu'attendre qu'il ait ses trente.** `t_direct` 0,0,
+`frein_mesure` 1,0, aucune ligne `explore`.
+
+**La part gagnante remonte** : 15 → 20 → 21 → 18 → 24 → 28 → 29 → 26 →
+**32 %**. Neuf lectures ; c'est la plus haute de la série.
+
+`en risque` n=247 à −19,9. Frais −60,55, 735 remplissages, `frein_risque`
+0,95, `halted_today` faux, `killed` faux.
+
 ---
 
 ## 8. Ce qui reste ouvert
