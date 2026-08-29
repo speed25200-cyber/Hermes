@@ -3073,6 +3073,98 @@ descend, lentement, avec le recul depuis le sommet. 722 remplissages.
 suiveur** — toujours trois dans la campagne, deux dans la fenêtre de
 vingt-quatre heures.
 
+### Vingt-cinquième lecture, 06h17 — le premier stop fixe touché, et il a parfaitement tenu
+
+**Un `SL` apparaît pour la première fois de la campagne**, et il coûte
+plus cher à lui seul que les trois sorties au suiveur réunies :
+
+```
+attribution sur les 38 dernieres fermetures mesurees
+  time-stop      37      -10,9    -15,34   10/37   27%
+  SL              1     -538,7    -20,58    0/1     0%
+```
+
+L'appariement est direct dans le journal :
+
+```
+06h06:33  ouverture  TRUMP +140,900000 @ 2,863250  (candle +10,2bps h=6)
+06h07:58  scalp SL 527bps TRUMP +140,900000 @ 2,711000
+```
+
+| | valeur |
+|---|---|
+| perte brute | **531,7 bps** |
+| largeur armée | **527** |
+| dépassement | **+4,7 bps (+0,9 %)** |
+| recoupement | 531,7 + 7,0 de frais = **538,7** — exactement l'attribution |
+
+**Le stop a parfaitement tenu.** Moins d'un pour cent de dépassement,
+contre **+27 %** pour le suiveur sur ce même nom le 28 au matin. C'est un
+point **en faveur** de la bascule vers `fixe` que le durcissement a
+provoquée, et c'est le **troisième recoupement exact** de la chaîne de
+mesure — trois fois de suite, prix remplis plus frais aller-retour
+retombent à la décimale sur ce qu'annonce la table.
+
+**Ce qui a coûté, ce n'est pas l'exécution, c'est le marché et la
+taille.** TRUMP est passé de 2,9503 à 2,7110 en quatorze minutes, soit
+**−8,1 %**. Le stop a fait exactement son travail : couper à 527 bps au
+lieu de laisser courir. Mais 527 bps sur un notionnel de 403 USD font
+**−21,45 USD** d'un coup.
+
+**Et le moteur a rouvert TRUMP deux fois dans les dix minutes
+suivantes** — à 06h08:25 en long sur un signal de +39,8 bps, puis à
+06h16:06 **en court**. Trois positions sur le même nom pendant qu'il se
+disloque. Je le note sans le commenter davantage : c'est peut-être
+exactement ce que la règle doit faire dans une dislocation, et je n'ai
+pas de quoi trancher.
+
+### La leçon sur la moyenne, et elle est sévère
+
+| lecture | n | bps | σ |
+|---|---|---|---|
+| 02h53 | 299 | −15,08 | −5,19 |
+| 04h15 | 303 | −14,60 | −5,06 |
+| 05h17 | 308 | −14,47 | −5,06 |
+| **06h17** | **313** | **−16,45** | **−5,80** |
+
+**Trois lectures d'amélioration effacées par un seul événement.** Le bps
+recule de 1,98 point — sur trois cent treize instants — parce qu'une
+jambe a perdu 531 bps. Je n'avais rien conclu de la série montante, et
+c'était la bonne prudence ; mais il faut en tirer la règle explicite :
+**une moyenne sur trois cents instants se déplace de deux points de base
+par une seule jambe.** Toute « tendance » lue sur trois lectures
+consécutives de cette moyenne est à la merci du prochain accident.
+
+Le brut réalisé passe de −31,46 à **−59,01** — presque doublé en une
+heure — et l'équité de 9 246,67 à **9 218,47**. Le `frein_risque` réagit,
+lui, et descend à **0,95**.
+
+### Le frein de mesure, et ma cadence deux fois fausse
+
+```
+"n_carre": 10        "t_direct": 0.0        "frein_mesure": 1.0
+```
+
+Toujours inerte, mais il monte de **cinq par heure**, pas 2,4 : il aura
+ses trente instants vers **10h20 UTC**, pas 15h30. J'ai d'abord été deux
+fois trop optimiste (six heures), puis deux fois trop pessimiste. La
+cadence des instants n'est pas stable — elle suit le nombre d'horloges
+validées — et il faut cesser de la prédire à partir d'une seule tranche.
+
+**La cadence des vœux est retombée** : 5 sur la tranche, contre 33 puis
+19, et **zéro refus au plancher** (171 inchangé). Le flot de
+propositions oscille donc entre 5 et 33 par heure selon le nombre
+d'horloges validées — ce qui confirme la lecture précédente : ce n'est
+pas la taille qui varie, c'est le **nombre de noms qui parlent**.
+
+**La part gagnante baisse pour la première fois** : 15 → 20 → 21 → 18 →
+24 → 28 → 29 → **26 %**. Huit lectures.
+
+`en risque` n=245 à −20,5. Glissement +0,30 bps sur 359 ouvertures
+(médiane −0,67). 732 remplissages. `halted_today` faux, `killed` faux —
+le recul du jour reste très en deçà des 8 %. **Pas de quatrième sortie
+au suiveur.**
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -3223,6 +3315,11 @@ Elles ne se négocient pas, et elles ont toutes été écrites après avoir
   donne la confiance sans la preuve. Toute contre-epreuve doit MORDRE,
   et si elle ne mord pas c'est le test qu'il faut renforcer, pas la
   contre-epreuve qu'il faut abandonner ;
+- une moyenne sur trois cents instants se deplace de deux points de
+  base par UNE SEULE jambe : toute tendance lue sur trois lectures
+  consecutives de cette moyenne est a la merci du prochain accident, et
+  la prudence de ne rien conclure vaut aussi quand le mouvement va dans
+  le bon sens ;
 - une quantite qui ne se lit nulle part ne sert a rien : ajouter une
   mesure au snapshot sans l'afficher, c'est refaire le defaut des
   `continue` muets sur son propre instrument — verifier l'affichage EN
