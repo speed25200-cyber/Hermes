@@ -2659,6 +2659,100 @@ qui glisse lentement dans la bonne direction.
 contre une limite de 8 %, et le recul depuis le sommet −10,3 % contre
 un arrêt à 25 %. **Pas de quatrième sortie au suiveur.**
 
+### Vingtième lecture, 01h47 — le frein ne regarde pas la mesure, et c'est écrit dans le code
+
+**`_risk_scale` (`engine.py:1309-1326`) ne lit que trois nombres** :
+l'équité, le sommet d'équité et l'équité d'ouverture du jour. Il les
+compare à `max_drawdown_pct` (25 %) et `daily_loss_limit_pct` (8 %) à
+travers un `taper` qui vaut 1,0 tant que la perte reste sous 40 % de la
+limite, puis descend linéairement jusqu'à 0,25 à 85 % de la limite.
+
+**Il ne touche jamais `live_stats`.** La mesure en direct de la règle
+— n=296 à −15,2 bps, 5,2 σ sous zéro — n'entre nulle part dans ce
+calcul.
+
+L'arithmétique reproduit le chiffre affiché exactement :
+
+```
+recul depuis le sommet   10,260 %   limite 25 %   declenche a 10,00 %  -> taper 0,977
+recul du jour             0,536 %   limite  8 %   declenche a  3,20 %  -> taper 1,000
+frein = min(0,977 ; 1,000) = 0,98
+```
+
+Le frein à 0,98 vient **entièrement** du recul depuis le sommet, qui
+vient tout juste de franchir son seuil de déclenchement. Le recul du
+jour n'y est pour rien. Et pour que le frein atteigne son plancher de
+0,25, il faut un recul de **21,25 %** depuis le sommet — c'est-à-dire
+une équité de **8 118 USD**, soit 1 132 de plus à perdre.
+
+**L'autre organe, lui, écoute — et il est saturé.** `_confiance`
+(`engine.py:1669-1691`) est le seul qui lit la mesure : `n < 30 → 0,1`,
+`bps ≤ 0 → 0,1`, sinon montée vers 1,0 à n=130. Avec n=296 et
+bps=−15,2, il rend **0,1**. Il fait exactement son travail et **il ne
+peut pas faire mieux : 0,1 est son plancher**, pas son fond.
+
+### Le défaut de conception, énoncé
+
+**Le seul organe qui écoute la mesure est saturé à son plancher ; le
+seul organe qui a de la marge n'écoute pas la mesure.** Le frein répond
+à la question « combien ai-je perdu », jamais à « ce que je joue a-t-il
+un avantage mesuré ». Une règle établie perdante à cinq écarts types
+sur près de trois cents instants conserve donc **98 % de sa taille**,
+et le seul mécanisme capable de la réduire davantage attend d'avoir
+perdu un cinquième du capital.
+
+Le rodage à 0,1 n'est pas non plus un frein : c'est un **plancher**.
+Une règle mesurée perdante garde indéfiniment un dixième de sa taille
+pleine — pour BCH, 0,10 × 3 439 = 344 USD de notionnel — et rien dans
+le système ne la ramène à zéro **sur la foi de la mesure**. Seuls les
+garde-fous de capital peuvent l'arrêter, et ce sont des garde-fous de
+capital, pas de preuve.
+
+C'est la formulation que je cherchais depuis plusieurs lectures :
+**Hermes sait mesurer qu'une règle perd, et n'a aucun organe capable
+d'en tirer la conséquence sur la taille.** La correction serait un
+frein supplémentaire indexé sur `live_rule` — donc un **durcissement**,
+donc légitime. Je ne l'écris pas ce soir : je viens de lire le code,
+et poser un barème le même quart d'heure serait exactement la
+précipitation que le paragraphe 10 interdit.
+
+### Ce que dit le relevé
+
+**La perte a nettement ralenti** : −1,10 USD cette heure contre −3,93
+la précédente, sur sept remplissages. Et il faut lire le cumulé avec
+précision :
+
+| lecture | n | bps | σ |
+|---|---|---|---|
+| 22h44 | 283 | −15,1 | −5,06 |
+| 23h45 | 287 | −15,1 | −5,10 |
+| 00h46 | 292 | −15,2 | −5,17 |
+| **01h47** | **296** | **−15,2** | **−5,21** |
+
+**Le bps a cessé de tomber** — quatre lectures à −15,1 / −15,1 / −15,2
+/ −15,2. Ce qui continue de croître est le **σ**, et il croît
+uniquement parce que n croît. Autrement dit : l'estimation ne se
+dégrade plus, c'est la **certitude qu'elle est négative** qui se
+renforce. J'ai failli écrire « la dégradation continue », ce qui aurait
+été faux.
+
+**Troisième tranche sans aucun refus au plancher** : 3 vœux, 3
+ouvertures, 127 refus inchangés. Les jambes restent grosses.
+
+**Aucune nouvelle aberration.** La seule ligne au-dessus de 50 bps dans
+la fenêtre reste celle de 23h36, qui a déjà disparu des verdicts. Les
+quatre horloges qui tradent sont en `4sig/fixe`, quatorze verdicts sur
+quatorze.
+
+**La part gagnante, quatre lectures** : 15 %, 20 %, 21 %, **18 %**.
+Elle tourne autour de 18-20 % et le recouvrement se réduit enfin — mais
+elle reste une fenêtre de quarante fermetures, et quatre lectures qui
+se chevauchent ne font toujours pas quatre échantillons.
+
+`en risque` n=228 à −19,1. Équité **9 249,71** en 697 remplissages,
+brut −32,62, frais −56,31. `halted_today` faux, `killed` faux. **Pas de
+quatrième sortie au suiveur.**
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -2708,7 +2802,19 @@ un arrêt à 25 %. **Pas de quatrième sortie au suiveur.**
    deux premières portaient 62 % de la perte brute du compte ; la
    troisième n'a coûté que 0,74 USD, parce que le rodage avait ramené
    la jambe à 77 USD.
-9. **CORRIGE le 28 au soir.** La porte facturait `c_win` = 4,75 bps —
+9. **Le frein ne regarde pas la mesure.** `_risk_scale`
+   (`engine.py:1309-1326`) ne lit que l'equite, son sommet et
+   l'ouverture du jour ; il ne touche jamais `live_stats`. Une regle
+   a −5,2 sigma garde 98 % de sa taille, et le frein n'atteint son
+   plancher de 0,25 qu'apres 21,25 % de recul depuis le sommet.
+   `_confiance` (`engine.py:1669-1691`) est le seul organe qui ecoute
+   la mesure, et il est deja sature a son plancher de 0,1 — qui est un
+   plancher, pas un fond : une regle mesuree perdante garde
+   indefiniment un dixieme de sa taille pleine. **Le seul organe qui
+   ecoute est sature ; le seul qui a de la marge n'ecoute pas.** La
+   correction serait un frein indexe sur `live_rule`, donc un
+   durcissement.
+10. **CORRIGE le 28 au soir.** La porte facturait `c_win` = 4,75 bps —
    le prix d'un take posé au carnet — à toute jambe suiveuse gagnante
    à l'horizon, alors qu'une cellule `suiv` sort au time-stop en
    taker à 7,0 (2,0 maker + 5,0 taker, `broker.py:54-55`). Écart
@@ -2723,19 +2829,19 @@ un arrêt à 25 %. **Pas de quatrième sortie au suiveur.**
    un à deux points de base en moyenne. Le corriger *durcit* la
    porte. Ce qui manque pour le chiffrer : la part des fermetures au
    temps qui finissent gagnantes.
-10. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
+11. **La cadence de la cellule retenue.** 60 à 65 trades par jour,
    et le bandeau d'anomalies dit déjà que les frais dominent le
    brut. Le holdout annonce +4,6 bps par trade après coûts, le
    direct rend −6,0 : dix points de base d'écart à instruire avant
    de toucher à quoi que ce soit.
-11. **Le retard sur la clôture de barre : répondu, et ce qui reste.**
+12. **Le retard sur la clôture de barre : répondu, et ce qui reste.**
    La question posée ici — chargement ou calcul ? — a sa réponse :
    `charge` 0,1-0,4 s, `calcul` 6,0-6,4 s. Le rechargement n'est plus
    le coût. Le total clôture → ordre vaut ~14 s sur la 1m contre 21-26
    avant, et la 5m est passée de 197 s à ~43. Ce qui reste ouvert est
    la **décision elle-même**, six secondes pour vingt noms — et elle
    n'a pas encore été instrumentée.
-12. **Le profil chronologique du Sharpe** doit dire si l'avantage est
+13. **Le profil chronologique du Sharpe** doit dire si l'avantage est
    régulier ou concentré dans la fenêtre récente. Les premiers relevés
    sont croissants, ce qui suggère de la non-stationnarité.
 
