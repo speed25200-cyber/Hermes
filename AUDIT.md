@@ -3268,6 +3268,54 @@ celle de vingt-quatre : il ne reste que le `TRAIL 85` du 28. Huit noms
 BICO, INTC), ONDO admis. `frein_risque` 0,952, `frein_mesure` 1,0,
 `t_direct` 0,0, `halted_today` faux, `killed` faux.
 
+### Vingt-neuvième lecture, 12h19 — le carnet repart, et une cinquième aberration arrive
+
+**Le moteur a rejoué**, après six heures d'immobilité : une ouverture
+SOL à 12h17:13, `−1,420000 @ 103,857500`, un **court**. Vœux 258 → 259,
+ouvertures 80 → 81, remplissages 735 → 736, position tenue au moment du
+relevé. `live_rule` reste à n=315 et `n_carre` à 12 : rien n'a encore
+été **fermé**, donc aucune série ne bouge. Trois horloges validées
+simultanément — `hz=['1m', '3m', '5m']`.
+
+### La cinquième aberration, et elle n'est pas comme les autres
+
+```
+11h55:41  clock 5m panel[20] live [mlp/h1/abs]
+  ic=0,468  net=+55,93bps/trade  sr=+0,560  seuil=40,3bps/3,5sig
+  stop=4sig/fixe  pente=1,11±0,02 (brut +1,12)
+  profil=+0,53/+0,58/+0,58  parjour=11,8  gainjour=+513bps
+```
+
+Les quatre précédentes — 1H à +226, h=1 de 09h39, 15m à +101, 1m à
++12,97 — ont toutes disparu au verdict suivant. **Celle-ci n'a pas
+encore eu son verdict suivant** : le prochain 5m tombera vers 13h. Je ne
+sais donc pas, et je le dis plutôt que de parier sur la série.
+
+**Mais elle diffère des quatre autres sur deux points qui comptent.**
+Son `profil` — le Sharpe par tiers chronologique du holdout — vaut
+`+0,53 / +0,58 / +0,58` : **plat et élevé sur les trois tiers**, pas
+concentré sur le dernier comme la 15m (`+0,03/+0,08/+0,51`). Et sa
+`pente` vaut **1,11 ± 0,02** : la relation entre ce qu'elle annonce et
+ce qu'elle réalise est estimée avec une erreur type quinze à trente fois
+plus petite que celle des autres aberrations (0,61 pour la 1H, 0,48 pour
+la 15m). Une pente à l'unité avec cette précision-là est le contraire du
+profil d'un artefact de sélection.
+
+Cela ne la valide pas — `ic=0,468` sur une horloge de cinq minutes reste
+sans précédent crédible dans cette campagne, et quatre aberrations sur
+quatre se sont évaporées. Cela veut seulement dire que **si elle
+survivait, ce serait la première à survivre, et pour des raisons
+lisibles**. C'est la question du prochain relevé, et elle vaut d'être
+posée précisément plutôt que rangée d'avance dans la série.
+
+**Le reste est immobile** : `live_rule` n=315 à −16,047 (−5,67 σ),
+`en risque` n=247 à −19,9, équité **9 222,11**, brut −55,94 inchangé,
+frais −60,58, `frein_mesure` 1,0, `t_direct` 0,0, `n_carre` 12. Ni
+nouveau `SL` ni quatrième `TRAIL` — il ne reste que le `TRAIL 85` dans
+la fenêtre de vingt-quatre heures. `halted_today` faux, `killed` faux.
+
+**Je repasse le rappel à une heure** : le carnet a repris.
+
 ---
 
 ## 8. Ce qui reste ouvert
