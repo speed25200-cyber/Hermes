@@ -4424,6 +4424,105 @@ sur une observation qui attend déjà depuis vingt-deux heures.
 je m'étais donnée au trente-septième relevé et je m'y tiens : la cadence
 suit ce qui bouge.
 
+### Quarante-et-unième lecture, 01h42 — le frein a parlé, ma prédiction était fausse, et elle l'était pour une raison que je dois écrire en entier
+
+```
+n_carre = 30     t_direct = −2,4310     frein_mesure = 1,0
+```
+
+**J'avais prédit `t_direct` ≈ −5,9 et `frein_mesure` = 0.** Le frein est
+**silencieux** : −2,43 est *au-dessus* du seuil de −2,5, donc le barème
+rend 1,0 et la taille n'est pas touchée. Vingt-deux heures d'attente pour
+un organe qui, au premier mot, dit qu'il n'a rien à dire.
+
+### Pourquoi, et c'est la chose importante de la journée
+
+Le frein calcule `t = bps / se` avec `se = √(var/n)`, où `bps` et `n`
+sont ceux du **cumulé** (−15,982 sur 333 instants) et `var` celle de ses
+**trente** points. On peut donc remonter à ce qu'il a mesuré :
+
+```
+se  = 15,982 / 2,431 = 6,574 bps
+sd  = 6,574 × √333   = 120 bps par instant
+```
+
+**Ma valeur de travail depuis vingt heures est 50,2 bps. Le moteur vient
+d'en mesurer 120.** Un rapport de **2,4**.
+
+Et c'est exactement l'écart entre les deux lectures possibles du même
+chiffre :
+
+| dispersion par instant | t du cumulé |
+|---|---|
+| **50,2** — mon hypothèse, tirée d'**une seule** lecture à n=238 et portée depuis | **−5,81 σ** |
+| **120** — mesurée par le moteur sur ses trente dernières clôtures | **−2,43 σ** |
+
+L'écart-type relatif d'une dispersion estimée sur trente points vaut
+environ **13 %** : l'intervalle du 120 ne descend pas jusqu'à 50,2. Les
+deux ne sont pas deux estimations concurrentes de la même chose — ce
+sont les dispersions de **deux régimes différents**. Les trente
+dernières clôtures contiennent le `SL` ZEC à −193, les deux jambes PUMP
+à −168 et −102, l'ENA à +86, la TRUMP à +90 : c'est une fenêtre
+violente. Le 50,2 venait d'une période calme.
+
+### Ce que cela oblige à corriger dans mes propres relevés
+
+**Je n'ai jamais mesuré la dispersion sur les 333 instants.** Je cite
+« −5,7 σ », « −5,9 σ », « −6,02 σ » depuis une journée entière sur un
+nombre dérivé une fois et reconduit comme hypothèse déclarée. Le moteur
+me donne aujourd'hui une mesure directe, sur un échantillon récent, et
+elle est 2,4 fois plus grande.
+
+La conclusion pratique ne change pas de signe : **le carnet perd, et les
+frais dominent le brut**. Ce qui change, c'est le mot « établi ». La
+bonne formulation est : *le cumulé vaut −15,98 bps sur 333 instants, et
+sa significativité est comprise entre −2,4 et −5,8 σ selon la dispersion
+retenue — laquelle n'a jamais été mesurée sur l'échantillon complet.*
+
+**À partir de maintenant je ne cite plus un sigma unique.** Je donne n et
+bps, et le t encadré par les deux dispersions nommées. Le chiffre unique
+donnait une fausse précision, et c'est moi qui l'ai fabriquée.
+
+La dispersion complète n'est pas récupérable de l'état : `carre`,
+`somme` et `n_carre` n'ont commencé à s'accumuler qu'au déploiement du
+frein — c'est précisément le défaut que j'avais trouvé et corrigé à la
+vingt-deuxième lecture. Elle deviendra représentative en grossissant.
+C'est le seul chemin honnête : attendre, et cesser d'ici là de citer
+50,2 comme s'il était mesuré.
+
+### Le frein n'a pas tort, et je n'y touche pas
+
+Il refuse d'agir parce que, sur **son** échantillon, la preuve vaut
+−2,43 σ et son seuil est −2,5. C'est le conservatisme que j'ai écrit
+délibérément : variance du sous-échantillon récent, erreur type divisée
+par le n cumulé. Il fait ce pour quoi il a été construit.
+
+**Je n'y touche pas.** Ni au seuil de −2,5 — on n'abaisse pas une porte —
+ni à la façon dont il estime sa dispersion. Il est à **0,07 σ** de son
+seuil : une seule clôture mauvaise le fera basculer, et c'est cette
+bascule-là qu'il faut observer, pas provoquer.
+
+### Le reste
+
+La clôture de l'heure : `00h34:10 TRUMP +21,000000 @ 2,656250` →
+`00h40:14 time-stop 6m @ 2,682000`, soit **+96,94 bruts, +89,94 nets**.
+Le cumulé passant de n=332 / −16,301 à n=333 / −15,982 impose
+**+89,941**. Écart **0,000 bps**.
+
+`live_rule` **n=333 à −15,982 bps**. Équité **9 217,90**, brut −58,62,
+frais −62,11. Vœux **281**, ouvertures **100**, remplissages **775**,
+plancher **174** / **1 353 USD** inchangé. Toutes les horloges sont en
+veto (la 1m est tombée à 00h46, `sr=+0,078` contre `bar=0,093`).
+
+**Une sélection fraîche**, `00h51 3m [ens/h1/abs]`, **refusée**
+(`sr/barreau = −0,494`). **Le comptage des fraîches acceptées reste à
+cinq.**
+
+### Cadence
+
+**Retour à une heure.** Une clôture est tombée, comme je m'y étais
+engagé — et surtout le frein est à sept centièmes de sigma de son seuil.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -4542,6 +4641,18 @@ sans le frein ni le rodage.
 ---
 
 ## 10. Règles de conduite
+
+- **Ne pas citer un sigma unique quand la dispersion est une hypothèse.**
+  J'ai écrit « −5,7 σ », « −6,02 σ » pendant une journée sur 50,2 bps
+  tirés d'une seule lecture ancienne ; le moteur en a mesuré 120 sur ses
+  trente dernières clôtures. Donner n et bps, et encadrer le t par les
+  dispersions nommées, tant que la dispersion de l'échantillon complet
+  n'est pas mesurée.
+- **Une prédiction fausse est un résultat, à condition d'aller chercher
+  pourquoi.** Le frein annonçait −5,9 et a sorti −2,43 : la différence
+  se remonte exactement (se = bps/t, sd = se·√n) et livre la dispersion
+  qu'il a réellement employée. Une prédiction posée d'avance vaut
+  surtout par ce que son échec permet de mesurer.
 
 - **Annoncer un chiffre avant de le voir est la seule façon honnête de
   dire qu'il n'améliore rien.** La clôture ENA à +85,67 a remonté le
