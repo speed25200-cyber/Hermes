@@ -4605,6 +4605,71 @@ seuil et se rapproche : c'est exactement le moment où il ne faut toucher
 
 **Rappel à une heure.**
 
+### Quarante-troisième lecture, 03h42 — heure vide, mais la rotation se laisse enfin voir
+
+**Rien n'a bougé.** `live_rule` **n=335 à −15,642 bps**, `n_carre` **32**,
+`t_direct` **−2,4388**, `frein_mesure` 1,0 — identiques au chiffre près.
+Équité **9 219,96**, brut −56,21, frais −62,46, vœux 283, ouvertures 102,
+remplissages 779, plancher 174 / 1 353 USD. Aucune ouverture depuis
+02h18:13, aucune clôture depuis 02h24:33. La 1m est retombée en veto à
+02h47 (`sr=+0,094` contre `bar=0,099`) : **toutes les horloges sont en
+veto**.
+
+Le `t` du cumulé, encadré : dispersion **117,4** mesurée → **−2,44** ;
+hypothèse ancienne 50,2 → **−5,70**. La dispersion n'a pas bougé non
+plus, faute de clôture pour la faire bouger.
+
+### Ce que l'heure vide permet quand même de voir
+
+Les cinq sélections fraîches de la fenêtre (19h45 → 03h12) sont **toutes
+sur la 3m** :
+
+```
+19:49  3m  ens/h1/abs  veto   0,792
+21:51  3m  mlp/h3/abs  veto   0,894
+22:51  3m  mlp/h3/abs  live   1,128
+00:51  3m  ens/h1/abs  veto  −0,494
+01:51  3m  mlp/h3/abs  veto   0,761
+```
+
+**Les quatre autres horloges n'ont pas changé de signature une seule
+fois en sept heures et demie** — toutes leurs lignes portent `gardee`.
+
+Et la suite complète de la 3m dit mieux encore ce qui se passe :
+
+```
+19:49 ens/h1/abs      20:51 ens/h1/abs gardee    21:51 mlp/h3/abs
+22:51 mlp/h3/abs      23:51 mlp/h3/abs gardee    00:51 ens/h1/abs
+01:51 mlp/h3/abs      02:51 mlp/h3/abs gardee
+```
+
+**Elle n'erre pas sur la grille de 4 860 cellules : elle oscille entre
+DEUX candidates**, `ens/h1/abs` et `mlp/h3/abs`, dont les Sharpe sont
+voisins et qui se croisent de part et d'autre de la bande d'hystérésis.
+
+C'est une correction utile à la lecture que j'en faisais. Depuis le
+trente-et-unième relevé je décris la 3m comme « six changements sur
+sept transitions », comme si elle tirait au hasard dans le grand
+catalogue. Elle fait tout autre chose : **deux cellules se disputent la
+place**, et le compteur de « changements de signature » ne distingue pas
+un va-et-vient entre deux candidates d'une errance sur des milliers. Le
+même chiffre recouvrait deux phénomènes très différents.
+
+**Le comptage des fraîches acceptées reste à cinq.** Une seule des cinq
+fraîches de la fenêtre a été acceptée, et c'est celle du 39e relevé déjà
+comptée.
+
+### Ce que je ne fais pas, et la cadence
+
+**Aucun déploiement.** Rien à corriger, et surtout pas le frein, qui est
+à six centièmes de sigma de son seuil.
+
+**Je repasse à quatre-vingt-dix minutes.** `t_direct` ne bouge que sur
+des clôtures, et toutes les horloges sont en veto : il ne peut rien se
+passer sans qu'une horloge redevienne validée d'abord. **Je reviens à
+une heure dès qu'une clôture tombe** — la règle du trente-septième
+relevé, appliquée telle quelle.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -4723,6 +4788,13 @@ sans le frein ni le rodage.
 ---
 
 ## 10. Règles de conduite
+
+- **Un compteur de « changements » ne distingue pas une oscillation d'une
+  errance.** J'ai décrit la 3m comme « six changements de signature sur
+  sept transitions », ce qui suggérait un tirage au hasard dans les
+  4 860 cellules ; la suite complète montre un va-et-vient entre DEUX
+  candidates aux Sharpe voisins. Quand un compteur bouge, regarder la
+  suite des valeurs avant d'interpréter le compte.
 
 - **Un rapport peut se rapprocher de son seuil par le dénominateur.**
   Entre 01h42 et 02h43 le cumulé s'est amélioré (−15,98 → −15,64) et
