@@ -4670,6 +4670,120 @@ passer sans qu'une horloge redevienne validée d'abord. **Je reviens à
 une heure dès qu'une clôture tombe** — la règle du trente-septième
 relevé, appliquée telle quelle.
 
+### Quarante-quatrième lecture, 05h16 — un redémarrage, et un contre-exemple
+
+**Le moteur a redémarré vers 04h50.** Je ne l'ai pas lu directement — je
+n'ai pas relevé la ligne de pid dans cette récupération — mais trois
+signes indépendants pointent tous au même endroit :
+
+- la mémoire `used` retombe de **3 377 MB à 1 926 MB** ;
+- les compteurs `n` du flux se remettent à zéro et repartent :
+  5480 / 5480 / 5155 / 2280 → **4000 / 4000 / 4000 / 2630** ;
+- **les cinq horloges perdent `gardee` en même temps**, entre 04h52 et
+  05h11.
+
+Trois signes qui ne se causent pas l'un l'autre. Je l'écris comme
+fortement étayé, pas comme constaté : la différence compte, parce que
+c'est de là que sort la conséquence qui suit.
+
+**Conséquence : cinq « sélections fraîches » qui n'en sont pas.** Les
+lignes de 04h52 (1m, sr/barreau 0,859), 04h56 (3m, 1,036), 05h01 (5m,
+0,694), 05h06 (15m, −0,260) et 05h11 (1H, 0,444) n'ont pas `gardee`
+parce que la cellule a tourné, mais parce que l'hystérésis a été effacée
+par le redémarrage. Elles ne mesurent pas la rotation des cellules,
+elles mesurent le redémarrage. **Je les exclus du comptage.** Une seule
+fraîche authentique dans l'heure : 03h57, 3m `[mlp/h3/abs]`,
+sr=+0,121 contre barreau 0,131 — soit 0,924, **refusée**.
+
+**Le comptage des fraîches acceptées reste donc à cinq.** Il n'a pas
+avancé, et je le dis parce que cinq lignes toutes neuves auraient pu
+donner l'illusion contraire.
+
+### Le premier contre-exemple au critère d'acceptation
+
+Depuis le trente-quatrième relevé je tiens que la cellule est validée si
+et seulement si `sr > vs bar` — testé alors sur dix-neuf verdicts,
+dix-neuf fois juste, là où `net > seuil` ne tenait que onze fois. La
+ligne de 04h56 le contredit :
+
+```
+04:56  3m  veto  [mlp/h3/abs]  net=-4,53  sr=+0,145  vs bar=0,140
+sr / barreau = +1,036
+```
+
+`sr` est **au-dessus** du barreau, de 3,6 %, et la cellule est pourtant
+en **veto**. C'est aussi le premier `net` **négatif** que je vois dans
+une ligne de verdict, tous relevés confondus.
+
+**Critère révisé : `live` ⟺ `sr > vs bar` ET `net > 0`.** La seconde
+clause n'a été vue qu'**une seule fois**, sur une ligne, et je la note
+comme telle : c'est une hypothèse formée sur un point, pas une loi
+établie sur quarante et une paires comme l'est celle du barreau. Ce
+qu'elle vaut se saura au prochain verdict à `net` négatif — s'il en
+vient un.
+
+Deux remarques sur ce que ce contre-exemple ne dit pas. Il ne casse pas
+la loi du barreau déflaté (`barreau ∝ 1/√instants`), qui porte sur la
+barre et non sur la décision. Et il est arrivé dans la fenêtre du
+redémarrage : la cellule est une fraîche artefactuelle. Cela ne
+disqualifie pas l'observation — la ligne de verdict est produite par le
+même code avant et après un redémarrage — mais cela veut dire que je ne
+sais pas encore si un `net` négatif est fréquent ou s'il est propre aux
+premières secondes d'une horloge qui vient de repartir.
+
+### Le frein, troisième fois de suite
+
+```
+  01h42  t=-2,4310  bps=-15,982  n=333  se=6,574  sd=120,0  distance 0,069
+  02h43  t=-2,4388  bps=-15,642  n=335  se=6,414  sd=117,4  distance 0,061
+  03h42  t=-2,4388  bps=-15,642  n=335  se=6,414  sd=117,4  distance 0,061
+  05h16  t=-2,4476  bps=-15,492  n=336  se=6,329  sd=116,0  distance 0,052
+```
+
+`n_carre` = 33, `frein_mesure` = **1,0**, `frein_risque` 0,950,
+`confiance` 0,10.
+
+**Troisième relevé consécutif où le cumulé s'améliore et où `t` se
+rapproche du seuil.** Depuis 01h42, `|bps|` a baissé de 3,1 % et `se` de
+3,7 % : le dénominateur descend plus vite que le numérateur, donc le
+rapport monte en valeur absolue. Le frein n'est plus qu'à **0,052 σ** de
+son seuil de −2,5. C'est la règle du quarante-deuxième relevé qui joue
+exactement comme annoncé — un rapport peut approcher son seuil par le
+dénominateur — et je n'y touche pas.
+
+`live_rule` : **n=336 à −15,492 bps**. Le `t` reste encadré par deux
+dispersions et non par une :
+
+```
+  50,2  (hypothèse, jamais mesurée sur l'échantillon complet)  -> t = -5,66
+  116,0 (mesurée par le frein sur ses 33 points)               -> t = -2,45
+```
+
+### La chaîne, et le reste
+
+Une seule ouverture-clôture dans l'heure :
+
+```
+TRUMP long 04h10:38 -> 04h16:43   brut +41,82   net +34,82 bps
+imposé par le cumulé : +34,825    écart 0,000 bps
+```
+
+Neuvième vérification de chaîne, neuvième fois exacte au millième.
+
+Equity **9 220,21** (−7,80 %), brut **−55,91**, frais **−62,51**, fills
+**781**. Les frais dominent toujours le brut. Vœux **284**, ouvertures
+**103**, plancher **174** refus pour **1 353 USD** — inchangé.
+
+### Ce que je ne fais pas, et la cadence
+
+**Aucun déploiement.** Le seul défaut candidat serait le frein, et il
+est à cinq centièmes de sigma de son seuil : c'est précisément le moment
+où l'on n'y touche pas.
+
+**Je reviens à cinquante-cinq minutes.** Une clôture est tombée (TRUMP à
+04h16:43), et la règle du trente-septième relevé dit de repasser à
+l'heure dès qu'une clôture tombe. La cadence suit ce qui bouge.
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -4990,3 +5104,12 @@ Elles ne se négocient pas, et elles ont toutes été écrites après avoir
   un seul trade (`hermes-research.service: Consumed 2h 50min CPU over
   1h 37min wall clock`), pour un changement qui n'en avait pas besoin.
   `mode=code` relance le moteur immédiatement.
+- le critère d'acceptation n'est pas seulement `sr > vs bar` : le
+  verdict de 04h56 (`sr=+0,145` contre barreau 0,140, `net=−4,53`) est
+  en **veto** au-dessus de sa barre — premier contre-exemple en
+  dix-neuf verdicts. La clause `net > 0` s'y ajoute, vue **une seule
+  fois** : la noter comme hypothèse sur un point, pas comme loi ;
+- un redémarrage efface l'hystérésis, et les « sélections fraîches »
+  qui le suivent n'en sont pas : cinq lignes sans `gardee` en vingt
+  minutes ne mesurent pas la rotation des cellules, elles mesurent le
+  redémarrage — les exclure du comptage.
