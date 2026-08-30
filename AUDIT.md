@@ -4374,6 +4374,56 @@ coder pour cela, et tout à observer.
 **Rappel à une heure.** Une seule clôture sépare le frein de son premier
 mot, et c'est la première fois depuis qu'il existe.
 
+### Quarantième lecture, 00h09 — rien, et le frein reste à une clôture
+
+Une seule récupération de journal, à nouveau : le rapport tient dans
+cent trente-cinq lignes. Deuxième confirmation du réordonnancement.
+
+**Rien n'a bougé.** `live_rule` **n=332 à −16,301 bps** (**−5,92 σ**),
+`n_carre` **29**, `frein_mesure` 1,0, `t_direct` 0,0. Vœux **280**,
+ouvertures **99**, remplissages **773**, plancher **174** /
+**1 353 USD**, équité **9 217,40**, brut −59,16, frais −62,07 — chaque
+nombre identique au relevé précédent. La fenêtre des sorties sur deux
+heures est vide. **La dernière ouverture date de 22h01:16** : deux heures
+sans rien ouvrir, donc rien à fermer.
+
+Le frein de mesure reste donc à **une** clôture de son premier mot. Il ne
+manque pas de temps, il manque une jambe.
+
+### Zéro sélection fraîche cette heure
+
+Les cinq verdicts — 23h12 1H, 23h46 1m, 23h51 3m, 23h57 5m, 00h05 15m —
+portent **tous** `gardee`. **Le comptage des fraîches acceptées reste à
+cinq** (+1,021 / +1,039 / +1,094 / +1,128 / +7,941). Il n'a pas avancé,
+et je l'écris comme tel.
+
+À noter tout de même : la 3m, qui n'avait pas de `gardee` à 22h51,
+en porte un à 23h51. L'hystérésis s'est refermée sur la cellule
+fraîchement acceptée de l'heure précédente.
+
+### Le barreau, quarante-et-une paires
+
+Cinq paires nouvelles, écart maximum **0,28 %**. Total **41 paires**,
+**aucune au-dessus de 0,88 %**. Je ne rouvrirai plus cette question à
+chaque relevé : la loi est établie. Je la re-vérifierai seulement quand
+un mouvement d'instants dépassera celui de la 3m (1 063 → 558), qui
+tient toujours le record et qui avait collé à 0,02 %.
+
+### Ce que je ne fais pas, et la cadence
+
+**Aucun déploiement.** Il n'y a rien à corriger dans une heure vide.
+
+**Je repasse à quatre-vingt-dix minutes.** Le seul événement que
+j'attends — `n_carre` franchissant trente — exige une ouverture suivie
+d'une clôture, et le carnet n'a rien ouvert depuis deux heures. Les
+verdicts, eux, n'apprennent plus rien tant qu'aucune sélection n'est
+fraîche. Quatre-vingt-dix minutes coûtent au pire une heure de retard
+sur une observation qui attend déjà depuis vingt-deux heures.
+
+**Je reviens à une heure dès qu'une clôture tombe.** C'est la règle que
+je m'étais donnée au trente-septième relevé et je m'y tiens : la cadence
+suit ce qui bouge.
+
 ---
 
 ## 8. Ce qui reste ouvert
