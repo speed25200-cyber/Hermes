@@ -4523,6 +4523,88 @@ cinq.**
 **Retour à une heure.** Une clôture est tombée, comme je m'y étais
 engagé — et surtout le frein est à sept centièmes de sigma de son seuil.
 
+### Quarante-deuxième lecture, 02h43 — le frein devient un instrument de mesure, et il se rapproche de son seuil en montant
+
+### Ce que le frein m'apporte, et que je n'avais pas prévu
+
+Maintenant qu'il parle, `t_direct` me donne **à chaque heure une mesure
+de la dispersion**, par simple inversion : `se = |bps| / |t|`, puis
+`sd = se·√n`.
+
+| heure | t_direct | bps | n | dispersion mesurée |
+|---|---|---|---|---|
+| 01h42 | −2,4310 | −15,982 | 333 | **120,0** bps/instant |
+| 02h43 | −2,4388 | −15,642 | 335 | **117,4** bps/instant |
+
+Stable d'une heure sur l'autre, et toujours **2,3 fois** l'hypothèse de
+50,2 que je portais. Je n'ai plus à supposer cette quantité : je peux la
+lire. C'est un bénéfice du frein que je n'avais pas anticipé en
+l'écrivant — il a été conçu pour freiner, il sert d'abord à mesurer.
+
+### Et il s'est rapproché de son seuil pendant que le cumulé s'améliorait
+
+```
+01h42   t = −2,4310   →  0,069 σ du seuil de −2,5
+02h43   t = −2,4388   →  0,061 σ du seuil
+```
+
+Pourtant le cumulé est passé de **−15,982 à −15,642** — il s'est
+*amélioré*. Les deux vont ensemble sans se contredire : `se` a baissé de
+6,574 à 6,414 bps (la dispersion mesurée descend, `n` monte), et elle a
+baissé **plus vite** que `|bps|`. Un rapport peut se rapprocher de son
+seuil par le dénominateur.
+
+### Le cumulé, énoncé selon la règle nouvelle
+
+`live_rule` **n=335 à −15,642 bps**. Le `t` encadré :
+
+| dispersion par instant | t |
+|---|---|
+| 50,2 — hypothèse ancienne, jamais mesurée sur l'échantillon complet | −5,70 |
+| **117,4 — mesurée par le frein sur ses trente-deux points** | **−2,44** |
+
+Je ne cite plus un chiffre unique. Le signe ne bouge pas ; l'ampleur de
+la preuve, si.
+
+### La chaîne, et un instrument neuf dans le carnet
+
+```
+01h48:17  TRUMP +95,900000 @ 2,613250   →  01h54:45  time-stop 6m @ 2,629000
+02h18:13  OKB   +2,200000  @ 113,692500 →  02h24:33  time-stop 6m @ 114,100000
+```
+
+**+60,27 et +35,84 bruts, +53,27 et +28,84 nets**, moyenne **+41,056**.
+Le cumulé passant de n=333 / −15,982 à n=335 / −15,642 impose
+**+41,056**. Écart **0,000 bps**.
+
+**C'est la première jambe sur OKB** — le nom apparu dans la fenêtre du
+critère 24/7 hier soir (`week-end amplitude 1,43 volume 1,75`). Le
+renouvellement de l'univers a produit un instrument qui trade.
+
+### Le reste
+
+Équité **9 219,96** (+2,06), brut réalisé **−56,21** (+2,41), frais
+**−62,46**. Vœux **283**, ouvertures **102**, remplissages **779**.
+Plancher **174** / **1 353 USD** inchangé depuis six heures.
+`n_carre` **32**. `halted_today` faux, `killed` faux.
+
+Une sélection fraîche, `01h51 3m [mlp/h3/abs]`, **refusée**
+(`sr/barreau = 0,761`). **Le comptage des fraîches acceptées reste à
+cinq.** Il n'a pas avancé.
+
+L'attribution sur les quarante-et-une dernières fermetures affiche
+`time-stop 39 à −0,9 bps, 17 gagnantes sur 39`. C'est une fenêtre
+glissante : elle ne conclut rien, et je la note sans en tirer quoi que
+ce soit.
+
+### Ce que je ne fais pas
+
+**Aucun déploiement.** Le frein est à six centièmes de sigma de son
+seuil et se rapproche : c'est exactement le moment où il ne faut toucher
+à rien.
+
+**Rappel à une heure.**
+
 ---
 
 ## 8. Ce qui reste ouvert
@@ -4641,6 +4723,16 @@ sans le frein ni le rodage.
 ---
 
 ## 10. Règles de conduite
+
+- **Un rapport peut se rapprocher de son seuil par le dénominateur.**
+  Entre 01h42 et 02h43 le cumulé s'est amélioré (−15,98 → −15,64) et
+  `t_direct` s'est pourtant rapproché de −2,5, parce que l'erreur type
+  a baissé plus vite que la moyenne. Toujours décomposer le mouvement
+  d'un t avant de lui prêter un sens.
+- **Un organe construit pour agir peut valoir d'abord comme mesure.** Le
+  frein a été écrit pour réduire la taille ; sa première utilité est de
+  livrer, chaque heure, la dispersion par instant que je supposais
+  depuis vingt heures — par simple inversion de son propre t.
 
 - **Ne pas citer un sigma unique quand la dispersion est une hypothèse.**
   J'ai écrit « −5,7 σ », « −6,02 σ » pendant une journée sur 50,2 bps
