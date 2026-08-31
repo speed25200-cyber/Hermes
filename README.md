@@ -119,14 +119,30 @@ s'échange bien vingt-quatre heures sur vingt-quatre même bourse fermée.
 Le critère était bien formé et ne répondait pas à la question posée.
 
 Ce qui les distingue réellement est que leur activité s'effondre le
-week-end pendant que celle d'une crypto ne bouge guère. Ce rapport est
-donc **mesuré et imprimé** pour chaque candidat — mais ce n'est pas
-encore un seuil. Poser un seuil sur un nombre vu une seule fois est
-exactement l'erreur commise deux fois de suite ici. Il le deviendra
-quand plusieurs relevés auront montré où passe la séparation.
+week-end pendant que celle d'une crypto ne bouge guère. Ce rapport a
+donc été mesuré et imprimé pour chaque candidat, **sans en faire un
+seuil**, le temps de voir les nombres. Les voici, relevé du 31 août :
 
-En attendant, les sept actions tokenisées **sont dans l'univers**, et
-il faut le savoir plutôt que de le découvrir.
+| sous 0,26 | au-dessus de 0,42 |
+|---|---|
+| SPCX 0,05 · SNDK 0,07 · SNXX 0,07 · SOXL 0,08 · MU 0,09 · SKHY 0,16 · SKHYNIX 0,21 · XAU 0,25 · CL 0,25 · XAG 0,26 | BTC 0,42 · HYPE 0,48 · XRP 0,50 · PEPE 0,53 · ETH 0,54 · SOL 0,56 · DOGE 0,58 · PUMP 0,65 · SUI 0,69 · ZEC 0,87 · TRUMP 1,25 · UNI 2,29 |
+
+Dix d'un côté, douze de l'autre, et rien entre les deux. Le groupe bas
+est exactement celui des actions tokenisées — plus l'or, l'argent et le
+pétrole, auxquels je n'avais pas pensé. Le seuil est donc posé **dans ce
+vide**, à 0,34 : il n'est pas choisi, il est lu.
+
+**Deux exceptions, écrites ici pour qu'elles ne se perdent pas.** ZORA
+(0,22) et 0G (0,08) sont des cryptos et tombent dans la bande basse.
+Elles sont écartées à tort. C'est le prix assumé d'un seuil unique, et
+il est réversible : `HERMES_MARKETS` les réimpose, `HERMES_WEEKEND_MIN=0`
+désactive le critère.
+
+Et une réserve qui compte : ce seuil repose sur **une** lecture. Un vide
+observé une fois n'est pas une loi. Un jeton qui vient d'être listé, ou
+un pic d'actualité en semaine, produisent le même chiffre qu'une bourse
+fermée — les deux exceptions sont peut-être cela. Un second relevé, un
+autre jour, dira s'il tient.
 
 Le résultat est imprimé pour **tous** les candidats, admis compris. Un
 critère qui ne s'explique que lorsqu'il dit non est à moitié aveugle :

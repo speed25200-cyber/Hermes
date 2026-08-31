@@ -372,6 +372,34 @@ const RAFRAICHIR_UNIVERS_MS = Number(process.env.HERMES_UNIVERSE_REFRESH_MS || 3
 // soixante-huit. Le seuil na donc pas besoin detre fin.
 const CONTINU_MIN = Number(process.env.HERMES_CONTINU_MIN || 0.90);
 
+// Le rapport minimal entre lactivite du week-end et celle de la
+// semaine. Le seuil est pose DANS UN VIDE OBSERVE, et non choisi :
+// au releve du 31 aout, vingt-quatre candidats se separaient en deux
+// groupes sans rien entre les deux.
+//
+//   sous 0,26 : SPCX 0,05  SNDK 0,07  SNXX 0,07  SOXL 0,08  MU 0,09
+//               SKHY 0,16  SKHYNIX 0,21  XAU 0,25  CL 0,25  XAG 0,26
+//   au-dessus : BTC 0,42  HYPE 0,48  XRP 0,50  PEPE 0,53  ETH 0,54
+//               SOL 0,56  DOGE 0,58  PUMP 0,65  SUI 0,69  ZEC 0,87
+//               TRUMP 1,25  UNI 2,29
+//
+// Le groupe bas est exactement celui des actions tokenisees, plus lor,
+// largent et le petrole. Le groupe haut, exactement les cryptos.
+//
+// DEUX EXCEPTIONS, ecrites ici pour quelles ne se perdent pas : ZORA
+// (0,22) et 0G (0,08) sont des cryptos et tombent dans la bande basse.
+// Elles sont donc ecartees a tort. Cest le prix assume dun seuil
+// unique, et il est reversible — HERMES_MARKETS les reimpose, et
+// HERMES_WEEKEND_MIN=0 desactive le critere.
+//
+// Ce seuil repose sur UNE lecture. Ce nest pas la meme chose quune loi
+// : cest un vide observe une fois, et un deuxieme releve un autre jour
+// dirait sil tient. Les deux exceptions sont peut-etre un accident de
+// cette semaine-la — un jeton qui vient detre liste, ou un pic
+// dactualite en semaine, produisent le meme chiffre quune bourse
+// fermee.
+const WEEKEND_MIN = Number(process.env.HERMES_WEEKEND_MIN || 0.34);
+
 /* ===== le critere 24/7, mesure et non devine =====
  *
  * OKX cote des actions tokenisees sur ses perpetuels, et elles montent
@@ -480,8 +508,10 @@ async function loadUniverse() {
       paquet.forEach((x, k) => {
         const m = mesures[k];
         const nom = String(x.instId).replace("-USDT-SWAP", "");
-        trace.push(`${nom} ${(cote(x) / 1e6).toFixed(0)}M ${m.heures}/168h we=${m.weekend >= 0 ? m.weekend.toFixed(2) : "?"}${m.continu ? "" : " REFUSE"}`);
-        if (m.continu && retenus.length < TAILLE_UNIVERS) retenus.push(x.instId);
+        const ok = m.continu && (m.weekend < 0 || m.weekend >= WEEKEND_MIN);
+        trace.push(`${nom} ${(cote(x) / 1e6).toFixed(0)}M ${m.heures}/168h`
+          + ` we=${m.weekend >= 0 ? m.weekend.toFixed(2) : "?"}${ok ? "" : " REFUSE"}`);
+        if (ok && retenus.length < TAILLE_UNIVERS) retenus.push(x.instId);
       });
     }
 
