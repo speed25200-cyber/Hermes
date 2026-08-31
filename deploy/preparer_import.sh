@@ -66,9 +66,17 @@ rm -f "$LISTE" "$EXCLUS"
 # une tabulation parce que les noms contiennent des espaces — il y a un
 # « Archives app/index.html.backup ( Version okey sauf bouton).html »
 # dans cette arborescence, et un decoupage sur lespace le perdrait.
+# Les secrets ne partent pas, et ce nest pas une precaution theorique :
+# le premier import a emporte TROIS fichiers denvironnement portant de
+# vraies cles OKX de production — .env, .env.bak_20250917_024059 et
+# app/.env — jusque dans un commit pousse sur GitHub. Il a fallu
+# reecrire la tete de branche et faire tourner les cles. Un filtre par
+# taille ne voit pas un secret : un secret tient en six cents octets.
 find . -type f \
   -not -path "*/node_modules/*" \
   -not -path "./data/*" -not -path "./logs/*" -not -path "./.git/*" \
+  ! -name ".env" ! -name ".env.*" ! -name "*.pem" ! -name "*.key" \
+  ! -name "*.p12" ! -name "id_rsa*" ! -name "*credentials*" \
   ! -name "*.pak" ! -name "*.map" ! -name "*.jsonl" \
   ! -name "*.log" ! -name "*.asar" ! -name "*.node" \
   -printf "%s\t%p\n" \
@@ -84,6 +92,22 @@ echo "  ecartes par la regle de taille (plus de ${SEUIL_KO} Ko) : $(wc -l < "$EX
 echo "  les 20 plus gros ecartes — verifier quaucun nest du code :"
 sort -rn "$EXCLUS" 2>/dev/null | head -20 | sed -e "s/^/    /"
 echo
+
+# Ceinture ET bretelles : la liste dexclusion ci-dessus se lit sur les
+# NOMS, et un secret peut porter nimporte quel nom. On relit donc la
+# liste finale a la recherche de ce qui ressemble a une cle renseignee,
+# et on refuse le paquet plutot que de le construire. Un secret dans un
+# depot ne se repare pas en le supprimant : il se repare en faisant
+# tourner la cle, et cela coute au proprietaire, pas au script.
+SUSPECTS=$(grep -lIE "^[A-Z_]*(SECRET|PASSPHRASE|API_KEY|PRIVATE_KEY|TOKEN)[A-Z_]*=[^[:space:]]{8,}" \
+             $(tr '\n' ' ' < "$LISTE") 2>/dev/null | head -20)
+if [ -n "$SUSPECTS" ]; then
+  echo "!! des fichiers portent ce qui ressemble a une cle renseignee :"
+  echo "$SUSPECTS" | sed -e "s/^/     /"
+  echo "   Rien nest transfere. Les ecarter, ou verifier que ce sont des exemples."
+  rm -f "$PAQUET"
+  exit 1
+fi
 
 tar czf "$PAQUET" -T "$LISTE" 2>/dev/null
 
