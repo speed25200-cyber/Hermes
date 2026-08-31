@@ -364,6 +364,9 @@ function computeScore(c) {
   return { score, dir, st, rsi, bb, sq };
 }
 /* ===== Universe loader ===== */
+const TAILLE_UNIVERS = Number(process.env.HERMES_UNIVERSE_SIZE || 20);
+const RAFRAICHIR_UNIVERS_MS = Number(process.env.HERMES_UNIVERSE_REFRESH_MS || 3600000);
+
 async function loadUniverse() {
   if (DEFAULT_UNIVERSE.length) return DEFAULT_UNIVERSE;
   try {
@@ -372,12 +375,66 @@ async function loadUniverse() {
       { timeout: Number(process.env.HERMES_API_TIMEOUT_MS || 12000) }
     );
     const arr = Array.isArray(r.data?.data) ? r.data.data : [];
-    arr.sort((a, b) => num(b.volCcy24h) - num(a.volCcy24h));
-    const top = arr.slice(0, 100).map(x => x.instId);
-    return top.length ? top : ["BTC-USDT-SWAP", "ETH-USDT-SWAP"];
+
+    // Le classement se faisait sur volCcy24h seul. Or ce champ est un
+    // volume exprime DANS LA MONNAIE DE BASE de chaque instrument :
+    // trier dessus revient a comparer des BTC a des DOGE, cest-a-dire a
+    // classer par NOMBRE DE PIECES et non par argent echange. SHIB et
+    // PEPE ecrasaient alors mecaniquement BTC — le classement obtenu
+    // netait pas « les plus gros volumes » mais « les moins chers ».
+    // Multiplier par le dernier prix ramene tout le monde en dollars.
+    const cote = (x) => num(x.volCcy24h) * num(x.last);
+
+    const classe = arr
+      .filter((x) => String(x.instId || "").endsWith("-USDT-SWAP"))
+      .filter((x) => cote(x) > 0)
+      .sort((a, b) => cote(b) - cote(a));
+
+    const top = classe.slice(0, TAILLE_UNIVERS).map((x) => x.instId);
+    if (top.length) {
+      const apercu = classe.slice(0, TAILLE_UNIVERS)
+        .map((x) => `${String(x.instId).replace("-USDT-SWAP", "")} ${(cote(x) / 1e6).toFixed(0)}M`)
+        .join(", ");
+      log(`[UNI] ${top.length} instruments, par volume 24 h en dollars : ${apercu}`);
+      return top;
+    }
+    return ["BTC-USDT-SWAP", "ETH-USDT-SWAP"];
   } catch (e) {
     log("[UNI_ERR]", e.message);
     return ["BTC-USDT-SWAP", "ETH-USDT-SWAP"];
+  }
+}
+
+// Les volumes tournent, et le moteur reste en marche des jours. Un
+// univers fixe au demarrage derive donc sans que rien ne le signale.
+// On le rejoue, et on IMPRIME les entrees et les sorties : un univers
+// qui change en silence est un univers dont on ne peut pas expliquer
+// les trades apres coup.
+async function rafraichirUnivers() {
+  if (DEFAULT_UNIVERSE.length) return;          // liste imposee a la main
+  try {
+    const neuf = await loadUniverse();
+    if (!neuf || neuf.length < 2) return;
+    const avant = new Set(MARKET.universe);
+    const apres = new Set(neuf);
+    const entrent = neuf.filter((i) => !avant.has(i));
+    const sortent = [...avant].filter((i) => !apres.has(i));
+
+    // Un instrument sur lequel une position est ouverte ne quitte pas
+    // luniverse : le moteur cesserait de recevoir son prix, donc de
+    // pouvoir la surveiller ni la fermer.
+    const tenus = sortent.filter((i) => AI.openPositions[i]);
+    const final = tenus.length ? [...neuf, ...tenus] : neuf;
+
+    if (entrent.length || sortent.length) {
+      MARKET.universe = final;
+      log(`[UNI] rotation — entrent: ${entrent.map((s) => s.replace("-USDT-SWAP", "")).join(", ") || "aucun"}`
+        + ` | sortent: ${sortent.map((s) => s.replace("-USDT-SWAP", "")).join(", ") || "aucun"}`
+        + (tenus.length ? ` | gardes car position ouverte: ${tenus.map((s) => s.replace("-USDT-SWAP", "")).join(", ")}` : ""));
+      try { await loadMetaInstruments(); } catch {}
+    }
+  } catch (e) {
+    log("[UNI_REFRESH_ERR]", e.message);
   }
 }
 
@@ -1715,6 +1772,7 @@ async function createWindow() {
     startPrivateWS();   // si clÃƒÂ©s Ã¢â€ â€™ login + subscribe
     portfolioLoop();    // portfolio + pending consumer
     healthWatchdog();   // superviseur
+    setInterval(rafraichirUnivers, RAFRAICHIR_UNIVERS_MS);   // les volumes tournent
   } catch (e) {
     log("createWindow failed:", e.message);
   }

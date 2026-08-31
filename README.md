@@ -67,3 +67,36 @@ take-profit, stop-loss, break-even et trail.
 `config/policy.json` porte les seuils de sortie exprimés en pourcentage
 de la marge : stop initial à −40 %, passage au point mort à +25 %,
 armement du trail à +40 %.
+
+## L'univers
+
+Hermes trade les **vingt perpétuels USDT au plus gros volume sur OKX**,
+classés en dollars et rafraîchis toutes les heures.
+
+Le classement se faisait auparavant sur le champ `volCcy24h` seul. C'est
+un volume exprimé dans la monnaie de base de chaque instrument : trier
+dessus revient à comparer des BTC à des DOGE, donc à classer par nombre
+de pièces et non par argent échangé. SHIB et PEPE écrasaient
+mécaniquement BTC — le classement obtenu n'était pas « les plus gros
+volumes » mais « les moins chers ». Il est désormais multiplié par le
+dernier prix.
+
+La rotation est imprimée au journal, entrées et sorties nommées : un
+univers qui change en silence est un univers dont on ne peut pas
+expliquer les trades après coup. Un instrument sur lequel une position
+est ouverte ne quitte jamais l'univers, sinon le moteur cesserait de
+recevoir son prix et ne pourrait plus ni la surveiller ni la fermer.
+
+Réglages :
+
+| variable | défaut | effet |
+|---|---|---|
+| `HERMES_UNIVERSE_SIZE` | 20 | combien d'instruments |
+| `HERMES_UNIVERSE_REFRESH_MS` | 3 600 000 | à quelle fréquence rejouer le classement |
+| `HERMES_MARKETS` | vide | liste imposée à la main, qui court-circuite tout le reste |
+
+Une réserve, dite franchement : OKX cote aussi des actions tokenisées,
+qui ne s'échangent pas le week-end. Au niveau du top 20 par volume en
+dollars elles n'apparaissent pas, donc aucun filtre n'a été ajouté — mais
+c'est une observation, pas une garantie, et elle mérite d'être revérifiée
+si la taille de l'univers est augmentée.
