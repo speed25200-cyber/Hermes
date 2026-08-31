@@ -366,6 +366,59 @@ function computeScore(c) {
 /* ===== Universe loader ===== */
 const TAILLE_UNIVERS = Number(process.env.HERMES_UNIVERSE_SIZE || 20);
 const RAFRAICHIR_UNIVERS_MS = Number(process.env.HERMES_UNIVERSE_REFRESH_MS || 3600000);
+// Sur cent soixante-huit heures, combien doivent avoir vu un echange
+// pour quon appelle un marche continu. Une action tokenisee tourne
+// autour de trente-cinq heures par semaine ; une crypto, cent
+// soixante-huit. Le seuil na donc pas besoin detre fin.
+const CONTINU_MIN = Number(process.env.HERMES_CONTINU_MIN || 0.90);
+
+/* ===== le critere 24/7, mesure et non devine =====
+ *
+ * OKX cote des actions tokenisees sur ses perpetuels, et elles montent
+ * haut au classement par volume : au premier releve, SNDK, XAU,
+ * SKHYNIX, SPCX, MU, SOXL et CL occupaient SEPT des vingt places.
+ * Javais ecrit quelles napparaitraient pas a ce niveau — la mesure la
+ * dementi en trois minutes.
+ *
+ * Elles ne sechangent pas le week-end. Une strategie calibree sur un
+ * marche continu y rencontre des trous : des prix figes, des stops
+ * traverses a la reouverture, des signaux qui se declenchent sur des
+ * bougies mortes.
+ *
+ * Le critere est une MESURE et non une liste de noms : on compte les
+ * heures qui ont vu un echange sur les sept derniers jours. Une liste
+ * de noms vieillit — OKX en ajoute — tandis quun marche qui ferme se
+ * trahit toujours de la meme facon. Et le resultat est imprime pour
+ * TOUS les candidats, admis compris : un critere qui ne sexplique que
+ * lorsquil dit non est a moitie aveugle.
+ */
+const _continuite = new Map();      // instId -> { continu, heures, ts }
+const CONTINUITE_TTL_MS = 12 * 3600 * 1000;
+
+async function mesurerContinuite(instId) {
+  const cache = _continuite.get(instId);
+  if (cache && Date.now() - cache.ts < CONTINUITE_TTL_MS) return cache;
+  let res = { continu: true, heures: -1, ts: Date.now() };
+  try {
+    const r = await axios.get(
+      OKX.REST_BASE + `/api/v5/market/candles?instId=${encodeURIComponent(instId)}&bar=1H&limit=168`,
+      { timeout: Number(process.env.HERMES_API_TIMEOUT_MS || 12000) }
+    );
+    const c = Array.isArray(r.data?.data) ? r.data.data : [];
+    // On compte les heures ou il sest VRAIMENT echange quelque chose.
+    // Compter les bougies rendues ne suffirait pas : un marche ferme
+    // peut encore en produire, plates et a volume nul.
+    const heures = c.filter((b) => num(b[5]) > 0).length;
+    res = { continu: heures >= Math.round(168 * CONTINU_MIN), heures, ts: Date.now() };
+  } catch (e) {
+    // Une mesure ratee nest pas une preuve de discontinuite. On laisse
+    // passer, et le prochain rafraichissement retentera — refuser sur
+    // un timeout viderait luniverse a la premiere minute difficile.
+    res = { continu: true, heures: -1, ts: Date.now() };
+  }
+  _continuite.set(instId, res);
+  return res;
+}
 
 async function loadUniverse() {
   if (DEFAULT_UNIVERSE.length) return DEFAULT_UNIVERSE;
@@ -390,13 +443,23 @@ async function loadUniverse() {
       .filter((x) => cote(x) > 0)
       .sort((a, b) => cote(b) - cote(a));
 
-    const top = classe.slice(0, TAILLE_UNIVERS).map((x) => x.instId);
-    if (top.length) {
-      const apercu = classe.slice(0, TAILLE_UNIVERS)
-        .map((x) => `${String(x.instId).replace("-USDT-SWAP", "")} ${(cote(x) / 1e6).toFixed(0)}M`)
-        .join(", ");
-      log(`[UNI] ${top.length} instruments, par volume 24 h en dollars : ${apercu}`);
-      return top;
+    // On descend le classement en verifiant la continuite, et on
+    // sarrete quand on a le compte. Inutile deprouver les cent.
+    const retenus = [];
+    const trace = [];
+    for (const x of classe) {
+      if (retenus.length >= TAILLE_UNIVERS) break;
+      if (trace.length >= TAILLE_UNIVERS * 3) break;     // garde-fou
+      const m = await mesurerContinuite(x.instId);
+      const nom = String(x.instId).replace("-USDT-SWAP", "");
+      trace.push(`${nom} ${(cote(x) / 1e6).toFixed(0)}M ${m.heures}/168h${m.continu ? "" : " REFUSE"}`);
+      if (m.continu) retenus.push(x.instId);
+    }
+
+    if (retenus.length) {
+      log(`[UNI] ${retenus.length} instruments retenus, par volume 24 h en dollars,`
+        + ` avec les heures actives sur sept jours : ${trace.join(", ")}`);
+      return retenus;
     }
     return ["BTC-USDT-SWAP", "ETH-USDT-SWAP"];
   } catch (e) {

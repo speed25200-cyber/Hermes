@@ -95,8 +95,29 @@ Réglages :
 | `HERMES_UNIVERSE_REFRESH_MS` | 3 600 000 | à quelle fréquence rejouer le classement |
 | `HERMES_MARKETS` | vide | liste imposée à la main, qui court-circuite tout le reste |
 
-Une réserve, dite franchement : OKX cote aussi des actions tokenisées,
-qui ne s'échangent pas le week-end. Au niveau du top 20 par volume en
-dollars elles n'apparaissent pas, donc aucun filtre n'a été ajouté — mais
-c'est une observation, pas une garantie, et elle mérite d'être revérifiée
-si la taille de l'univers est augmentée.
+### Le critère 24/7
+
+J'avais d'abord écrit que les actions tokenisées cotées par OKX
+n'apparaîtraient pas au niveau du top 20, et qu'aucun filtre n'était donc
+nécessaire. La première mesure a démenti cela en trois minutes : **sept
+des vingt places** étaient occupées par SNDK, XAU, SKHYNIX, SPCX, MU,
+SOXL et CL.
+
+Elles ne s'échangent pas le week-end. Une stratégie calibrée sur un
+marché continu y rencontre des trous : des prix figés, des stops
+traversés à la réouverture, des signaux qui se déclenchent sur des
+bougies mortes.
+
+Le critère est donc une mesure et non une liste de noms : on compte les
+heures qui ont vu un échange sur les sept derniers jours, et il en faut
+au moins 90 % des 168. Une action tokenisée en fait environ trente-cinq,
+une crypto cent soixante-huit — le seuil n'a pas besoin d'être fin. Une
+liste de noms, elle, vieillit, car OKX en ajoute.
+
+Le résultat est imprimé pour **tous** les candidats, admis compris. Un
+critère qui ne s'explique que lorsqu'il dit non est à moitié aveugle :
+on ne peut alors pas savoir s'il laisse passer ce qu'il devrait refuser.
+
+Une mesure ratée — un timeout — ne compte pas comme une discontinuité :
+l'instrument passe, et le rafraîchissement suivant retentera. Refuser
+sur un timeout viderait l'univers à la première minute difficile.
