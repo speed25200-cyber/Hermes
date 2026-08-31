@@ -19,6 +19,10 @@ on:
         description: "UUID SwissTransfer a rapatrier sur le VPS (vide = rapport de statut)"
         required: false
         default: ""
+      poser_cles:
+        description: "Poser les cles OKX sur le serveur depuis les secrets du depot (mettre oui)"
+        required: false
+        default: ""
 
 jobs:
   status:
@@ -55,8 +59,33 @@ jobs:
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
             bash -s -- "$LIEN" < deploy/rapatrier_archive.sh
 
+      # Les cles ne transitent NI par le depot, NI par une conversation,
+      # NI par un argument de commande. Elles vivent dans les secrets
+      # chiffres du depot, GitHub les masque dans tous les journaux, et
+      # elles voyagent jusquau serveur par lentree standard — un
+      # argument serait visible dans la liste des processus de la
+      # machine le temps que la commande vive.
+      #
+      # Le script les TESTE aupres dOKX avant de les ecrire : une cle
+      # posee sans etre verifiee est une cle dont on decouvre trois
+      # jours plus tard quelle portait la mauvaise restriction dIP.
+      - name: Poser les cles OKX
+        if: ${{ inputs.poser_cles }}
+        env:
+          K: ${{ secrets.OKX_API_KEY }}
+          S: ${{ secrets.OKX_API_SECRET }}
+          P: ${{ secrets.OKX_API_PASSPHRASE }}
+          SIM: ${{ secrets.OKX_SIMULATED }}
+        run: |
+          set -eu
+          sshpass -e scp -o StrictHostKeyChecking=accept-new \
+            deploy/poser_cles.sh "root@$VPS:/tmp/poser_cles.sh"
+          printf '%s\n%s\n%s\n%s\n' "$K" "$S" "$P" "${SIM:-0}" \
+            | sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+              "bash /tmp/poser_cles.sh; rm -f /tmp/poser_cles.sh"
+
       - name: Status report
-        if: ${{ !inputs.lien }}
+        if: ${{ !inputs.lien && !inputs.poser_cles }}
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
             bash -s < deploy/etat.sh

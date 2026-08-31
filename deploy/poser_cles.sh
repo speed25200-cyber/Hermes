@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+# Pose les cles OKX dans /root/hermes/.env, APRES les avoir testees.
+#
+# Tourne SUR LE VPS. Les valeurs arrivent par lENTREE STANDARD, une par
+# ligne, et jamais en argument : un argument est visible dans la liste
+# des processus de la machine, le temps que la commande vive. Elles ne
+# sont jamais imprimees, ni en clair ni tronquees — une cle a moitie
+# affichee reste une cle a moitie divulguee.
+#
+# Lordre compte : on TESTE dabord, on ecrit ensuite. Une cle posee sans
+# etre verifiee est une cle dont on decouvre trois jours plus tard
+# quelle portait la mauvaise restriction dIP, ou quil manquait le droit
+# de trader. Le moteur, lui, aurait tourne tout ce temps sans rien
+# pouvoir ouvrir.
+set -u
+
+ENV=/root/hermes/.env
+
+IFS= read -r CLE       || CLE=""
+IFS= read -r SECRET    || SECRET=""
+IFS= read -r PASSE     || PASSE=""
+IFS= read -r SIMULE    || SIMULE=""
+
+manque=""
+[ -z "$CLE" ]    && manque="$manque OKX_API_KEY"
+[ -z "$SECRET" ] && manque="$manque OKX_API_SECRET"
+[ -z "$PASSE" ]  && manque="$manque OKX_API_PASSPHRASE"
+if [ -n "$manque" ]; then
+  echo "!! secret(s) vide(s) :$manque"
+  echo "   Les renseigner dans Settings > Secrets and variables > Actions du depot."
+  exit 1
+fi
+
+echo "===== 1. epreuve des cles aupres dOKX ====="
+echo "  longueurs recues : cle ${#CLE}, secret ${#SECRET}, phrase ${#PASSE}"
+echo "  (les valeurs elles-memes ne sont jamais imprimees)"
+
+# La signature OKX est un HMAC-SHA256 encode en base64 sur
+# timestamp + methode + chemin. Elle se fait en Node plutot quen bash :
+# openssl passerait le secret en argument ou par un fichier temporaire,
+# et les deux laissent une trace.
+export OKX_CLE="$CLE" OKX_SECRET="$SECRET" OKX_PASSE="$PASSE" OKX_SIMULE="${SIMULE:-0}"
+node --input-type=module -e '
+const crypto = await import("node:crypto");
+const cle = process.env.OKX_CLE, secret = process.env.OKX_SECRET, passe = process.env.OKX_PASSE;
+const simule = String(process.env.OKX_SIMULE || "0") === "1";
+const chemin = "/api/v5/account/config";
+const ts = new Date().toISOString().replace(/(\.\d{3})\d*Z$/, "$1Z");
+const sign = crypto.createHmac("sha256", secret).update(ts + "GET" + chemin).digest("base64");
+const en = { "OK-ACCESS-KEY": cle, "OK-ACCESS-SIGN": sign, "OK-ACCESS-TIMESTAMP": ts,
+             "OK-ACCESS-PASSPHRASE": passe, "Content-Type": "application/json" };
+if (simule) en["x-simulated-trading"] = "1";
+const r = await fetch("https://www.okx.com" + chemin, { headers: en });
+const j = await r.json().catch(() => ({}));
+if (j.code !== "0") {
+  // Le message dOKX est repris tel quel : il dit precisement ce qui
+  // ne va pas — cle inconnue, phrase fausse, IP non autorisee — et le
+  // paraphraser ferait perdre cette precision.
+  console.log("  ECHEC  code " + (j.code || "?") + " : " + (j.msg || "reponse illisible"));
+  const aide = {
+    "50111": "cle dAPI invalide ou inconnue",
+    "50113": "signature invalide — le SECRET ne correspond pas a la cle",
+    "50105": "phrase de passe invalide",
+    "50110": "adresse IP non autorisee : ajouter 178.104.191.79 dans les restrictions de la cle",
+    "50102": "horloge de la machine desynchronisee",
+  }[String(j.code)];
+  if (aide) console.log("  -> " + aide);
+  process.exit(1);
+}
+const d = (j.data && j.data[0]) || {};
+console.log("  OK  compte " + (d.uid ? "uid " + String(d.uid).slice(0, 4) + "…" : "?")
+  + " | niveau " + (d.acctLv || "?") + " | mode de position " + (d.posMode || "?"));
+' || { echo "!! les cles sont refusees par OKX. RIEN na ete ecrit sur le serveur."; exit 1; }
+
+echo
+echo "===== 2. ecriture dans $ENV ====="
+touch "$ENV"; chmod 600 "$ENV"
+# Les anciennes lignes sont retirees avant, sinon dotenv garderait la
+# PREMIERE occurrence et la nouvelle cle nauraient servi a rien.
+sed -i -E '/^(OKX_API_KEY|OKX_API_SECRET|OKX_API_PASSPHRASE|OKX_SIMULATED|OK_ACCESS_KEY|OK_SECRET_KEY|OK_PASSPHRASE)=/d' "$ENV"
+{
+  printf 'OKX_API_KEY=%s\n' "$CLE"
+  printf 'OKX_API_SECRET=%s\n' "$SECRET"
+  printf 'OKX_API_PASSPHRASE=%s\n' "$PASSE"
+  printf 'OKX_SIMULATED=%s\n' "${SIMULE:-0}"
+} >> "$ENV"
+chmod 600 "$ENV"
+echo "  ecrit, droits 600 (lisible par root seul)"
+
+echo
+echo "===== 3. relance et verification ====="
+systemctl restart hermes
+sleep 5
+if journalctl -u hermes --since "-30 seconds" --no-pager 2>/dev/null | grep -q "\[ENV\] OKX key: true"; then
+  echo "  le moteur voit ses cles"
+else
+  echo "  !! le moteur ne voit pas les cles :"
+  journalctl -u hermes --since "-30 seconds" --no-pager 2>/dev/null | grep -E "\[ENV\]|OKX" | head -5
+fi
+journalctl -u hermes --since "-30 seconds" --no-pager 2>/dev/null \
+  | grep -E "ACCOUNT|posMode|\[WS\] private" | head -4 | sed -e "s/^.*: //" -e "s/^/  /"
+echo
+echo "fait."
