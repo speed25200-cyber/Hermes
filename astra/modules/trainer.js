@@ -1,0 +1,19 @@
+﻿const fs=require("fs"),path=require("path"); const DATA_DIR = process.env.HERMES_DATA_DIR ? process.env.HERMES_DATA_DIR : path.join(__dirname,"..","data");
+function nowISO(){ return new Date().toISOString(); }
+function appendJSONL(f,o){ try{ fs.appendFileSync(f, JSON.stringify(o)+"\n"); }catch{} }
+
+function collect(){
+  const p=[path.join(DATA_DIR,"sim-logs.jsonl"),path.join(DATA_DIR,"ai-logs.jsonl")];
+  let n=0; for(const f of p){ try{ if(fs.existsSync(f)){ const t=fs.readFileSync(f,"utf8").trim(); if(t) n+=t.split("\n").length; } }catch{} }
+  return {n,weights:{rule:0.7,ml:0.3}};
+}
+function fit(ex){ return {version:Date.now(),weights:ex.weights,updatedAt:nowISO(),samples:ex.n}; }
+function save(m){ const out=path.join(DATA_DIR,"models","alpha.json"); fs.mkdirSync(path.dirname(out),{recursive:true}); fs.writeFileSync(out, JSON.stringify(m,null,2)); return out; }
+
+async function tick(){
+  const ex=collect(); const m=fit(ex); const p=save(m);
+  appendJSONL(path.join(DATA_DIR,"ai-logs.jsonl"), { ts:nowISO(), event:"TRAINER_TICK", samples:ex.n, modelPath:p, weights:m.weights });
+}
+setInterval(tick, 2*60*60*1000); // 2h
+tick();
+

@@ -1,0 +1,778 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data: blob: https://fonts.googleapis.com https://fonts.gstatic.com">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HERMΞS V4.4 — Crypto Monitor & Portfolio (OKX)</title>
+  <style>
+    @import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap");
+    :root{
+      --bg-primary:#1a1a1a;--bg-secondary:#212121;--bg-tertiary:#2a2a2a;
+      --bg-card:#252525;--bg-hover:#2f2f2f;
+      --text-primary:#e8e8e8;--text-secondary:#b8b8b8;--text-muted:#888;
+      --accent-primary:#4a9eff;--accent-success:#4ade80;--accent-danger:#f87171;--accent-warning:#fbbf24;
+      --border-color:#333;--transition:all .15s ease;
+    }
+    *{margin:0;padding:0;box-sizing:border-box;}
+    body{
+      font-family:"Inter",-apple-system,BlinkMacSystemFont,sans-serif;
+      background:var(--bg-primary);color:var(--text-primary);
+      font-size:13px;line-height:1.4;overflow:hidden;height:100vh;
+    }
+
+    .app-layout{
+      display:grid;grid-template-areas:
+        "header header header"
+        "sidebar content logs-panel"
+        "portfolio portfolio portfolio";
+      grid-template-columns:280px 1fr 300px;
+      grid-template-rows:55px 455px 1fr;
+      height:100vh;gap:1px;background:var(--border-color);
+    }
+
+    .header{
+      grid-area:header;background:var(--bg-secondary);
+      display:flex;justify-content:space-between;align-items:center;
+      padding:0 20px;border-bottom:1px solid var(--border-color);
+    }
+    .header-left{display:flex;align-items:center;gap:12px;}
+    .app-title{font-size:16px;font-weight:600}
+    .version-badge{
+      background:var(--bg-tertiary);color:var(--text-secondary);
+      font-size:11px;padding:2px 6px;border-radius:3px;font-weight:500;
+    }
+    .header-right{display:flex;align-items:center;gap:16px;}
+    .status-indicator{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);}
+    .status-dot{width:6px;height:6px;border-radius:50%;background:var(--accent-success);}
+    .status-dot.error{background:var(--accent-danger);}
+    .current-time{font-family:"Monaco",monospace;font-size:12px;color:var(--text-muted);}
+
+    .sidebar{
+      grid-area:sidebar;background:var(--bg-secondary);
+      display:flex;flex-direction:column;overflow:hidden;height:455px;max-height:455px;
+    }
+    .stats-section{padding:12px 16px;border-bottom:1px solid var(--border-color);height:180px;min-height:180px;max-height:180px;}
+    .stats-title{font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:.5px;}
+    .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+    .stat-card{background:var(--bg-card);padding:8px;border-radius:4px;border:1px solid var(--border-color);text-align:center;}
+    .stat-label{font-size:10px;color:var(--text-muted);margin-bottom:4px;text-transform:uppercase;letter-spacing:.3px;}
+    .stat-value{font-size:14px;font-weight:600;}
+
+    .movers-section{
+      flex:1;padding:12px 16px;overflow:hidden;height:275px;max-height:275px;display:flex;flex-direction:column;
+    }
+    .movers-title{
+      font-size:12px;font-weight:600;color:var(--text-secondary);
+      margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px;
+      padding-bottom:6px;border-bottom:1px solid var(--border-color);
+    }
+    .movers-list{display:flex;flex-direction:column;gap:4px;overflow:auto;}
+    .mover-item{
+      display:flex;justify-content:space-between;align-items:center;
+      padding:10px;background:var(--bg-card);border-radius:3px;border:1px solid var(--border-color);
+      transition:var(--transition);height:42px;min-height:42px;flex-shrink:0;
+    }
+    .mover-item:hover{background:var(--bg-hover);}
+    .mover-symbol{font-size:12px;font-weight:500;}
+    .mover-change{font-size:11px;font-weight:600;font-family:"Monaco",monospace;}
+    .mover-change.positive{color:var(--accent-success);}
+    .mover-change.negative{color:var(--accent-danger);}
+
+    .content-area{
+      grid-area:content;background:var(--bg-secondary);
+      display:flex;flex-direction:column;overflow:hidden;height:455px;max-height:455px;
+    }
+    .table-header{
+      background:var(--bg-tertiary);border-bottom:1px solid var(--border-color);
+      display:grid;grid-template-columns:50px 100px 110px 80px 100px 120px 100px 90px 90px 90px 100px;gap:12px;
+      padding:12px 16px;font-size:11px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.3px;
+      height:45px;min-height:45px;max-height:45px;
+    }
+    .table-body{
+      height:410px;max-height:410px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--accent-primary) var(--bg-tertiary);padding-right:4px;
+    }
+    .table-body::-webkit-scrollbar{width:8px;}
+    .table-body::-webkit-scrollbar-track{background:var(--bg-tertiary);border-radius:4px;}
+    .table-body::-webkit-scrollbar-thumb{background:var(--accent-primary);border-radius:4px;}
+    .table-body::-webkit-scrollbar-thumb:hover{background:var(--accent-success);}
+    .table-row{
+      display:grid;grid-template-columns:50px 100px 110px 80px 100px 120px 100px 90px 90px 90px 100px;gap:12px;
+      padding:12px 16px;border-bottom:1px solid var(--border-color);transition:var(--transition);align-items:center;height:36px;min-height:36px;
+    }
+    .table-row:hover{background:var(--bg-hover);}
+    .table-row:nth-child(even){background:rgba(255,255,255,.005);}
+    .cell{font-size:12px;text-align:center;}
+    .rank{color:var(--text-muted);font-weight:500;font-size:11px;}
+    .symbol{font-weight:600;text-align:left;white-space:nowrap;}
+    .price{font-family:"Monaco",monospace;font-weight:600;text-align:right;}
+    .price.positive{color:var(--accent-success);}
+    .price.negative{color:var(--accent-danger);}
+    .price.neutral{color:var(--text-primary);}
+    .change{font-family:"Monaco",monospace;font-weight:600;font-size:11px;text-align:right;}
+    .change.positive{color:var(--accent-success);}
+    .change.negative{color:var(--accent-danger);}
+    .change.neutral{color:var(--text-muted);}
+    .volume{font-family:"Monaco",monospace;color:var(--text-secondary);font-size:11px;text-align:right;}
+    .funding{font-family:"Monaco",monospace;font-weight:600;font-size:11px;text-align:right;}
+    .funding.positive{color:var(--accent-success);}
+    .funding.negative{color:var(--accent-danger);}
+    .funding.neutral{color:var(--text-muted);}
+    .fee{font-family:"Monaco",monospace;font-size:11px;text-align:right;color:var(--text-secondary);}
+    .trend-indicator{font-size:10px;color:var(--text-muted);}
+
+    .logs-panel{
+      grid-area:logs-panel;background:var(--bg-secondary);
+      display:flex;flex-direction:column;border-left:1px solid var(--border-color);
+      overflow:hidden;height:455px;max-height:455px;
+    }
+    .logs-header{background:var(--bg-tertiary);padding:12px;border-bottom:1px solid var(--border-color);text-align:center;height:45px;min-height:45px;max-height:45px;}
+    .logs-title{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:1px;}
+    .logs-toolbar{
+      display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--border-color);background:var(--bg-secondary);
+    }
+    .ai-status{font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:8px;}
+    .ai-state{font-weight:600;}
+    .ai-active{color:var(--accent-success);}
+    .ai-inactive{color:var(--accent-danger);}
+    .toggle-btn{
+      padding:6px 10px;border:1px solid var(--border-color);background:var(--bg-card);
+      color:var(--text-primary);border-radius:4px;font-size:12px;cursor:pointer;transition:var(--transition);
+    }
+    .toggle-btn.active{border-color:#2563eb;background:#1e3a8a;}
+    .toggle-btn[disabled]{opacity:.6;cursor:not-allowed;}
+    .toggle-btn:hover{background:var(--bg-hover);}
+    .logs-sep{height:1px;background:var(--border-color);}
+    .logs-content{
+      flex:1;padding:12px;background:var(--bg-card);overflow-y:auto;
+      scrollbar-width:thin;scrollbar-color:var(--accent-primary) var(--bg-tertiary);
+    }
+    .logs-content::-webkit-scrollbar{width:8px;}
+    .logs-content::-webkit-scrollbar-track{background:var(--bg-tertiary);border-radius:4px;}
+    .logs-content::-webkit-scrollbar-thumb{background:var(--accent-primary);border-radius:4px;}
+    .log-item{font-size:12px;color:var(--text-secondary);display:flex;justify-content:space-between;border-bottom:1px dashed #2f2f2f;padding:6px 0;}
+
+    .portfolio-section{
+      grid-area:portfolio;background:var(--bg-secondary);border-top:1px solid var(--border-color);
+      display:flex;flex-direction:column;height:100%;max-height:100%;overflow:hidden;
+    }
+    .portfolio-header{
+      background:var(--bg-tertiary);padding:12px 20px;border-bottom:1px solid var(--border-color);
+      display:flex;justify-content:space-between;align-items:center;height:45px;min-height:45px;max-height:45px;
+    }
+    .portfolio-title{font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:1px;}
+    .portfolio-status{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-secondary);}
+
+    .portfolio-content{
+      position:relative; z-index:5;
+      display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:1px;background:var(--border-color);
+      height:150px;min-height:150px;max-height:150px;
+    }
+    .portfolio-panel{background:var(--bg-card);padding:12px;display:flex;flex-direction:column;overflow:hidden;}
+    .panel-title{
+      font-size:12px;font-weight:600;color:var(--text-secondary);margin-bottom:8px;
+      text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border-color);padding-bottom:6px;
+    }
+    .portfolio-metric{
+      display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;
+      padding:6px 8px;background:var(--bg-secondary);border-radius:3px;border:1px solid var(--border-color);
+    }
+    .metric-label{font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.3px;}
+    .metric-value{font-family:"Monaco",monospace;font-size:12px;font-weight:600;}
+    .metric-value.positive{color:var(--accent-success);}
+    .metric-value.negative{color:var(--accent-danger);}
+    .metric-value.warning{color:var(--accent-warning);}
+
+    .portfolio-extras{
+      position:relative; z-index:1; flex:1;
+      display:grid;grid-template-columns:1fr 1fr 1fr;gap:1px;background:var(--border-color);
+      margin-top:14px; height:calc(100% - 45px - 150px - 14px);
+      max-height:calc(100% - 45px - 150px - 14px);
+    }
+    .extra-panel{background:var(--bg-card);display:flex;flex-direction:column;overflow:hidden;}
+    .extra-header{
+      display:flex;justify-content:space-between;align-items:center;padding:10px 12px;
+      border-bottom:1px solid var(--border-color);background:var(--bg-secondary);position:sticky;top:0;z-index:30;
+    }
+    .extra-title{font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px;}
+    .extra-body{
+      flex:1;overflow:auto;padding:0 10px 10px 10px;
+      scrollbar-width:thin;scrollbar-color:var(--accent-primary) var(--bg-tertiary);position:relative;
+    }
+    .extra-body::-webkit-scrollbar{width:8px;}
+    .extra-body::-webkit-scrollbar-track{background:var(--bg-tertiary);border-radius:4px;}
+    .extra-body::-webkit-scrollbar-thumb{background:var(--accent-primary);border-radius:4px;}
+
+    /* Limites visuelles ~7 lignes pour les 2 tableaux bas */
+    .pane-b-open,.pane-b-hist{max-height:240px;overflow:auto;}
+
+    .mini-table{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;}
+    .mini-table thead th{
+      position:sticky; top:0; z-index:40;background:var(--bg-tertiary);
+      border-bottom:1px solid var(--border-color);padding:8px;text-transform:uppercase;font-weight:600;color:var(--text-secondary);
+      font-size:11px;box-shadow:0 2px 0 0 var(--bg-card);
+    }
+    .mini-table tbody td{border-bottom:1px solid var(--border-color);padding:6px 8px;text-align:center;}
+    .tag{padding:2px 6px;border-radius:3px;font-size:11px;border:1px solid var(--border-color);}
+    .tag.long{color:var(--accent-success);} .tag.short{color:var(--accent-danger);}
+
+    canvas{width:100%;height:100%;display:block;}
+
+    @media (max-width:1200px){
+      .app-layout{grid-template-columns:250px 1fr 260px;}
+    }
+    .toggle-btn.busy{opacity:.7;pointer-events:none;}
+</style>
+</head>
+<body>
+  <div class="app-layout">
+    <header class="header">
+      <div class="header-left">
+        <h1 class="app-title">HERMΞS</h1>
+        <span class="version-badge" id="versionBadge">V4.4 • OKX</span>
+      </div>
+      <div class="header-right">
+        <div class="status-indicator">
+          <div class="status-dot" id="statusDot"></div><span id="statusText">Initialisation...</span>
+        </div>
+        <div class="current-time" id="currentTime">--:--:--</div>
+      </div>
+    </header>
+
+    <aside class="sidebar">
+      <div class="stats-section">
+        <h2 class="stats-title">Statistiques</h2>
+        <div class="stats-grid">
+          <div class="stat-card"><div class="stat-label">Latence</div><div class="stat-value" id="latency">--ms</div></div>
+          <div class="stat-card"><div class="stat-label">Succès</div><div class="stat-value" id="successRate">--%</div></div>
+          <div class="stat-card"><div class="stat-label">Cryptos</div><div class="stat-value" id="cryptosCount">--</div></div>
+          <div class="stat-card"><div class="stat-label">Uptime</div><div class="stat-value" id="uptime">00:00:00</div></div>
+        </div>
+      </div>
+      <div class="movers-section">
+        <h2 class="movers-title">Top Movers</h2>
+        <div class="movers-list" id="moversList"><div class="loading">Chargement...</div></div>
+      </div>
+    </aside>
+
+    <main class="content-area">
+      <div class="table-header">
+        <div>Rank</div><div>Symbol</div><div>Price</div><div>Change</div><div>Volume</div><div>High 24h</div><div>Low 24h</div><div>Funding</div><div>Maker</div><div>Taker</div><div>Updated</div>
+      </div>
+      <div class="table-body" id="tableBody"><div class="loading" style="padding:12px;color:#b8b8b8;">Chargement des données...</div></div>
+    </main>
+
+    <aside class="logs-panel">
+      <div class="logs-header"><h2 class="logs-title">LOGS_IA</h2></div>
+      <div class="logs-toolbar">
+        <div class="ai-status"><span>HERMΞS Statut :</span><span id="aiStateLabel" class="ai-state">—</span></div>
+        <button id="aiToggleBtn" class="toggle-btn">On / Off</button>
+      </div>
+      <div class="logs-sep"></div>
+      <div class="logs-content" id="logsContent"></div>
+    </aside>
+
+    <section class="portfolio-section">
+      <div class="portfolio-header">
+        <h2 class="portfolio-title">Wallet - OKX</h2>
+        <div class="portfolio-status"><div class="status-dot" id="portfolioStatusDot"></div><span id="portfolioStatusText">Chargement...</span></div>
+      </div>
+
+      <div class="portfolio-content">
+        <div class="portfolio-panel">
+          <h3 class="panel-title">Soldes</h3>
+          <div class="portfolio-metric"><span class="metric-label">Solde compte</span><span class="metric-value" id="soldeCompte">$0.00</span></div>
+          <div class="portfolio-metric"><span class="metric-label">Montant en trades ouverts</span><span class="metric-value" id="openTradesAmount">$0.00</span></div>
+          <div class="portfolio-metric"><span class="metric-label">Disponible</span><span class="metric-value" id="availableBalance">$0.00</span></div>
+        </div>
+
+        <div class="portfolio-panel">
+          <h3 class="panel-title">Positions</h3>
+          <div class="portfolio-metric"><span class="metric-label">Ouvertes</span><span class="metric-value" id="openPositions">0</span></div>
+          <div class="portfolio-metric"><span class="metric-label">Valeur Totale</span><span class="metric-value" id="positionsValue">$0.00</span></div>
+          <div class="portfolio-metric"><span class="metric-label">Marge Totale</span><span class="metric-value" id="totalMargin">$0.00</span></div>
+          <div class="portfolio-metric"><span class="metric-label">PnL Non Réalisé</span><span class="metric-value" id="unrealizedPnL">$0.00</span></div>
+        </div>
+
+        <div class="portfolio-panel">
+          <h3 class="panel-title">Performance</h3>
+          <div class="portfolio-metric"><span class="metric-label">Winrate</span><span class="metric-value" id="winrate">0%</span></div>
+          <div class="portfolio-metric"><span class="metric-label">PnL Jour (réalisé)</span><span class="metric-value" id="dailyPnL">$0.00</span></div>
+          <div class="portfolio-metric"><span class="metric-label">Rendement / min</span><span class="metric-value" id="yieldPerMin">$0.00/min</span></div>
+        </div>
+
+        <div class="portfolio-panel">
+          <h3 class="panel-title">Activité</h3>
+          <div class="portfolio-metric"><span class="metric-label">Trades Jour</span><span class="metric-value" id="dailyTrades">0</span></div>
+          <div class="portfolio-metric"><span class="metric-label">Volume 24h</span><span class="metric-value" id="dailyVolume">$0.00</span></div>
+          <div class="portfolio-metric"><span class="metric-label">Dernière MAJ</span><span class="metric-value" id="lastUpdate">--:--</span></div>
+        </div>
+      </div>
+
+      <div class="portfolio-extras">
+        <div class="extra-panel">
+          <div class="extra-header"><div class="extra-title">Trades Ouverts</div></div>
+          <div class="extra-body pane-b-open">
+            <table class="mini-table" id="openTradesTable">
+              <thead>
+                <tr><th>Symbole</th><th>Side</th><th>Lev.</th><th>Entrée</th><th>Marge</th><th>PnL (UR)</th><th>Heure</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="extra-panel">
+          <div class="extra-header"><div class="extra-title">Évolution du Solde</div></div>
+          <div class="extra-body"><canvas id="spotChart"></canvas></div>
+        </div>
+
+        <div class="extra-panel">
+          <div class="extra-header"><div class="extra-title">Historique des Trades (Clôtures)</div></div>
+          <div class="extra-body pane-b-hist">
+            <table class="mini-table" id="historyTable">
+              <thead><tr><th>Heure</th><th>Symbole</th><th>Side</th><th>Prix</th><th>Margin</th><th>PnL</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // ===== Bridge IPC (Electron avec nodeIntegration ou preload) =====
+    let ipcRenderer;
+    try { ipcRenderer = require("electron").ipcRenderer; } catch { ipcRenderer = null; }
+    if(!ipcRenderer && window.electron && window.electron.ipcRenderer){ ipcRenderer = window.electron.ipcRenderer; }
+    if(!ipcRenderer && window.api && typeof window.api.invoke === "function"){
+      ipcRenderer = { invoke: (...args) => window.api.invoke(...args), on: (ch, fn) => window.api.on(ch, fn) };
+    }
+    if(!ipcRenderer){ console.warn("Electron IPC non disponible (ni nodeIntegration ni preload bridge)."); }
+
+    // ===== Helpers =====
+    function formatSymbol(raw){
+      if(!raw) return "";
+      const s = String(raw).toUpperCase().replaceAll("_","-");
+      const parts = s.split("-");
+      if (parts.length >= 3 && parts[2] === "SWAP") return `${parts[0]}/${parts[1]}-M`;
+      if (parts.length >= 2) return `${parts[0]}/${parts[1]}`;
+      return s;
+    }
+    function clamp(x,a,b){ return Math.max(a,Math.min(b,x)); }
+
+    class HermesMonitor{
+      constructor(){
+        this.data = []; this.portfolioData = null;
+        this.startTime = Date.now(); this.totalRequests = 0; this.successfulRequests = 0;
+        this.portfolioRequests = 0; this.portfolioSuccessful = 0;
+        this.spotChartCtx = null; this.resizeObserver = null;
+        this.toggleBusy = false;
+        this.init();
+      }
+
+      async init(){
+        this.startTimeUpdater(); this.startUptimeUpdater();
+
+        // Premiers fetchs
+        await this.fetchData();
+        await this.fetchPortfolio();
+        await this.refreshAI();
+
+        // Boucles de rafraîchissement
+        setInterval(()=>this.fetchData(), 1000);
+        setInterval(()=>this.fetchPortfolio(), 3000);
+        setInterval(()=>this.refreshAI(), 3000);
+
+        const c = document.getElementById("spotChart"); if (c) this.spotChartCtx = c.getContext("2d");
+        this.setupResize();
+
+        const btn = document.getElementById("aiToggleBtn");
+if (btn) {
+  btn.addEventListener("click", async ()=>{
+    if(this.isViewer || !ipcRenderer?.invoke) return;
+    btn.disabled = true;
+    btn.classList.add("busy");
+    try{
+      const cur = await ipcRenderer.invoke("get-ai-state");
+      const next = !(cur && cur.active === true);
+      await ipcRenderer.invoke("toggle-ai", next);
+      const fresh = await ipcRenderer.invoke("get-ai-state");
+      this.renderAI(fresh);
+    }catch(e){
+      try{
+        const el = document.getElementById("logsContent");
+        if (el) {
+          const node = document.createElement("div");
+          node.className = "log-item";
+          const time = new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+          node.innerHTML = `<span>[UI_ERR] Toggle: ${e?.message||e}</span><span>${time}</span>`;
+          el.prepend(node);
+          if (el.children.length > 500) el.removeChild(el.lastChild);
+        }
+      }catch{}
+    }finally{
+      btn.classList.remove("busy");
+      btn.disabled = false;
+    }
+  });
+}
+
+        // Logs temps réel
+if (ipcRenderer?.on) {
+  ipcRenderer.on("ai-log", (_e, payload)=>{
+    try{
+      const el = document.getElementById("logsContent"); if(!el) return;
+      let msg;
+      const time = new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+      if (payload === undefined || payload === null) {
+        msg = "(no message)";
+      } else if (typeof payload === "string") {
+        msg = payload;
+      } else {
+        const mode = (payload && payload.live===true) ? "AI-LIVE" : "AI-SIM";
+        const ev   = payload?.event ? String(payload.event).toUpperCase() : "LOG";
+        const sym  = payload?.instId || "";
+        const side = payload?.side ? String(payload.side).toUpperCase() : "";
+        const qty  = (payload?.qty!=null) ? `x${payload.qty}` : "";
+        const px   = (payload?.price!=null) ? `@ ${payload.price}` : "";
+        msg = `[${mode}] [${ev}] ${sym} ${side} ${qty} ${px}`.trim().replace(/\s+/g," ");
+      }
+      const node = document.createElement("div");
+      node.className = "log-item";
+      node.innerHTML = `<span>${msg}</span><span>${time}</span>`;
+      el.prepend(node);
+      if (el.children.length > 500) el.removeChild(el.lastChild);
+    }catch{}
+  });
+}
+
+// Catch erreurs JS
+        window.addEventListener("error", (e)=>{
+          const el = document.getElementById("logsContent"); if(!el) return;
+          const node = document.createElement("div");
+          node.className = "log-item";
+          node.innerHTML = `<span>[UI_ERR] ${e.message}</span><span>${new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span>`;
+          el.prepend(node);
+        });
+        window.addEventListener("unhandledrejection", (e)=>{
+          const el = document.getElementById("logsContent"); if(!el) return;
+          const node = document.createElement("div");
+          node.className = "log-item";
+          node.innerHTML = `<span>[UI_REJECT] ${e.reason?.message||e.reason||'Promise rejected'}</span><span>${new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span>`;
+          el.prepend(node);
+        });
+      }
+
+      setupResize(){
+        const canvas = document.getElementById("spotChart"); if(!canvas) return;
+        const cb = ()=>{
+          canvas.width = canvas.clientWidth; canvas.height = canvas.clientHeight;
+          if (this.portfolioData?.history?.spot) this.drawSpotChart(this.portfolioData.history.spot);
+        };
+        this.resizeObserver = new ResizeObserver(cb); this.resizeObserver.observe(canvas); cb();
+      }
+
+      async refreshAI(){
+        try{
+          if(!ipcRenderer?.invoke) return;
+          const state = await ipcRenderer.invoke("get-ai-state");
+          this.renderAI(state);
+        }catch(e){ /* ignore */ }
+      }
+
+      async fetchData(){
+        const startTime = Date.now(); this.totalRequests++;
+        try{
+          this.updateStatus("loading","Synchronisation...");
+          if(!ipcRenderer?.invoke) throw new Error("IPC indisponible");
+          const result = await ipcRenderer.invoke("fetch-data");
+          const responseTime = Date.now()-startTime;
+          if(result.success){
+            this.successfulRequests++;
+            this.updateStatus("connected","Connecté OKX");
+            const arr = Array.isArray(result.data) ? result.data.slice(0, 100) : [];
+            this.updateUI(arr, responseTime);
+            const cc = document.getElementById("cryptosCount"); if (cc) cc.textContent = String(arr.length);
+          } else { throw new Error(result.error||"fetch-data failed"); }
+        }catch(err){
+          this.updateStatus("error","Erreur de connexion");
+          this.showError(err.message||String(err));
+        }
+      }
+
+      async fetchPortfolio(){
+        this.portfolioRequests++;
+        try{
+          this.updatePortfolioStatus("loading","Sync Portfolio...");
+          if(!ipcRenderer?.invoke) throw new Error("IPC indisponible");
+          const result = await ipcRenderer.invoke("fetch-portfolio");
+          if(result.success){
+            this.portfolioSuccessful++;
+            this.updatePortfolioStatus("connected","Portfolio OKX");
+            this.updatePortfolioUI(result.data);
+          }else{ throw new Error(result.error||"fetch-portfolio failed"); }
+        }catch(err){
+          this.updatePortfolioStatus("error","Erreur Portfolio");
+          console.error("Erreur Portfolio:", err);
+        }
+      }
+
+      renderAI(state){
+        const label = document.getElementById("aiStateLabel");
+        const btn = document.getElementById("aiToggleBtn");
+        const logsEl = document.getElementById("logsContent");
+        const active = !!(state && (state.active === true || state.active === "true"));
+        if(label){ label.textContent = active ? "Actif" : "Inactif"; label.className = "ai-state " + (active ? "ai-active" : "ai-inactive"); }
+        if(btn){ btn.className = "toggle-btn" + (active ? " active" : ""); }
+        const html = (state?.logs||[]).slice(-150).reverse().map(l=>{
+          const d = new Date(l.ts);
+          return `<div class="log-item"><span>${l.message}</span><span>${d.toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit",second:"2-digit"})}</span></div>`;
+        }).join("");
+        if(logsEl && !logsEl.dataset.hydrated){
+          logsEl.innerHTML = html || "<div class='log-item'><span>Aucun log</span><span>--:--:--</span></div>";
+          logsEl.dataset.hydrated = "1";
+        }
+      }
+
+      updateUI(data, responseTime){
+        if(!data || !Array.isArray(data)) return;
+        this.data = data; this.renderTable(); this.renderMovers();
+        const cc=document.getElementById("cryptosCount"); if(cc) cc.textContent=String(this.data.length);
+        this.updateStats(responseTime);
+      }
+
+      updatePortfolioUI(p){
+        if(!p) return; this.portfolioData = p;
+
+        // N4 — Soldes
+        const soldeCompte = Number(p.futures?.total ?? 0);
+        const usedMargin  = Number(p.positions?.totalMargin ?? 0);
+        const disponible  = Math.max(0, soldeCompte - usedMargin);
+
+        document.getElementById("soldeCompte").textContent     = `$${this.formatPrice(soldeCompte)}`;
+        document.getElementById("openTradesAmount").textContent= `$${this.formatPrice(usedMargin)}`;
+        document.getElementById("availableBalance").textContent= `$${this.formatPrice(disponible)}`;
+
+        // N5 — Positions
+        document.getElementById("openPositions").textContent = p.positions?.count ?? 0;
+        document.getElementById("positionsValue").textContent = `$${this.formatPrice(p.positions?.totalValue ?? 0)}`;
+        document.getElementById("totalMargin").textContent   = `$${this.formatPrice(usedMargin)}`;
+
+        const unrealizedPnLEl = document.getElementById("unrealizedPnL");
+        const pnlValue = Number(p.futures?.unrealizedPnL || 0);
+        unrealizedPnLEl.textContent = `$${this.formatPrice(Math.abs(pnlValue))}`;
+        unrealizedPnLEl.className = `metric-value ${pnlValue >= 0 ? "positive" : "negative"}`;
+
+        // N6 — Performance (+ rendement/min UI)
+        const winrateEl = document.getElementById("winrate");
+        const winrate = Number(p.performance?.winrate || 0);
+        winrateEl.textContent = `${winrate.toFixed(1)}%`;
+        winrateEl.className = `metric-value ${winrate >= 50 ? "positive" : winrate >= 30 ? "warning" : "negative"}`;
+
+        const dailyPnLEl = document.getElementById("dailyPnL");
+        const dailyPnL = Number(p.performance?.dailyPnL || 0);
+        dailyPnLEl.textContent = `$${this.formatPrice(Math.abs(dailyPnL))}`;
+        dailyPnLEl.className = `metric-value ${dailyPnL >= 0 ? "positive" : "negative"}`;
+
+        const ypmEl = document.getElementById("yieldPerMin");
+        const ypm = this.computeYieldPerMin(p.dealsRecent||[]);
+        ypmEl.textContent = `$${this.formatPrice(ypm)}/min`;
+        ypmEl.className = `metric-value ${ypm >= 0 ? "positive" : "negative"}`;
+
+        // N7 — Activité
+        document.getElementById("dailyTrades").textContent = p.performance?.dailyTrades || 0;
+        document.getElementById("dailyVolume").textContent = `$${this.formatVolume(p.performance?.dailyVolume || 0)}`;
+        document.getElementById("lastUpdate").textContent  = new Date(p.lastUpdate||Date.now()).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+
+        // N5/N10/N9 — Rendus détaillés
+        this.renderOpenTrades(p.openPositionsDetails || []);
+        this.drawSpotChart(p.history?.spot || []);
+        this.renderHistory(p.dealsRecent || []);
+      }
+
+      computeYieldPerMin(deals){
+        if(!deals || !deals.length) return 0;
+        const now = Date.now();
+        const last60 = deals.filter(d => (now - Number(d.time||0)) <= 60*60*1000);
+        let sample = last60.length ? last60 : deals.filter(d => (now - Number(d.time||0)) <= 24*60*60*1000);
+        if(!sample.length) sample = deals;
+        const pnl = sample.reduce((a,d)=> a + (Number(d.profit||d.pnl||0)||0), 0);
+        const firstTs = Math.min(...sample.map(d=>Number(d.time||now)));
+        const mins = Math.max(1, (now - firstTs) / 60000);
+        return pnl / mins;
+      }
+
+      renderOpenTrades(rows){
+        const tbody = document.querySelector("#openTradesTable tbody"); if(!tbody) return;
+        if(!rows.length){ tbody.innerHTML = "<tr><td colspan='7' style='color:#888;'>Aucune position ouverte</td></tr>"; return; }
+        tbody.innerHTML = rows.map(r=>{
+          const time = new Date(r.entryTime || Date.now()).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+          const ur   = Number(r.unrealizedPnl ?? r.upl ?? 0);
+          const pnlCls = ur>=0 ? "positive" : "negative";
+          return `<tr>
+            <td>${formatSymbol(r.symbol)}</td>
+            <td><span class="tag ${r.side==="LONG"?"long":"short"}">${r.side}</span></td>
+            <td>${r.leverage? "x"+Number(r.leverage): "-"}</td>
+            <td>$${this.formatPrice(r.entryPrice)}</td>
+            <td>$${this.formatPrice(r.margin)}</td>
+            <td class="price ${pnlCls}">$${this.formatPrice(ur)}</td>
+            <td>${time}</td>
+          </tr>`;
+        }).join("");
+      }
+
+      renderHistory(rows){
+        const tbody = document.querySelector("#historyTable tbody"); if(!tbody) return;
+        if(!rows.length){ tbody.innerHTML = "<tr><td colspan='6' style='color:#888;'>Aucun trade</td></tr>"; return; }
+        tbody.innerHTML = rows.slice(0,300).map(r=>{
+          const time = new Date(r.time||Date.now()).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit",second:"2-digit"});
+          const pnl  = Number(r.profit||r.pnl||0);
+          const pnlCls = (pnl>=0)?"positive":"negative";
+          return `<tr>
+            <td>${time}</td>
+            <td>${formatSymbol(r.symbol)}</td>
+            <td><span class="tag ${String(r.side||"").toUpperCase()==="LONG"?"long":"short"}">${String(r.side||"").toUpperCase()}</span></td>
+            <td>$${this.formatPrice(r.price)}</td>
+            <td>$${this.formatPrice(r.margin||0)}</td>
+            <td class="price ${pnlCls}">$${this.formatPrice(pnl)}</td>
+          </tr>`;
+        }).join("");
+      }
+
+      drawSpotChart(points){
+        const canvas = document.getElementById("spotChart");
+        if(!canvas) return;
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0,0,canvas.width,canvas.height);
+        if(!points || points.length < 2) return;
+
+        const w = canvas.width, h = canvas.height, pad = 20;
+        const xs = points.map(p=>p.t), ys = points.map(p=>Number(p.v||0));
+        const minY = Math.min(...ys), maxY = Math.max(...ys);
+        const yPad = (maxY-minY)*0.1 || 1;
+        const lo = minY - yPad, hi = maxY + yPad;
+        const t0 = xs[0], t1 = xs[xs.length-1] || (t0+1);
+        const X = v => pad + ((v - t0) / (t1 - t0 || 1)) * (w - pad*2);
+        const Y = v => h - pad - ((v - lo) / (hi - lo || 1)) * (h - pad*2);
+
+        // Bords
+        ctx.strokeStyle = "#2f2f2f"; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(pad, pad); ctx.lineTo(pad, h-pad); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(w-pad, pad); ctx.lineTo(w-pad, h-pad); ctx.stroke();
+
+        // Ligne
+        ctx.beginPath(); ctx.lineWidth = 2; ctx.strokeStyle = "#4a9eff";
+        points.forEach((p,i)=>{ const x=X(p.t), y=Y(Number(p.v||0)); if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); });
+        ctx.stroke();
+
+        // Dernière valeur
+        const last = points[points.length-1];
+        let lx = Math.min(X(last.t)+6, w - pad - 110);
+        let ly = Math.max(Y(Number(last.v||0))-6, pad + 14);
+        const text = "$"+this.formatPrice(last.v);
+        ctx.font = "12px Monaco, monospace";
+        const tw = ctx.measureText(text).width + 8, th = 16;
+        ctx.fillStyle = "rgba(0,0,0,0.35)"; ctx.fillRect(lx-4, ly-12, tw, th);
+        ctx.fillStyle = "#e8e8e8"; ctx.fillText(text, lx, ly);
+      }
+
+      renderTable(){
+        const tableBody = document.getElementById("tableBody"); if(!tableBody) return;
+        if(!this.data.length){ tableBody.innerHTML = "<div class='loading' style='padding:12px;color:#b8b8b8;'>En attente de données...</div>"; return; }
+
+        const rows = this.data.slice(0, 100);
+        tableBody.innerHTML = rows.map((c, i)=>{
+          const price = Number(c.lastPrice)||0;
+          const change = parseFloat((Number(c.riseFallRate)||0) * 100);
+          const cls = change>0?"positive":change<0?"negative":"neutral";
+
+          const fundingNum = (typeof c.fundingRate === "number") ? c.fundingRate : null;
+          const funding = (fundingNum===null) ? "—" : `${fundingNum>=0?"+":""}${(fundingNum*100).toFixed(4)}%`;
+          const fundingCls = (fundingNum===null) ? "neutral" : (fundingNum>0?"positive":fundingNum<0?"negative":"neutral");
+
+          const makerFee = (typeof c.makerFee === "number") ? (c.makerFee*100).toFixed(3)+"%" : (c.makerFee || "—");
+          const takerFee = (typeof c.takerFee === "number") ? (c.takerFee*100).toFixed(3)+"%" : (c.takerFee || "—");
+
+          const upd = new Date(c.updatedTs||Date.now()).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"});
+
+          return `
+            <div class="table-row">
+              <div class="cell rank">${i+1}</div>
+              <div class="cell symbol">${formatSymbol(c.symbol)}</div>
+              <div class="cell price ${cls}">$${this.formatPrice(price)}</div>
+              <div class="cell change ${cls}">${change>=0?"+":""}${isFinite(change)?change.toFixed(2):"0.00"}%</div>
+              <div class="cell volume">${this.formatVolume(c.volume24)}</div>
+              <div class="cell price">$${this.formatPrice(c.high24Price)}</div>
+              <div class="cell price">$${this.formatPrice(c.low24Price)}</div>
+              <div class="cell funding ${fundingCls}">${funding}</div>
+              <div class="cell fee">${makerFee}</div>
+              <div class="cell fee">${takerFee}</div>
+              <div class="cell trend-indicator">${upd}</div>
+            </div>`;
+        }).join("");
+      }
+
+      renderMovers(){
+        const moversList = document.getElementById("moversList"); if(!moversList) return;
+        if(!this.data.length){ moversList.innerHTML = "<div class='loading' style='color:#888;'>—</div>"; return; }
+        const topMovers = [...this.data].sort((a,b)=> Math.abs(+b.riseFallRate||0) - Math.abs(+a.riseFallRate||0)).slice(0,4);
+        moversList.innerHTML = topMovers.map(c=>{
+          const change = parseFloat((Number(c.riseFallRate)||0) * 100); const cls = change>=0?"positive":"negative";
+          return `<div class="mover-item"><span class="mover-symbol">${formatSymbol(c.symbol)}</span><span class="mover-change ${cls}">${change>=0?"+":""}${isFinite(change)?change.toFixed(1):"0.0"}%</span></div>`;
+        }).join("");
+      }
+
+      updateStats(responseTime){
+        const lat = document.getElementById("latency"); if(lat) lat.textContent = `${responseTime}ms`;
+        const sr = document.getElementById("successRate");
+        const successRate = this.totalRequests ? (this.successfulRequests / this.totalRequests * 100).toFixed(0) : 0;
+        if(sr) sr.textContent = `${successRate}%`;
+      }
+
+      updateStatus(status,text){
+        const dot = document.getElementById("statusDot"), t = document.getElementById("statusText");
+        if(dot) dot.className = `status-dot ${status==="error"?"error":""}`;
+        if(t) t.textContent = text;
+      }
+      updatePortfolioStatus(status,text){
+        const dot = document.getElementById("portfolioStatusDot"), t = document.getElementById("portfolioStatusText");
+        if(dot) dot.className = `status-dot ${status==="error"?"error":""}`;
+        if(t) t.textContent = text;
+      }
+
+      startTimeUpdater(){ setInterval(()=>{ const el = document.getElementById("currentTime"); if(el) el.textContent = new Date().toLocaleTimeString("fr-FR"); },1000); }
+      startUptimeUpdater(){
+        setInterval(()=>{ const u = Date.now()-this.startTime; const h=Math.floor(u/3600000), m=Math.floor((u%3600000)/60000), s=Math.floor((u%60000)/1000);
+          const el=document.getElementById("uptime"); if(el) el.textContent = `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`; },1000);
+      }
+
+      showError(message){
+        const tableBody = document.getElementById("tableBody");
+        if(tableBody) tableBody.innerHTML = `<div class="error" style="color:#f87171;text-align:center;padding:20px;">Erreur: ${message}</div>`;
+      }
+
+      formatPrice(price){
+        const p = parseFloat(price); if(!isFinite(p)) return "0.00";
+        if(p < 0.01) return p.toFixed(6);
+        if(p < 1) return p.toFixed(4);
+        if(p < 100) return p.toFixed(2);
+        return p.toFixed(2);
+      }
+      formatVolume(v){
+        const n = parseFloat(v); if(!isFinite(n)) return "0";
+        if(n >= 1e9) return (n/1e9).toFixed(1)+"B";
+        if(n >= 1e6) return (n/1e6).toFixed(1)+"M";
+        if(n >= 1e3) return (n/1e3).toFixed(1)+"K";
+        return n.toFixed(0);
+      }
+    }
+
+    document.addEventListener("DOMContentLoaded", ()=>{
+      window.hermesMonitor = new HermesMonitor();
+    });
+  </script>
+</body>
+</html>
+
+

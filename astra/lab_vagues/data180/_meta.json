@@ -1,0 +1,390 @@
+{
+ "t90": 1780348818371,
+ "t180": 1772572818371,
+ "insts": {
+  "PIEVERSE-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "ENSO-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "O-USDT-SWAP": {
+   "bougies": 0,
+   "pages": 0,
+   "gaps": 0,
+   "de": null,
+   "a": null,
+   "couverture_pct": 0
+  },
+  "GRASS-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "USELESS-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "GPS-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "SOON-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "ESP-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "BTC-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "CAP-USDT-SWAP": {
+   "bougies": 0,
+   "pages": 0,
+   "gaps": 0,
+   "de": null,
+   "a": null,
+   "couverture_pct": 0
+  },
+  "FARTCOIN-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "ARKM-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "KAITO-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "KMNO-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "ICP-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "NES-USDT-SWAP": {
+   "bougies": 0,
+   "pages": 0,
+   "gaps": 0,
+   "de": null,
+   "a": null,
+   "couverture_pct": 0
+  },
+  "PEOPLE-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "CRO-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "ORDI-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "RE-USDT-SWAP": {
+   "bougies": 0,
+   "pages": 0,
+   "gaps": 0,
+   "de": null,
+   "a": null,
+   "couverture_pct": 0
+  },
+  "SHIB-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "UNI-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "AI-USDT-SWAP": {
+   "bougies": 9617,
+   "pages": 97,
+   "gaps": 0,
+   "de": "2026-04-29T12:00:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 37.1
+  },
+  "DATA-USDT-SWAP": {
+   "bougies": 0,
+   "pages": 0,
+   "gaps": 0,
+   "de": null,
+   "a": null,
+   "couverture_pct": 0
+  },
+  "ZBT-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "DASH-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "ACT-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "XRP-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "OL-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "JELLYJELLY-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "HYPE-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "BABY-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "OP-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "INIT-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "BIGTIME-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "COAI-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "BREV-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "KGEN-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "LIT-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "SHELL-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "IRYS-USDT-SWAP": {
+   "bougies": 1562,
+   "pages": 16,
+   "gaps": 0,
+   "de": "2026-05-27T11:15:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 6
+  },
+  "LIGHT-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "CVX-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "ZETA-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "H-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "XTZ-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  },
+  "MEGA-USDT-SWAP": {
+   "bougies": 9329,
+   "pages": 94,
+   "gaps": 0,
+   "de": "2026-04-30T12:00:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 36
+  },
+  "PENGU-USDT-SWAP": {
+   "bougies": 25920,
+   "pages": 259,
+   "gaps": 0,
+   "de": "2026-03-03T21:25:00.000Z",
+   "a": "2026-06-01T21:20:00.000Z",
+   "couverture_pct": 100
+  }
+ }
+}

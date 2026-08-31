@@ -5,3 +5,8 @@ __pycache__/
 config.json
 config.local.json
 .pytest_cache/
+
+# Jamais dans le depot : ces fichiers portaient de vraies cles OKX LIVE.
+.env
+.env.*
+!.env.example

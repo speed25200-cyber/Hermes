@@ -1,0 +1,212 @@
+[
+ {
+  "instId": "NES-USDT-SWAP",
+  "etude": {
+   "wrIS": 62.9,
+   "wrOOS": 58.6,
+   "espIS": 9.34,
+   "espOOS": 10.12
+  },
+  "valid60j": {
+   "n": 80,
+   "wr": 60,
+   "esp": 1.09,
+   "pf": 1.09
+  }
+ },
+ {
+  "instId": "O-USDT-SWAP",
+  "etude": {
+   "wrIS": 72.5,
+   "wrOOS": 70.8,
+   "espIS": 9.3,
+   "espOOS": 9.35
+  },
+  "valid60j": {
+   "n": 132,
+   "wr": 50,
+   "esp": -0.05,
+   "pf": 1
+  }
+ },
+ {
+  "instId": "MOODENG-USDT-SWAP",
+  "etude": {
+   "wrIS": 65.6,
+   "wrOOS": 59,
+   "espIS": 11.31,
+   "espOOS": 8.87
+  },
+  "valid60j": {
+   "n": 152,
+   "wr": 46.7,
+   "esp": -0.86,
+   "pf": 0.95
+  }
+ },
+ {
+  "instId": "GPS-USDT-SWAP",
+  "etude": {
+   "wrIS": 53.6,
+   "wrOOS": 63.9,
+   "espIS": 8.78,
+   "espOOS": 15.11
+  },
+  "valid60j": {
+   "n": 156,
+   "wr": 48.7,
+   "esp": 0.87,
+   "pf": 1.06
+  }
+ },
+ {
+  "instId": "ENSO-USDT-SWAP",
+  "etude": {
+   "wrIS": 59.1,
+   "wrOOS": 60,
+   "espIS": 7.64,
+   "espOOS": 7.95
+  },
+  "valid60j": {
+   "n": 117,
+   "wr": 57.3,
+   "esp": 6.11,
+   "pf": 1.46
+  }
+ },
+ {
+  "instId": "GRASS-USDT-SWAP",
+  "etude": {
+   "wrIS": 64.9,
+   "wrOOS": 55.6,
+   "espIS": 7.39,
+   "espOOS": 7.46
+  },
+  "valid60j": {
+   "n": 250,
+   "wr": 52.8,
+   "esp": 3.09,
+   "pf": 1.21
+  }
+ },
+ {
+  "instId": "OPN-USDT-SWAP",
+  "etude": {
+   "wrIS": 62.8,
+   "wrOOS": 62.5,
+   "espIS": 8.47,
+   "espOOS": 7.29
+  },
+  "valid60j": {
+   "n": 207,
+   "wr": 42,
+   "esp": -4.3,
+   "pf": 0.77
+  }
+ },
+ {
+  "instId": "AXS-USDT-SWAP",
+  "etude": {
+   "wrIS": 53.8,
+   "wrOOS": 65.6,
+   "espIS": 6.79,
+   "espOOS": 10.68
+  },
+  "valid60j": {
+   "n": 145,
+   "wr": 46.2,
+   "esp": 0.8,
+   "pf": 1.06
+  }
+ },
+ {
+  "instId": "SOON-USDT-SWAP",
+  "etude": {
+   "wrIS": 69.2,
+   "wrOOS": 73.3,
+   "espIS": 6.68,
+   "espOOS": 7.6
+  },
+  "valid60j": {
+   "n": 222,
+   "wr": 57.7,
+   "esp": 1.17,
+   "pf": 1.09
+  }
+ },
+ {
+  "instId": "MANA-USDT-SWAP",
+  "etude": {
+   "wrIS": 64.1,
+   "wrOOS": 70,
+   "espIS": 6.57,
+   "espOOS": 6.76
+  },
+  "valid60j": {
+   "n": 193,
+   "wr": 59.6,
+   "esp": 0.97,
+   "pf": 1.09
+  }
+ },
+ {
+  "instId": "LUNA-USDT-SWAP",
+  "etude": {
+   "wrIS": 58.8,
+   "wrOOS": 59.3,
+   "espIS": 7.27,
+   "espOOS": 6.19
+  },
+  "valid60j": {
+   "n": 101,
+   "wr": 50.5,
+   "esp": 1.18,
+   "pf": 1.09
+  }
+ },
+ {
+  "instId": "NEIRO-USDT-SWAP",
+  "etude": {
+   "wrIS": 59.2,
+   "wrOOS": 59.6,
+   "espIS": 6.46,
+   "espOOS": 6.04
+  },
+  "valid60j": {
+   "n": 174,
+   "wr": 46.6,
+   "esp": -2.04,
+   "pf": 0.88
+  }
+ },
+ {
+  "instId": "MEGA-USDT-SWAP",
+  "etude": {
+   "wrIS": 59.2,
+   "wrOOS": 60.5,
+   "espIS": 5.69,
+   "espOOS": 7.88
+  },
+  "valid60j": {
+   "n": 249,
+   "wr": 50.2,
+   "esp": 1.03,
+   "pf": 1.07
+  }
+ },
+ {
+  "instId": "CBRS-USDT-SWAP",
+  "etude": {
+   "wrIS": 61.4,
+   "wrOOS": 56.3,
+   "espIS": 6.59,
+   "espOOS": 5.55
+  },
+  "valid60j": {
+   "n": 193,
+   "wr": 45.6,
+   "esp": -1.9,
+   "pf": 0.89
+  }
+ }
+]

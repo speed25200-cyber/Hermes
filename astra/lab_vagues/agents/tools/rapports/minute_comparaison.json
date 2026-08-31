@@ -1,0 +1,280 @@
+{
+ "genere": "2026-08-30T20:12:15.675Z",
+ "methode": "memes trades (selection 5m officielle), exits rejoues sur 1m ; SL pire-cas d'abord, trail sur close ; entree = close 5m du signal ; couts et levier identiques",
+ "global": {
+  "nTrades": 148,
+  "esp5m": 10.57,
+  "esp1m": 8.96,
+  "deltaEsp": -1.61,
+  "wr5m": 64.9,
+  "wr1m": 65.5,
+  "transitions": {
+   "trail->trail": 84,
+   "sl->sl": 47,
+   "tp->trail": 4,
+   "timeout->timeout": 11,
+   "timeout->trail": 2
+  }
+ },
+ "parModule": [
+  {
+   "instId": "PIEVERSE-USDT-SWAP",
+   "mod": "candidates/web_structure_1.js",
+   "worst30_docu": 12.58,
+   "fenetre1m": {
+    "de": "2026-08-23T20:03:00.000Z",
+    "a": "2026-08-30T20:02:00.000Z"
+   },
+   "nCompares": 14,
+   "horsFenetre": 62,
+   "couvertureInsuf": 0,
+   "esp5m": 15.81,
+   "esp1m": 14.65,
+   "deltaEsp": -1.16,
+   "wr5m": 71.4,
+   "wr1m": 71.4,
+   "tradesPires1m": 2,
+   "tradesMeilleurs1m": 3,
+   "tradesEgaux": 9,
+   "deltaMedian": 0,
+   "transitions": {
+    "trail->trail": 10,
+    "sl->sl": 4
+   }
+  },
+  {
+   "instId": "GPS-USDT-SWAP",
+   "mod": "candidates/web_orb_1.js",
+   "worst30_docu": 11.48,
+   "fenetre1m": {
+    "de": "2026-08-23T20:03:00.000Z",
+    "a": "2026-08-30T20:03:00.000Z"
+   },
+   "nCompares": 14,
+   "horsFenetre": 48,
+   "couvertureInsuf": 0,
+   "esp5m": 17.63,
+   "esp1m": 12.41,
+   "deltaEsp": -5.22,
+   "wr5m": 64.3,
+   "wr1m": 64.3,
+   "tradesPires1m": 5,
+   "tradesMeilleurs1m": 0,
+   "tradesEgaux": 9,
+   "deltaMedian": 0,
+   "transitions": {
+    "sl->sl": 4,
+    "trail->trail": 7,
+    "tp->trail": 2,
+    "timeout->timeout": 1
+   }
+  },
+  {
+   "instId": "SOON-USDT-SWAP",
+   "mod": "candidates/web_vwap_1.js",
+   "worst30_docu": 9.97,
+   "fenetre1m": {
+    "de": "2026-08-23T20:03:00.000Z",
+    "a": "2026-08-30T20:04:00.000Z"
+   },
+   "nCompares": 12,
+   "horsFenetre": 51,
+   "couvertureInsuf": 0,
+   "esp5m": 15.04,
+   "esp1m": 19.32,
+   "deltaEsp": 4.28,
+   "wr5m": 75,
+   "wr1m": 83.3,
+   "tradesPires1m": 0,
+   "tradesMeilleurs1m": 7,
+   "tradesEgaux": 5,
+   "deltaMedian": 0.767,
+   "transitions": {
+    "trail->trail": 8,
+    "sl->sl": 2,
+    "timeout->trail": 2
+   }
+  },
+  {
+   "instId": "DOT-USDT-SWAP",
+   "mod": "candidates/web_squeeze_1.js",
+   "worst30_docu": 7.38,
+   "fenetre1m": {
+    "de": "2026-08-23T20:03:00.000Z",
+    "a": "2026-08-30T20:05:00.000Z"
+   },
+   "nCompares": 15,
+   "horsFenetre": 49,
+   "couvertureInsuf": 0,
+   "esp5m": 2.19,
+   "esp1m": 2.48,
+   "deltaEsp": 0.29,
+   "wr5m": 60,
+   "wr1m": 60,
+   "tradesPires1m": 0,
+   "tradesMeilleurs1m": 3,
+   "tradesEgaux": 12,
+   "deltaMedian": 0,
+   "transitions": {
+    "sl->sl": 5,
+    "trail->trail": 6,
+    "timeout->timeout": 4
+   }
+  },
+  {
+   "instId": "MERL-USDT-SWAP",
+   "mod": "candidates/web_squeeze_2.js",
+   "worst30_docu": 7.17,
+   "fenetre1m": {
+    "de": "2026-08-23T20:03:00.000Z",
+    "a": "2026-08-30T20:06:00.000Z"
+   },
+   "nCompares": 16,
+   "horsFenetre": 48,
+   "couvertureInsuf": 0,
+   "esp5m": 16.37,
+   "esp1m": 14.1,
+   "deltaEsp": -2.27,
+   "wr5m": 75,
+   "wr1m": 75,
+   "tradesPires1m": 4,
+   "tradesMeilleurs1m": 4,
+   "tradesEgaux": 8,
+   "deltaMedian": 0,
+   "transitions": {
+    "trail->trail": 12,
+    "sl->sl": 4
+   }
+  },
+  {
+   "instId": "ESP-USDT-SWAP",
+   "mod": "candidates/web_vwap_2.js",
+   "worst30_docu": 6.96,
+   "fenetre1m": {
+    "de": "2026-08-23T20:03:00.000Z",
+    "a": "2026-08-30T20:07:00.000Z"
+   },
+   "nCompares": 16,
+   "horsFenetre": 56,
+   "couvertureInsuf": 0,
+   "esp5m": 4.54,
+   "esp1m": 1.92,
+   "deltaEsp": -2.62,
+   "wr5m": 56.3,
+   "wr1m": 56.3,
+   "tradesPires1m": 3,
+   "tradesMeilleurs1m": 3,
+   "tradesEgaux": 10,
+   "deltaMedian": 0,
+   "transitions": {
+    "sl->sl": 7,
+    "trail->trail": 9
+   }
+  },
+  {
+   "instId": "ZAMA-USDT-SWAP",
+   "mod": "candidates/web_orb_2.js",
+   "worst30_docu": 6.62,
+   "fenetre1m": {
+    "de": "2026-08-23T20:03:00.000Z",
+    "a": "2026-08-30T20:08:00.000Z"
+   },
+   "nCompares": 15,
+   "horsFenetre": 62,
+   "couvertureInsuf": 0,
+   "esp5m": 2.18,
+   "esp1m": 2.68,
+   "deltaEsp": 0.5,
+   "wr5m": 53.3,
+   "wr1m": 53.3,
+   "tradesPires1m": 1,
+   "tradesMeilleurs1m": 4,
+   "tradesEgaux": 10,
+   "deltaMedian": 0,
+   "transitions": {
+    "trail->trail": 8,
+    "sl->sl": 7
+   }
+  },
+  {
+   "instId": "JTO-USDT-SWAP",
+   "mod": "candidates/web_orb_3.js",
+   "worst30_docu": 6.52,
+   "fenetre1m": {
+    "de": "2026-08-23T20:03:00.000Z",
+    "a": "2026-08-30T20:09:00.000Z"
+   },
+   "nCompares": 14,
+   "horsFenetre": 60,
+   "couvertureInsuf": 0,
+   "esp5m": 3.44,
+   "esp1m": 2.46,
+   "deltaEsp": -0.98,
+   "wr5m": 57.1,
+   "wr1m": 57.1,
+   "tradesPires1m": 1,
+   "tradesMeilleurs1m": 4,
+   "tradesEgaux": 9,
+   "deltaMedian": 0,
+   "transitions": {
+    "sl->sl": 5,
+    "trail->trail": 5,
+    "timeout->timeout": 4
+   }
+  },
+  {
+   "instId": "MOODENG-USDT-SWAP",
+   "mod": "candidates/web_squeeze_3.js",
+   "worst30_docu": 6.48,
+   "fenetre1m": {
+    "de": "2026-08-23T20:03:00.000Z",
+    "a": "2026-08-30T20:09:00.000Z"
+   },
+   "nCompares": 19,
+   "horsFenetre": 58,
+   "couvertureInsuf": 0,
+   "esp5m": 17.19,
+   "esp1m": 12.74,
+   "deltaEsp": -4.45,
+   "wr5m": 73.7,
+   "wr1m": 73.7,
+   "tradesPires1m": 6,
+   "tradesMeilleurs1m": 7,
+   "tradesEgaux": 6,
+   "deltaMedian": 0,
+   "transitions": {
+    "trail->trail": 12,
+    "sl->sl": 5,
+    "tp->trail": 1,
+    "timeout->timeout": 1
+   }
+  },
+  {
+   "instId": "ENSO-USDT-SWAP",
+   "mod": "candidates/_record_enso.js",
+   "worst30_docu": 6.1,
+   "fenetre1m": {
+    "de": "2026-08-23T20:03:00.000Z",
+    "a": "2026-08-30T20:10:00.000Z"
+   },
+   "nCompares": 13,
+   "horsFenetre": 56,
+   "couvertureInsuf": 0,
+   "esp5m": 10.79,
+   "esp1m": 8.1,
+   "deltaEsp": -2.69,
+   "wr5m": 61.5,
+   "wr1m": 61.5,
+   "tradesPires1m": 4,
+   "tradesMeilleurs1m": 3,
+   "tradesEgaux": 6,
+   "deltaMedian": 0,
+   "transitions": {
+    "trail->trail": 7,
+    "sl->sl": 4,
+    "timeout->timeout": 1,
+    "tp->trail": 1
+   }
+  }
+ ]
+}

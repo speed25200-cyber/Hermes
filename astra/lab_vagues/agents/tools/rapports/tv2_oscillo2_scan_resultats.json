@@ -1,0 +1,4707 @@
+[
+ {
+  "fam": "cmo_reclaim",
+  "instId": "LAYER-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 12.01,
+  "espOOS": 12.16,
+  "wrOOS": 72.7,
+  "nIS": 18,
+  "nOOS": 11,
+  "pfOOS": 2.4,
+  "worst": 12.01,
+  "valide": false
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "JUP-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 14.54,
+  "espOOS": 10.42,
+  "wrOOS": 80,
+  "nIS": 11,
+  "nOOS": 10,
+  "pfOOS": 2.64,
+  "worst": 10.42,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "AAVE-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2.5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 10.1,
+  "espOOS": 12.2,
+  "wrOOS": 65,
+  "nIS": 17,
+  "nOOS": 20,
+  "pfOOS": 2.1,
+  "worst": 10.1,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "LAYER-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 9.71,
+  "espOOS": 9.83,
+  "wrOOS": 69.2,
+  "nIS": 19,
+  "nOOS": 13,
+  "pfOOS": 2.01,
+  "worst": 9.71,
+  "valide": false
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "JUP-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 12.14,
+  "espOOS": 9.45,
+  "wrOOS": 70,
+  "nIS": 12,
+  "nOOS": 10,
+  "pfOOS": 1.99,
+  "worst": 9.45,
+  "valide": false
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "JUP-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 18.88,
+  "espOOS": 9.17,
+  "wrOOS": 60,
+  "nIS": 10,
+  "nOOS": 10,
+  "pfOOS": 1.94,
+  "worst": 9.17,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "AAVE-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2.5,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 8.48,
+  "espOOS": 9.4,
+  "wrOOS": 72.7,
+  "nIS": 19,
+  "nOOS": 22,
+  "pfOOS": 2.08,
+  "worst": 8.48,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "SOL-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 12.7,
+  "espOOS": 8.34,
+  "wrOOS": 65,
+  "nIS": 17,
+  "nOOS": 20,
+  "pfOOS": 1.75,
+  "worst": 8.34,
+  "valide": false
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "ZKP-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 7.95,
+  "espOOS": 20.29,
+  "wrOOS": 75,
+  "nIS": 12,
+  "nOOS": 8,
+  "pfOOS": 3.55,
+  "worst": 7.95,
+  "valide": false
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "BOME-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 7.73,
+  "espOOS": 23.55,
+  "wrOOS": 66.7,
+  "nIS": 16,
+  "nOOS": 3,
+  "pfOOS": 3.22,
+  "worst": 7.73,
+  "valide": false
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "BOME-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 7.73,
+  "espOOS": 23.55,
+  "wrOOS": 66.7,
+  "nIS": 16,
+  "nOOS": 3,
+  "pfOOS": 3.22,
+  "worst": 7.73,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "MORPHO-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 7.7,
+  "espOOS": 9.88,
+  "wrOOS": 65.4,
+  "nIS": 24,
+  "nOOS": 26,
+  "pfOOS": 1.9,
+  "worst": 7.7,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 7.39,
+  "espOOS": 14.06,
+  "wrOOS": 72.7,
+  "nIS": 41,
+  "nOOS": 33,
+  "pfOOS": 2.62,
+  "worst": 7.39,
+  "valide": true
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "JUP-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 7.05,
+  "espOOS": 10.42,
+  "wrOOS": 80,
+  "nIS": 12,
+  "nOOS": 10,
+  "pfOOS": 2.64,
+  "worst": 7.05,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "POPCAT-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 6.91,
+  "espOOS": 7.94,
+  "wrOOS": 62.5,
+  "nIS": 34,
+  "nOOS": 24,
+  "pfOOS": 1.71,
+  "worst": 6.91,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "GOOGL-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 6.88,
+  "espOOS": 7.07,
+  "wrOOS": 85.7,
+  "nIS": 19,
+  "nOOS": 7,
+  "pfOOS": 5,
+  "worst": 6.88,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "SOL-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 6.83,
+  "espOOS": 6.91,
+  "wrOOS": 66.7,
+  "nIS": 20,
+  "nOOS": 21,
+  "pfOOS": 1.72,
+  "worst": 6.83,
+  "valide": false
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "MSFT-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 6.81,
+  "espOOS": 7.4,
+  "wrOOS": 80,
+  "nIS": 8,
+  "nOOS": 5,
+  "pfOOS": 7.9,
+  "worst": 6.81,
+  "valide": false
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "JUP-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 9.54,
+  "espOOS": 6.67,
+  "wrOOS": 72.7,
+  "nIS": 13,
+  "nOOS": 11,
+  "pfOOS": 1.77,
+  "worst": 6.67,
+  "valide": false
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "JUP-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 12.74,
+  "espOOS": 6.66,
+  "wrOOS": 54.5,
+  "nIS": 12,
+  "nOOS": 11,
+  "pfOOS": 1.57,
+  "worst": 6.66,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "AAVE-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 6.65,
+  "espOOS": 7.4,
+  "wrOOS": 58.8,
+  "nIS": 29,
+  "nOOS": 34,
+  "pfOOS": 1.59,
+  "worst": 6.65,
+  "valide": true
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "JUP-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 6.64,
+  "espOOS": 6.91,
+  "wrOOS": 63.6,
+  "nIS": 14,
+  "nOOS": 11,
+  "pfOOS": 1.6,
+  "worst": 6.64,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "ENS-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 6.46,
+  "espOOS": 6.66,
+  "wrOOS": 72.7,
+  "nIS": 29,
+  "nOOS": 33,
+  "pfOOS": 1.77,
+  "worst": 6.46,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "APR-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 6.44,
+  "espOOS": 6.74,
+  "wrOOS": 55.2,
+  "nIS": 49,
+  "nOOS": 29,
+  "pfOOS": 1.47,
+  "worst": 6.44,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "AERO-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 6.27,
+  "espOOS": 11.23,
+  "wrOOS": 63.6,
+  "nIS": 23,
+  "nOOS": 22,
+  "pfOOS": 1.97,
+  "worst": 6.27,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "ETH-USDT-SWAP",
+  "opts": {
+   "W": 48,
+   "T": 2,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 6.18,
+  "espOOS": 6.26,
+  "wrOOS": 65,
+  "nIS": 24,
+  "nOOS": 20,
+  "pfOOS": 1.56,
+  "worst": 6.18,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "COMP-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 6.14,
+  "espOOS": 15.65,
+  "wrOOS": 70,
+  "nIS": 25,
+  "nOOS": 10,
+  "pfOOS": 4.76,
+  "worst": 6.14,
+  "valide": false
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "POL-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 6.09,
+  "espOOS": 8.71,
+  "wrOOS": 66.7,
+  "nIS": 9,
+  "nOOS": 6,
+  "pfOOS": 1.82,
+  "worst": 6.09,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "SUI-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 6.64,
+  "espOOS": 6.08,
+  "wrOOS": 66.7,
+  "nIS": 17,
+  "nOOS": 9,
+  "pfOOS": 1.57,
+  "worst": 6.08,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "AR-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 6.04,
+  "espOOS": 7.42,
+  "wrOOS": 70.8,
+  "nIS": 21,
+  "nOOS": 24,
+  "pfOOS": 1.8,
+  "worst": 6.04,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ETHW-USDT-SWAP",
+  "opts": {
+   "T": 15,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 10.4,
+  "espOOS": 6.03,
+  "wrOOS": 57.1,
+  "nIS": 30,
+  "nOOS": 35,
+  "pfOOS": 1.48,
+  "worst": 6.03,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "BNB-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 6.02,
+  "espOOS": 8.86,
+  "wrOOS": 64.7,
+  "nIS": 19,
+  "nOOS": 17,
+  "pfOOS": 2.06,
+  "worst": 6.02,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ONT-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 5.99,
+  "espOOS": 7.96,
+  "wrOOS": 58.8,
+  "nIS": 41,
+  "nOOS": 34,
+  "pfOOS": 1.61,
+  "worst": 5.99,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "LAYER-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 5.98,
+  "espOOS": 12.16,
+  "wrOOS": 72.7,
+  "nIS": 22,
+  "nOOS": 11,
+  "pfOOS": 2.4,
+  "worst": 5.98,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 50,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 9.77,
+  "espOOS": 5.97,
+  "wrOOS": 56.7,
+  "nIS": 36,
+  "nOOS": 30,
+  "pfOOS": 1.46,
+  "worst": 5.97,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "VVV-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 5.95,
+  "espOOS": 7.11,
+  "wrOOS": 64.7,
+  "nIS": 24,
+  "nOOS": 17,
+  "pfOOS": 1.63,
+  "worst": 5.95,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "XPL-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 6.26,
+  "espOOS": 5.92,
+  "wrOOS": 56.3,
+  "nIS": 17,
+  "nOOS": 16,
+  "pfOOS": 1.43,
+  "worst": 5.92,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ALGO-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 5.87,
+  "espOOS": 6.21,
+  "wrOOS": 63.2,
+  "nIS": 27,
+  "nOOS": 19,
+  "pfOOS": 1.53,
+  "worst": 5.87,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "VVV-USDT-SWAP",
+  "opts": {
+   "W": 96,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 5.84,
+  "espOOS": 10.83,
+  "wrOOS": 66.7,
+  "nIS": 26,
+  "nOOS": 15,
+  "pfOOS": 2.02,
+  "worst": 5.84,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "SYRUP-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 5.77,
+  "espOOS": 7.84,
+  "wrOOS": 64.3,
+  "nIS": 20,
+  "nOOS": 14,
+  "pfOOS": 1.69,
+  "worst": 5.77,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "AAVE-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 5.72,
+  "espOOS": 10.25,
+  "wrOOS": 60.7,
+  "nIS": 29,
+  "nOOS": 28,
+  "pfOOS": 1.82,
+  "worst": 5.72,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "SYRUP-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 50,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 5.6,
+  "espOOS": 6.56,
+  "wrOOS": 57.7,
+  "nIS": 38,
+  "nOOS": 26,
+  "pfOOS": 1.52,
+  "worst": 5.6,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "OKB-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 5.59,
+  "espOOS": 7.1,
+  "wrOOS": 65,
+  "nIS": 34,
+  "nOOS": 20,
+  "pfOOS": 1.84,
+  "worst": 5.59,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "T": 15,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 5.62,
+  "espOOS": 5.54,
+  "wrOOS": 56.5,
+  "nIS": 48,
+  "nOOS": 46,
+  "pfOOS": 1.41,
+  "worst": 5.54,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "AERO-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 5.47,
+  "espOOS": 7.93,
+  "wrOOS": 59.1,
+  "nIS": 28,
+  "nOOS": 22,
+  "pfOOS": 1.66,
+  "worst": 5.47,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "SUSHI-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 5.47,
+  "espOOS": 11.58,
+  "wrOOS": 65.4,
+  "nIS": 36,
+  "nOOS": 26,
+  "pfOOS": 2.15,
+  "worst": 5.47,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "XPL-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 5.45,
+  "espOOS": 5.92,
+  "wrOOS": 56.3,
+  "nIS": 17,
+  "nOOS": 16,
+  "pfOOS": 1.43,
+  "worst": 5.45,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 50,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 10.53,
+  "espOOS": 5.44,
+  "wrOOS": 54.8,
+  "nIS": 40,
+  "nOOS": 31,
+  "pfOOS": 1.42,
+  "worst": 5.44,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "SOL-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 5.43,
+  "espOOS": 9.57,
+  "wrOOS": 64,
+  "nIS": 21,
+  "nOOS": 25,
+  "pfOOS": 1.93,
+  "worst": 5.43,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 5.79,
+  "espOOS": 5.39,
+  "wrOOS": 72.4,
+  "nIS": 36,
+  "nOOS": 29,
+  "pfOOS": 1.61,
+  "worst": 5.39,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "BNB-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 5.34,
+  "espOOS": 5.35,
+  "wrOOS": 62.5,
+  "nIS": 17,
+  "nOOS": 16,
+  "pfOOS": 1.59,
+  "worst": 5.34,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "SYRUP-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 50,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 5.31,
+  "espOOS": 6.56,
+  "wrOOS": 57.7,
+  "nIS": 38,
+  "nOOS": 26,
+  "pfOOS": 1.52,
+  "worst": 5.31,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "KAT-USDT-SWAP",
+  "opts": {
+   "T": 15,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 5.23,
+  "espOOS": 8.48,
+  "wrOOS": 75,
+  "nIS": 44,
+  "nOOS": 48,
+  "pfOOS": 2.07,
+  "worst": 5.23,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "GAS-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 6.98,
+  "espOOS": 5.18,
+  "wrOOS": 57.9,
+  "nIS": 20,
+  "nOOS": 19,
+  "pfOOS": 1.44,
+  "worst": 5.18,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "TRB-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 6.94,
+  "espOOS": 5.14,
+  "wrOOS": 69.2,
+  "nIS": 23,
+  "nOOS": 26,
+  "pfOOS": 1.53,
+  "worst": 5.14,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "SATS-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 5.13,
+  "espOOS": 5.55,
+  "wrOOS": 57.1,
+  "nIS": 43,
+  "nOOS": 28,
+  "pfOOS": 1.44,
+  "worst": 5.13,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ONT-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 5.08,
+  "espOOS": 7.71,
+  "wrOOS": 60.5,
+  "nIS": 39,
+  "nOOS": 38,
+  "pfOOS": 1.65,
+  "worst": 5.08,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "OP-USDT-SWAP",
+  "opts": {
+   "W": 96,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 5.08,
+  "espOOS": 19.72,
+  "wrOOS": 72.7,
+  "nIS": 21,
+  "nOOS": 11,
+  "pfOOS": 4.41,
+  "worst": 5.08,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "AAVE-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 5.07,
+  "espOOS": 8.1,
+  "wrOOS": 55.2,
+  "nIS": 41,
+  "nOOS": 29,
+  "pfOOS": 1.66,
+  "worst": 5.07,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "W": 48,
+   "T": 2,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 5.05,
+  "espOOS": 5.84,
+  "wrOOS": 57.5,
+  "nIS": 45,
+  "nOOS": 40,
+  "pfOOS": 1.45,
+  "worst": 5.05,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "SOL-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 8.69,
+  "espOOS": 5.04,
+  "wrOOS": 69.6,
+  "nIS": 17,
+  "nOOS": 23,
+  "pfOOS": 1.52,
+  "worst": 5.04,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "AERO-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 7.09,
+  "espOOS": 5.02,
+  "wrOOS": 66.7,
+  "nIS": 25,
+  "nOOS": 24,
+  "pfOOS": 1.47,
+  "worst": 5.02,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "APR-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 4.97,
+  "espOOS": 6.74,
+  "wrOOS": 55.2,
+  "nIS": 50,
+  "nOOS": 29,
+  "pfOOS": 1.47,
+  "worst": 4.97,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "SUI-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 16.75,
+  "espOOS": 4.96,
+  "wrOOS": 55.6,
+  "nIS": 15,
+  "nOOS": 9,
+  "pfOOS": 1.45,
+  "worst": 4.96,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 8.3,
+  "espOOS": 4.95,
+  "wrOOS": 54.5,
+  "nIS": 26,
+  "nOOS": 22,
+  "pfOOS": 1.38,
+  "worst": 4.95,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "ETH-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 6.87,
+  "espOOS": 4.93,
+  "wrOOS": 50,
+  "nIS": 15,
+  "nOOS": 10,
+  "pfOOS": 1.31,
+  "worst": 4.93,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ALGO-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 4.93,
+  "espOOS": 7.47,
+  "wrOOS": 60.9,
+  "nIS": 30,
+  "nOOS": 23,
+  "pfOOS": 1.68,
+  "worst": 4.93,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "SUSHI-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 4.9,
+  "espOOS": 11.54,
+  "wrOOS": 65.4,
+  "nIS": 42,
+  "nOOS": 26,
+  "pfOOS": 2.23,
+  "worst": 4.9,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "AERO-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 4.89,
+  "espOOS": 6.45,
+  "wrOOS": 70.8,
+  "nIS": 34,
+  "nOOS": 24,
+  "pfOOS": 1.7,
+  "worst": 4.89,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "COMP-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 4.86,
+  "espOOS": 15.65,
+  "wrOOS": 70,
+  "nIS": 24,
+  "nOOS": 10,
+  "pfOOS": 4.76,
+  "worst": 4.86,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "SYRUP-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 40,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 9.24,
+  "espOOS": 4.83,
+  "wrOOS": 58.3,
+  "nIS": 41,
+  "nOOS": 36,
+  "pfOOS": 1.38,
+  "worst": 4.83,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "PNUT-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 4.82,
+  "espOOS": 5.9,
+  "wrOOS": 52.4,
+  "nIS": 49,
+  "nOOS": 42,
+  "pfOOS": 1.42,
+  "worst": 4.82,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "POL-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 40,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 4.78,
+  "espOOS": 7.11,
+  "wrOOS": 54.2,
+  "nIS": 27,
+  "nOOS": 48,
+  "pfOOS": 1.5,
+  "worst": 4.78,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "COMP-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 4.7,
+  "espOOS": 4.8,
+  "wrOOS": 69.2,
+  "nIS": 30,
+  "nOOS": 13,
+  "pfOOS": 1.49,
+  "worst": 4.7,
+  "valide": false
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "ZKP-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 4.68,
+  "espOOS": 9.4,
+  "wrOOS": 75,
+  "nIS": 12,
+  "nOOS": 8,
+  "pfOOS": 2.18,
+  "worst": 4.68,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "XRP-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 1.5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 4.64,
+  "espOOS": 5.96,
+  "wrOOS": 55,
+  "nIS": 21,
+  "nOOS": 40,
+  "pfOOS": 1.44,
+  "worst": 4.64,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "BONK-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 4.77,
+  "espOOS": 4.64,
+  "wrOOS": 55.2,
+  "nIS": 33,
+  "nOOS": 29,
+  "pfOOS": 1.35,
+  "worst": 4.64,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "MSFT-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 4.64,
+  "espOOS": 9.41,
+  "wrOOS": 66.7,
+  "nIS": 21,
+  "nOOS": 9,
+  "pfOOS": 10.78,
+  "worst": 4.64,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "AAVE-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 9.7,
+  "espOOS": 4.56,
+  "wrOOS": 53.8,
+  "nIS": 30,
+  "nOOS": 39,
+  "pfOOS": 1.33,
+  "worst": 4.56,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ONT-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 4.56,
+  "espOOS": 8.79,
+  "wrOOS": 61.7,
+  "nIS": 44,
+  "nOOS": 47,
+  "pfOOS": 1.72,
+  "worst": 4.56,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 50,
+   "conf": 0
+  },
+  "exit": "E2",
+  "espIS": 6.23,
+  "espOOS": 4.55,
+  "wrOOS": 59.4,
+  "nIS": 45,
+  "nOOS": 32,
+  "pfOOS": 1.37,
+  "worst": 4.55,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "VVV-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 4.52,
+  "espOOS": 7.11,
+  "wrOOS": 64.7,
+  "nIS": 24,
+  "nOOS": 17,
+  "pfOOS": 1.63,
+  "worst": 4.52,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ZKP-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 0
+  },
+  "exit": "E2",
+  "espIS": 4.51,
+  "espOOS": 5.07,
+  "wrOOS": 66,
+  "nIS": 80,
+  "nOOS": 47,
+  "pfOOS": 1.55,
+  "worst": 4.51,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "AVAX-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 6.49,
+  "espOOS": 4.51,
+  "wrOOS": 66.7,
+  "nIS": 11,
+  "nOOS": 12,
+  "pfOOS": 1.43,
+  "worst": 4.51,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "MORPHO-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 4.51,
+  "espOOS": 10.52,
+  "wrOOS": 63,
+  "nIS": 32,
+  "nOOS": 27,
+  "pfOOS": 2.1,
+  "worst": 4.51,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "CHZ-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 5.48,
+  "espOOS": 4.51,
+  "wrOOS": 54.8,
+  "nIS": 37,
+  "nOOS": 31,
+  "pfOOS": 1.39,
+  "worst": 4.51,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "MORPHO-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 4.49,
+  "espOOS": 4.55,
+  "wrOOS": 57.1,
+  "nIS": 31,
+  "nOOS": 28,
+  "pfOOS": 1.33,
+  "worst": 4.49,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 50,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 8.11,
+  "espOOS": 4.46,
+  "wrOOS": 58.1,
+  "nIS": 43,
+  "nOOS": 31,
+  "pfOOS": 1.35,
+  "worst": 4.46,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "SOL-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2.5,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 5.98,
+  "espOOS": 4.43,
+  "wrOOS": 68.2,
+  "nIS": 17,
+  "nOOS": 22,
+  "pfOOS": 1.44,
+  "worst": 4.43,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 4.41,
+  "espOOS": 10.61,
+  "wrOOS": 61.5,
+  "nIS": 18,
+  "nOOS": 13,
+  "pfOOS": 1.99,
+  "worst": 4.41,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "SATS-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 6.55,
+  "espOOS": 4.39,
+  "wrOOS": 68,
+  "nIS": 47,
+  "nOOS": 25,
+  "pfOOS": 1.43,
+  "worst": 4.39,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "ACT-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2.5,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 4.34,
+  "espOOS": 12.9,
+  "wrOOS": 64.7,
+  "nIS": 27,
+  "nOOS": 17,
+  "pfOOS": 2.15,
+  "worst": 4.34,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "ACT-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2.5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 4.34,
+  "espOOS": 12.9,
+  "wrOOS": 64.7,
+  "nIS": 27,
+  "nOOS": 17,
+  "pfOOS": 2.15,
+  "worst": 4.34,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "LAYER-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 4.33,
+  "espOOS": 9.83,
+  "wrOOS": 69.2,
+  "nIS": 23,
+  "nOOS": 13,
+  "pfOOS": 2.01,
+  "worst": 4.33,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "SYRUP-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 40,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 5.4,
+  "espOOS": 4.29,
+  "wrOOS": 66,
+  "nIS": 57,
+  "nOOS": 47,
+  "pfOOS": 1.41,
+  "worst": 4.29,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "MSFT-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 4.28,
+  "espOOS": 8.23,
+  "wrOOS": 66.7,
+  "nIS": 24,
+  "nOOS": 9,
+  "pfOOS": 9.55,
+  "worst": 4.28,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "SATS-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 4.27,
+  "espOOS": 5.55,
+  "wrOOS": 57.1,
+  "nIS": 46,
+  "nOOS": 28,
+  "pfOOS": 1.44,
+  "worst": 4.27,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "AAVE-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 4.25,
+  "espOOS": 5.01,
+  "wrOOS": 57.1,
+  "nIS": 44,
+  "nOOS": 42,
+  "pfOOS": 1.39,
+  "worst": 4.25,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "IMX-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 4.24,
+  "espOOS": 4.36,
+  "wrOOS": 57.9,
+  "nIS": 43,
+  "nOOS": 38,
+  "pfOOS": 1.35,
+  "worst": 4.24,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "TRB-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 40,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 10.32,
+  "espOOS": 4.22,
+  "wrOOS": 66.7,
+  "nIS": 34,
+  "nOOS": 48,
+  "pfOOS": 1.4,
+  "worst": 4.22,
+  "valide": true
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "JUP-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 4.21,
+  "espOOS": 5.79,
+  "wrOOS": 60,
+  "nIS": 11,
+  "nOOS": 5,
+  "pfOOS": 1.46,
+  "worst": 4.21,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "SUSHI-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 4.21,
+  "espOOS": 4.47,
+  "wrOOS": 65.5,
+  "nIS": 39,
+  "nOOS": 29,
+  "pfOOS": 1.44,
+  "worst": 4.21,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ALGO-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 4.2,
+  "espOOS": 6.06,
+  "wrOOS": 73.5,
+  "nIS": 37,
+  "nOOS": 34,
+  "pfOOS": 1.72,
+  "worst": 4.2,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "CHZ-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 10.25,
+  "espOOS": 4.2,
+  "wrOOS": 55.6,
+  "nIS": 29,
+  "nOOS": 27,
+  "pfOOS": 1.32,
+  "worst": 4.2,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "ETH-USDT-SWAP",
+  "opts": {
+   "W": 48,
+   "T": 2,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 4.19,
+  "espOOS": 10.54,
+  "wrOOS": 65,
+  "nIS": 25,
+  "nOOS": 20,
+  "pfOOS": 2.08,
+  "worst": 4.19,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ZKP-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 4.19,
+  "espOOS": 13,
+  "wrOOS": 66.7,
+  "nIS": 44,
+  "nOOS": 27,
+  "pfOOS": 2.41,
+  "worst": 4.19,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "MORPHO-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 4.19,
+  "espOOS": 4.55,
+  "wrOOS": 57.1,
+  "nIS": 25,
+  "nOOS": 28,
+  "pfOOS": 1.33,
+  "worst": 4.19,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "SATS-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 7.12,
+  "espOOS": 4.19,
+  "wrOOS": 69.2,
+  "nIS": 49,
+  "nOOS": 26,
+  "pfOOS": 1.43,
+  "worst": 4.19,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 4.17,
+  "espOOS": 8.75,
+  "wrOOS": 64.3,
+  "nIS": 19,
+  "nOOS": 14,
+  "pfOOS": 1.88,
+  "worst": 4.17,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "VVV-USDT-SWAP",
+  "opts": {
+   "W": 48,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 4.15,
+  "espOOS": 5.49,
+  "wrOOS": 63.2,
+  "nIS": 39,
+  "nOOS": 19,
+  "pfOOS": 1.47,
+  "worst": 4.15,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "ARB-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "T": 40,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 4.15,
+  "espOOS": 5.64,
+  "wrOOS": 58.3,
+  "nIS": 42,
+  "nOOS": 36,
+  "pfOOS": 1.45,
+  "worst": 4.15,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "MORPHO-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 5.09,
+  "espOOS": 4.15,
+  "wrOOS": 68.8,
+  "nIS": 31,
+  "nOOS": 32,
+  "pfOOS": 1.42,
+  "worst": 4.15,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "COMP-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 4.15,
+  "espOOS": 4.54,
+  "wrOOS": 65,
+  "nIS": 22,
+  "nOOS": 20,
+  "pfOOS": 1.47,
+  "worst": 4.15,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "XRP-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 1.5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 4.13,
+  "espOOS": 10.95,
+  "wrOOS": 64.1,
+  "nIS": 21,
+  "nOOS": 39,
+  "pfOOS": 2.03,
+  "worst": 4.13,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "SOL-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 4.11,
+  "espOOS": 8.19,
+  "wrOOS": 65.2,
+  "nIS": 20,
+  "nOOS": 23,
+  "pfOOS": 1.74,
+  "worst": 4.11,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "SOL-USDT-SWAP",
+  "opts": {
+   "W": 96,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 4.11,
+  "espOOS": 6.84,
+  "wrOOS": 66.7,
+  "nIS": 21,
+  "nOOS": 15,
+  "pfOOS": 1.65,
+  "worst": 4.11,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "COAI-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 4.1,
+  "espOOS": 9.84,
+  "wrOOS": 64.5,
+  "nIS": 64,
+  "nOOS": 31,
+  "pfOOS": 1.98,
+  "worst": 4.1,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "AAVE-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 4.09,
+  "espOOS": 4.1,
+  "wrOOS": 55.3,
+  "nIS": 32,
+  "nOOS": 47,
+  "pfOOS": 1.3,
+  "worst": 4.09,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "BOME-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 4.5,
+  "espOOS": 4.09,
+  "wrOOS": 63.6,
+  "nIS": 54,
+  "nOOS": 33,
+  "pfOOS": 1.35,
+  "worst": 4.09,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "LAYER-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 4.09,
+  "espOOS": 9.6,
+  "wrOOS": 64.7,
+  "nIS": 19,
+  "nOOS": 17,
+  "pfOOS": 1.96,
+  "worst": 4.09,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "LAYER-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 4.08,
+  "espOOS": 7.75,
+  "wrOOS": 80,
+  "nIS": 24,
+  "nOOS": 15,
+  "pfOOS": 2.22,
+  "worst": 4.08,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "POL-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 4.54,
+  "espOOS": 4.04,
+  "wrOOS": 62.8,
+  "nIS": 29,
+  "nOOS": 43,
+  "pfOOS": 1.34,
+  "worst": 4.04,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 6.65,
+  "espOOS": 4.03,
+  "wrOOS": 67.4,
+  "nIS": 62,
+  "nOOS": 43,
+  "pfOOS": 1.39,
+  "worst": 4.03,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 5.03,
+  "espOOS": 4.03,
+  "wrOOS": 67.4,
+  "nIS": 52,
+  "nOOS": 43,
+  "pfOOS": 1.39,
+  "worst": 4.03,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "YB-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 4.02,
+  "espOOS": 11.8,
+  "wrOOS": 57.1,
+  "nIS": 19,
+  "nOOS": 14,
+  "pfOOS": 1.87,
+  "worst": 4.02,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "AMD-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 4.42,
+  "espOOS": 4.02,
+  "wrOOS": 62.5,
+  "nIS": 19,
+  "nOOS": 8,
+  "pfOOS": 1.44,
+  "worst": 4.02,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "AMD-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 6.44,
+  "espOOS": 4.02,
+  "wrOOS": 62.5,
+  "nIS": 18,
+  "nOOS": 8,
+  "pfOOS": 1.44,
+  "worst": 4.02,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "OFC-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 4.91,
+  "espOOS": 4.01,
+  "wrOOS": 65.7,
+  "nIS": 61,
+  "nOOS": 35,
+  "pfOOS": 1.4,
+  "worst": 4.01,
+  "valide": true
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "ENS-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 6.56,
+  "espOOS": 4.01,
+  "wrOOS": 62.5,
+  "nIS": 10,
+  "nOOS": 8,
+  "pfOOS": 1.34,
+  "worst": 4.01,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "BCH-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 6.8,
+  "espOOS": 4,
+  "wrOOS": 48.1,
+  "nIS": 22,
+  "nOOS": 27,
+  "pfOOS": 1.26,
+  "worst": 4,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "GMX-USDT-SWAP",
+  "opts": {
+   "T": 15,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 3.96,
+  "espOOS": 10.52,
+  "wrOOS": 61.8,
+  "nIS": 38,
+  "nOOS": 34,
+  "pfOOS": 1.91,
+  "worst": 3.96,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "KAT-USDT-SWAP",
+  "opts": {
+   "T": 15,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 3.88,
+  "espOOS": 9.66,
+  "wrOOS": 62.9,
+  "nIS": 36,
+  "nOOS": 35,
+  "pfOOS": 1.87,
+  "worst": 3.88,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "ONT-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 3.86,
+  "espOOS": 8.17,
+  "wrOOS": 62.1,
+  "nIS": 31,
+  "nOOS": 29,
+  "pfOOS": 1.68,
+  "worst": 3.86,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.85,
+  "espOOS": 12.57,
+  "wrOOS": 70.8,
+  "nIS": 35,
+  "nOOS": 24,
+  "pfOOS": 2.35,
+  "worst": 3.85,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "OP-USDT-SWAP",
+  "opts": {
+   "W": 96,
+   "T": 2.5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 3.85,
+  "espOOS": 21.34,
+  "wrOOS": 73.3,
+  "nIS": 25,
+  "nOOS": 15,
+  "pfOOS": 4.35,
+  "worst": 3.85,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "AAVE-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 3.84,
+  "espOOS": 4.9,
+  "wrOOS": 65,
+  "nIS": 41,
+  "nOOS": 40,
+  "pfOOS": 1.46,
+  "worst": 3.84,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "PNUT-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 3.83,
+  "espOOS": 6.33,
+  "wrOOS": 56.3,
+  "nIS": 52,
+  "nOOS": 48,
+  "pfOOS": 1.48,
+  "worst": 3.83,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "MORPHO-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 3.82,
+  "espOOS": 4.15,
+  "wrOOS": 68.8,
+  "nIS": 41,
+  "nOOS": 32,
+  "pfOOS": 1.42,
+  "worst": 3.82,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "BNB-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 3.81,
+  "espOOS": 13.73,
+  "wrOOS": 80,
+  "nIS": 15,
+  "nOOS": 10,
+  "pfOOS": 4.22,
+  "worst": 3.81,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "SUI-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.81,
+  "espOOS": 3.8,
+  "wrOOS": 58.3,
+  "nIS": 29,
+  "nOOS": 24,
+  "pfOOS": 1.29,
+  "worst": 3.8,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "W": 96,
+   "T": 1.5,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 3.79,
+  "espOOS": 5.83,
+  "wrOOS": 64.6,
+  "nIS": 57,
+  "nOOS": 48,
+  "pfOOS": 1.59,
+  "worst": 3.79,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 3.78,
+  "espOOS": 3.86,
+  "wrOOS": 66.7,
+  "nIS": 45,
+  "nOOS": 30,
+  "pfOOS": 1.43,
+  "worst": 3.78,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "OKB-USDT-SWAP",
+  "opts": {
+   "W": 48,
+   "T": 2,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 4.7,
+  "espOOS": 3.75,
+  "wrOOS": 45,
+  "nIS": 27,
+  "nOOS": 20,
+  "pfOOS": 1.25,
+  "worst": 3.75,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "RENDER-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 3.74,
+  "espOOS": 4.79,
+  "wrOOS": 55,
+  "nIS": 14,
+  "nOOS": 20,
+  "pfOOS": 1.33,
+  "worst": 3.74,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "SEI-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 3.74,
+  "espOOS": 6.82,
+  "wrOOS": 72.2,
+  "nIS": 17,
+  "nOOS": 18,
+  "pfOOS": 1.82,
+  "worst": 3.74,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "POL-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E2",
+  "espIS": 5.89,
+  "espOOS": 3.73,
+  "wrOOS": 54.5,
+  "nIS": 22,
+  "nOOS": 22,
+  "pfOOS": 1.29,
+  "worst": 3.73,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "APT-USDT-SWAP",
+  "opts": {
+   "T": 15,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 4.18,
+  "espOOS": 3.73,
+  "wrOOS": 66.7,
+  "nIS": 39,
+  "nOOS": 54,
+  "pfOOS": 1.35,
+  "worst": 3.73,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "VVV-USDT-SWAP",
+  "opts": {
+   "W": 48,
+   "T": 2,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 3.73,
+  "espOOS": 8.04,
+  "wrOOS": 64.1,
+  "nIS": 50,
+  "nOOS": 39,
+  "pfOOS": 1.7,
+  "worst": 3.73,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 4.27,
+  "espOOS": 3.72,
+  "wrOOS": 64,
+  "nIS": 26,
+  "nOOS": 25,
+  "pfOOS": 1.36,
+  "worst": 3.72,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "SYRUP-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 3.99,
+  "espOOS": 3.72,
+  "wrOOS": 58.8,
+  "nIS": 23,
+  "nOOS": 17,
+  "pfOOS": 1.37,
+  "worst": 3.72,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "DOGE-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.7,
+  "espOOS": 5.03,
+  "wrOOS": 60,
+  "nIS": 22,
+  "nOOS": 15,
+  "pfOOS": 1.56,
+  "worst": 3.7,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "MSFT-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 4.68,
+  "espOOS": 3.7,
+  "wrOOS": 62.5,
+  "nIS": 18,
+  "nOOS": 8,
+  "pfOOS": 1.92,
+  "worst": 3.7,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "MEW-USDT-SWAP",
+  "opts": {
+   "T": 15,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 7.74,
+  "espOOS": 3.69,
+  "wrOOS": 55,
+  "nIS": 37,
+  "nOOS": 60,
+  "pfOOS": 1.27,
+  "worst": 3.69,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "OKB-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.68,
+  "espOOS": 3.75,
+  "wrOOS": 46.2,
+  "nIS": 37,
+  "nOOS": 26,
+  "pfOOS": 1.28,
+  "worst": 3.68,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ONT-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 3.68,
+  "espOOS": 6.25,
+  "wrOOS": 65.1,
+  "nIS": 46,
+  "nOOS": 43,
+  "pfOOS": 1.56,
+  "worst": 3.68,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "YB-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 3.68,
+  "espOOS": 12.63,
+  "wrOOS": 60,
+  "nIS": 19,
+  "nOOS": 15,
+  "pfOOS": 1.99,
+  "worst": 3.68,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "XRP-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 3.65,
+  "espOOS": 7.44,
+  "wrOOS": 59.1,
+  "nIS": 23,
+  "nOOS": 44,
+  "pfOOS": 1.58,
+  "worst": 3.65,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 3.65,
+  "espOOS": 16.84,
+  "wrOOS": 72.2,
+  "nIS": 49,
+  "nOOS": 36,
+  "pfOOS": 2.91,
+  "worst": 3.65,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "GMX-USDT-SWAP",
+  "opts": {
+   "T": 15,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 3.63,
+  "espOOS": 4.2,
+  "wrOOS": 59.5,
+  "nIS": 47,
+  "nOOS": 37,
+  "pfOOS": 1.34,
+  "worst": 3.63,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "AAVE-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2.5,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 3.62,
+  "espOOS": 11.13,
+  "wrOOS": 65,
+  "nIS": 21,
+  "nOOS": 20,
+  "pfOOS": 2,
+  "worst": 3.62,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "AAVE-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 9.27,
+  "espOOS": 3.61,
+  "wrOOS": 65.2,
+  "nIS": 37,
+  "nOOS": 46,
+  "pfOOS": 1.33,
+  "worst": 3.61,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "VVV-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 4.44,
+  "espOOS": 3.61,
+  "wrOOS": 58.8,
+  "nIS": 25,
+  "nOOS": 17,
+  "pfOOS": 1.28,
+  "worst": 3.61,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "MEW-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 3.61,
+  "espOOS": 5.65,
+  "wrOOS": 59,
+  "nIS": 41,
+  "nOOS": 39,
+  "pfOOS": 1.46,
+  "worst": 3.61,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "GRVT-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.59,
+  "espOOS": 5.43,
+  "wrOOS": 55.6,
+  "nIS": 47,
+  "nOOS": 18,
+  "pfOOS": 1.38,
+  "worst": 3.59,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "GRVT-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 3.59,
+  "espOOS": 5.43,
+  "wrOOS": 55.6,
+  "nIS": 47,
+  "nOOS": 18,
+  "pfOOS": 1.38,
+  "worst": 3.59,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "ETC-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.59,
+  "espOOS": 4.43,
+  "wrOOS": 55.6,
+  "nIS": 27,
+  "nOOS": 18,
+  "pfOOS": 1.36,
+  "worst": 3.59,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "VVV-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 50,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.59,
+  "espOOS": 4.71,
+  "wrOOS": 60.6,
+  "nIS": 58,
+  "nOOS": 33,
+  "pfOOS": 1.38,
+  "worst": 3.59,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "LIT-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 3.58,
+  "espOOS": 5.38,
+  "wrOOS": 65.5,
+  "nIS": 43,
+  "nOOS": 29,
+  "pfOOS": 1.53,
+  "worst": 3.58,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "ETH-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 4.26,
+  "espOOS": 3.57,
+  "wrOOS": 44.4,
+  "nIS": 15,
+  "nOOS": 9,
+  "pfOOS": 1.24,
+  "worst": 3.57,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 5.16,
+  "espOOS": 3.57,
+  "wrOOS": 56.4,
+  "nIS": 45,
+  "nOOS": 39,
+  "pfOOS": 1.26,
+  "worst": 3.57,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ATOM-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 6.45,
+  "espOOS": 3.54,
+  "wrOOS": 60.7,
+  "nIS": 33,
+  "nOOS": 28,
+  "pfOOS": 1.31,
+  "worst": 3.54,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "TRB-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 40,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 5.07,
+  "espOOS": 3.53,
+  "wrOOS": 55.6,
+  "nIS": 30,
+  "nOOS": 45,
+  "pfOOS": 1.25,
+  "worst": 3.53,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "TRB-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 3.52,
+  "espOOS": 5.17,
+  "wrOOS": 70.4,
+  "nIS": 31,
+  "nOOS": 27,
+  "pfOOS": 1.55,
+  "worst": 3.52,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "SEI-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 3.52,
+  "espOOS": 10.05,
+  "wrOOS": 79.3,
+  "nIS": 25,
+  "nOOS": 29,
+  "pfOOS": 2.53,
+  "worst": 3.52,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 10.05,
+  "espOOS": 3.51,
+  "wrOOS": 50,
+  "nIS": 31,
+  "nOOS": 22,
+  "pfOOS": 1.26,
+  "worst": 3.51,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "LAYER-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 3.51,
+  "espOOS": 8.1,
+  "wrOOS": 73.7,
+  "nIS": 22,
+  "nOOS": 19,
+  "pfOOS": 2.11,
+  "worst": 3.51,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "SYRUP-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 40,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.51,
+  "espOOS": 5.04,
+  "wrOOS": 58.3,
+  "nIS": 52,
+  "nOOS": 36,
+  "pfOOS": 1.4,
+  "worst": 3.51,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "SOL-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 3.5,
+  "espOOS": 5.18,
+  "wrOOS": 66.7,
+  "nIS": 23,
+  "nOOS": 24,
+  "pfOOS": 1.59,
+  "worst": 3.5,
+  "valide": false
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "JUP-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 3.5,
+  "espOOS": 5.79,
+  "wrOOS": 60,
+  "nIS": 11,
+  "nOOS": 5,
+  "pfOOS": 1.46,
+  "worst": 3.5,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "COMP-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.5,
+  "espOOS": 4.8,
+  "wrOOS": 69.2,
+  "nIS": 30,
+  "nOOS": 13,
+  "pfOOS": 1.49,
+  "worst": 3.5,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "SATS-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 3.72,
+  "espOOS": 3.5,
+  "wrOOS": 66.7,
+  "nIS": 72,
+  "nOOS": 36,
+  "pfOOS": 1.33,
+  "worst": 3.5,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "ETH-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.54,
+  "espOOS": 3.49,
+  "wrOOS": 55,
+  "nIS": 29,
+  "nOOS": 20,
+  "pfOOS": 1.35,
+  "worst": 3.49,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "GRVT-USDT-SWAP",
+  "opts": {
+   "W": 48,
+   "T": 2,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 3.49,
+  "espOOS": 4.59,
+  "wrOOS": 55.3,
+  "nIS": 122,
+  "nOOS": 47,
+  "pfOOS": 1.32,
+  "worst": 3.49,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "SUI-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2.5,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 3.48,
+  "espOOS": 6.91,
+  "wrOOS": 65.2,
+  "nIS": 24,
+  "nOOS": 23,
+  "pfOOS": 1.62,
+  "worst": 3.48,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 4.74,
+  "espOOS": 3.48,
+  "wrOOS": 67.6,
+  "nIS": 51,
+  "nOOS": 37,
+  "pfOOS": 1.34,
+  "worst": 3.48,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 50,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 9.05,
+  "espOOS": 3.48,
+  "wrOOS": 55.2,
+  "nIS": 35,
+  "nOOS": 29,
+  "pfOOS": 1.26,
+  "worst": 3.48,
+  "valide": true
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "KITE-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 5.56,
+  "espOOS": 3.48,
+  "wrOOS": 45.5,
+  "nIS": 15,
+  "nOOS": 11,
+  "pfOOS": 1.2,
+  "worst": 3.48,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "SYRUP-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 4,
+  "espOOS": 3.46,
+  "wrOOS": 63.9,
+  "nIS": 43,
+  "nOOS": 36,
+  "pfOOS": 1.32,
+  "worst": 3.46,
+  "valide": true
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "KITE-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 3.45,
+  "espOOS": 3.48,
+  "wrOOS": 45.5,
+  "nIS": 16,
+  "nOOS": 11,
+  "pfOOS": 1.2,
+  "worst": 3.45,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "YB-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 3.45,
+  "espOOS": 6.12,
+  "wrOOS": 66.7,
+  "nIS": 20,
+  "nOOS": 18,
+  "pfOOS": 1.58,
+  "worst": 3.45,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "SYRUP-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 10.46,
+  "espOOS": 3.45,
+  "wrOOS": 58.3,
+  "nIS": 33,
+  "nOOS": 24,
+  "pfOOS": 1.26,
+  "worst": 3.45,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 3.43,
+  "espOOS": 3.48,
+  "wrOOS": 67.6,
+  "nIS": 45,
+  "nOOS": 37,
+  "pfOOS": 1.34,
+  "worst": 3.43,
+  "valide": true
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "ENS-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 8.16,
+  "espOOS": 3.43,
+  "wrOOS": 62.5,
+  "nIS": 10,
+  "nOOS": 8,
+  "pfOOS": 1.29,
+  "worst": 3.43,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "S-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 3.43,
+  "espOOS": 7.01,
+  "wrOOS": 60.7,
+  "nIS": 29,
+  "nOOS": 28,
+  "pfOOS": 1.61,
+  "worst": 3.43,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "ETH-USDT-SWAP",
+  "opts": {
+   "W": 48,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 3.42,
+  "espOOS": 8.59,
+  "wrOOS": 57.1,
+  "nIS": 17,
+  "nOOS": 14,
+  "pfOOS": 1.73,
+  "worst": 3.42,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "DOGE-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 3.66,
+  "espOOS": 3.42,
+  "wrOOS": 68.8,
+  "nIS": 23,
+  "nOOS": 16,
+  "pfOOS": 1.43,
+  "worst": 3.42,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "GIGGLE-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 4.95,
+  "espOOS": 3.41,
+  "wrOOS": 50,
+  "nIS": 33,
+  "nOOS": 24,
+  "pfOOS": 1.21,
+  "worst": 3.41,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "GIGGLE-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 4.95,
+  "espOOS": 3.41,
+  "wrOOS": 50,
+  "nIS": 33,
+  "nOOS": 24,
+  "pfOOS": 1.21,
+  "worst": 3.41,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "AERO-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.4,
+  "espOOS": 7.76,
+  "wrOOS": 60.5,
+  "nIS": 39,
+  "nOOS": 38,
+  "pfOOS": 1.65,
+  "worst": 3.4,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "MSFT-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 5.63,
+  "espOOS": 3.4,
+  "wrOOS": 50,
+  "nIS": 20,
+  "nOOS": 8,
+  "pfOOS": 2.52,
+  "worst": 3.4,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "BOME-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 3.39,
+  "espOOS": 4.09,
+  "wrOOS": 63.6,
+  "nIS": 54,
+  "nOOS": 33,
+  "pfOOS": 1.35,
+  "worst": 3.39,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "GRVT-USDT-SWAP",
+  "opts": {
+   "W": 96,
+   "T": 2,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 3.38,
+  "espOOS": 9.04,
+  "wrOOS": 63.6,
+  "nIS": 87,
+  "nOOS": 33,
+  "pfOOS": 1.78,
+  "worst": 3.38,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "SUSHI-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 11.51,
+  "espOOS": 3.38,
+  "wrOOS": 56.3,
+  "nIS": 40,
+  "nOOS": 32,
+  "pfOOS": 1.25,
+  "worst": 3.38,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "SATS-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 0
+  },
+  "exit": "E2",
+  "espIS": 3.61,
+  "espOOS": 3.38,
+  "wrOOS": 67.6,
+  "nIS": 80,
+  "nOOS": 37,
+  "pfOOS": 1.33,
+  "worst": 3.38,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ETC-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E2",
+  "espIS": 3.37,
+  "espOOS": 7.05,
+  "wrOOS": 66.7,
+  "nIS": 50,
+  "nOOS": 33,
+  "pfOOS": 2.11,
+  "worst": 3.37,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "STRK-USDT-SWAP",
+  "opts": {
+   "T": 15,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.37,
+  "espOOS": 4.51,
+  "wrOOS": 55.8,
+  "nIS": 48,
+  "nOOS": 43,
+  "pfOOS": 1.35,
+  "worst": 3.37,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "SUSHI-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 6.25,
+  "espOOS": 3.37,
+  "wrOOS": 56.3,
+  "nIS": 49,
+  "nOOS": 32,
+  "pfOOS": 1.25,
+  "worst": 3.37,
+  "valide": true
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "MSFT-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 6.81,
+  "espOOS": 3.37,
+  "wrOOS": 60,
+  "nIS": 8,
+  "nOOS": 5,
+  "pfOOS": 1.67,
+  "worst": 3.37,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "SYRUP-USDT-SWAP",
+  "opts": {
+   "T": 15,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 3.36,
+  "espOOS": 7.81,
+  "wrOOS": 58.8,
+  "nIS": 39,
+  "nOOS": 34,
+  "pfOOS": 1.67,
+  "worst": 3.36,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 3.35,
+  "espOOS": 10.61,
+  "wrOOS": 61.5,
+  "nIS": 17,
+  "nOOS": 13,
+  "pfOOS": 1.99,
+  "worst": 3.35,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "BCH-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 3.33,
+  "espOOS": 5.64,
+  "wrOOS": 70,
+  "nIS": 25,
+  "nOOS": 30,
+  "pfOOS": 1.59,
+  "worst": 3.33,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "GRVT-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 3.32,
+  "espOOS": 8.2,
+  "wrOOS": 70.6,
+  "nIS": 34,
+  "nOOS": 17,
+  "pfOOS": 1.93,
+  "worst": 3.32,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "AVAX-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "T": 40,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 5.51,
+  "espOOS": 3.32,
+  "wrOOS": 65,
+  "nIS": 38,
+  "nOOS": 40,
+  "pfOOS": 1.32,
+  "worst": 3.32,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "YB-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 3.32,
+  "espOOS": 5.06,
+  "wrOOS": 64.7,
+  "nIS": 20,
+  "nOOS": 17,
+  "pfOOS": 1.45,
+  "worst": 3.32,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "BTC-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 3.3,
+  "espOOS": 9.87,
+  "wrOOS": 72.7,
+  "nIS": 12,
+  "nOOS": 11,
+  "pfOOS": 2.68,
+  "worst": 3.3,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "ZBT-USDT-SWAP",
+  "opts": {
+   "W": 48,
+   "T": 2.5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 9.25,
+  "espOOS": 3.29,
+  "wrOOS": 60,
+  "nIS": 59,
+  "nOOS": 20,
+  "pfOOS": 1.26,
+  "worst": 3.29,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "OFC-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 5.39,
+  "espOOS": 3.29,
+  "wrOOS": 65.7,
+  "nIS": 59,
+  "nOOS": 35,
+  "pfOOS": 1.31,
+  "worst": 3.29,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "AR-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 3.29,
+  "espOOS": 10.33,
+  "wrOOS": 68.4,
+  "nIS": 20,
+  "nOOS": 19,
+  "pfOOS": 2.09,
+  "worst": 3.29,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "XRP-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 5.66,
+  "espOOS": 3.28,
+  "wrOOS": 52.4,
+  "nIS": 22,
+  "nOOS": 42,
+  "pfOOS": 1.23,
+  "worst": 3.28,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "SUSHI-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 8.87,
+  "espOOS": 3.28,
+  "wrOOS": 55.9,
+  "nIS": 41,
+  "nOOS": 34,
+  "pfOOS": 1.24,
+  "worst": 3.28,
+  "valide": true
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "BIO-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 3.95,
+  "espOOS": 3.28,
+  "wrOOS": 55.6,
+  "nIS": 7,
+  "nOOS": 9,
+  "pfOOS": 1.29,
+  "worst": 3.28,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ZKP-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 3.27,
+  "espOOS": 11.06,
+  "wrOOS": 75.8,
+  "nIS": 59,
+  "nOOS": 33,
+  "pfOOS": 2.43,
+  "worst": 3.27,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ATH-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.27,
+  "espOOS": 10.09,
+  "wrOOS": 66.7,
+  "nIS": 35,
+  "nOOS": 21,
+  "pfOOS": 1.95,
+  "worst": 3.27,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "KAT-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 3.85,
+  "espOOS": 3.27,
+  "wrOOS": 68.2,
+  "nIS": 56,
+  "nOOS": 44,
+  "pfOOS": 1.34,
+  "worst": 3.27,
+  "valide": true
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 12.25,
+  "espOOS": 3.26,
+  "wrOOS": 60,
+  "nIS": 15,
+  "nOOS": 10,
+  "pfOOS": 1.26,
+  "worst": 3.26,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "LIT-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 3.99,
+  "espOOS": 3.26,
+  "wrOOS": 53.6,
+  "nIS": 66,
+  "nOOS": 69,
+  "pfOOS": 1.23,
+  "worst": 3.26,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "INJ-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 3.26,
+  "espOOS": 5.5,
+  "wrOOS": 57.4,
+  "nIS": 50,
+  "nOOS": 47,
+  "pfOOS": 1.45,
+  "worst": 3.26,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "PNUT-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 3.26,
+  "espOOS": 5.93,
+  "wrOOS": 72,
+  "nIS": 34,
+  "nOOS": 25,
+  "pfOOS": 1.67,
+  "worst": 3.26,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ZKP-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 3.24,
+  "espOOS": 7.13,
+  "wrOOS": 71.4,
+  "nIS": 58,
+  "nOOS": 35,
+  "pfOOS": 1.79,
+  "worst": 3.24,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "XPL-USDT-SWAP",
+  "opts": {
+   "W": 96,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 4.73,
+  "espOOS": 3.23,
+  "wrOOS": 50,
+  "nIS": 29,
+  "nOOS": 20,
+  "pfOOS": 1.2,
+  "worst": 3.23,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "XPL-USDT-SWAP",
+  "opts": {
+   "W": 96,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 8.37,
+  "espOOS": 3.23,
+  "wrOOS": 50,
+  "nIS": 27,
+  "nOOS": 20,
+  "pfOOS": 1.2,
+  "worst": 3.23,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "AVAX-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 6.38,
+  "espOOS": 3.23,
+  "wrOOS": 66.7,
+  "nIS": 11,
+  "nOOS": 12,
+  "pfOOS": 1.3,
+  "worst": 3.23,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "GALA-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 3.22,
+  "espOOS": 5.04,
+  "wrOOS": 59.5,
+  "nIS": 37,
+  "nOOS": 42,
+  "pfOOS": 1.42,
+  "worst": 3.22,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "AR-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 3.74,
+  "espOOS": 3.22,
+  "wrOOS": 64.5,
+  "nIS": 25,
+  "nOOS": 31,
+  "pfOOS": 1.29,
+  "worst": 3.22,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "BNB-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 3.21,
+  "espOOS": 6.73,
+  "wrOOS": 60,
+  "nIS": 19,
+  "nOOS": 15,
+  "pfOOS": 1.71,
+  "worst": 3.21,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "MASK-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.83,
+  "espOOS": 3.21,
+  "wrOOS": 53.3,
+  "nIS": 22,
+  "nOOS": 15,
+  "pfOOS": 1.22,
+  "worst": 3.21,
+  "valide": false
+ },
+ {
+  "fam": "aroon_exh",
+  "instId": "BIO-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "sustain": 3,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 3.21,
+  "espOOS": 3.4,
+  "wrOOS": 55.6,
+  "nIS": 7,
+  "nOOS": 9,
+  "pfOOS": 1.3,
+  "worst": 3.21,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "SOL-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2.5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 6.26,
+  "espOOS": 3.2,
+  "wrOOS": 57.9,
+  "nIS": 16,
+  "nOOS": 19,
+  "pfOOS": 1.24,
+  "worst": 3.2,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "GRVT-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2.5,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 3.43,
+  "espOOS": 3.19,
+  "wrOOS": 55.6,
+  "nIS": 49,
+  "nOOS": 18,
+  "pfOOS": 1.23,
+  "worst": 3.19,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "GRVT-USDT-SWAP",
+  "opts": {
+   "W": 144,
+   "T": 2.5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 3.43,
+  "espOOS": 3.19,
+  "wrOOS": 55.6,
+  "nIS": 49,
+  "nOOS": 18,
+  "pfOOS": 1.23,
+  "worst": 3.19,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "BCH-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 3.19,
+  "espOOS": 9.22,
+  "wrOOS": 69,
+  "nIS": 21,
+  "nOOS": 29,
+  "pfOOS": 2.05,
+  "worst": 3.19,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "WLFI-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "T": 40,
+   "conf": 0
+  },
+  "exit": "E2",
+  "espIS": 3.18,
+  "espOOS": 3.77,
+  "wrOOS": 62.3,
+  "nIS": 66,
+  "nOOS": 53,
+  "pfOOS": 1.38,
+  "worst": 3.18,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "XRP-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 1.5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.15,
+  "espOOS": 9.81,
+  "wrOOS": 61,
+  "nIS": 29,
+  "nOOS": 41,
+  "pfOOS": 1.91,
+  "worst": 3.15,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "STRK-USDT-SWAP",
+  "opts": {
+   "T": 10,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 3.2,
+  "espOOS": 3.15,
+  "wrOOS": 53.1,
+  "nIS": 32,
+  "nOOS": 32,
+  "pfOOS": 1.21,
+  "worst": 3.15,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "AMD-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 3.14,
+  "espOOS": 4.49,
+  "wrOOS": 62.5,
+  "nIS": 19,
+  "nOOS": 8,
+  "pfOOS": 1.5,
+  "worst": 3.14,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "MSFT-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 3.14,
+  "espOOS": 3.53,
+  "wrOOS": 85.7,
+  "nIS": 14,
+  "nOOS": 7,
+  "pfOOS": 1.78,
+  "worst": 3.14,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ETC-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 3.13,
+  "espOOS": 9.88,
+  "wrOOS": 66.7,
+  "nIS": 40,
+  "nOOS": 24,
+  "pfOOS": 2.02,
+  "worst": 3.13,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "VVV-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 4.19,
+  "espOOS": 3.13,
+  "wrOOS": 64.7,
+  "nIS": 27,
+  "nOOS": 17,
+  "pfOOS": 1.28,
+  "worst": 3.13,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "OKB-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 3.12,
+  "espOOS": 4.6,
+  "wrOOS": 48.3,
+  "nIS": 41,
+  "nOOS": 29,
+  "pfOOS": 1.38,
+  "worst": 3.12,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "GRVT-USDT-SWAP",
+  "opts": {
+   "W": 48,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 3.11,
+  "espOOS": 12.66,
+  "wrOOS": 71.4,
+  "nIS": 54,
+  "nOOS": 21,
+  "pfOOS": 2.39,
+  "worst": 3.11,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "GRVT-USDT-SWAP",
+  "opts": {
+   "W": 48,
+   "T": 2.5,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 3.11,
+  "espOOS": 14.15,
+  "wrOOS": 71.4,
+  "nIS": 54,
+  "nOOS": 21,
+  "pfOOS": 2.56,
+  "worst": 3.11,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "ADA-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 3.11,
+  "espOOS": 7.8,
+  "wrOOS": 73.1,
+  "nIS": 33,
+  "nOOS": 26,
+  "pfOOS": 2.06,
+  "worst": 3.11,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "MORPHO-USDT-SWAP",
+  "opts": {
+   "T": 15,
+   "conf": 1
+  },
+  "exit": "E3",
+  "espIS": 3.11,
+  "espOOS": 3.56,
+  "wrOOS": 50.9,
+  "nIS": 32,
+  "nOOS": 55,
+  "pfOOS": 1.23,
+  "worst": 3.11,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "ENS-USDT-SWAP",
+  "opts": {
+   "L": 3,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 3.1,
+  "espOOS": 5.17,
+  "wrOOS": 64.7,
+  "nIS": 39,
+  "nOOS": 34,
+  "pfOOS": 1.57,
+  "worst": 3.1,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "GMX-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "T": 50,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 6.87,
+  "espOOS": 3.09,
+  "wrOOS": 54.5,
+  "nIS": 37,
+  "nOOS": 33,
+  "pfOOS": 1.21,
+  "worst": 3.09,
+  "valide": true
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E2",
+  "espIS": 4.57,
+  "espOOS": 3.08,
+  "wrOOS": 61.5,
+  "nIS": 35,
+  "nOOS": 26,
+  "pfOOS": 1.31,
+  "worst": 3.08,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "VVV-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 3.75,
+  "espOOS": 3.08,
+  "wrOOS": 64.7,
+  "nIS": 26,
+  "nOOS": 17,
+  "pfOOS": 1.27,
+  "worst": 3.08,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "MET-USDT-SWAP",
+  "opts": {
+   "L": 8,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 8.21,
+  "espOOS": 3.08,
+  "wrOOS": 61.9,
+  "nIS": 26,
+  "nOOS": 21,
+  "pfOOS": 1.25,
+  "worst": 3.08,
+  "valide": false
+ },
+ {
+  "fam": "ao_twin",
+  "instId": "GALA-USDT-SWAP",
+  "opts": {
+   "L": 5,
+   "conf": 0
+  },
+  "exit": "E4",
+  "espIS": 3.07,
+  "espOOS": 5.42,
+  "wrOOS": 62,
+  "nIS": 38,
+  "nOOS": 50,
+  "pfOOS": 1.47,
+  "worst": 3.07,
+  "valide": true
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "BTC-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 4.25,
+  "espOOS": 3.06,
+  "wrOOS": 41.7,
+  "nIS": 19,
+  "nOOS": 12,
+  "pfOOS": 1.3,
+  "worst": 3.06,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "T": 15,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 3.06,
+  "espOOS": 3.8,
+  "wrOOS": 52.1,
+  "nIS": 51,
+  "nOOS": 48,
+  "pfOOS": 1.26,
+  "worst": 3.06,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "VVV-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 60,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 3.06,
+  "espOOS": 3.61,
+  "wrOOS": 58.8,
+  "nIS": 25,
+  "nOOS": 17,
+  "pfOOS": 1.28,
+  "worst": 3.06,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "POL-USDT-SWAP",
+  "opts": {
+   "T": 7,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 3.05,
+  "espOOS": 3.64,
+  "wrOOS": 52.1,
+  "nIS": 23,
+  "nOOS": 48,
+  "pfOOS": 1.25,
+  "worst": 3.05,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "XRP-USDT-SWAP",
+  "opts": {
+   "W": 288,
+   "T": 1.5,
+   "conf": 1
+  },
+  "exit": "E4",
+  "espIS": 5.92,
+  "espOOS": 3.04,
+  "wrOOS": 59.1,
+  "nIS": 22,
+  "nOOS": 44,
+  "pfOOS": 1.25,
+  "worst": 3.04,
+  "valide": true
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "VVV-USDT-SWAP",
+  "opts": {
+   "W": 96,
+   "T": 2.5,
+   "conf": 0
+  },
+  "exit": "E1",
+  "espIS": 5.25,
+  "espOOS": 3.03,
+  "wrOOS": 54.5,
+  "nIS": 31,
+  "nOOS": 22,
+  "pfOOS": 1.21,
+  "worst": 3.03,
+  "valide": false
+ },
+ {
+  "fam": "eom_extreme",
+  "instId": "VVV-USDT-SWAP",
+  "opts": {
+   "W": 96,
+   "T": 2.5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 5.13,
+  "espOOS": 3.03,
+  "wrOOS": 54.5,
+  "nIS": 29,
+  "nOOS": 22,
+  "pfOOS": 1.21,
+  "worst": 3.03,
+  "valide": false
+ },
+ {
+  "fam": "stochrsi",
+  "instId": "ATOM-USDT-SWAP",
+  "opts": {
+   "T": 5,
+   "conf": 0
+  },
+  "exit": "E3",
+  "espIS": 3.03,
+  "espOOS": 8.06,
+  "wrOOS": 60,
+  "nIS": 23,
+  "nOOS": 25,
+  "pfOOS": 1.63,
+  "worst": 3.03,
+  "valide": false
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "UNI-USDT-SWAP",
+  "opts": {
+   "period": 20,
+   "T": 50,
+   "conf": 1
+  },
+  "exit": "E1",
+  "espIS": 9.93,
+  "espOOS": 3.01,
+  "wrOOS": 53.3,
+  "nIS": 39,
+  "nOOS": 30,
+  "pfOOS": 1.22,
+  "worst": 3.01,
+  "valide": true
+ },
+ {
+  "fam": "cmo_reclaim",
+  "instId": "PENGU-USDT-SWAP",
+  "opts": {
+   "period": 14,
+   "T": 50,
+   "conf": 0
+  },
+  "exit": "E2",
+  "espIS": 3.2,
+  "espOOS": 3.01,
+  "wrOOS": 63.9,
+  "nIS": 69,
+  "nOOS": 61,
+  "pfOOS": 1.26,
+  "worst": 3.01,
+  "valide": true
+ }
+]

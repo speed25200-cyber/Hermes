@@ -1,0 +1,133 @@
+{
+ "_doc": "Règles de coupure par stratégie EN_LIVE (HERMES 15 + PIEVERSE). Méthode : rejeu TEL QUEL sur data90 (harness_lib.sim/evaluer, coûts+pire-cas+blocage symbole identiques au banc) restreint à la fenêtre 60j jamais vue (coupureTs = -30j, même calcul que verif90_harness -> reproduit esp60 du REGISTRE) = distribution empirique de trades = 'le backtest'. Bootstrap 10 000 tirages avec remise de séquences de N trades depuis cette distribution -> seuil = Xe percentile (p<5% standard, p<10% pour PIEVERSE) de la somme des N trades : une vraie série live sous ce seuil n'a que <5%/<10% de chances de provenir de la même distribution que le backtest -> statistiquement incompatible -> couper. Courbe N=5..30 fournie pour un monitoring progressif ; la règle officielle porte sur N=30 (demande du chantier). PIEVERSE : règle renforcée (population = mélange 50/50 avec le régime ancien data180 où l'edge s'est inversé, verif180_2e_test_acide du REGISTRE, + seuil p<10%).",
+ "genere": "2026-08-31T00:22:44.157Z",
+ "iterations_bootstrap": 10000,
+ "seuils_significativite": {
+  "standard": 0.05,
+  "pieverse": 0.1
+ },
+ "seed_rng": "mulberry32, seed = FNV-1a hash de l'id de stratégie (déterministe, reproductible)",
+ "regles": [
+  {
+   "strategie": "PIEVERSE",
+   "instId": "PIEVERSE-USDT-SWAP",
+   "regle": "couper PIEVERSE si la somme des 30 derniers trades < -118.55 % de marge",
+   "N": 30,
+   "seuil_somme": -118.55,
+   "seuil_moyenne_par_trade": -3.95,
+   "base": "bootstrap renforcé (mélange 50/50 régime récent/ancien, p<10%)",
+   "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -109.08)",
+   "justification": "edge dépendant du régime (verif180 : esp180 -0,56 sur mars-mai 2026, pf 0,96) — le bootstrap sur le seul régime récent (esp60 +7,98) sous-estime le risque réel ; seuil relevé à p<10% pour couper sur une preuve plus faible.",
+   "esp60_backtest": 7.98,
+   "n60_backtest": 161
+  },
+  {
+   "strategie": "ENSO",
+   "instId": "ENSO-USDT-SWAP",
+   "regle": "couper ENSO si la somme des 30 derniers trades < -114.12 % de marge",
+   "N": 30,
+   "seuil_somme": -114.12,
+   "seuil_moyenne_par_trade": -3.8,
+   "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+   "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -116.79)",
+   "esp60_backtest": 6.11,
+   "n60_backtest": 117
+  },
+  {
+   "strategie": "GRASS",
+   "instId": "GRASS-USDT-SWAP",
+   "regle": "couper GRASS si la somme des 30 derniers trades < -207.31 % de marge",
+   "N": 30,
+   "seuil_somme": -207.31,
+   "seuil_moyenne_par_trade": -6.91,
+   "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+   "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -166.56)",
+   "esp60_backtest": 3.09,
+   "n60_backtest": 250
+  },
+  {
+   "strategie": "SOON",
+   "instId": "SOON-USDT-SWAP",
+   "regle": "couper SOON si la somme des 30 derniers trades < -221.25 % de marge",
+   "N": 30,
+   "seuil_somme": -221.25,
+   "seuil_moyenne_par_trade": -7.38,
+   "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+   "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -163.41)",
+   "esp60_backtest": 1.17,
+   "n60_backtest": 222
+  },
+  {
+   "strategie": "LUNA",
+   "instId": "LUNA-USDT-SWAP",
+   "regle": "couper LUNA si la somme des 30 derniers trades < -227.42 % de marge",
+   "N": 30,
+   "seuil_somme": -227.42,
+   "seuil_moyenne_par_trade": -7.58,
+   "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+   "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -168.52)",
+   "esp60_backtest": 1.18,
+   "n60_backtest": 101
+  },
+  {
+   "strategie": "NES",
+   "instId": "NES-USDT-SWAP",
+   "regle": "couper NES si la somme des 30 derniers trades < -222.07 % de marge",
+   "N": 30,
+   "seuil_somme": -222.07,
+   "seuil_moyenne_par_trade": -7.4,
+   "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+   "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -162.78)",
+   "esp60_backtest": 1.09,
+   "n60_backtest": 80
+  },
+  {
+   "strategie": "MEGA",
+   "instId": "MEGA-USDT-SWAP",
+   "regle": "couper MEGA si la somme des 30 derniers trades < -268.2 % de marge",
+   "N": 30,
+   "seuil_somme": -268.2,
+   "seuil_moyenne_par_trade": -8.94,
+   "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+   "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -193.37)",
+   "esp60_backtest": 1.03,
+   "n60_backtest": 249
+  },
+  {
+   "strategie": "MANA",
+   "instId": "MANA-USDT-SWAP",
+   "regle": "couper MANA si la somme des 30 derniers trades < -197.96 % de marge",
+   "N": 30,
+   "seuil_somme": -197.96,
+   "seuil_moyenne_par_trade": -6.6,
+   "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+   "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -151.25)",
+   "esp60_backtest": 0.97,
+   "n60_backtest": 193
+  },
+  {
+   "strategie": "GPS",
+   "instId": "GPS-USDT-SWAP",
+   "regle": "couper GPS si la somme des 30 derniers trades < -243.06 % de marge",
+   "N": 30,
+   "seuil_somme": -243.06,
+   "seuil_moyenne_par_trade": -8.1,
+   "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+   "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -182.83)",
+   "esp60_backtest": 0.87,
+   "n60_backtest": 156
+  },
+  {
+   "strategie": "AXS",
+   "instId": "AXS-USDT-SWAP",
+   "regle": "couper AXS si la somme des 30 derniers trades < -243.07 % de marge",
+   "N": 30,
+   "seuil_somme": -243.07,
+   "seuil_moyenne_par_trade": -8.1,
+   "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+   "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -172.03)",
+   "esp60_backtest": 0.8,
+   "n60_backtest": 145
+  }
+ ]
+}

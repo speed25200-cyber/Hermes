@@ -1,0 +1,31 @@
+(()=> {
+  const $=(sel)=>document.querySelector(sel);
+  function log(m){ const el=$("#logs"); if(!el) return; el.textContent=(`[${new Date().toLocaleTimeString()}] ${m}\n`+el.textContent).slice(0,20000); }
+  async function refresh(){
+    try{
+      const p=await window.api.invoke("get-portfolio");
+      const pos=await window.api.invoke("get-positions");
+      $("#eq")?.textContent=(p?.equity??0).toLocaleString(undefined,{maximumFractionDigits:2});
+      $("#pnlDay")?.textContent=(p?.pnlDay??0).toLocaleString(undefined,{maximumFractionDigits:2});
+      $("#positions")?.textContent=Array.isArray(pos)?pos.length:0;
+      $("#eq_src")?.textContent=p?.source?("src: "+p.source):"";
+    }catch{}
+  }
+  async function boot(){
+    window.api.on("ai-log",(o)=>log(o?.msg??String(o)));
+    const btn=document.getElementById("btn-ai-toggle");
+    if(btn && !btn.__bound){
+      btn.addEventListener("click", async ()=>{
+        const st=await window.api.invoke("get-ai-state");
+        const toOn=!st?.on;
+        const res=await window.api.invoke("toggle-ai",toOn);
+        const on=/AI:ON|STATE:true/.test(String(res));
+        btn.classList.toggle("is-on",on); btn.classList.toggle("is-off",!on); btn.textContent=on?"ON":"OFF";
+        log(`[UI] toggle -> ${on?"ON":"OFF"}`);
+      });
+      btn.__bound=true;
+    }
+    await refresh(); setInterval(refresh,2000);
+  }
+  window.addEventListener("DOMContentLoaded", boot);
+})();

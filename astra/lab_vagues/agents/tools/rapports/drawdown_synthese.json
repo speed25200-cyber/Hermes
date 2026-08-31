@@ -1,0 +1,107 @@
+{
+ "note": "Synthèse du chantier métriques de risque — banc 30 j, capital 100, mise 10/trade, levier 15. Tous les chiffres proviennent des exécutions tools/risque.js (voir drawdown_classement.json / drawdown_risque_detail.json). Classement risque-ajusté = ratio espérance/écart-type des trades.",
+ "genere": "2026-08-30T20:29:46.639Z",
+ "controleReproduction": "19/19 modules reproduisent au centime leurs espIS/espOOS publiés (robustesse_classement.json pour le top 10, profond2_resultats.json retenue pour les 9 HERMES 15) ; _opt_O reconstruit (champions_5.js supprimé par un chantier concurrent) et validé par ce même contrôle.",
+ "podiumRisqueAjuste": [
+  {
+   "rang": 1,
+   "id": "candidates/web_structure_1.js",
+   "instId": "PIEVERSE-USDT-SWAP",
+   "ratio": 0.387,
+   "esp": 13.36,
+   "ecartType": 34.52,
+   "ddMaxPct": 7.98
+  },
+  {
+   "rang": 2,
+   "id": "candidates/ti_arsenal_1.js",
+   "instId": "ARX-USDT-SWAP",
+   "ratio": 0.344,
+   "esp": 10.71,
+   "ecartType": 31.18,
+   "ddMaxPct": 8.66
+  },
+  {
+   "rang": 3,
+   "id": "candidates/sessions_1.js",
+   "instId": "PLUME-USDT-SWAP",
+   "ratio": 0.343,
+   "esp": 10.38,
+   "ecartType": 30.24,
+   "ddMaxPct": 11.58
+  }
+ ],
+ "groupes": {
+  "top10_banc": {
+   "n": 10,
+   "ratioMoyen": 0.333,
+   "espMoyenne": 11.375,
+   "ddMaxPctMoyen": 9.735,
+   "rangs": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    9,
+    11,
+    13
+   ]
+  },
+  "hermes15": {
+   "n": 9,
+   "ratioMoyen": 0.261,
+   "espMoyenne": 7.939,
+   "ddMaxPctMoyen": 10.542,
+   "rangs": [
+    8,
+    10,
+    12,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19
+   ],
+   "meilleure": "hermes15:MANA",
+   "pire": "hermes15:MEGA"
+  }
+ },
+ "plages": {
+  "ratio": [
+   0.211,
+   0.387
+  ],
+  "ddMaxPct": [
+   7.23,
+   13.1
+  ],
+  "seriePertes": [
+   3,
+   5
+  ],
+  "pireJournee": [
+   -9.96,
+   -3.71
+  ],
+  "capitalFinal": [
+   141.42,
+   246.72
+  ],
+  "capitalMin": [
+   87.28,
+   100
+  ]
+ },
+ "enseignements": [
+  "Le n°1 du banc en espérance (web_structure_1 PIEVERSE) est AUSSI n°1 risque-ajusté (ratio 0.387, ddMax 7.98 %, série de pertes 3, pire journée -3.91) — pas de compromis espérance/risque à son sujet.",
+  "Les champions du banc dominent aussi en risque-ajusté : 8 des 10 premiers rangs ; les 9 HERMES 15 occupent 6 des 7 derniers rangs (ratio moyen 0.261 vs 0.333 pour le top 10).",
+  "Meilleure survivante HERMES 15 : MANA (rang 8, ratio 0.323) ; ENSO, détentrice du record 60 j, n'est que rang 16/19 sur le banc 30 j (esp 7.75 mais écart-type 33.68).",
+  "Aucun module ne finit sous le capital de départ (capitalFinal de 141.42 à 246.72 pour 100 de départ) et aucun drawdown max ne dépasse 13.1 % du pic avec mise 10/capital 100 ; point bas de courbe le plus profond : 87.28 (hermes15:MEGA).",
+  "Pire trade partout = -31.8 % de marge (SL -30 % + coûts 1.8 %) : le vrai risque unitaire est borné par le SL ; la dispersion vient des trades timeout/trail.",
+  "Les pires journées (-9.96 à -3.71 sur capital 100) valent ~1 à 3 stops pleins (un stop = -3.18) : le risque journalier reste dominé par l'empilement de SL le même jour."
+ ]
+}

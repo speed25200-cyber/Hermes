@@ -1,0 +1,816 @@
+{
+ "_doc": "Règles de coupure par stratégie EN_LIVE (HERMES 15 + PIEVERSE). Méthode : rejeu TEL QUEL sur data90 (harness_lib.sim/evaluer, coûts+pire-cas+blocage symbole identiques au banc) restreint à la fenêtre 60j jamais vue (coupureTs = -30j, même calcul que verif90_harness -> reproduit esp60 du REGISTRE) = distribution empirique de trades = 'le backtest'. Bootstrap 10 000 tirages avec remise de séquences de N trades depuis cette distribution -> seuil = Xe percentile (p<5% standard, p<10% pour PIEVERSE) de la somme des N trades : une vraie série live sous ce seuil n'a que <5%/<10% de chances de provenir de la même distribution que le backtest -> statistiquement incompatible -> couper. Courbe N=5..30 fournie pour un monitoring progressif ; la règle officielle porte sur N=30 (demande du chantier). PIEVERSE : règle renforcée (population = mélange 50/50 avec le régime ancien data180 où l'edge s'est inversé, verif180_2e_test_acide du REGISTRE, + seuil p<10%).",
+ "genere": "2026-08-31T00:22:44.157Z",
+ "iterations_bootstrap": 10000,
+ "seuils_significativite": {
+  "standard": 0.05,
+  "pieverse": 0.1
+ },
+ "seed_rng": "mulberry32, seed = FNV-1a hash de l'id de stratégie (déterministe, reproductible)",
+ "strategies": [
+  {
+   "id": "PIEVERSE",
+   "instId": "PIEVERSE-USDT-SWAP",
+   "moduleSrc": "candidates/web_structure_1.js",
+   "fenetre": {
+    "de": "2026-06-01",
+    "coupure": "2026-07-31"
+   },
+   "backtest_60j_jamais_vu": {
+    "n": 161,
+    "esp": 7.98,
+    "wr": 58.4,
+    "pf": 1.62
+   },
+   "controle_reproduction_registre": {
+    "refEsp60": 7.98,
+    "obtenu": 7.98,
+    "match": true
+   },
+   "bootstrap_standard": {
+    "iterations": 10000,
+    "p": 0.05,
+    "population_n": 161,
+    "courbe": [
+     {
+      "N": 5,
+      "seuil_somme_p5": -97.32,
+      "seuil_moyenne_p5": -19.46,
+      "somme_moyenne_attendue": 39.14,
+      "proba_somme_negative": 30.6
+     },
+     {
+      "N": 10,
+      "seuil_somme_p5": -102.41,
+      "seuil_moyenne_p5": -10.24,
+      "somme_moyenne_attendue": 79.16,
+      "proba_somme_negative": 24.6
+     },
+     {
+      "N": 15,
+      "seuil_somme_p5": -103,
+      "seuil_moyenne_p5": -6.87,
+      "somme_moyenne_attendue": 118.93,
+      "proba_somme_negative": 19.3
+     },
+     {
+      "N": 20,
+      "seuil_somme_p5": -96.48,
+      "seuil_moyenne_p5": -4.82,
+      "somme_moyenne_attendue": 159.07,
+      "proba_somme_negative": 15.2
+     },
+     {
+      "N": 25,
+      "seuil_somme_p5": -90.43,
+      "seuil_moyenne_p5": -3.62,
+      "somme_moyenne_attendue": 199.17,
+      "proba_somme_negative": 12.7
+     },
+     {
+      "N": 30,
+      "seuil_somme_p5": -70.6,
+      "seuil_moyenne_p5": -2.35,
+      "somme_moyenne_attendue": 239.31,
+      "proba_somme_negative": 10.4
+     }
+    ]
+   },
+   "regime_ancien_data180": {
+    "fenetre": "J-180 -> J-90 (2e test acide)",
+    "n": 234,
+    "esp": -0.56,
+    "wr": 49.6,
+    "pf": 0.96,
+    "controle_vs_verif180": {
+     "refEsp": -0.56,
+     "obtenu": -0.56,
+     "match": true
+    }
+   },
+   "bootstrap_renforce_melange_regimes": {
+    "iterations": 10000,
+    "p": 0.1,
+    "population": "50% pool régime récent (esp60 +7,98) / 50% pool régime ancien mars-mai 2026 (esp180 -0,56)",
+    "courbe": [
+     {
+      "N": 5,
+      "seuil_somme_p10": -86.2,
+      "seuil_moyenne_p10": -17.24,
+      "somme_moyenne_attendue": 19.96,
+      "proba_somme_negative": 38.8
+     },
+     {
+      "N": 10,
+      "seuil_somme_p10": -91.36,
+      "seuil_moyenne_p10": -9.14,
+      "somme_moyenne_attendue": 37.38,
+      "proba_somme_negative": 37.4
+     },
+     {
+      "N": 15,
+      "seuil_somme_p10": -109.08,
+      "seuil_moyenne_p10": -7.27,
+      "somme_moyenne_attendue": 55.39,
+      "proba_somme_negative": 32.9
+     },
+     {
+      "N": 20,
+      "seuil_somme_p10": -112.95,
+      "seuil_moyenne_p10": -5.65,
+      "somme_moyenne_attendue": 73.29,
+      "proba_somme_negative": 31.3
+     },
+     {
+      "N": 25,
+      "seuil_somme_p10": -117.26,
+      "seuil_moyenne_p10": -4.69,
+      "somme_moyenne_attendue": 92.04,
+      "proba_somme_negative": 29.1
+     },
+     {
+      "N": 30,
+      "seuil_somme_p10": -118.55,
+      "seuil_moyenne_p10": -3.95,
+      "somme_moyenne_attendue": 111.02,
+      "proba_somme_negative": 27.2
+     }
+    ]
+   },
+   "regle_coupure": {
+    "regle": "couper PIEVERSE si la somme des 30 derniers trades < -118.55 % de marge",
+    "N": 30,
+    "seuil_somme": -118.55,
+    "seuil_moyenne_par_trade": -3.95,
+    "base": "bootstrap renforcé (mélange 50/50 régime récent/ancien, p<10%)",
+    "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -109.08)",
+    "justification": "edge dépendant du régime (verif180 : esp180 -0,56 sur mars-mai 2026, pf 0,96) — le bootstrap sur le seul régime récent (esp60 +7,98) sous-estime le risque réel ; seuil relevé à p<10% pour couper sur une preuve plus faible."
+   }
+  },
+  {
+   "id": "ENSO",
+   "instId": "ENSO-USDT-SWAP",
+   "moduleSrc": "hermes15:ENSO",
+   "fenetre": {
+    "de": "2026-06-01",
+    "coupure": "2026-07-31"
+   },
+   "backtest_60j_jamais_vu": {
+    "n": 117,
+    "esp": 6.11,
+    "wr": 57.3,
+    "pf": 1.46
+   },
+   "controle_reproduction_registre": {
+    "refEsp60": 6.1,
+    "obtenu": 6.11,
+    "match": true
+   },
+   "bootstrap_standard": {
+    "iterations": 10000,
+    "p": 0.05,
+    "population_n": 117,
+    "courbe": [
+     {
+      "N": 5,
+      "seuil_somme_p5": -97.6,
+      "seuil_moyenne_p5": -19.52,
+      "somme_moyenne_attendue": 29.02,
+      "proba_somme_negative": 35.8
+     },
+     {
+      "N": 10,
+      "seuil_somme_p5": -116.23,
+      "seuil_moyenne_p5": -11.62,
+      "somme_moyenne_attendue": 59.27,
+      "proba_somme_negative": 28.2
+     },
+     {
+      "N": 15,
+      "seuil_somme_p5": -116.79,
+      "seuil_moyenne_p5": -7.79,
+      "somme_moyenne_attendue": 90.99,
+      "proba_somme_negative": 24.2
+     },
+     {
+      "N": 20,
+      "seuil_somme_p5": -122.58,
+      "seuil_moyenne_p5": -6.13,
+      "somme_moyenne_attendue": 122.01,
+      "proba_somme_negative": 20.7
+     },
+     {
+      "N": 25,
+      "seuil_somme_p5": -117.85,
+      "seuil_moyenne_p5": -4.71,
+      "somme_moyenne_attendue": 153.29,
+      "proba_somme_negative": 17.3
+     },
+     {
+      "N": 30,
+      "seuil_somme_p5": -114.12,
+      "seuil_moyenne_p5": -3.8,
+      "somme_moyenne_attendue": 183.87,
+      "proba_somme_negative": 15.4
+     }
+    ]
+   },
+   "regle_coupure": {
+    "regle": "couper ENSO si la somme des 30 derniers trades < -114.12 % de marge",
+    "N": 30,
+    "seuil_somme": -114.12,
+    "seuil_moyenne_par_trade": -3.8,
+    "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+    "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -116.79)"
+   }
+  },
+  {
+   "id": "GRASS",
+   "instId": "GRASS-USDT-SWAP",
+   "moduleSrc": "hermes15:GRASS",
+   "fenetre": {
+    "de": "2026-06-01",
+    "coupure": "2026-07-31"
+   },
+   "backtest_60j_jamais_vu": {
+    "n": 250,
+    "esp": 3.09,
+    "wr": 52.8,
+    "pf": 1.21
+   },
+   "controle_reproduction_registre": {
+    "refEsp60": 3.09,
+    "obtenu": 3.09,
+    "match": true
+   },
+   "bootstrap_standard": {
+    "iterations": 10000,
+    "p": 0.05,
+    "population_n": 250,
+    "courbe": [
+     {
+      "N": 5,
+      "seuil_somme_p5": -100.99,
+      "seuil_moyenne_p5": -20.2,
+      "somme_moyenne_attendue": 15.3,
+      "proba_somme_negative": 42.8
+     },
+     {
+      "N": 10,
+      "seuil_somme_p5": -138.67,
+      "seuil_moyenne_p5": -13.87,
+      "somme_moyenne_attendue": 31.34,
+      "proba_somme_negative": 39.2
+     },
+     {
+      "N": 15,
+      "seuil_somme_p5": -166.56,
+      "seuil_moyenne_p5": -11.1,
+      "somme_moyenne_attendue": 48.16,
+      "proba_somme_negative": 35.4
+     },
+     {
+      "N": 20,
+      "seuil_somme_p5": -179.94,
+      "seuil_moyenne_p5": -9,
+      "somme_moyenne_attendue": 63.72,
+      "proba_somme_negative": 33.7
+     },
+     {
+      "N": 25,
+      "seuil_somme_p5": -193.38,
+      "seuil_moyenne_p5": -7.74,
+      "somme_moyenne_attendue": 78.5,
+      "proba_somme_negative": 32.4
+     },
+     {
+      "N": 30,
+      "seuil_somme_p5": -207.31,
+      "seuil_moyenne_p5": -6.91,
+      "somme_moyenne_attendue": 93.39,
+      "proba_somme_negative": 30.7
+     }
+    ]
+   },
+   "regle_coupure": {
+    "regle": "couper GRASS si la somme des 30 derniers trades < -207.31 % de marge",
+    "N": 30,
+    "seuil_somme": -207.31,
+    "seuil_moyenne_par_trade": -6.91,
+    "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+    "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -166.56)"
+   }
+  },
+  {
+   "id": "SOON",
+   "instId": "SOON-USDT-SWAP",
+   "moduleSrc": "hermes15:SOON",
+   "fenetre": {
+    "de": "2026-06-01",
+    "coupure": "2026-07-31"
+   },
+   "backtest_60j_jamais_vu": {
+    "n": 222,
+    "esp": 1.17,
+    "wr": 57.7,
+    "pf": 1.09
+   },
+   "controle_reproduction_registre": null,
+   "bootstrap_standard": {
+    "iterations": 10000,
+    "p": 0.05,
+    "population_n": 222,
+    "courbe": [
+     {
+      "N": 5,
+      "seuil_somme_p5": -104.56,
+      "seuil_moyenne_p5": -20.91,
+      "somme_moyenne_attendue": 6.74,
+      "proba_somme_negative": 46.7
+     },
+     {
+      "N": 10,
+      "seuil_somme_p5": -133.24,
+      "seuil_moyenne_p5": -13.32,
+      "somme_moyenne_attendue": 13.49,
+      "proba_somme_negative": 44.2
+     },
+     {
+      "N": 15,
+      "seuil_somme_p5": -163.41,
+      "seuil_moyenne_p5": -10.89,
+      "somme_moyenne_attendue": 18.99,
+      "proba_somme_negative": 43.6
+     },
+     {
+      "N": 20,
+      "seuil_somme_p5": -183.81,
+      "seuil_moyenne_p5": -9.19,
+      "somme_moyenne_attendue": 25.19,
+      "proba_somme_negative": 42.7
+     },
+     {
+      "N": 25,
+      "seuil_somme_p5": -203.15,
+      "seuil_moyenne_p5": -8.13,
+      "somme_moyenne_attendue": 31.43,
+      "proba_somme_negative": 41.6
+     },
+     {
+      "N": 30,
+      "seuil_somme_p5": -221.25,
+      "seuil_moyenne_p5": -7.38,
+      "somme_moyenne_attendue": 36.86,
+      "proba_somme_negative": 41
+     }
+    ]
+   },
+   "regle_coupure": {
+    "regle": "couper SOON si la somme des 30 derniers trades < -221.25 % de marge",
+    "N": 30,
+    "seuil_somme": -221.25,
+    "seuil_moyenne_par_trade": -7.38,
+    "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+    "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -163.41)"
+   }
+  },
+  {
+   "id": "LUNA",
+   "instId": "LUNA-USDT-SWAP",
+   "moduleSrc": "hermes15:LUNA",
+   "fenetre": {
+    "de": "2026-06-01",
+    "coupure": "2026-07-31"
+   },
+   "backtest_60j_jamais_vu": {
+    "n": 101,
+    "esp": 1.18,
+    "wr": 50.5,
+    "pf": 1.09
+   },
+   "controle_reproduction_registre": null,
+   "bootstrap_standard": {
+    "iterations": 10000,
+    "p": 0.05,
+    "population_n": 101,
+    "courbe": [
+     {
+      "N": 5,
+      "seuil_somme_p5": -101.84,
+      "seuil_moyenne_p5": -20.37,
+      "somme_moyenne_attendue": 5.83,
+      "proba_somme_negative": 47.2
+     },
+     {
+      "N": 10,
+      "seuil_somme_p5": -141.03,
+      "seuil_moyenne_p5": -14.1,
+      "somme_moyenne_attendue": 11.27,
+      "proba_somme_negative": 46.3
+     },
+     {
+      "N": 15,
+      "seuil_somme_p5": -168.52,
+      "seuil_moyenne_p5": -11.23,
+      "somme_moyenne_attendue": 16.86,
+      "proba_somme_negative": 44.4
+     },
+     {
+      "N": 20,
+      "seuil_somme_p5": -193.42,
+      "seuil_moyenne_p5": -9.67,
+      "somme_moyenne_attendue": 22.63,
+      "proba_somme_negative": 43.5
+     },
+     {
+      "N": 25,
+      "seuil_somme_p5": -208.27,
+      "seuil_moyenne_p5": -8.33,
+      "somme_moyenne_attendue": 30.08,
+      "proba_somme_negative": 42
+     },
+     {
+      "N": 30,
+      "seuil_somme_p5": -227.42,
+      "seuil_moyenne_p5": -7.58,
+      "somme_moyenne_attendue": 34.7,
+      "proba_somme_negative": 41.9
+     }
+    ]
+   },
+   "regle_coupure": {
+    "regle": "couper LUNA si la somme des 30 derniers trades < -227.42 % de marge",
+    "N": 30,
+    "seuil_somme": -227.42,
+    "seuil_moyenne_par_trade": -7.58,
+    "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+    "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -168.52)"
+   }
+  },
+  {
+   "id": "NES",
+   "instId": "NES-USDT-SWAP",
+   "moduleSrc": "hermes15:NES",
+   "fenetre": {
+    "de": "2026-06-24",
+    "coupure": "2026-07-31"
+   },
+   "backtest_60j_jamais_vu": {
+    "n": 80,
+    "esp": 1.09,
+    "wr": 60,
+    "pf": 1.09
+   },
+   "controle_reproduction_registre": null,
+   "bootstrap_standard": {
+    "iterations": 10000,
+    "p": 0.05,
+    "population_n": 80,
+    "courbe": [
+     {
+      "N": 5,
+      "seuil_somme_p5": -105.5,
+      "seuil_moyenne_p5": -21.1,
+      "somme_moyenne_attendue": 5.22,
+      "proba_somme_negative": 48
+     },
+     {
+      "N": 10,
+      "seuil_somme_p5": -133.85,
+      "seuil_moyenne_p5": -13.39,
+      "somme_moyenne_attendue": 10.89,
+      "proba_somme_negative": 45.5
+     },
+     {
+      "N": 15,
+      "seuil_somme_p5": -162.78,
+      "seuil_moyenne_p5": -10.85,
+      "somme_moyenne_attendue": 17.12,
+      "proba_somme_negative": 43.8
+     },
+     {
+      "N": 20,
+      "seuil_somme_p5": -180.87,
+      "seuil_moyenne_p5": -9.04,
+      "somme_moyenne_attendue": 22.76,
+      "proba_somme_negative": 42.8
+     },
+     {
+      "N": 25,
+      "seuil_somme_p5": -202.71,
+      "seuil_moyenne_p5": -8.11,
+      "somme_moyenne_attendue": 28.19,
+      "proba_somme_negative": 42.2
+     },
+     {
+      "N": 30,
+      "seuil_somme_p5": -222.07,
+      "seuil_moyenne_p5": -7.4,
+      "somme_moyenne_attendue": 33.18,
+      "proba_somme_negative": 41
+     }
+    ]
+   },
+   "regle_coupure": {
+    "regle": "couper NES si la somme des 30 derniers trades < -222.07 % de marge",
+    "N": 30,
+    "seuil_somme": -222.07,
+    "seuil_moyenne_par_trade": -7.4,
+    "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+    "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -162.78)"
+   }
+  },
+  {
+   "id": "MEGA",
+   "instId": "MEGA-USDT-SWAP",
+   "moduleSrc": "hermes15:MEGA",
+   "fenetre": {
+    "de": "2026-06-01",
+    "coupure": "2026-07-31"
+   },
+   "backtest_60j_jamais_vu": {
+    "n": 249,
+    "esp": 1.03,
+    "wr": 50.2,
+    "pf": 1.07
+   },
+   "controle_reproduction_registre": null,
+   "bootstrap_standard": {
+    "iterations": 10000,
+    "p": 0.05,
+    "population_n": 249,
+    "courbe": [
+     {
+      "N": 5,
+      "seuil_somme_p5": -101.78,
+      "seuil_moyenne_p5": -20.36,
+      "somme_moyenne_attendue": 5.23,
+      "proba_somme_negative": 49
+     },
+     {
+      "N": 10,
+      "seuil_somme_p5": -162.59,
+      "seuil_moyenne_p5": -16.26,
+      "somme_moyenne_attendue": 9.63,
+      "proba_somme_negative": 45
+     },
+     {
+      "N": 15,
+      "seuil_somme_p5": -193.37,
+      "seuil_moyenne_p5": -12.89,
+      "somme_moyenne_attendue": 14.5,
+      "proba_somme_negative": 46.8
+     },
+     {
+      "N": 20,
+      "seuil_somme_p5": -220.07,
+      "seuil_moyenne_p5": -11,
+      "somme_moyenne_attendue": 18.43,
+      "proba_somme_negative": 44.2
+     },
+     {
+      "N": 25,
+      "seuil_somme_p5": -244.11,
+      "seuil_moyenne_p5": -9.76,
+      "somme_moyenne_attendue": 22.37,
+      "proba_somme_negative": 44.8
+     },
+     {
+      "N": 30,
+      "seuil_somme_p5": -268.2,
+      "seuil_moyenne_p5": -8.94,
+      "somme_moyenne_attendue": 27.36,
+      "proba_somme_negative": 43.6
+     }
+    ]
+   },
+   "regle_coupure": {
+    "regle": "couper MEGA si la somme des 30 derniers trades < -268.2 % de marge",
+    "N": 30,
+    "seuil_somme": -268.2,
+    "seuil_moyenne_par_trade": -8.94,
+    "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+    "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -193.37)"
+   }
+  },
+  {
+   "id": "MANA",
+   "instId": "MANA-USDT-SWAP",
+   "moduleSrc": "hermes15:MANA",
+   "fenetre": {
+    "de": "2026-06-01",
+    "coupure": "2026-07-31"
+   },
+   "backtest_60j_jamais_vu": {
+    "n": 193,
+    "esp": 0.97,
+    "wr": 59.6,
+    "pf": 1.09
+   },
+   "controle_reproduction_registre": null,
+   "bootstrap_standard": {
+    "iterations": 10000,
+    "p": 0.05,
+    "population_n": 193,
+    "courbe": [
+     {
+      "N": 5,
+      "seuil_somme_p5": -93.88,
+      "seuil_moyenne_p5": -18.78,
+      "somme_moyenne_attendue": 3.85,
+      "proba_somme_negative": 48.1
+     },
+     {
+      "N": 10,
+      "seuil_somme_p5": -125.15,
+      "seuil_moyenne_p5": -12.51,
+      "somme_moyenne_attendue": 7.77,
+      "proba_somme_negative": 45.5
+     },
+     {
+      "N": 15,
+      "seuil_somme_p5": -151.25,
+      "seuil_moyenne_p5": -10.08,
+      "somme_moyenne_attendue": 13.07,
+      "proba_somme_negative": 44.4
+     },
+     {
+      "N": 20,
+      "seuil_somme_p5": -169.68,
+      "seuil_moyenne_p5": -8.48,
+      "somme_moyenne_attendue": 18.91,
+      "proba_somme_negative": 42.9
+     },
+     {
+      "N": 25,
+      "seuil_somme_p5": -184.69,
+      "seuil_moyenne_p5": -7.39,
+      "somme_moyenne_attendue": 23.68,
+      "proba_somme_negative": 42.9
+     },
+     {
+      "N": 30,
+      "seuil_somme_p5": -197.96,
+      "seuil_moyenne_p5": -6.6,
+      "somme_moyenne_attendue": 29.29,
+      "proba_somme_negative": 41.7
+     }
+    ]
+   },
+   "regle_coupure": {
+    "regle": "couper MANA si la somme des 30 derniers trades < -197.96 % de marge",
+    "N": 30,
+    "seuil_somme": -197.96,
+    "seuil_moyenne_par_trade": -6.6,
+    "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+    "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -151.25)"
+   }
+  },
+  {
+   "id": "GPS",
+   "instId": "GPS-USDT-SWAP",
+   "moduleSrc": "hermes15:GPS",
+   "fenetre": {
+    "de": "2026-06-01",
+    "coupure": "2026-07-31"
+   },
+   "backtest_60j_jamais_vu": {
+    "n": 156,
+    "esp": 0.87,
+    "wr": 48.7,
+    "pf": 1.06
+   },
+   "controle_reproduction_registre": null,
+   "bootstrap_standard": {
+    "iterations": 10000,
+    "p": 0.05,
+    "population_n": 156,
+    "courbe": [
+     {
+      "N": 5,
+      "seuil_somme_p5": -102.53,
+      "seuil_moyenne_p5": -20.51,
+      "somme_moyenne_attendue": 4.33,
+      "proba_somme_negative": 47.8
+     },
+     {
+      "N": 10,
+      "seuil_somme_p5": -147.7,
+      "seuil_moyenne_p5": -14.77,
+      "somme_moyenne_attendue": 9.15,
+      "proba_somme_negative": 46.9
+     },
+     {
+      "N": 15,
+      "seuil_somme_p5": -182.83,
+      "seuil_moyenne_p5": -12.19,
+      "somme_moyenne_attendue": 14.21,
+      "proba_somme_negative": 45.8
+     },
+     {
+      "N": 20,
+      "seuil_somme_p5": -203.98,
+      "seuil_moyenne_p5": -10.2,
+      "somme_moyenne_attendue": 19.01,
+      "proba_somme_negative": 45.4
+     },
+     {
+      "N": 25,
+      "seuil_somme_p5": -225.33,
+      "seuil_moyenne_p5": -9.01,
+      "somme_moyenne_attendue": 23.26,
+      "proba_somme_negative": 44.7
+     },
+     {
+      "N": 30,
+      "seuil_somme_p5": -243.06,
+      "seuil_moyenne_p5": -8.1,
+      "somme_moyenne_attendue": 27.55,
+      "proba_somme_negative": 44.1
+     }
+    ]
+   },
+   "regle_coupure": {
+    "regle": "couper GPS si la somme des 30 derniers trades < -243.06 % de marge",
+    "N": 30,
+    "seuil_somme": -243.06,
+    "seuil_moyenne_par_trade": -8.1,
+    "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+    "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -182.83)"
+   }
+  },
+  {
+   "id": "AXS",
+   "instId": "AXS-USDT-SWAP",
+   "moduleSrc": "hermes15:AXS",
+   "fenetre": {
+    "de": "2026-06-01",
+    "coupure": "2026-07-31"
+   },
+   "backtest_60j_jamais_vu": {
+    "n": 145,
+    "esp": 0.8,
+    "wr": 46.2,
+    "pf": 1.06
+   },
+   "controle_reproduction_registre": null,
+   "bootstrap_standard": {
+    "iterations": 10000,
+    "p": 0.05,
+    "population_n": 145,
+    "courbe": [
+     {
+      "N": 5,
+      "seuil_somme_p5": -100.53,
+      "seuil_moyenne_p5": -20.11,
+      "somme_moyenne_attendue": 3.3,
+      "proba_somme_negative": 48.9
+     },
+     {
+      "N": 10,
+      "seuil_somme_p5": -143.61,
+      "seuil_moyenne_p5": -14.36,
+      "somme_moyenne_attendue": 6.52,
+      "proba_somme_negative": 48
+     },
+     {
+      "N": 15,
+      "seuil_somme_p5": -172.03,
+      "seuil_moyenne_p5": -11.47,
+      "somme_moyenne_attendue": 11.19,
+      "proba_somme_negative": 46.2
+     },
+     {
+      "N": 20,
+      "seuil_somme_p5": -199.56,
+      "seuil_moyenne_p5": -9.98,
+      "somme_moyenne_attendue": 14.55,
+      "proba_somme_negative": 45.4
+     },
+     {
+      "N": 25,
+      "seuil_somme_p5": -224.7,
+      "seuil_moyenne_p5": -8.99,
+      "somme_moyenne_attendue": 18.49,
+      "proba_somme_negative": 44.9
+     },
+     {
+      "N": 30,
+      "seuil_somme_p5": -243.07,
+      "seuil_moyenne_p5": -8.1,
+      "somme_moyenne_attendue": 22.39,
+      "proba_somme_negative": 44.4
+     }
+    ]
+   },
+   "regle_coupure": {
+    "regle": "couper AXS si la somme des 30 derniers trades < -243.07 % de marge",
+    "N": 30,
+    "seuil_somme": -243.07,
+    "seuil_moyenne_par_trade": -8.1,
+    "base": "bootstrap standard (régime récent 60j jamais vu, p<5%)",
+    "alerte_precoce": "surveillance rapprochée dès N=15 (somme < -172.03)"
+   }
+  }
+ ]
+}

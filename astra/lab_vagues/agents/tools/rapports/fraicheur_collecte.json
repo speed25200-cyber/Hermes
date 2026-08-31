@@ -1,0 +1,94 @@
+{
+ "genere": "2026-08-30T20:30:33.437Z",
+ "heuresTotal": 96,
+ "heuresEval": 48,
+ "depuisTs": 1787776155714,
+ "tsDebutEval": 1787948955714,
+ "dossier": "lab_vagues/data_frais",
+ "bilan": [
+  {
+   "instId": "PIEVERSE-USDT-SWAP",
+   "bougies": 1151,
+   "trous": 0,
+   "de": 1787776200000,
+   "a": 1788121200000
+  },
+  {
+   "instId": "STABLE-USDT-SWAP",
+   "bougies": 1151,
+   "trous": 0,
+   "de": 1787776200000,
+   "a": 1788121200000
+  },
+  {
+   "instId": "GPS-USDT-SWAP",
+   "bougies": 1151,
+   "trous": 0,
+   "de": 1787776200000,
+   "a": 1788121200000
+  },
+  {
+   "instId": "ARX-USDT-SWAP",
+   "bougies": 1151,
+   "trous": 0,
+   "de": 1787776200000,
+   "a": 1788121200000
+  },
+  {
+   "instId": "HUMA-USDT-SWAP",
+   "bougies": 1151,
+   "trous": 0,
+   "de": 1787776200000,
+   "a": 1788121200000
+  },
+  {
+   "instId": "BASED-USDT-SWAP",
+   "bougies": 1151,
+   "trous": 0,
+   "de": 1787776200000,
+   "a": 1788121200000
+  },
+  {
+   "instId": "SOON-USDT-SWAP",
+   "bougies": 1151,
+   "trous": 0,
+   "de": 1787776200000,
+   "a": 1788121200000
+  },
+  {
+   "instId": "PLUME-USDT-SWAP",
+   "bougies": 1151,
+   "trous": 0,
+   "de": 1787776200000,
+   "a": 1788121200000
+  },
+  {
+   "instId": "ALLO-USDT-SWAP",
+   "bougies": 1151,
+   "trous": 0,
+   "de": 1787776200000,
+   "a": 1788121200000
+  },
+  {
+   "instId": "SOPH-USDT-SWAP",
+   "bougies": 1151,
+   "trous": 0,
+   "de": 1787776200000,
+   "a": 1788121200000
+  },
+  {
+   "instId": "BSB-USDT-SWAP",
+   "bougies": 1151,
+   "trous": 0,
+   "de": 1787776200000,
+   "a": 1788121200000
+  },
+  {
+   "instId": "GRASS-USDT-SWAP",
+   "bougies": 1151,
+   "trous": 0,
+   "de": 1787776200000,
+   "a": 1788121200000
+  }
+ ]
+}

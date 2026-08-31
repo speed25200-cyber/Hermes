@@ -1,0 +1,193 @@
+{
+ "genere": "2026-08-30T20:30:33.572Z",
+ "fenetreEval": {
+  "de": "2026-08-28T20:29:15.714Z",
+  "a": "2026-08-30T20:29:15.714Z",
+  "heures": 48
+ },
+ "modulesTestes": 15,
+ "agregat": {
+  "n": 64,
+  "espParTrade": 2.97,
+  "wr": 51.6,
+  "pf": 1.25
+ },
+ "agregatHorsTronques": {
+  "n": 55,
+  "espParTrade": 3.89,
+  "wr": 54.5,
+  "pf": 1.3
+ },
+ "agregatInedit": {
+  "n": 24,
+  "espParTrade": 1.63,
+  "wr": 50,
+  "pf": 1.2,
+  "note": "trades entrés APRÈS la fin de data/ : bougies jamais vues par aucune optimisation"
+ },
+ "parSortie": {
+  "sl": 22,
+  "trail": 26,
+  "tp": 2,
+  "timeout": 5,
+  "fin_donnees": 9
+ },
+ "parModule": [
+  {
+   "module": "candidates/web_structure_1.js",
+   "instId": "PIEVERSE-USDT-SWAP",
+   "worst30": 12.58,
+   "n48h": 3,
+   "esp48h": -11.67,
+   "nInedit": 0,
+   "espInedit": null,
+   "statut": "OK"
+  },
+  {
+   "module": "candidates/tv_lazybear_1.js",
+   "instId": "STABLE-USDT-SWAP",
+   "worst30": 11.66,
+   "n48h": 5,
+   "esp48h": 13.87,
+   "nInedit": 1,
+   "espInedit": -31.8,
+   "statut": "OK"
+  },
+  {
+   "module": "candidates/web_orb_1.js",
+   "instId": "GPS-USDT-SWAP",
+   "worst30": 11.48,
+   "n48h": 4,
+   "esp48h": -2.34,
+   "nInedit": 2,
+   "espInedit": 13.15,
+   "statut": "OK"
+  },
+  {
+   "module": "candidates/champions_1.js",
+   "instId": "GPS-USDT-SWAP",
+   "worst30": 11.45,
+   "n48h": 4,
+   "esp48h": -2.54,
+   "nInedit": 1,
+   "espInedit": 1.68,
+   "statut": "OK"
+  },
+  {
+   "module": "candidates/ti_arsenal_1.js",
+   "instId": "ARX-USDT-SWAP",
+   "worst30": 10.52,
+   "n48h": 3,
+   "esp48h": -21.8,
+   "nInedit": 1,
+   "espInedit": -1.8,
+   "statut": "OK"
+  },
+  {
+   "module": "candidates/tv_luxalgo_1.js",
+   "instId": "HUMA-USDT-SWAP",
+   "worst30": 10.52,
+   "n48h": 7,
+   "esp48h": 13.01,
+   "nInedit": 2,
+   "espInedit": -2.82,
+   "statut": "OK"
+  },
+  {
+   "module": "candidates/canaux_1.js",
+   "instId": "BASED-USDT-SWAP",
+   "worst30": 10.16,
+   "n48h": 2,
+   "esp48h": 2.22,
+   "nInedit": 1,
+   "espInedit": -6.82,
+   "statut": "OK"
+  },
+  {
+   "module": "candidates/web_vwap_1.js",
+   "instId": "SOON-USDT-SWAP",
+   "worst30": 9.97,
+   "n48h": 4,
+   "esp48h": 0.8,
+   "nInedit": 0,
+   "espInedit": null,
+   "statut": "OK"
+  },
+  {
+   "module": "candidates/sessions_1.js",
+   "instId": "PLUME-USDT-SWAP",
+   "worst30": 9.9,
+   "n48h": 6,
+   "esp48h": 27.66,
+   "nInedit": 4,
+   "espInedit": 22.6,
+   "statut": "OK"
+  },
+  {
+   "module": "candidates/oscillo_1.js",
+   "instId": "ALLO-USDT-SWAP",
+   "worst30": 9.76,
+   "n48h": 7,
+   "esp48h": 9.59,
+   "nInedit": 4,
+   "espInedit": 4.3,
+   "statut": "OK"
+  },
+  {
+   "module": "candidates/patterns_1.js",
+   "instId": "SOPH-USDT-SWAP",
+   "worst30": 9.32,
+   "n48h": 8,
+   "esp48h": -15.74,
+   "nInedit": 3,
+   "espInedit": -28.49,
+   "statut": "OK"
+  },
+  {
+   "module": "candidates/tv_lazybear_2.js",
+   "instId": "BSB-USDT-SWAP",
+   "worst30": 9.25,
+   "n48h": 1,
+   "esp48h": -31.8,
+   "nInedit": 0,
+   "espInedit": null,
+   "statut": "OK"
+  },
+  {
+   "module": "candidates/champions_2.js",
+   "instId": "GRASS-USDT-SWAP",
+   "worst30": 9.09,
+   "n48h": 4,
+   "esp48h": -4.33,
+   "nInedit": 2,
+   "espInedit": 1.68,
+   "statut": "OK"
+  },
+  {
+   "module": "candidates/multiech_1.js",
+   "instId": "GRASS-USDT-SWAP",
+   "worst30": 9.09,
+   "n48h": 3,
+   "esp48h": 19.26,
+   "nInedit": 2,
+   "espInedit": 15.98,
+   "statut": "OK"
+  },
+  {
+   "module": "candidates/tv_lazybear_3.js",
+   "instId": "GRASS-USDT-SWAP",
+   "worst30": 8.94,
+   "n48h": 3,
+   "esp48h": 8.75,
+   "nInedit": 1,
+   "espInedit": -0.15,
+   "statut": "OK"
+  }
+ ],
+ "caveats": [
+  "48 h seulement : n minuscule, bruit énorme — premier indice de tenue, pas une validation.",
+  "Le banc 5 m est optimiste de ~15 % (chantier précision 1 m) : le même haircut s'applique ici.",
+  "Les trades 'fin_donnees' sont tronqués (position théoriquement encore ouverte) — agrégat fourni avec et sans.",
+  "La fenêtre 48 h peut chevaucher la fin de data/ (OOS du banc) : ce n'est pas 48 h entièrement inédites si la collecte data/ est récente."
+ ]
+}

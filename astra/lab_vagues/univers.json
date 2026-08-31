@@ -1,0 +1,1002 @@
+[
+ {
+  "instId": "BTC-USDT-SWAP",
+  "volUsd": 2112489557.83571
+ },
+ {
+  "instId": "ETH-USDT-SWAP",
+  "volUsd": 1950543239.542
+ },
+ {
+  "instId": "TRUMP-USDT-SWAP",
+  "volUsd": 822663516.7889999
+ },
+ {
+  "instId": "SOL-USDT-SWAP",
+  "volUsd": 590125640.8254
+ },
+ {
+  "instId": "ZEC-USDT-SWAP",
+  "volUsd": 427105039.3458
+ },
+ {
+  "instId": "HYPE-USDT-SWAP",
+  "volUsd": 212399582.6988
+ },
+ {
+  "instId": "XRP-USDT-SWAP",
+  "volUsd": 203167011.4448
+ },
+ {
+  "instId": "DOGE-USDT-SWAP",
+  "volUsd": 118072859.5854
+ },
+ {
+  "instId": "PUMP-USDT-SWAP",
+  "volUsd": 114203752.732
+ },
+ {
+  "instId": "BEAT-USDT-SWAP",
+  "volUsd": 112387429.9272
+ },
+ {
+  "instId": "ENA-USDT-SWAP",
+  "volUsd": 82850176.8028
+ },
+ {
+  "instId": "SNDK-USDT-SWAP",
+  "volUsd": 75474550.15215
+ },
+ {
+  "instId": "DOS-USDT-SWAP",
+  "volUsd": 72413329.914
+ },
+ {
+  "instId": "XAU-USDT-SWAP",
+  "volUsd": 70032713.16229999
+ },
+ {
+  "instId": "PEPE-USDT-SWAP",
+  "volUsd": 54791284.68
+ },
+ {
+  "instId": "O-USDT-SWAP",
+  "volUsd": 54595217.53
+ },
+ {
+  "instId": "GIGGLE-USDT-SWAP",
+  "volUsd": 48377696.655
+ },
+ {
+  "instId": "WLD-USDT-SWAP",
+  "volUsd": 43698124.958399996
+ },
+ {
+  "instId": "SUI-USDT-SWAP",
+  "volUsd": 38486568.6384
+ },
+ {
+  "instId": "UNI-USDT-SWAP",
+  "volUsd": 31764477.288999997
+ },
+ {
+  "instId": "LIT-USDT-SWAP",
+  "volUsd": 26948042.8912
+ },
+ {
+  "instId": "SKHYNIX-USDT-SWAP",
+  "volUsd": 26859044.85828
+ },
+ {
+  "instId": "CHIP-USDT-SWAP",
+  "volUsd": 25240632.779999997
+ },
+ {
+  "instId": "LINK-USDT-SWAP",
+  "volUsd": 23626218.630000003
+ },
+ {
+  "instId": "AAVE-USDT-SWAP",
+  "volUsd": 23504476.643999998
+ },
+ {
+  "instId": "AEON-USDT-SWAP",
+  "volUsd": 23212568.286000002
+ },
+ {
+  "instId": "RIVER-USDT-SWAP",
+  "volUsd": 20294827.4575
+ },
+ {
+  "instId": "BNB-USDT-SWAP",
+  "volUsd": 19155023.494
+ },
+ {
+  "instId": "ZKP-USDT-SWAP",
+  "volUsd": 18952817.2848
+ },
+ {
+  "instId": "LIGHT-USDT-SWAP",
+  "volUsd": 18769080.4936
+ },
+ {
+  "instId": "GRVT-USDT-SWAP",
+  "volUsd": 18394871.274
+ },
+ {
+  "instId": "OKB-USDT-SWAP",
+  "volUsd": 17492314.917
+ },
+ {
+  "instId": "BICO-USDT-SWAP",
+  "volUsd": 17195715.81
+ },
+ {
+  "instId": "DASH-USDT-SWAP",
+  "volUsd": 16567836.4164
+ },
+ {
+  "instId": "BCH-USDT-SWAP",
+  "volUsd": 16324167.87
+ },
+ {
+  "instId": "ADA-USDT-SWAP",
+  "volUsd": 15405625.884
+ },
+ {
+  "instId": "PENGU-USDT-SWAP",
+  "volUsd": 14762893.3748
+ },
+ {
+  "instId": "XAG-USDT-SWAP",
+  "volUsd": 13798453.835599998
+ },
+ {
+  "instId": "NEAR-USDT-SWAP",
+  "volUsd": 13781104.620000001
+ },
+ {
+  "instId": "TRX-USDT-SWAP",
+  "volUsd": 13356171.98
+ },
+ {
+  "instId": "UB-USDT-SWAP",
+  "volUsd": 12913343.808
+ },
+ {
+  "instId": "ROBO-USDT-SWAP",
+  "volUsd": 12682779.2
+ },
+ {
+  "instId": "EDEN-USDT-SWAP",
+  "volUsd": 12633228.694330001
+ },
+ {
+  "instId": "HUMA-USDT-SWAP",
+  "volUsd": 12613832.308
+ },
+ {
+  "instId": "TAO-USDT-SWAP",
+  "volUsd": 12325468.33
+ },
+ {
+  "instId": "XPL-USDT-SWAP",
+  "volUsd": 12200685.6181
+ },
+ {
+  "instId": "MU-USDT-SWAP",
+  "volUsd": 12141924.6627
+ },
+ {
+  "instId": "TURBO-USDT-SWAP",
+  "volUsd": 11899204.859000001
+ },
+ {
+  "instId": "ONDO-USDT-SWAP",
+  "volUsd": 11892546.299999999
+ },
+ {
+  "instId": "LTC-USDT-SWAP",
+  "volUsd": 10933123.094999999
+ },
+ {
+  "instId": "CAP-USDT-SWAP",
+  "volUsd": 10673664.594
+ },
+ {
+  "instId": "FIL-USDT-SWAP",
+  "volUsd": 9761165.42595
+ },
+ {
+  "instId": "ICP-USDT-SWAP",
+  "volUsd": 9756378.36339
+ },
+ {
+  "instId": "BAND-USDT-SWAP",
+  "volUsd": 9639939.1119
+ },
+ {
+  "instId": "OPG-USDT-SWAP",
+  "volUsd": 9399444.8556
+ },
+ {
+  "instId": "LAB-USDT-SWAP",
+  "volUsd": 8814091.11256
+ },
+ {
+  "instId": "SOXL-USDT-SWAP",
+  "volUsd": 8801607.9736
+ },
+ {
+  "instId": "AVAX-USDT-SWAP",
+  "volUsd": 8657179.8796
+ },
+ {
+  "instId": "STX-USDT-SWAP",
+  "volUsd": 8595983.1025
+ },
+ {
+  "instId": "SPCX-USDT-SWAP",
+  "volUsd": 8537594.976
+ },
+ {
+  "instId": "WLFI-USDT-SWAP",
+  "volUsd": 7875118.0586
+ },
+ {
+  "instId": "SKHY-USDT-SWAP",
+  "volUsd": 7825856.5005
+ },
+ {
+  "instId": "SHIB-USDT-SWAP",
+  "volUsd": 6821490.8382
+ },
+ {
+  "instId": "ZRO-USDT-SWAP",
+  "volUsd": 6685443.9468
+ },
+ {
+  "instId": "CL-USDT-SWAP",
+  "volUsd": 6660440.52
+ },
+ {
+  "instId": "ALLO-USDT-SWAP",
+  "volUsd": 6559120.5735
+ },
+ {
+  "instId": "HOME-USDT-SWAP",
+  "volUsd": 6555597.120999999
+ },
+ {
+  "instId": "ASTER-USDT-SWAP",
+  "volUsd": 6508610.973900001
+ },
+ {
+  "instId": "XLM-USDT-SWAP",
+  "volUsd": 5976417.5772
+ },
+ {
+  "instId": "DOT-USDT-SWAP",
+  "volUsd": 5817074.032
+ },
+ {
+  "instId": "POL-USDT-SWAP",
+  "volUsd": 5749261.8356
+ },
+ {
+  "instId": "ONT-USDT-SWAP",
+  "volUsd": 5305262.8115
+ },
+ {
+  "instId": "KAITO-USDT-SWAP",
+  "volUsd": 5298825.6288
+ },
+ {
+  "instId": "RE-USDT-SWAP",
+  "volUsd": 5260686.827099999
+ },
+ {
+  "instId": "FARTCOIN-USDT-SWAP",
+  "volUsd": 5242706.51
+ },
+ {
+  "instId": "NVDA-USDT-SWAP",
+  "volUsd": 5071256.6534
+ },
+ {
+  "instId": "PIEVERSE-USDT-SWAP",
+  "volUsd": 4808975.84
+ },
+ {
+  "instId": "BSB-USDT-SWAP",
+  "volUsd": 4722351.6244
+ },
+ {
+  "instId": "OP-USDT-SWAP",
+  "volUsd": 4711172.7009000005
+ },
+ {
+  "instId": "APT-USDT-SWAP",
+  "volUsd": 4629143.1459
+ },
+ {
+  "instId": "MSTR-USDT-SWAP",
+  "volUsd": 4589906.9065
+ },
+ {
+  "instId": "KORU-USDT-SWAP",
+  "volUsd": 4563645.4695
+ },
+ {
+  "instId": "INJ-USDT-SWAP",
+  "volUsd": 4531161.12
+ },
+ {
+  "instId": "MOVE-USDT-SWAP",
+  "volUsd": 4429680.2424
+ },
+ {
+  "instId": "ETC-USDT-SWAP",
+  "volUsd": 4375318.7105
+ },
+ {
+  "instId": "WIF-USDT-SWAP",
+  "volUsd": 4341915.8496
+ },
+ {
+  "instId": "VVV-USDT-SWAP",
+  "volUsd": 4235515.0992
+ },
+ {
+  "instId": "CRCL-USDT-SWAP",
+  "volUsd": 4114466.368
+ },
+ {
+  "instId": "MON-USDT-SWAP",
+  "volUsd": 3907298.8309
+ },
+ {
+  "instId": "APR-USDT-SWAP",
+  "volUsd": 3818723.935
+ },
+ {
+  "instId": "SLX-USDT-SWAP",
+  "volUsd": 3774357.5535
+ },
+ {
+  "instId": "ORDI-USDT-SWAP",
+  "volUsd": 3710247.9480000003
+ },
+ {
+  "instId": "H-USDT-SWAP",
+  "volUsd": 3700769.0327999997
+ },
+ {
+  "instId": "BOME-USDT-SWAP",
+  "volUsd": 3660227.6598
+ },
+ {
+  "instId": "CRV-USDT-SWAP",
+  "volUsd": 3634317.9541999996
+ },
+ {
+  "instId": "JTO-USDT-SWAP",
+  "volUsd": 3627786.0095
+ },
+ {
+  "instId": "MUBARAK-USDT-SWAP",
+  "volUsd": 3512108.9167
+ },
+ {
+  "instId": "HBAR-USDT-SWAP",
+  "volUsd": 3424562.3936
+ },
+ {
+  "instId": "PEOPLE-USDT-SWAP",
+  "volUsd": 3314448.7013999997
+ },
+ {
+  "instId": "SNXX-USDT-SWAP",
+  "volUsd": 3224094.1920000003
+ },
+ {
+  "instId": "GRAM-USDT-SWAP",
+  "volUsd": 3183783.12
+ },
+ {
+  "instId": "ETHFI-USDT-SWAP",
+  "volUsd": 3000381.9504
+ },
+ {
+  "instId": "QQQ-USDT-SWAP",
+  "volUsd": 2930725.2248
+ },
+ {
+  "instId": "MRVL-USDT-SWAP",
+  "volUsd": 2912232.7625
+ },
+ {
+  "instId": "MMT-USDT-SWAP",
+  "volUsd": 2896111.646
+ },
+ {
+  "instId": "SAND-USDT-SWAP",
+  "volUsd": 2752234.479
+ },
+ {
+  "instId": "KITE-USDT-SWAP",
+  "volUsd": 2687980.4639999997
+ },
+ {
+  "instId": "ARB-USDT-SWAP",
+  "volUsd": 2666079.6734900004
+ },
+ {
+  "instId": "GPS-USDT-SWAP",
+  "volUsd": 2571718.2453
+ },
+ {
+  "instId": "SPX-USDT-SWAP",
+  "volUsd": 2428446.7493999996
+ },
+ {
+  "instId": "AXTI-USDT-SWAP",
+  "volUsd": 2425451.3706
+ },
+ {
+  "instId": "ENSO-USDT-SWAP",
+  "volUsd": 2406616.812
+ },
+ {
+  "instId": "VIRTUAL-USDT-SWAP",
+  "volUsd": 2338376.3956
+ },
+ {
+  "instId": "PI-USDT-SWAP",
+  "volUsd": 2326694.28406
+ },
+ {
+  "instId": "FOGO-USDT-SWAP",
+  "volUsd": 2265604.815
+ },
+ {
+  "instId": "MASK-USDT-SWAP",
+  "volUsd": 2255396.076
+ },
+ {
+  "instId": "ZAMA-USDT-SWAP",
+  "volUsd": 2182945.1853
+ },
+ {
+  "instId": "ALGO-USDT-SWAP",
+  "volUsd": 2128339.9359999998
+ },
+ {
+  "instId": "JUP-USDT-SWAP",
+  "volUsd": 2127586.26
+ },
+ {
+  "instId": "AAPL-USDT-SWAP",
+  "volUsd": 1954298.6481
+ },
+ {
+  "instId": "LDO-USDT-SWAP",
+  "volUsd": 1932384.1608
+ },
+ {
+  "instId": "CORE-USDT-SWAP",
+  "volUsd": 1897249.4959
+ },
+ {
+  "instId": "INTC-USDT-SWAP",
+  "volUsd": 1882134.639
+ },
+ {
+  "instId": "BONK-USDT-SWAP",
+  "volUsd": 1785708.3264
+ },
+ {
+  "instId": "GALA-USDT-SWAP",
+  "volUsd": 1771339.56288
+ },
+ {
+  "instId": "APE-USDT-SWAP",
+  "volUsd": 1769025.2017200002
+ },
+ {
+  "instId": "MINA-USDT-SWAP",
+  "volUsd": 1758112.3396400001
+ },
+ {
+  "instId": "PNUT-USDT-SWAP",
+  "volUsd": 1733286.951
+ },
+ {
+  "instId": "GRASS-USDT-SWAP",
+  "volUsd": 1727660.7209
+ },
+ {
+  "instId": "ATOM-USDT-SWAP",
+  "volUsd": 1660290
+ },
+ {
+  "instId": "YB-USDT-SWAP",
+  "volUsd": 1659187.2576000001
+ },
+ {
+  "instId": "STRK-USDT-SWAP",
+  "volUsd": 1653958.5344399998
+ },
+ {
+  "instId": "0G-USDT-SWAP",
+  "volUsd": 1625508.9490999999
+ },
+ {
+  "instId": "USELESS-USDT-SWAP",
+  "volUsd": 1623971.7225000001
+ },
+ {
+  "instId": "TSLA-USDT-SWAP",
+  "volUsd": 1601147.6415
+ },
+ {
+  "instId": "BZ-USDT-SWAP",
+  "volUsd": 1562960.6809999999
+ },
+ {
+  "instId": "MERL-USDT-SWAP",
+  "volUsd": 1538019.4035800002
+ },
+ {
+  "instId": "BASED-USDT-SWAP",
+  "volUsd": 1477606.416
+ },
+ {
+  "instId": "AAOI-USDT-SWAP",
+  "volUsd": 1457063.1962
+ },
+ {
+  "instId": "AERO-USDT-SWAP",
+  "volUsd": 1438368.245
+ },
+ {
+  "instId": "SAHARA-USDT-SWAP",
+  "volUsd": 1374119.5077
+ },
+ {
+  "instId": "OPN-USDT-SWAP",
+  "volUsd": 1363857.1398
+ },
+ {
+  "instId": "PIPPIN-USDT-SWAP",
+  "volUsd": 1356704.5206
+ },
+ {
+  "instId": "TIA-USDT-SWAP",
+  "volUsd": 1355818.1322
+ },
+ {
+  "instId": "RENDER-USDT-SWAP",
+  "volUsd": 1354742.982
+ },
+ {
+  "instId": "2Z-USDT-SWAP",
+  "volUsd": 1337334.4596
+ },
+ {
+  "instId": "ZEN-USDT-SWAP",
+  "volUsd": 1333135.65
+ },
+ {
+  "instId": "CXMT-USDT-SWAP",
+  "volUsd": 1329864.53
+ },
+ {
+  "instId": "CC-USDT-SWAP",
+  "volUsd": 1320761.2743
+ },
+ {
+  "instId": "ZBT-USDT-SWAP",
+  "volUsd": 1283968.18422
+ },
+ {
+  "instId": "BILL-USDT-SWAP",
+  "volUsd": 1280319.56
+ },
+ {
+  "instId": "RAVE-USDT-SWAP",
+  "volUsd": 1273014.0447200001
+ },
+ {
+  "instId": "TRIA-USDT-SWAP",
+  "volUsd": 1262506.1670000001
+ },
+ {
+  "instId": "NEIRO-USDT-SWAP",
+  "volUsd": 1250703.45356
+ },
+ {
+  "instId": "ACT-USDT-SWAP",
+  "volUsd": 1229611.335544
+ },
+ {
+  "instId": "SAMSUNG-USDT-SWAP",
+  "volUsd": 1209933.186
+ },
+ {
+  "instId": "SPACE-USDT-SWAP",
+  "volUsd": 1198481.4527999999
+ },
+ {
+  "instId": "SPK-USDT-SWAP",
+  "volUsd": 1161894.947
+ },
+ {
+  "instId": "AI-USDT-SWAP",
+  "volUsd": 1149393.752
+ },
+ {
+  "instId": "MORPHO-USDT-SWAP",
+  "volUsd": 1144583.96
+ },
+ {
+  "instId": "NBIS-USDT-SWAP",
+  "volUsd": 1144312.7936
+ },
+ {
+  "instId": "ACU-USDT-SWAP",
+  "volUsd": 1132351.0926
+ },
+ {
+  "instId": "LAYER-USDT-SWAP",
+  "volUsd": 1126794.35525
+ },
+ {
+  "instId": "MOODENG-USDT-SWAP",
+  "volUsd": 1123795.4282
+ },
+ {
+  "instId": "UNITREE-USDT-SWAP",
+  "volUsd": 1107712.7158
+ },
+ {
+  "instId": "OFC-USDT-SWAP",
+  "volUsd": 1100348.0180000002
+ },
+ {
+  "instId": "TRB-USDT-SWAP",
+  "volUsd": 1095279.48
+ },
+ {
+  "instId": "HMSTR-USDT-SWAP",
+  "volUsd": 1021532.4928100001
+ },
+ {
+  "instId": "EDGE-USDT-SWAP",
+  "volUsd": 1005094.377
+ },
+ {
+  "instId": "ARX-USDT-SWAP",
+  "volUsd": 992545.272
+ },
+ {
+  "instId": "AVNT-USDT-SWAP",
+  "volUsd": 963682.02882
+ },
+ {
+  "instId": "CFX-USDT-SWAP",
+  "volUsd": 950051.592
+ },
+ {
+  "instId": "XTZ-USDT-SWAP",
+  "volUsd": 945412.4636
+ },
+ {
+  "instId": "CHZ-USDT-SWAP",
+  "volUsd": 944753.6412
+ },
+ {
+  "instId": "DRAM-USDT-SWAP",
+  "volUsd": 930243.096
+ },
+ {
+  "instId": "GOOGL-USDT-SWAP",
+  "volUsd": 929160.3471
+ },
+ {
+  "instId": "PLUME-USDT-SWAP",
+  "volUsd": 923027.15716
+ },
+ {
+  "instId": "TQQQ-USDT-SWAP",
+  "volUsd": 905904
+ },
+ {
+  "instId": "PURR-USDT-SWAP",
+  "volUsd": 899821.3
+ },
+ {
+  "instId": "EIGEN-USDT-SWAP",
+  "volUsd": 875820.3786
+ },
+ {
+  "instId": "SOON-USDT-SWAP",
+  "volUsd": 866170.6235999999
+ },
+ {
+  "instId": "PENDLE-USDT-SWAP",
+  "volUsd": 863071.2999999999
+ },
+ {
+  "instId": "RLS-USDT-SWAP",
+  "volUsd": 855708.1616
+ },
+ {
+  "instId": "KMNO-USDT-SWAP",
+  "volUsd": 842577.791
+ },
+ {
+  "instId": "LITE-USDT-SWAP",
+  "volUsd": 833196.9509999999
+ },
+ {
+  "instId": "MEGA-USDT-SWAP",
+  "volUsd": 823932.4464
+ },
+ {
+  "instId": "ENS-USDT-SWAP",
+  "volUsd": 821729.5107999999
+ },
+ {
+  "instId": "AXS-USDT-SWAP",
+  "volUsd": 808276.46496
+ },
+ {
+  "instId": "AMD-USDT-SWAP",
+  "volUsd": 805655.4322
+ },
+ {
+  "instId": "ETHW-USDT-SWAP",
+  "volUsd": 797637.1886
+ },
+ {
+  "instId": "XCU-USDT-SWAP",
+  "volUsd": 796419.9466
+ },
+ {
+  "instId": "PARTI-USDT-SWAP",
+  "volUsd": 795086.439
+ },
+ {
+  "instId": "MET-USDT-SWAP",
+  "volUsd": 789391.8165
+ },
+ {
+  "instId": "SUSHI-USDT-SWAP",
+  "volUsd": 787419.2840999999
+ },
+ {
+  "instId": "PYTH-USDT-SWAP",
+  "volUsd": 772302.7147
+ },
+ {
+  "instId": "ESP-USDT-SWAP",
+  "volUsd": 768476.5519999999
+ },
+ {
+  "instId": "GAS-USDT-SWAP",
+  "volUsd": 766045.8608
+ },
+ {
+  "instId": "LA-USDT-SWAP",
+  "volUsd": 759671.3126
+ },
+ {
+  "instId": "W-USDT-SWAP",
+  "volUsd": 741335.7737110001
+ },
+ {
+  "instId": "DATA-USDT-SWAP",
+  "volUsd": 709874.229
+ },
+ {
+  "instId": "SOXS-USDT-SWAP",
+  "volUsd": 701826.924
+ },
+ {
+  "instId": "NES-USDT-SWAP",
+  "volUsd": 688250.16
+ },
+ {
+  "instId": "DYDX-USDT-SWAP",
+  "volUsd": 680840.44504
+ },
+ {
+  "instId": "CRO-USDT-SWAP",
+  "volUsd": 673282.9532
+ },
+ {
+  "instId": "ACH-USDT-SWAP",
+  "volUsd": 663911.4456
+ },
+ {
+  "instId": "COMP-USDT-SWAP",
+  "volUsd": 648044.32
+ },
+ {
+  "instId": "POPCAT-USDT-SWAP",
+  "volUsd": 643077.9872
+ },
+ {
+  "instId": "RAY-USDT-SWAP",
+  "volUsd": 642316.6992
+ },
+ {
+  "instId": "S-USDT-SWAP",
+  "volUsd": 636303.694
+ },
+ {
+  "instId": "BIO-USDT-SWAP",
+  "volUsd": 628609.99854
+ },
+ {
+  "instId": "KSM-USDT-SWAP",
+  "volUsd": 628300.911
+ },
+ {
+  "instId": "AR-USDT-SWAP",
+  "volUsd": 614677.8135
+ },
+ {
+  "instId": "ME-USDT-SWAP",
+  "volUsd": 604164.91091
+ },
+ {
+  "instId": "META-USDT-SWAP",
+  "volUsd": 604066.7994
+ },
+ {
+  "instId": "AIXBT-USDT-SWAP",
+  "volUsd": 601128.7359999999
+ },
+ {
+  "instId": "AMZN-USDT-SWAP",
+  "volUsd": 589411.5675
+ },
+ {
+  "instId": "YGG-USDT-SWAP",
+  "volUsd": 586826.8783
+ },
+ {
+  "instId": "IOTA-USDT-SWAP",
+  "volUsd": 579900.5388999999
+ },
+ {
+  "instId": "GMX-USDT-SWAP",
+  "volUsd": 571238.5976
+ },
+ {
+  "instId": "XIAOMI-USDT-SWAP",
+  "volUsd": 569610.174
+ },
+ {
+  "instId": "BERA-USDT-SWAP",
+  "volUsd": 568281.73185
+ },
+ {
+  "instId": "ARKM-USDT-SWAP",
+  "volUsd": 557006.45
+ },
+ {
+  "instId": "IMX-USDT-SWAP",
+  "volUsd": 556090.353
+ },
+ {
+  "instId": "EGLD-USDT-SWAP",
+  "volUsd": 544143.1209999999
+ },
+ {
+  "instId": "ZHIPU-USDT-SWAP",
+  "volUsd": 538089.349
+ },
+ {
+  "instId": "ATH-USDT-SWAP",
+  "volUsd": 534672.3876
+ },
+ {
+  "instId": "MAGIC-USDT-SWAP",
+  "volUsd": 532018.74375
+ },
+ {
+  "instId": "AVGO-USDT-SWAP",
+  "volUsd": 526158.0428
+ },
+ {
+  "instId": "MEW-USDT-SWAP",
+  "volUsd": 525955.6998000001
+ },
+ {
+  "instId": "ZORA-USDT-SWAP",
+  "volUsd": 505339.25341999996
+ },
+ {
+  "instId": "BARD-USDT-SWAP",
+  "volUsd": 501960.23459999997
+ },
+ {
+  "instId": "COAI-USDT-SWAP",
+  "volUsd": 487685.3864399999
+ },
+ {
+  "instId": "MSFT-USDT-SWAP",
+  "volUsd": 476891.82239999995
+ },
+ {
+  "instId": "SPY-USDT-SWAP",
+  "volUsd": 474559.31119999994
+ },
+ {
+  "instId": "SOPH-USDT-SWAP",
+  "volUsd": 467402.4075
+ },
+ {
+  "instId": "SEI-USDT-SWAP",
+  "volUsd": 462596.992
+ },
+ {
+  "instId": "A-USDT-SWAP",
+  "volUsd": 438534.621
+ },
+ {
+  "instId": "SKDD-USDT-SWAP",
+  "volUsd": 418124.8510000001
+ },
+ {
+  "instId": "SATS-USDT-SWAP",
+  "volUsd": 412203.008
+ },
+ {
+  "instId": "EWY-USDT-SWAP",
+  "volUsd": 410275.0211
+ },
+ {
+  "instId": "SSV-USDT-SWAP",
+  "volUsd": 401715.46040000004
+ },
+ {
+  "instId": "LINEA-USDT-SWAP",
+  "volUsd": 398583.50879999995
+ },
+ {
+  "instId": "KAT-USDT-SWAP",
+  "volUsd": 397756.2942
+ },
+ {
+  "instId": "LUNA-USDT-SWAP",
+  "volUsd": 385760.5814
+ },
+ {
+  "instId": "CBRS-USDT-SWAP",
+  "volUsd": 382745.827
+ },
+ {
+  "instId": "SYRUP-USDT-SWAP",
+  "volUsd": 371858.256
+ },
+ {
+  "instId": "TSM-USDT-SWAP",
+  "volUsd": 361866.335
+ },
+ {
+  "instId": "MINIMAX-USDT-SWAP",
+  "volUsd": 361354.38
+ },
+ {
+  "instId": "UP-USDT-SWAP",
+  "volUsd": 360701.28
+ },
+ {
+  "instId": "STABLE-USDT-SWAP",
+  "volUsd": 347043.84
+ }
+]
