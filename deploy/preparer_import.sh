@@ -40,6 +40,14 @@ cd "$RACINE" || exit 1
 #   .git          lhistoire dun autre depot
 #   .pak .map     des artefacts de build, illisibles et lourds
 #   .jsonl .log   des journaux deguises en donnees
+#
+# Les trois suivantes ont ete ajoutees APRES un premier refus a 150 Mo,
+# et cest le refus lui-meme qui les a nommees. Ce ne sont pas des
+# dependances mais des donnees de recherche, deguisees en code parce
+# quelles sont en JSON et rangees dans des dossiers de code :
+#   data365       365 jours de bougies par instrument, ~5 Mo piece
+#   rapports      les sorties de scans, jusqua 11,8 Mo lunite
+#   *_resultats   les memes, posees hors du dossier rapports
 tar czf "$PAQUET" \
   --exclude="*/node_modules" --exclude="node_modules" \
   --exclude="./data" --exclude="./logs" \
@@ -47,6 +55,8 @@ tar czf "$PAQUET" \
   --exclude="*.pak" --exclude="*.map" \
   --exclude="*.jsonl" --exclude="*.log" \
   --exclude="*.asar" --exclude="*.node" \
+  --exclude="data365" --exclude="rapports" \
+  --exclude="*_resultats.json" \
   . 2>/dev/null
 
 MO=$(( $(wc -c < "$PAQUET") / 1000000 ))
@@ -54,8 +64,13 @@ NB=$(tar tzf "$PAQUET" 2>/dev/null | grep -vc "/$")
 echo "  paquet : ${MO} Mo, $NB fichiers"
 echo
 
-echo "  poids par dossier de premier niveau, apres exclusions (Mo) :"
-du -sm --exclude=node_modules --exclude=data --exclude=logs ./* 2>/dev/null \
+# Le poids se lit DANS LE PAQUET et non sur le disque : cest le paquet
+# qui part, et un du sur larborescence complete raconte ce quon a
+# justement decide de ne pas emporter.
+echo "  poids par dossier de premier niveau, tel que le paquet le porte (Mo) :"
+tar tzvf "$PAQUET" 2>/dev/null \
+  | awk '{ n=$6; sub(/^\.\//,"",n); split(n,p,"/"); poids[p[1]] += $3 }
+         END { for (d in poids) printf "%10.1f  %s\n", poids[d]/1e6, d }' \
   | sort -rn | head -20 | sed -e "s/^/    /"
 echo
 
