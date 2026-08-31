@@ -445,15 +445,21 @@ async function loadUniverse() {
 
     // On descend le classement en verifiant la continuite, et on
     // sarrete quand on a le compte. Inutile deprouver les cent.
+    // Les candidats sont eprouves par paquets. Un par un, soixante
+    // appels a la suite mettaient une minute, et le demarrage entier
+    // attendait derriere.
+    const candidats = classe.slice(0, TAILLE_UNIVERS * 3);
     const retenus = [];
     const trace = [];
-    for (const x of classe) {
-      if (retenus.length >= TAILLE_UNIVERS) break;
-      if (trace.length >= TAILLE_UNIVERS * 3) break;     // garde-fou
-      const m = await mesurerContinuite(x.instId);
-      const nom = String(x.instId).replace("-USDT-SWAP", "");
-      trace.push(`${nom} ${(cote(x) / 1e6).toFixed(0)}M ${m.heures}/168h${m.continu ? "" : " REFUSE"}`);
-      if (m.continu) retenus.push(x.instId);
+    for (let i = 0; i < candidats.length && retenus.length < TAILLE_UNIVERS; i += 6) {
+      const paquet = candidats.slice(i, i + 6);
+      const mesures = await Promise.all(paquet.map((x) => mesurerContinuite(x.instId)));
+      paquet.forEach((x, k) => {
+        const m = mesures[k];
+        const nom = String(x.instId).replace("-USDT-SWAP", "");
+        trace.push(`${nom} ${(cote(x) / 1e6).toFixed(0)}M ${m.heures}/168h${m.continu ? "" : " REFUSE"}`);
+        if (m.continu && retenus.length < TAILLE_UNIVERS) retenus.push(x.instId);
+      });
     }
 
     if (retenus.length) {

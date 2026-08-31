@@ -117,12 +117,25 @@ systemctl enable hermes >/dev/null 2>&1 || true
 systemctl restart hermes
 
 echo "=== 7. verification ==="
-sleep 4
+sleep 3
 systemctl is-active hermes && echo "  service actif" || { echo "  !! service inactif"; journalctl -u hermes -n 30 --no-pager; exit 1; }
+
 # On interroge le serveur pour de vrai. « Le service est actif » ne dit
 # pas que le port repond : un processus peut vivre et navoir jamais
 # reussi a ecouter.
-code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "http://127.0.0.1:8899/" || echo 000)
+#
+# On REESSAIE pendant trente secondes au lieu de trancher au premier
+# coup. Un controle a quatre secondes a deja fait echouer un
+# deploiement parfaitement sain : le demarrage interroge OKX, et un
+# echange lent suffisait alors a faire declarer en panne un moteur qui
+# se portait bien. Un controle qui depend du temps de reponse dun tiers
+# ne mesure pas ce quil croit mesurer.
+code=000
+for _ in $(seq 1 15); do
+  code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 4 "http://127.0.0.1:8899/" || echo 000)
+  [ "$code" != "000" ] && break
+  sleep 2
+done
 if [ "$code" = "403" ]; then
   echo "  port 8899 repond, et il refuse une requete sans cle — cest le bon comportement"
 elif [ "$code" = "200" ]; then

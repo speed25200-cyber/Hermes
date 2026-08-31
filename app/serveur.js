@@ -275,4 +275,19 @@ function demarrer() {
   return serveur;
 }
 
+// Le serveur ecoute des le chargement du module, sans attendre que le
+// moteur ait fini de demarrer.
+//
+// Il attendait « new BrowserWindow() », qui narrive quapres la
+// construction de lunivers — laquelle interroge OKX une fois par
+// candidat. Une console qui ne monte quapres une minute dappels reseau
+// est fragile : si lexchange repond mal, elle ne monte jamais, et on
+// perd justement le moyen de voir POURQUOI. Linstalleur la constate en
+// echouant sur son propre controle.
+//
+// Avant que le moteur ait choisi sa page, « / » repond 503 avec une
+// phrase qui le dit. Les canaux, eux, apparaissent au fur et a mesure
+// que main.js les enregistre : /api en donne la liste a tout moment.
+setImmediate(demarrer);
+
 module.exports = { app, BrowserWindow, ipcMain, globalShortcut, demarrer, diffuser };
