@@ -1,133 +1,136 @@
 #!/usr/bin/env bash
-# Hermes VPS installer — idempotent; run as root on Ubuntu 24.04/26.04.
-# Executed remotely by .github/workflows/deploy-vps.yml (the repo content
-# is rsync'ed to /root/hermes before this runs).
-set -euxo pipefail
+# Installateur Hermes pour le VPS — idempotent, a lancer en root.
+# Appele a distance par .github/workflows/deploy-vps.yml, apres que le
+# depot a ete rsync vers /root/hermes.
+#
+# Ce fichier remplace linstallateur Python. Trois changements de fond :
+#
+#   1. Le moteur est en Node, pas en Python. Electron ne peut pas tourner
+#      sur une machine sans ecran ; app/serveur.js presente la meme
+#      surface adossee a un serveur HTTP.
+#   2. Il ny a plus de service de tableau de bord separe. Le serveur vit
+#      DANS le moteur — un seul processus, donc un seul etat, et plus de
+#      risque que la page montre les chiffres dun moteur different de
+#      celui qui trade.
+#   3. Il ny a plus de service de recherche. Astra apporte des
+#      strategies deja validees ; le laboratoire tourne a la main.
+set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-HERMES_DIR=/root/hermes
-VENV=/root/venv
+DIR=/root/hermes
+ENV_FILE="$DIR/.env"
 
-# --- base system -----------------------------------------------------------
-apt-get update
-apt-get -y install python3-pip python3-venv ufw
-# 2 GB swap safety net on small instances
-if [ ! -f /swapfile ]; then
-    fallocate -l 2G /swapfile
-    chmod 600 /swapfile
-    mkswap /swapfile
-    swapon /swapfile
-    echo '/swapfile none swap sw 0 0' >> /etc/fstab
+echo "=== 1. demontage de lancienne installation Python ==="
+# On DESACTIVE avant de reecrire : un service laisse actif redemarrerait
+# un interpreteur qui na plus de code a executer, et il remplirait le
+# journal de traces sans rapport avec le probleme quon chercherait.
+for u in hermes-research.timer hermes-research.service hermes-dashboard.service; do
+  systemctl disable --now "$u" >/dev/null 2>&1 || true
+  rm -f "/etc/systemd/system/$u"
+  echo "  $u retire"
+done
+systemctl stop hermes >/dev/null 2>&1 || true
+systemctl daemon-reload
+
+echo "=== 2. Node ==="
+besoin_node=1
+if command -v node >/dev/null 2>&1; then
+  v=$(node --version | sed "s/^v//" | cut -d. -f1)
+  [ "$v" -ge 18 ] 2>/dev/null && besoin_node=0 && echo "  node $(node --version) deja present"
 fi
-# firewall: SSH + dashboard (dashboard is token-protected, see below)
-ufw allow OpenSSH
-ufw allow 8899/tcp
-ufw --force enable
+if [ "$besoin_node" = "1" ]; then
+  apt-get update -qq
+  apt-get -y -qq install curl ca-certificates
+  # NodeSource plutot que le paquet Ubuntu : celui de la distribution est
+  # souvent deux versions majeures en retard, et axios 1.12 comme ws 8.18
+  # attendent mieux. Si NodeSource echoue, le paquet de la distribution
+  # reste un repli acceptable — le code nutilise rien de recent.
+  curl -fsSL https://deb.nodesource.com/setup_22.x -o /tmp/node.sh \
+    && bash /tmp/node.sh >/dev/null 2>&1 \
+    && apt-get -y -qq install nodejs \
+    || { echo "  NodeSource indisponible, repli sur le paquet de la distribution"; apt-get -y -qq install nodejs npm; }
+  echo "  node $(node --version)"
+fi
 
-# --- python environment ----------------------------------------------------
-[ -d "$VENV" ] || python3 -m venv "$VENV"
-"$VENV/bin/pip" install --quiet --upgrade pip
-"$VENV/bin/pip" install --quiet -r "$HERMES_DIR/requirements.txt"
+echo "=== 3. dependances ==="
+cd "$DIR"
+# --omit=dev ecarte Electron : trois cents megaoctets de binaire pour une
+# fenetre quon nouvrira jamais sur un serveur sans ecran.
+npm install --no-audit --no-fund --omit=dev 2>&1 | tail -3
 
-# --- systemd units ---------------------------------------------------------
-cat > /etc/systemd/system/hermes.service <<EOF
-[Unit]
-Description=Hermes trading engine (paper mode)
-After=network-online.target
-Wants=network-online.target
+echo "=== 4. reseau ==="
+apt-get -y -qq install ufw >/dev/null 2>&1 || true
+ufw allow OpenSSH >/dev/null 2>&1 || true
+ufw allow 8899/tcp >/dev/null 2>&1 || true
+ufw --force enable >/dev/null 2>&1 || true
+echo "  8899 ouvert"
 
-[Service]
-WorkingDirectory=$HERMES_DIR
-EnvironmentFile=-$HERMES_DIR/.env
-ExecStart=$VENV/bin/python -m hermes run --mode paper
-Restart=always
-RestartSec=30
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# one-shot: backfill data + run research, then (re)start the engine.
-# OnFailure guarantees the engine comes back even when research crashes.
-cat > /etc/systemd/system/hermes-research.service <<EOF
-[Unit]
-Description=Hermes data backfill + alpha research (one-shot)
-After=network-online.target
-Wants=network-online.target
-OnFailure=hermes.service
-
-[Service]
-Type=oneshot
-WorkingDirectory=$HERMES_DIR
-EnvironmentFile=-$HERMES_DIR/.env
-ExecStart=$VENV/bin/python -m hermes fetch
-ExecStart=$VENV/bin/python -m hermes research
-ExecStartPost=/bin/systemctl restart hermes
-TimeoutStartSec=4h
-EOF
-
-# OS-level backstop: even if the engine process (which normally schedules
-# re-research in-process) is down or wedged, the hunt still runs weekly.
-# Persistent=true replays a missed window after downtime.
-cat > /etc/systemd/system/hermes-research.timer <<EOF
-[Unit]
-Description=Hermes weekly research backstop
-
-[Timer]
-OnCalendar=Sun 03:00 UTC
-Persistent=true
-
-[Install]
-WantedBy=timers.target
-EOF
-
-# dashboard: token-protected console. Token lives in /root/hermes/.env
-# (never in git). Generate one if missing; rotate by editing .env + restart.
+echo "=== 5. environnement ==="
+# La cle du tableau de bord vit ici et nulle part ailleurs. rsync exclut
+# /.env, donc elle survit aux deploiements — sans cette exclusion chaque
+# mise en ligne en aurait forge une nouvelle et aurait mis le
+# proprietaire dehors de sa propre console.
 set +x
-ENV_FILE="$HERMES_DIR/.env"
-touch "$ENV_FILE"
-chmod 600 "$ENV_FILE"
-if ! grep -q '^HERMES_DASH_TOKEN=' "$ENV_FILE" 2>/dev/null; then
-    DASH_TOKEN="$(openssl rand -hex 16)"
-    echo "HERMES_DASH_TOKEN=$DASH_TOKEN" >> "$ENV_FILE"
-    echo "install: generated HERMES_DASH_TOKEN (stored in $ENV_FILE, not logged)"
+touch "$ENV_FILE"; chmod 600 "$ENV_FILE"
+if ! grep -q "^HERMES_DASH_TOKEN=" "$ENV_FILE" 2>/dev/null; then
+  echo "HERMES_DASH_TOKEN=$(openssl rand -hex 16)" >> "$ENV_FILE"
+  echo "  cle de tableau de bord creee (dans $ENV_FILE, jamais dans le journal)"
 else
-    DASH_TOKEN="$(grep '^HERMES_DASH_TOKEN=' "$ENV_FILE" | tail -1 | cut -d= -f2-)"
+  echo "  cle de tableau de bord conservee"
 fi
-set -x
-cat > /etc/systemd/system/hermes-dashboard.service <<EOF
+if grep -q "^OKX_API_KEY=.\+" "$ENV_FILE" 2>/dev/null; then
+  echo "  cles OKX presentes"
+else
+  echo "  AUCUNE cle OKX dans $ENV_FILE : le moteur demarrera en lecture"
+  echo "  seule et nouvrira aucune position. Cest voulu tant que les cles"
+  echo "  compromises nont pas ete remplacees."
+fi
+set -x 2>/dev/null || true
+
+echo "=== 6. service ==="
+mkdir -p "$DIR/logs" "$DIR/data" "$DIR/runtime"
+cat > /etc/systemd/system/hermes.service <<UNIT
 [Unit]
-Description=Hermes dashboard (token-protected web console)
+Description=Hermes — moteur de trading et console web
 After=network-online.target
+Wants=network-online.target
 
 [Service]
-WorkingDirectory=$HERMES_DIR
-EnvironmentFile=-$HERMES_DIR/.env
-ExecStart=$VENV/bin/python -m hermes dashboard --host 0.0.0.0 --port 8899 --no-browser
+Type=simple
+WorkingDirectory=$DIR
+EnvironmentFile=-$DIR/.env
+Environment=NODE_ENV=production
+Environment=HERMES_PORT=8899
+Environment=HERMES_HOST=0.0.0.0
+ExecStart=/usr/bin/env node app/main.js
 Restart=always
 RestartSec=10
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
-EOF
+UNIT
 
 systemctl daemon-reload
 systemctl enable hermes >/dev/null 2>&1 || true
-systemctl enable --now hermes-research.timer >/dev/null 2>&1 || true
-systemctl enable --now hermes-dashboard >/dev/null 2>&1 || true
-systemctl restart hermes-dashboard || true
-# Two deploy shapes, and the engine's fate differs:
-#   full  -> research starts next, so STOP the engine (avoids duplicate
-#            backfills and sqlite write races); the research unit's
-#            ExecStartPost restarts it with the new code when done.
-#   code  -> no research follows, so RESTART the engine here. The
-#            unconditional stop used to rely on a research pass that
-#            mode=code never launches — the engine stayed down until
-#            someone noticed (it did, for 75 minutes).
-if [ "${HERMES_KEEP_ENGINE:-0}" = "1" ]; then
-    systemctl restart hermes || true
-    echo "install: engine restarted with new code"
+systemctl restart hermes
+
+echo "=== 7. verification ==="
+sleep 4
+systemctl is-active hermes && echo "  service actif" || { echo "  !! service inactif"; journalctl -u hermes -n 30 --no-pager; exit 1; }
+# On interroge le serveur pour de vrai. « Le service est actif » ne dit
+# pas que le port repond : un processus peut vivre et navoir jamais
+# reussi a ecouter.
+code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 8 "http://127.0.0.1:8899/" || echo 000)
+if [ "$code" = "403" ]; then
+  echo "  port 8899 repond, et il refuse une requete sans cle — cest le bon comportement"
+elif [ "$code" = "200" ]; then
+  echo "  !! port 8899 repond 200 SANS CLE : la protection ne sapplique pas"
+  exit 1
 else
-    systemctl stop hermes || true
+  echo "  !! port 8899 a repondu $code"
+  journalctl -u hermes -n 30 --no-pager
+  exit 1
 fi
 echo "install: OK"

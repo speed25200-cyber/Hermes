@@ -8,9 +8,17 @@
 # TTY, and rotates to "<original>.Hermes1" — subsequent runs try both forms
 # automatically, so the original password remains the only thing to know.
 #
-# Steps: rsync the repo to /root/hermes, run deploy/install.sh, then start
-# the one-shot data-backfill + research service which launches the
-# paper-trading engine when it finishes. Use "VPS status" to check progress.
+# Etapes : rsync du depot vers /root/hermes, puis deploy/install.sh.
+#
+# Il ny a plus quune seule etape de mise en ligne, la ou il y en avait
+# trois. Lancien moteur Python lancait derriere lui une passe de
+# recherche qui laissait le trading ARRETE pendant tout son travail —
+# mesure le 27 aout, une heure trente-sept. Astra apporte des strategies
+# deja validees et na donc pas de passe a lancer : linstalleur relance
+# le service et cest fini. Le choix full/code, qui existait uniquement
+# pour contourner ce piege, na plus dobjet.
+#
+# Utiliser « VPS status » pour verifier ensuite.
 
 name: Deploy Hermes to VPS
 
@@ -20,12 +28,6 @@ on:
       root_password:
         description: "Root password (optional if VPS_PASSWORD secret is set)"
         required: false
-      mode:
-        description: "full = code + installeur + relance la recherche ; code = code + installeur seulement (une recherche en cours continue, le moteur reprendra le nouveau code a sa fin)"
-        required: false
-        default: "full"
-        type: choice
-        options: ["full", "code"]
 
 concurrency:
   group: vps-deploy
@@ -113,30 +115,33 @@ jobs:
           # It exists only on the box, so --delete removed it on every deploy
           # and the installer then minted a fresh token — silently locking the
           # owner out of their own dashboard each time.
+          # node_modules se reinstalle sur la machine par linstalleur :
+          # lenvoyer, ce serait pousser des binaires compiles pour une
+          # autre architecture que celle qui les executera.
+          # logs et runtime sont ecrits par le moteur en marche ; --delete
+          # les effacerait a chaque mise en ligne.
           sshpass -e rsync -az --delete \
             --exclude '/.git' --exclude '/state' --exclude '/data' \
-            --exclude '/.env' \
+            --exclude '/.env' --exclude '/node_modules' \
+            --exclude '/logs' --exclude '/runtime' \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             ./ "root@$VPS:/root/hermes/"
 
       - name: Run installer
         run: |
-          # mode=code : pas de recherche derrière, l'installeur doit
-          # relancer le moteur lui-même (HERMES_KEEP_ENGINE=1)
-          if [ "${{ inputs.mode }}" = "code" ]; then KEEP=1; else KEEP=0; fi
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
-            "HERMES_KEEP_ENGINE=$KEEP bash /root/hermes/deploy/install.sh"
-
-      - name: Start data backfill + research (runs on the VPS, detached)
-        if: ${{ inputs.mode != 'code' }}
-        run: |
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
-            "systemctl start --no-block hermes-research && echo research started"
+            "bash /root/hermes/deploy/install.sh"
 
       - name: Snapshot status
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
-            echo "=== research unit ==="; systemctl is-active hermes-research || true
-            echo "=== engine unit ===";   systemctl is-active hermes || true
-            echo "=== last log lines ==="; journalctl -u hermes-research -n 20 --no-pager || true
+            echo "=== service ==="; systemctl is-active hermes || true
+            echo "=== port 8899 ==="
+            ss -tln | grep -q ":8899 " && echo LISTENING || echo "NOT listening"
+            echo "=== dashboard ==="
+            if [ -f /root/hermes/.env ]; then
+              TOK=$(grep "^HERMES_DASH_TOKEN=" /root/hermes/.env | tail -1 | cut -d= -f2-)
+              [ -n "$TOK" ] && echo "url: http://178.104.191.79:8899/?key=$TOK"
+            fi
+            echo "=== journal ==="; journalctl -u hermes -n 30 --no-pager || true
           '
