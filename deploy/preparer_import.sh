@@ -41,23 +41,51 @@ cd "$RACINE" || exit 1
 #   .pak .map     des artefacts de build, illisibles et lourds
 #   .jsonl .log   des journaux deguises en donnees
 #
-# Les trois suivantes ont ete ajoutees APRES un premier refus a 150 Mo,
-# et cest le refus lui-meme qui les a nommees. Ce ne sont pas des
-# dependances mais des donnees de recherche, deguisees en code parce
-# quelles sont en JSON et rangees dans des dossiers de code :
-#   data365       365 jours de bougies par instrument, ~5 Mo piece
-#   rapports      les sorties de scans, jusqua 11,8 Mo lunite
-#   *_resultats   les memes, posees hors du dossier rapports
-tar czf "$PAQUET" \
-  --exclude="*/node_modules" --exclude="node_modules" \
-  --exclude="./data" --exclude="./logs" \
-  --exclude=".git" \
-  --exclude="*.pak" --exclude="*.map" \
-  --exclude="*.jsonl" --exclude="*.log" \
-  --exclude="*.asar" --exclude="*.node" \
-  --exclude="data365" --exclude="rapports" \
-  --exclude="*_resultats.json" \
-  . 2>/dev/null
+# Jai dabord chasse les dossiers un par un — data365, puis rapports —
+# et le second refus a montre data90, data180, databinance : meme
+# nature, autres noms. Nommer les coupables un par un ne pouvait pas
+# converger. La regle qui les couvre tous est une regle de TAILLE :
+# dans ce projet, un fichier volumineux est une donnee, jamais du code.
+#
+# Le seuil est donc pose a $SEUIL_KO, et ce qui tombe dessous est
+# imprime : une regle de taille peut ecarter un vrai fichier source, et
+# une exclusion quon ne voit pas est une exclusion quon ne corrige pas.
+# La seule exception est nommee a la main, arborescence_et_code.txt,
+# parce que cest le vidage du projet par son auteur et quil vaut ses
+# cinq megaoctets.
+SEUIL_KO=400
+LISTE=/tmp/astra_liste.txt
+EXCLUS=/tmp/astra_exclus.txt
+# Les listes sont refaites a chaque fois : laissees en place, elles
+# sallongeraient dune execution a lautre et le paquet grossirait sans
+# quaucune ligne du rapport ne le dise.
+rm -f "$LISTE" "$EXCLUS"
+
+# La taille vient de find lui-meme (-printf %s). Un stat par fichier,
+# sur pres de cinq mille, coute une minute pour rien. Le separateur est
+# une tabulation parce que les noms contiennent des espaces — il y a un
+# « Archives app/index.html.backup ( Version okey sauf bouton).html »
+# dans cette arborescence, et un decoupage sur lespace le perdrait.
+find . -type f \
+  -not -path "*/node_modules/*" \
+  -not -path "./data/*" -not -path "./logs/*" -not -path "./.git/*" \
+  ! -name "*.pak" ! -name "*.map" ! -name "*.jsonl" \
+  ! -name "*.log" ! -name "*.asar" ! -name "*.node" \
+  -printf "%s\t%p\n" \
+| awk -F'\t' -v s=$((SEUIL_KO * 1024)) -v l="$LISTE" -v e="$EXCLUS" '
+    $1 + 0 < s { print $2 > l; next }
+                { printf "%10d  %s\n", $1, $2 > e }'
+
+# La seule exception, nommee a la main : le vidage du projet par son
+# auteur vaut ses cinq megaoctets.
+echo "./arborescence_et_code.txt" >> "$LISTE"
+
+echo "  ecartes par la regle de taille (plus de ${SEUIL_KO} Ko) : $(wc -l < "$EXCLUS" 2>/dev/null || echo 0) fichiers"
+echo "  les 20 plus gros ecartes — verifier quaucun nest du code :"
+sort -rn "$EXCLUS" 2>/dev/null | head -20 | sed -e "s/^/    /"
+echo
+
+tar czf "$PAQUET" -T "$LISTE" 2>/dev/null
 
 MO=$(( $(wc -c < "$PAQUET") / 1000000 ))
 NB=$(tar tzf "$PAQUET" 2>/dev/null | grep -vc "/$")
