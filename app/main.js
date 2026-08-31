@@ -1,7 +1,14 @@
 ﻿"use strict";
 
 /* ===== Imports ===== */
-const { app, BrowserWindow, ipcMain, globalShortcut } = require("electron");
+// Le VPS est un Linux sans ecran : Electron ne peut pas y tourner. La
+// doublure ci-dessous presente exactement la meme surface — app,
+// BrowserWindow, ipcMain, globalShortcut — mais elle est adossee a un
+// serveur HTTP. Les onze canaux ipcMain deviennent des routes, les deux
+// webContents.send deviennent un flux devenements. Cest la SEULE ligne
+// de ce fichier qui change : le moteur, et donc les strategies
+// validees, restent intacts.
+const { app, BrowserWindow, ipcMain, globalShortcut } = require("./serveur");
 const path   = require("path");
 const fs     = require("fs");
 const http   = require("http");
@@ -881,6 +888,15 @@ function computeUIModeFromURL(u) {
   const forced = String(process.env.HERMES_UI_MODE || "").toLowerCase();
   if (forced === "full")   return "full";
   if (forced === "viewer") return "viewer";
+  // Servi en HTTP, ladresse decoute ne dit RIEN de qui se connecte.
+  // Sur une machine de bureau, « localhost » voulait dire « cest moi »,
+  // et cetait un raisonnement juste. Sur un serveur, le navigateur est
+  // ailleurs : 127.0.0.1 est simplement lendroit ou le processus ecoute,
+  // et le lire comme une preuve de confiance accorderait le pilotage
+  // complet a quiconque atteint le port. Le defaut est donc « viewer »,
+  // et passer en pilotage demande un geste explicite dans
+  // lenvironnement du service — HERMES_UI_MODE=full.
+  if (String(u || "").startsWith("http")) return "viewer";
   if (!u || u.startsWith("file://")) return "full";
   const host = hostnameFromURL(u);
   if (host === "localhost" || host === "127.0.0.1") return "full";
@@ -1392,14 +1408,41 @@ ipcMain.handle("fetch-portfolio", async () => {
       totalMargin += margin;
       unreal      += upl;
 
+      // Ce que lexchange rend ne suffit pas a afficher une position :
+      // il ignore les protections que le moteur a posees. La taille, le
+      // take-profit, le stop et le trail vivent dans AI.openPositions,
+      // et sans eux la page ne peut pas montrer ce quelle doit montrer.
+      const suivi = AI.openPositions[p.instId] || {};
+
+      // stopMode dit COMMENT le stop est arrive la ou il est :
+      //   INIT  le stop initial, pose a lentree
+      //   BE    remonte au point mort, la position ne peut plus perdre
+      //   TRAIL il suit le prix et ne redescend jamais
+      // Cest la difference entre « un stop existe » et « un stop suit ».
+      const modeStop = suivi.stopMode || (suivi.slPx ? "INIT" : null);
+      const stopActuel = suivi.stopPx || suivi.slPx || null;
+
       return {
         symbol: p.instId,
         side:   (p.posSide || "").toUpperCase() === "LONG" ? "LONG" : "SHORT",
         leverage:  lev,
         entryPrice: p.avgPx || 0,
+        markPrice:  last,
+        size:      suivi.qty || szAbs,
+        notional,
         margin,
-        entryTime:  Date.now(),
-        unrealizedPnl: upl
+        // Lheure REELLE douverture. Elle valait Date.now() ici, donc la
+        // page affichait toujours « a linstant » et la duree de tenue
+        // etait invisible.
+        entryTime:  suivi.ts || null,
+        unrealizedPnl: upl,
+        pnlPctOfMargin: margin > 0 ? (upl / margin) * 100 : 0,
+        takeProfit: suivi.tpPx || null,
+        stopLoss:   suivi.slPx || null,
+        stopActuel,
+        stopMode:   modeStop,
+        trailArme:  !!suivi.trailAlgoId,
+        protection: suivi.protection || null
       };
     });
 
