@@ -13,11 +13,17 @@ on:
         description: "UUID SwissTransfer a rapatrier sur le VPS (vide = rapport de statut)"
         required: false
         default: ""
+      importer:
+        description: "Importer la source Astra du VPS vers le depot (mettre oui)"
+        required: false
+        default: ""
 
 jobs:
   status:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
+    permissions:
+      contents: write
     env:
       VPS: ${{ vars.VPS_HOST || '178.104.191.79' }}
     steps:
@@ -49,8 +55,34 @@ jobs:
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
             bash -s -- "$LIEN" < deploy/rapatrier_archive.sh
 
+      # Le code voyage du VPS vers le depot par le runner, qui a acces aux
+      # deux bouts : la source de telechargement est refusee par la
+      # politique reseau de la session dagent, et le VPS ne peut pas
+      # pousser dans le depot. Le runner, lui, peut les deux.
+      - name: Importer la source Astra dans le depot
+        if: ${{ inputs.importer }}
+        run: |
+          set -eu
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+            bash -s < deploy/preparer_import.sh
+          sshpass -e scp -o StrictHostKeyChecking=accept-new \
+            "root@$VPS:/root/incoming/astra-source.tar.gz" ./astra-source.tar.gz
+          echo "recu : $(wc -c < astra-source.tar.gz) octets"
+          rm -rf astra
+          mkdir -p astra
+          tar xzf astra-source.tar.gz -C astra
+          rm -f astra-source.tar.gz
+          echo "deballe : $(find astra -type f | wc -l) fichiers"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A astra
+          git commit -q -m "Importer la source Hermes_Astra, sans ses dependances" \
+            -m "Le code arrive du VPS, ou larchive a ete rapatriee. Exclus: node_modules (276 Mo, se reinstalle depuis package.json), data et logs (des donnees et des traces, pas du code), .pak et .map (des artefacts de build). Le paquet est refuse au-dela de 60 Mo, et le refus imprime les plus gros fichiers gardes: un paquet trop gros nest pas un accident a reessayer, cest une exclusion qui manque." \
+            || echo "rien a committer"
+          git push origin HEAD:"$GITHUB_REF_NAME"
+
       - name: Status report
-        if: ${{ !inputs.lien }}
+        if: ${{ !inputs.lien && !inputs.importer }}
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
             echo "===== services ====="
