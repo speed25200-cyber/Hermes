@@ -3,364 +3,638 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="color-scheme" content="light dark">
+<meta name="color-scheme" content="dark light">
 <title>Hermes</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 17 L8 7 L12 13.5 L16 4.5 L21 17' fill='none' stroke='%233987e5' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+
+<link rel="preload" href="/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/JetBrainsMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
+
 <style>
 /* ============================================================
-   Jetons.
+   TYPOGRAPHIE
 
-   Le clair est defini sur :root nu, le sombre redefini deux fois —
-   sous prefers-color-scheme pour le reglage systeme, et sous
-   [data-theme] pour le choix explicite — sinon la bascule ne gagne
-   que dans un sens. Aucune couleur na sa seule definition dans un
-   bloc conditionnel.
+   Inter Variable porte deux axes : wght de 100 a 900, et opsz de 14
+   a 32. Le second est le plus utile et le plus ignore : il change le
+   DESSIN de la lettre selon sa taille. Une graisse fine a 64 px avec
+   une taille optique haute donne des courbes serrees et nettes ; la
+   meme fonte a 12 px avec une taille optique basse ouvre les contres
+   et reste lisible. On laisse donc font-optical-sizing faire son
+   travail, et on le force en display sur les tres grands nombres.
+
+   JetBrains Mono est STATIQUE, une seule graisse. Toute demande de
+   gras produirait un faux gras, epaissi par le moteur et bave a
+   lecran. Il nest donc jamais demande au-dela de 400, et lemphase
+   vient de la taille et de la couleur. Cest verifie sur le fichier,
+   pas suppose.
+   ============================================================ */
+@font-face {
+  font-family: "Inter";
+  src: url("/InterVariable.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/JetBrainsMono-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-display: swap;
+}
+
+/* ============================================================
+   JETONS
+
+   Le sombre est le mode principal — une console quon laisse ouverte
+   la nuit — mais le clair est SELECTIONNE, pas deduit : ses valeurs
+   sont posees une par une, pas obtenues en inversant.
+
+   Les couleurs de DONNEES ne changent pas dun theme a lautre sans
+   raison : long/short et les statuts ont ete valides au ΔE, et on ne
+   defait pas une validation pour une question de gout.
    ============================================================ */
 :root {
-  color-scheme: light;
-
-  --fond:            #f4f4f2;
-  --surface:         #fcfcfb;
-  --surface-2:       #f0efec;
-  --bord:            #dedcd6;
-  --bord-fort:       #c4c1b8;
-
-  --texte:           #0b0b0b;
-  --texte-2:         #52514e;
-  --texte-3:         #86847d;
-
-  /* Categorielles, ordre fixe. Le couple long/short est valide :
-     CVD dE 24,7 en clair, 26,8 en sombre. */
-  --long:            #2a78d6;
-  --short:           #eb6834;
-  --serie:           #2a78d6;
-
-  /* Statuts, jamais reutilises pour une serie. */
-  --bon:             #0ca30c;
-  --attention:       #fab219;
-  --serieux:         #ec835a;
-  --critique:        #d03b3b;
-
-  --gain:            #0ca30c;
-  --perte:           #d03b3b;
-
-  --ombre: 0 1px 2px rgba(0,0,0,.04), 0 4px 16px rgba(0,0,0,.05);
-  --rayon: 14px;
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
-  --police: system-ui, -apple-system, "Segoe UI", Inter, Roboto, sans-serif;
-}
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    color-scheme: dark;
-    --fond:      #121211;
-    --surface:   #1a1a19;
-    --surface-2: #232322;
-    --bord:      #2e2e2c;
-    --bord-fort: #414140;
-    --texte:     #ffffff;
-    --texte-2:   #c3c2b7;
-    --texte-3:   #8b8a82;
-    --long:      #3987e5;
-    --short:     #d95926;
-    --serie:     #3987e5;
-    --ombre: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.35);
-  }
-}
-:root[data-theme="dark"] {
   color-scheme: dark;
-  --fond:      #121211;
-  --surface:   #1a1a19;
-  --surface-2: #232322;
-  --bord:      #2e2e2c;
-  --bord-fort: #414140;
-  --texte:     #ffffff;
-  --texte-2:   #c3c2b7;
-  --texte-3:   #8b8a82;
-  --long:      #3987e5;
-  --short:     #d95926;
-  --serie:     #3987e5;
-  --ombre: 0 1px 2px rgba(0,0,0,.3), 0 4px 16px rgba(0,0,0,.35);
+
+  --fond:        #08090b;
+  --fond-2:      #0c0e12;
+  --surface:     #101318;
+  --surface-2:   #161a21;
+  --surface-3:   #1d222b;
+  --bord:        #1e232c;
+  --bord-vif:    #2a313d;
+
+  --texte:       #f2f4f8;
+  --texte-2:     #9aa3b2;
+  --texte-3:     #626b7a;
+
+  --long:        #3987e5;
+  --short:       #d95926;
+  --serie:       #3987e5;
+  --bon:         #0ca30c;
+  --attention:   #fab219;
+  --critique:    #d03b3b;
+  --gain:        #22c55e;
+  --perte:       #ef4444;
+
+  --lueur:       0 0 0 1px rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.4), 0 8px 32px -8px rgba(0,0,0,.6);
+  --lueur-haute: 0 0 0 1px rgba(255,255,255,.07), 0 2px 4px rgba(0,0,0,.4), 0 16px 48px -12px rgba(0,0,0,.7);
+
+  --r:  14px;
+  --r2: 10px;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --ressort: cubic-bezier(.16,1,.3,1);
+  --doux:    cubic-bezier(.4,0,.2,1);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --fond:      #f6f7f9;
+  --fond-2:    #eef0f4;
+  --surface:   #ffffff;
+  --surface-2: #f4f5f8;
+  --surface-3: #e9ebf0;
+  --bord:      #e2e5eb;
+  --bord-vif:  #cdd2db;
+  --texte:     #0a0c10;
+  --texte-2:   #545c6b;
+  --texte-3:   #8b93a1;
+  --long:      #2a78d6;
+  --short:     #eb6834;
+  --serie:     #2a78d6;
+  --gain:      #16a34a;
+  --perte:     #dc2626;
+  --lueur:       0 0 0 1px rgba(10,12,16,.05), 0 1px 2px rgba(10,12,16,.04), 0 8px 24px -10px rgba(10,12,16,.12);
+  --lueur-haute: 0 0 0 1px rgba(10,12,16,.07), 0 2px 6px rgba(10,12,16,.06), 0 18px 40px -14px rgba(10,12,16,.18);
+}
+
+/* La preference systeme, quand aucun choix explicite na ete fait.
+   Sans ce bloc, le sombre etant le defaut nu, un navigateur regle en
+   clair restait en sombre : la page repondait au bouton mais ignorait
+   le reglage de la machine. Le :not([data-theme="dark"]) est ce qui
+   permet au choix explicite de gagner DANS LES DEUX SENS. */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+    --fond:      #f6f7f9;
+    --fond-2:    #eef0f4;
+    --surface:   #ffffff;
+    --surface-2: #f4f5f8;
+    --surface-3: #e9ebf0;
+    --bord:      #e2e5eb;
+    --bord-vif:  #cdd2db;
+    --texte:     #0a0c10;
+    --texte-2:   #545c6b;
+    --texte-3:   #8b93a1;
+    --long:      #2a78d6;
+    --short:     #eb6834;
+    --serie:     #2a78d6;
+    --gain:      #16a34a;
+    --perte:     #dc2626;
+    --lueur:       0 0 0 1px rgba(10,12,16,.05), 0 1px 2px rgba(10,12,16,.04), 0 8px 24px -10px rgba(10,12,16,.12);
+    --lueur-haute: 0 0 0 1px rgba(10,12,16,.07), 0 2px 6px rgba(10,12,16,.06), 0 18px 40px -14px rgba(10,12,16,.18);
+  }
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
 body {
+  margin: 0;
   background: var(--fond);
   color: var(--texte);
-  font: 14px/1.5 var(--police);
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.5;
+  font-optical-sizing: auto;
   -webkit-font-smoothing: antialiased;
-  padding-bottom: env(safe-area-inset-bottom);
+  text-rendering: optimizeLegibility;
+  overflow-x: hidden;
 }
-h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
 [hidden] { display: none !important; }
+h1,h2,h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
 
-.enveloppe { max-width: 1400px; margin: 0 auto; padding: 16px; }
+/* ============================================================
+   L AURORE
 
-/* ===== en-tete ===== */
+   Deux voiles de couleur tres pales qui derivent lentement derriere
+   la page. Ils ne portent AUCUNE information — cest de la profondeur,
+   pas un signal — et cest justement pourquoi ils peuvent bouger : une
+   decoration qui bouge ne trompe personne, un chiffre qui bouge, si.
+
+   L animation nagit que sur transform et opacity, les deux proprietes
+   que le compositeur traite sans repeindre. Une console laissee
+   ouverte la nuit ne doit pas chauffer la machine.
+   ============================================================ */
+.aurore {
+  position: fixed; inset: -30vmax; z-index: 0; pointer-events: none;
+  filter: blur(90px); opacity: .5;
+}
+.aurore i {
+  position: absolute; display: block; border-radius: 50%;
+  width: 46vmax; height: 46vmax;
+  will-change: transform;
+}
+.aurore i:nth-child(1) {
+  background: radial-gradient(circle, rgba(57,135,229,.30), transparent 68%);
+  top: 4%; left: 8%; animation: derive1 34s var(--doux) infinite alternate;
+}
+.aurore i:nth-child(2) {
+  background: radial-gradient(circle, rgba(139,92,246,.24), transparent 68%);
+  top: 28%; right: 6%; animation: derive2 44s var(--doux) infinite alternate;
+}
+.aurore i:nth-child(3) {
+  background: radial-gradient(circle, rgba(34,197,94,.14), transparent 70%);
+  bottom: 6%; left: 34%; animation: derive3 52s var(--doux) infinite alternate;
+}
+@keyframes derive1 { to { transform: translate3d(18vmax, 10vmax, 0) scale(1.25); } }
+@keyframes derive2 { to { transform: translate3d(-16vmax, 14vmax, 0) scale(1.15); } }
+@keyframes derive3 { to { transform: translate3d(12vmax, -12vmax, 0) scale(1.3); } }
+:root[data-theme="light"] .aurore { opacity: .38; }
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .aurore { opacity: .38; }
+}
+
+.page { position: relative; z-index: 1; max-width: 1360px; margin: 0 auto; padding: 0 20px 64px; }
+@media (max-width: 640px) { .page { padding: 0 13px 44px; } }
+
+/* ============================================================ EN-TETE */
 .entete {
-  position: sticky; top: 0; z-index: 20;
-  background: color-mix(in srgb, var(--fond) 88%, transparent);
-  backdrop-filter: blur(12px);
+  position: sticky; top: 0; z-index: 40;
+  backdrop-filter: blur(20px) saturate(1.6);
+  background: color-mix(in oklab, var(--fond) 72%, transparent);
   border-bottom: 1px solid var(--bord);
 }
 .entete-int {
-  max-width: 1400px; margin: 0 auto; padding: 10px 16px;
-  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  max-width: 1360px; margin: 0 auto; padding: 12px 20px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
 }
-.marque { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 16px; letter-spacing: -0.02em; }
-.marque svg { display: block; }
+@media (max-width: 640px) { .entete-int { padding: 10px 13px; gap: 8px; } }
 
-.pastille {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 12px; font-weight: 550; color: var(--texte-2);
-  padding: 4px 10px; border-radius: 999px;
-  background: var(--surface-2); border: 1px solid var(--bord);
-  white-space: nowrap;
+.marque {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 17px; font-weight: 620; letter-spacing: -0.035em;
 }
-.point { width: 7px; height: 7px; border-radius: 50%; background: var(--texte-3); flex: none; }
-.point.bon { background: var(--bon); }
-.point.attention { background: var(--attention); }
-.point.critique { background: var(--critique); }
-.point.vif { animation: battre 2s ease-in-out infinite; }
-@keyframes battre { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
+.marque svg { display: block; overflow: visible; }
+.marque .trace {
+  stroke-dasharray: 46; stroke-dashoffset: 46;
+  animation: tracer 1.5s var(--ressort) .15s forwards;
+}
+@keyframes tracer { to { stroke-dashoffset: 0; } }
+.marque .astre { opacity: 0; animation: paraitre .5s var(--ressort) 1.2s forwards; }
+@keyframes paraitre { from { opacity: 0; transform: scale(.3); } to { opacity: 1; transform: scale(1); } }
 
-.pousse { margin-left: auto; }
+.jeton {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 12px; font-weight: 500; color: var(--texte-2);
+  padding: 5px 11px 5px 9px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--bord);
+  white-space: nowrap; transition: border-color .3s, color .3s;
+}
+.pt { position: relative; width: 7px; height: 7px; border-radius: 50%; background: var(--texte-3); flex: none; }
+.pt.bon { background: var(--bon); }
+.pt.attention { background: var(--attention); }
+.pt.critique { background: var(--critique); }
+/* Le halo qui se propage : il dit « ca vit » sans clignoter. Un
+   clignotement attire lœil a intervalle fixe et finit par lepuiser. */
+.pt.vif::after {
+  content: ""; position: absolute; inset: -3px; border-radius: 50%;
+  border: 1.5px solid currentColor; color: inherit;
+  background: inherit; opacity: .5;
+  animation: onde 2.4s var(--doux) infinite;
+}
+.pt.bon.vif::after { border-color: var(--bon); background: none; }
+@keyframes onde {
+  0%   { transform: scale(.6); opacity: .7; }
+  70%  { transform: scale(2.3); opacity: 0; }
+  100% { transform: scale(2.3); opacity: 0; }
+}
+
+.pousse { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
 button {
-  font: inherit; font-weight: 550; cursor: pointer;
-  border-radius: 9px; border: 1px solid var(--bord-fort);
+  font: inherit; font-weight: 550; letter-spacing: -0.01em; cursor: pointer;
+  border-radius: var(--r2); border: 1px solid var(--bord-vif);
   background: var(--surface); color: var(--texte);
-  padding: 7px 13px;
-  transition: background .12s, border-color .12s, transform .08s;
+  padding: 8px 15px; position: relative; overflow: hidden;
+  transition: background .18s var(--doux), border-color .18s, transform .12s var(--ressort), box-shadow .18s;
 }
-button:hover:not(:disabled) { background: var(--surface-2); }
-button:active:not(:disabled) { transform: translateY(1px); }
-button:disabled { opacity: .45; cursor: not-allowed; }
+button:hover:not(:disabled) { background: var(--surface-2); border-color: var(--texte-3); transform: translateY(-1px); box-shadow: var(--lueur); }
+button:active:not(:disabled) { transform: translateY(0) scale(.985); }
+button:disabled { opacity: .4; cursor: not-allowed; }
 button:focus-visible { outline: 2px solid var(--serie); outline-offset: 2px; }
-button.principal { background: var(--texte); color: var(--surface); border-color: var(--texte); }
-button.danger { border-color: var(--critique); color: var(--critique); }
-button.icone { padding: 7px 9px; }
+/* Le reflet qui traverse le bouton au survol. Une seule propriete
+   animee, transform, et il ne se declenche jamais tout seul. */
+button::before {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.13) 50%, transparent 65%);
+  transform: translateX(-130%); transition: transform .6s var(--doux);
+}
+button:hover:not(:disabled)::before { transform: translateX(130%); }
 
-/* ===== bandeau de chiffres ===== */
-.chiffres {
-  display: grid; gap: 10px; margin: 16px 0;
-  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+button.primaire {
+  background: linear-gradient(180deg, var(--texte) 0%, color-mix(in oklab, var(--texte) 86%, var(--fond)) 100%);
+  color: var(--fond); border-color: transparent; font-weight: 600;
+}
+button.primaire:hover:not(:disabled) { background: var(--texte); }
+button.stop { border-color: color-mix(in oklab, var(--critique) 55%, transparent); color: var(--critique); background: color-mix(in oklab, var(--critique) 9%, var(--surface)); }
+button.mini { padding: 6px 11px; font-size: 12.5px; }
+button.icone { padding: 8px 10px; }
+button.icone svg { display: block; transition: transform .5s var(--ressort); }
+button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
+
+/* ============================================================ HERO */
+.hero {
+  padding: 40px 0 30px;
+  display: grid; gap: 26px; align-items: end;
+  grid-template-columns: minmax(0,1fr) minmax(0,1.05fr);
+}
+@media (max-width: 900px) { .hero { grid-template-columns: 1fr; padding: 26px 0 20px; gap: 18px; } }
+
+.hero-etiq {
+  font-size: 11.5px; font-weight: 600; letter-spacing: .13em;
+  text-transform: uppercase; color: var(--texte-3); margin-bottom: 10px;
+}
+/* Le chiffre principal. Graisse fine et taille optique haute : a
+   soixante-douze pixels, Inter resserre ses courbes et le nombre
+   cesse detre un bloc pour devenir une ligne. Les chiffres sont
+   tabulaires, sinon la largeur saute a chaque changement de valeur et
+   tout le bloc tremble. */
+.hero-val {
+  font-size: clamp(46px, 8.5vw, 76px);
+  font-weight: 270; letter-spacing: -0.045em; line-height: .95;
+  font-variation-settings: "opsz" 32;
+  font-variant-numeric: tabular-nums;
+  display: flex; align-items: baseline; gap: .18em;
+}
+.hero-val .dev { font-size: .34em; font-weight: 400; color: var(--texte-3); letter-spacing: -0.02em; }
+.hero-bas { display: flex; align-items: center; gap: 11px; margin-top: 16px; flex-wrap: wrap; }
+
+.delta {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 14px; font-weight: 560; letter-spacing: -0.01em;
+  padding: 5px 12px; border-radius: 999px;
+  font-variant-numeric: tabular-nums;
+}
+.delta.up   { color: var(--gain);  background: color-mix(in oklab, var(--gain) 13%, transparent);  border: 1px solid color-mix(in oklab, var(--gain) 28%, transparent); }
+.delta.down { color: var(--perte); background: color-mix(in oklab, var(--perte) 13%, transparent); border: 1px solid color-mix(in oklab, var(--perte) 28%, transparent); }
+.delta.plat { color: var(--texte-3); background: var(--surface); border: 1px solid var(--bord); }
+.delta svg { transition: transform .4s var(--ressort); }
+.hero-note { font-size: 13px; color: var(--texte-3); }
+
+.hero-etincelle { height: 128px; position: relative; }
+@media (max-width: 900px) { .hero-etincelle { height: 92px; } }
+
+/* ============================================================ TUILES */
+.tuiles {
+  display: grid; gap: 12px; margin-bottom: 26px;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
 }
 .tuile {
-  background: var(--surface); border: 1px solid var(--bord);
-  border-radius: var(--rayon); padding: 13px 15px; box-shadow: var(--ombre);
+  position: relative; overflow: hidden;
+  background: linear-gradient(160deg, var(--surface) 0%, var(--fond-2) 100%);
+  border: 1px solid var(--bord); border-radius: var(--r);
+  padding: 16px 18px; box-shadow: var(--lueur);
+  transition: transform .35s var(--ressort), box-shadow .35s var(--doux), border-color .35s;
 }
-.tuile .etiq { font-size: 11.5px; color: var(--texte-3); font-weight: 550; text-transform: uppercase; letter-spacing: .04em; }
-.tuile .valeur { font: 600 25px/1.15 var(--mono); margin-top: 5px; letter-spacing: -0.02em; }
-.tuile .sous { font-size: 12px; color: var(--texte-2); margin-top: 3px; }
-.gain { color: var(--gain); }
-.perte { color: var(--perte); }
-
-/* ===== cartes ===== */
-.carte {
-  background: var(--surface); border: 1px solid var(--bord);
-  border-radius: var(--rayon); box-shadow: var(--ombre);
-  margin-bottom: 16px; overflow: hidden;
+.tuile:hover { transform: translateY(-3px); box-shadow: var(--lueur-haute); border-color: var(--bord-vif); }
+/* Un filet lumineux en haut de chaque tuile, revele au survol. */
+.tuile::after {
+  content: ""; position: absolute; top: 0; left: 12%; right: 12%; height: 1px;
+  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--serie) 65%, transparent), transparent);
+  opacity: 0; transition: opacity .35s;
 }
-.carte-tete {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-  padding: 13px 16px; border-bottom: 1px solid var(--bord);
+.tuile:hover::after { opacity: 1; }
+.tuile .e { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--texte-3); }
+.tuile .v {
+  font-size: 27px; font-weight: 400; letter-spacing: -0.035em; margin-top: 7px;
+  font-variation-settings: "opsz" 28; font-variant-numeric: tabular-nums;
 }
-.carte-tete h2 { font-size: 14.5px; }
-.carte-corps { padding: 16px; }
-.compte { font: 550 12px var(--mono); color: var(--texte-3); }
+.tuile .s { font-size: 12.5px; color: var(--texte-2); margin-top: 3px; }
+.gain { color: var(--gain); } .perte { color: var(--perte); }
 
-.vide { padding: 34px 16px; text-align: center; color: var(--texte-3); font-size: 13.5px; }
-.vide strong { display: block; color: var(--texte-2); font-size: 14.5px; margin-bottom: 5px; font-weight: 600; }
+/* La breve pulsation quand un nombre change. Elle dure moins dune
+   demi-seconde et ne se declenche QUE sur changement reel : une
+   animation qui rejoue a chaque rafraichissement devient un bruit de
+   fond quon cesse de voir. */
+@keyframes battement {
+  0%   { background-color: transparent; }
+  18%  { background-color: color-mix(in oklab, currentColor 16%, transparent); }
+  100% { background-color: transparent; }
+}
+.bat { animation: battement .55s var(--doux); border-radius: 6px; }
 
-/* ===== positions ===== */
-.positions { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); }
+/* ============================================================ CARTES */
+.bloc {
+  background: linear-gradient(165deg, var(--surface) 0%, var(--fond-2) 130%);
+  border: 1px solid var(--bord); border-radius: var(--r);
+  box-shadow: var(--lueur); margin-bottom: 20px; overflow: hidden;
+}
+.bloc-tete {
+  display: flex; align-items: center; gap: 11px; flex-wrap: wrap;
+  padding: 15px 18px; border-bottom: 1px solid var(--bord);
+}
+.bloc-tete h2 { font-size: 14.5px; font-weight: 600; }
+.bloc-corps { padding: 18px; }
+.compte { font-family: var(--mono); font-size: 11.5px; color: var(--texte-3); letter-spacing: -0.02em; }
+
+.vide { padding: 46px 18px; text-align: center; color: var(--texte-3); font-size: 13.5px; }
+.vide strong { display: block; color: var(--texte-2); font-size: 15px; font-weight: 600; margin-bottom: 6px; letter-spacing: -0.02em; }
+.vide svg { display: block; margin: 0 auto 14px; opacity: .3; }
+
+/* Entree en cascade. Le delai est pose par le script, pas ici : il
+   depend du rang de la carte, que le CSS ne connait pas. */
+@keyframes monter {
+  from { opacity: 0; transform: translateY(14px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+.entre { animation: monter .5s var(--ressort) both; }
+
+/* ============================================================ POSITIONS */
+.positions { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(410px, 1fr)); }
 @media (max-width: 560px) { .positions { grid-template-columns: 1fr; } }
 
-.position {
-  border: 1px solid var(--bord); border-radius: 12px;
-  background: var(--surface); overflow: hidden;
+.pos {
+  position: relative; overflow: hidden;
+  border: 1px solid var(--bord); border-radius: 13px;
+  background: var(--surface);
+  transition: border-color .35s, box-shadow .35s var(--doux), transform .35s var(--ressort);
 }
-.position-tete {
-  display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
-  padding: 11px 13px; background: var(--surface-2); border-bottom: 1px solid var(--bord);
+.pos:hover { border-color: var(--bord-vif); box-shadow: var(--lueur-haute); transform: translateY(-2px); }
+/* Un liseré vertical teinte par le sens. Il permet de repérer un long
+   dun short en balayant la colonne du regard, sans lire. */
+.pos::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2.5px;
+  background: linear-gradient(180deg, var(--teinte), transparent);
 }
-.sym { font: 650 14.5px var(--mono); letter-spacing: -0.02em; }
+.pos.long  { --teinte: var(--long); }
+.pos.short { --teinte: var(--short); }
 
-/* Le sens ne se lit JAMAIS a la couleur seule : le mot est toujours la,
-   et une fleche le double. Le couple bleu/orange est valide en CVD,
-   mais un mot reste plus sur quun ton. */
+.pos-tete { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 13px 15px 11px; }
+.sym { font-size: 15.5px; font-weight: 620; letter-spacing: -0.035em; }
 .sens {
   display: inline-flex; align-items: center; gap: 4px;
-  font: 650 11px var(--police); letter-spacing: .05em;
-  padding: 3px 8px; border-radius: 6px; color: #fff;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .07em;
+  padding: 3.5px 9px; border-radius: 6px; color: #fff;
 }
-.sens.long { background: var(--long); }
+.sens.long  { background: var(--long); }
 .sens.short { background: var(--short); }
-.levier { font: 600 11.5px var(--mono); color: var(--texte-2); padding: 3px 7px; border-radius: 6px; background: var(--surface); border: 1px solid var(--bord); }
-
-.position-pnl { margin-left: auto; text-align: right; }
-.position-pnl .u { font: 650 16px var(--mono); letter-spacing: -0.02em; }
-.position-pnl .p { font: 550 11.5px var(--mono); color: var(--texte-3); }
-
-.faits { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: var(--bord); border-bottom: 1px solid var(--bord); }
-@media (max-width: 420px) { .faits { grid-template-columns: repeat(2, 1fr); } }
-.fait { background: var(--surface); padding: 9px 11px; }
-.fait .e { font-size: 10.5px; color: var(--texte-3); text-transform: uppercase; letter-spacing: .04em; font-weight: 550; }
-.fait .v { font: 600 13px var(--mono); margin-top: 2px; }
-
-.jauge-zone { padding: 13px; }
-.jauge-legende { display: flex; gap: 13px; flex-wrap: wrap; font-size: 11px; color: var(--texte-2); margin-top: 7px; }
-.jauge-legende i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
-
-.marque-trail {
+.lev {
+  font-family: var(--mono); font-size: 11px; color: var(--texte-2);
+  padding: 3.5px 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--bord);
+}
+.marque {
   display: inline-flex; align-items: center; gap: 4px;
-  font: 600 10.5px var(--police); letter-spacing: .04em;
-  padding: 2px 7px; border-radius: 5px;
-  background: color-mix(in srgb, var(--bon) 16%, transparent);
-  color: var(--bon); border: 1px solid color-mix(in srgb, var(--bon) 40%, transparent);
+  font-size: 10px; font-weight: 650; letter-spacing: .06em;
+  padding: 3px 8px; border-radius: 6px;
 }
-.marque-be {
-  display: inline-flex; align-items: center; gap: 4px;
-  font: 600 10.5px var(--police); letter-spacing: .04em;
-  padding: 2px 7px; border-radius: 5px;
-  background: color-mix(in srgb, var(--serie) 16%, transparent);
-  color: var(--serie); border: 1px solid color-mix(in srgb, var(--serie) 40%, transparent);
-}
+.marque.trail { background: color-mix(in oklab, var(--gain) 14%, transparent); color: var(--gain); border: 1px solid color-mix(in oklab, var(--gain) 32%, transparent); }
+.marque.seuil { background: color-mix(in oklab, var(--serie) 14%, transparent); color: var(--serie); border: 1px solid color-mix(in oklab, var(--serie) 32%, transparent); }
+.marque svg { animation: flotter 2.6s var(--doux) infinite; }
+@keyframes flotter { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-1.5px); } }
 
-/* ===== sante ===== */
-.sante { display: grid; gap: 9px; grid-template-columns: repeat(auto-fill, minmax(178px, 1fr)); }
-.module {
-  display: flex; align-items: center; gap: 9px;
-  padding: 10px 12px; border: 1px solid var(--bord); border-radius: 10px; background: var(--surface);
-}
-.module .n { font-weight: 600; font-size: 13px; }
-/* Le detail dun module est parfois un chemin dAPI entier. Sans
-   troncature il debordait de la carte et se coupait en plein mot ; le
-   titre complet reste accessible au survol. */
-.module .i {
-  font-size: 11.5px; color: var(--texte-3); font-family: var(--mono);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.module > div { flex: 1; min-width: 0; }
+.pos-pnl { margin-left: auto; text-align: right; }
+.pos-pnl .u { font-size: 19px; font-weight: 500; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; font-variation-settings: "opsz" 26; }
+.pos-pnl .p { font-family: var(--mono); font-size: 11px; color: var(--texte-3); }
 
-/* ===== journal ===== */
-.journal {
-  font: 12px/1.65 var(--mono); max-height: 340px; overflow-y: auto;
-  padding: 12px 16px; background: var(--surface-2);
-}
-.journal .l { display: flex; gap: 9px; padding: 2px 0; border-bottom: 1px solid color-mix(in srgb, var(--bord) 50%, transparent); }
-.journal .t { color: var(--texte-3); flex: none; }
-.journal .e { font-weight: 650; flex: none; min-width: 108px; }
-.journal .d { color: var(--texte-2); word-break: break-word; }
-.e-entree { color: var(--long); }
-.e-sortie { color: var(--short); }
-.e-stop { color: var(--bon); }
-.e-garde { color: var(--attention); }
+.faits { display: grid; grid-template-columns: repeat(4,1fr); gap: 1px; background: var(--bord); }
+@media (max-width: 420px) { .faits { grid-template-columns: repeat(2,1fr); } }
+.fait { background: var(--surface); padding: 10px 13px; }
+.fait .e { font-size: 9.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--texte-3); }
+.fait .v { font-family: var(--mono); font-size: 13px; margin-top: 3px; letter-spacing: -0.03em; }
 
-/* ===== tableau ===== */
-.enrouler { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; font-size: 13px; }
-th, td { padding: 8px 11px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--bord); }
-th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--texte-3); font-weight: 600; }
-th:first-child, td:first-child { text-align: left; }
-td { font-family: var(--mono); }
+.regle { padding: 16px 15px 13px; }
+.legende { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--texte-2); margin-top: 9px; }
+.legende i { display: inline-block; width: 8px; height: 8px; border-radius: 2.5px; margin-right: 5px; vertical-align: -1px; }
 
-/* ===== courbe ===== */
-.courbe-zone { position: relative; }
-.infobulle {
+/* Les reperes de la reglette glissent vers leur nouveau prix au lieu
+   de sauter. Cest ce qui rend le mouvement dun trail VISIBLE : on
+   voit le stop remonter, on ne constate pas quil a change. */
+.rep { transition: transform .7s var(--ressort); }
+.rep text, .rep path, .rep circle, .rep rect, .rep line { transition: opacity .3s; }
+.bande { transition: transform .7s var(--ressort), opacity .3s; }
+
+/* ============================================================ COURBE */
+.courbe { position: relative; }
+.trace-courbe { stroke-dasharray: var(--long-trace); stroke-dashoffset: var(--long-trace); animation: dessiner 1.5s var(--doux) forwards; }
+@keyframes dessiner { to { stroke-dashoffset: 0; } }
+.aire-courbe { opacity: 0; animation: fondu .9s var(--doux) .5s forwards; }
+@keyframes fondu { to { opacity: 1; } }
+.bout { animation: respirer 2.6s var(--doux) infinite; transform-origin: center; transform-box: fill-box; }
+@keyframes respirer { 0%,100% { opacity: 1; } 50% { opacity: .45; } }
+
+.bulle {
   position: absolute; pointer-events: none; opacity: 0;
-  transition: opacity .1s; transform: translate(-50%, -100%);
-  background: var(--texte); color: var(--fond);
-  padding: 6px 9px; border-radius: 7px; font: 550 12px var(--mono);
-  white-space: nowrap; z-index: 5;
+  transform: translate(-50%,-120%); transition: opacity .16s var(--doux);
+  background: var(--surface-3); color: var(--texte);
+  border: 1px solid var(--bord-vif);
+  padding: 7px 11px; border-radius: 9px; white-space: nowrap;
+  font-family: var(--mono); font-size: 12px; letter-spacing: -0.03em;
+  box-shadow: var(--lueur-haute); z-index: 6;
 }
 
-.avis {
-  display: flex; gap: 10px; align-items: flex-start;
-  padding: 11px 14px; border-radius: 10px; margin-bottom: 14px;
-  background: color-mix(in srgb, var(--attention) 12%, var(--surface));
-  border: 1px solid color-mix(in srgb, var(--attention) 45%, transparent);
-  font-size: 13px; color: var(--texte);
+/* ============================================================ SANTE + JOURNAL */
+.duo { display: grid; gap: 20px; grid-template-columns: minmax(0,1fr) minmax(0,1.15fr); }
+@media (max-width: 980px) { .duo { grid-template-columns: 1fr; } }
+
+.sante { display: grid; gap: 9px; grid-template-columns: repeat(auto-fill, minmax(158px,1fr)); }
+.mod {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 13px; border: 1px solid var(--bord); border-radius: var(--r2);
+  background: var(--surface-2); transition: border-color .3s, background .3s;
 }
-.avis b { font-weight: 650; }
+.mod:hover { border-color: var(--bord-vif); background: var(--surface-3); }
+.mod > div { flex: 1; min-width: 0; }
+.mod .n { font-size: 12.5px; font-weight: 560; letter-spacing: -0.01em; }
+.mod .i { font-family: var(--mono); font-size: 10.5px; color: var(--texte-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.journal { font-family: var(--mono); font-size: 11.5px; line-height: 1.7; max-height: 380px; overflow-y: auto; padding: 6px 0; }
+.journal::-webkit-scrollbar { width: 8px; }
+.journal::-webkit-scrollbar-thumb { background: var(--bord-vif); border-radius: 4px; }
+.jl { display: flex; gap: 10px; padding: 3px 18px; border-left: 2px solid transparent; }
+.jl:hover { background: var(--surface-2); }
+.jl .t { color: var(--texte-3); flex: none; }
+.jl .e { font-weight: 400; flex: none; min-width: 104px; letter-spacing: -0.03em; }
+.jl .d { color: var(--texte-2); word-break: break-word; }
+.jl.neuf { animation: glisser .45s var(--ressort); }
+@keyframes glisser { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
+.e-in   { color: var(--long); }  .jl.e-in   { border-left-color: var(--long); }
+.e-out  { color: var(--short); } .jl.e-out  { border-left-color: var(--short); }
+.e-stop { color: var(--gain); }  .jl.e-stop { border-left-color: var(--gain); }
+.e-gard { color: var(--attention); } .jl.e-gard { border-left-color: var(--attention); }
+
+/* ============================================================ TABLEAU */
+.roule { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+th, td { padding: 9px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--bord); }
+th { font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: var(--texte-3); font-weight: 600; }
+th:first-child, td:first-child { text-align: left; }
+td { font-family: var(--mono); letter-spacing: -0.03em; }
+tbody tr { transition: background .2s; }
+tbody tr:hover { background: var(--surface-2); }
+
+/* ============================================================ AVIS */
+.avis {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 13px 16px; border-radius: var(--r); margin-bottom: 20px;
+  background: linear-gradient(135deg, color-mix(in oklab, var(--attention) 11%, var(--surface)), var(--surface));
+  border: 1px solid color-mix(in oklab, var(--attention) 34%, transparent);
+  font-size: 13px;
+}
+.avis svg { flex: none; margin-top: 1px; color: var(--attention); }
+.avis code { font-family: var(--mono); font-size: 12px; background: var(--surface-3); padding: 1px 6px; border-radius: 5px; }
+
+/* ============================================================ SQUELETTE */
+.squelette {
+  background: linear-gradient(90deg, var(--surface-2) 25%, var(--surface-3) 50%, var(--surface-2) 75%);
+  background-size: 200% 100%; animation: chatoyer 1.5s linear infinite;
+  border-radius: 7px; color: transparent !important;
+}
+@keyframes chatoyer { to { background-position: -200% 0; } }
+
+/* ============================================================
+   MOUVEMENT REDUIT
+
+   Tout ce qui precede sarrete. Ce nest pas une degradation : pour
+   qui souffre de troubles vestibulaires, une aurore qui derive et des
+   cartes qui montent ne sont pas un agrement, ce sont des symptomes.
+   La page garde exactement la meme information.
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important;
+  }
+  .aurore { display: none; }
+}
 </style>
 </head>
 <body>
 
+<div class="aurore" aria-hidden="true"><i></i><i></i><i></i></div>
+
 <header class="entete">
   <div class="entete-int">
     <div class="marque">
-      <svg width="22" height="22" viewBox="0 0 22 22" fill="none" aria-hidden="true">
-        <path d="M3 15.5 L7.5 6.5 L11 12 L14.5 4.5 L19 15.5" stroke="currentColor" stroke-width="2"
-              stroke-linecap="round" stroke-linejoin="round"/>
-        <circle cx="14.5" cy="4.5" r="2.4" fill="var(--serie)"/>
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path class="trace" d="M3 17 L8 7 L12 13.5 L16 4.5 L21 17" stroke="currentColor"
+              stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
+        <circle class="astre" cx="16" cy="4.5" r="2.8" fill="var(--serie)"/>
       </svg>
       Hermes
     </div>
 
-    <span class="pastille" id="p-lien"><span class="point" id="pt-lien"></span><span id="t-lien">liaison…</span></span>
-    <span class="pastille" id="p-moteur"><span class="point" id="pt-moteur"></span><span id="t-moteur">moteur</span></span>
-    <span class="pastille" id="p-mode"><span id="t-mode">mode…</span></span>
+    <span class="jeton"><span class="pt" id="pt-lien"></span><span id="t-lien">liaison…</span></span>
+    <span class="jeton"><span class="pt" id="pt-moteur"></span><span id="t-moteur">moteur</span></span>
+    <span class="jeton" id="j-mode"><span id="t-mode">mode…</span></span>
 
-    <div class="pousse" style="display:flex;gap:8px;align-items:center">
-      <button class="icone" id="b-theme" title="Basculer clair / sombre" aria-label="Basculer clair / sombre">
+    <div class="pousse">
+      <button class="icone" id="b-theme" title="Clair / sombre" aria-label="Basculer clair ou sombre">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path d="M13.2 9.6A5.6 5.6 0 0 1 6.4 2.8 5.6 5.6 0 1 0 13.2 9.6Z"
+          <path d="M13.4 9.7A5.7 5.7 0 0 1 6.3 2.6 5.7 5.7 0 1 0 13.4 9.7Z"
                 stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
         </svg>
       </button>
-      <button id="b-moteur" class="principal">Démarrer</button>
+      <button id="b-moteur" class="primaire">Démarrer</button>
     </div>
   </div>
 </header>
 
-<div class="enveloppe">
+<div class="page">
+
+  <section class="hero">
+    <div>
+      <div class="hero-etiq">Équité</div>
+      <div class="hero-val"><span id="h-val">—</span><span class="dev">USDT</span></div>
+      <div class="hero-bas">
+        <span class="delta plat" id="h-delta">—</span>
+        <span class="hero-note" id="h-note">en attente du premier relevé</span>
+      </div>
+    </div>
+    <div class="hero-etincelle" id="h-spark"></div>
+  </section>
 
   <div class="avis" id="avis-lecture" hidden>
-    <svg width="17" height="17" viewBox="0 0 16 16" fill="none" style="flex:none;margin-top:1px" aria-hidden="true">
+    <svg width="17" height="17" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.5"/>
-      <path d="M8 4.6v4.2M8 11.1v.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M8 4.6v4.2M8 11.1v.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
     </svg>
-    <div>
-      <b>Lecture seule.</b> Cette page montre tout mais ne commande rien : ni ouverture,
-      ni arrêt du moteur. Servi par le réseau, Hermes se met en lecture seule par défaut —
-      l'adresse d'écoute ne dit rien de qui se connecte. Pour piloter, poser
-      <code>HERMES_UI_MODE=full</code> dans l'environnement du service.
-    </div>
+    <div><strong>Lecture seule.</strong> Cette page montre tout mais ne commande rien. Servi par le réseau,
+      Hermes se met en lecture seule par défaut — l'adresse d'écoute ne dit rien de qui se connecte.
+      Pour piloter&nbsp;: <code>HERMES_UI_MODE=full</code> dans l'environnement du service.</div>
   </div>
 
-  <section class="chiffres" id="chiffres"></section>
+  <section class="tuiles" id="tuiles"></section>
 
-  <section class="carte">
-    <div class="carte-tete">
-      <h2>Positions ouvertes</h2>
-      <span class="compte" id="n-positions">—</span>
-      <div class="pousse"><button id="b-vue" class="icone" style="font-size:12px;padding:5px 10px">Vue tableau</button></div>
+  <section class="bloc">
+    <div class="bloc-tete">
+      <h2>Positions</h2><span class="compte" id="n-pos">—</span>
+      <div class="pousse"><button id="b-vue" class="mini">Vue tableau</button></div>
     </div>
-    <div class="carte-corps" id="zone-positions"></div>
-    <div id="zone-positions-table" hidden></div>
+    <div class="bloc-corps" id="z-pos"></div>
+    <div id="z-tab" hidden></div>
   </section>
 
-  <section class="carte">
-    <div class="carte-tete">
-      <h2>Équité</h2>
-      <span class="compte" id="n-equite">—</span>
-    </div>
-    <div class="carte-corps courbe-zone" id="zone-courbe"></div>
+  <section class="bloc">
+    <div class="bloc-tete"><h2>Courbe d'équité</h2><span class="compte" id="n-eq">—</span></div>
+    <div class="bloc-corps courbe" id="z-courbe"></div>
   </section>
 
-  <section class="carte">
-    <div class="carte-tete"><h2>Santé des modules</h2><span class="compte" id="n-sante">—</span></div>
-    <div class="carte-corps"><div class="sante" id="zone-sante"></div></div>
-  </section>
+  <div class="duo">
+    <section class="bloc">
+      <div class="bloc-tete"><h2>Santé</h2><span class="compte" id="n-sante">—</span></div>
+      <div class="bloc-corps"><div class="sante" id="z-sante"></div></div>
+    </section>
 
-  <section class="carte">
-    <div class="carte-tete">
-      <h2>Journal</h2><span class="compte" id="n-journal">0</span>
-      <div class="pousse"><button id="b-vider" class="icone" style="font-size:12px;padding:5px 10px">Vider</button></div>
-    </div>
-    <div class="journal" id="zone-journal"></div>
-  </section>
+    <section class="bloc">
+      <div class="bloc-tete">
+        <h2>Journal</h2><span class="compte" id="n-jrn">0</span>
+        <div class="pousse"><button id="b-vider" class="mini">Vider</button></div>
+      </div>
+      <div class="journal" id="z-jrn"></div>
+    </section>
+  </div>
 
 </div>
 
