@@ -1,0 +1,59 @@
+# Rapatrie une archive SwissTransfer SUR LE VPS, puis dit ce qu elle contient.
+#
+# Pourquoi sur le VPS et pas ici : www.swisstransfer.com est refuse par la
+# politique reseau de la session d agent (403 au CONNECT). Le serveur, lui,
+# a un reseau ouvert, et c est de toute facon la machine ou le code doit
+# finir. Le proprietaire a explicitement autorise ce chemin.
+#
+# Le script n est PAS inline dans la commande ssh : il est ecrit dans un
+# fichier et pousse dans « bash -s » par l entree standard. Cela supprime
+# d un coup toute la classe de bugs de citation qui vient de commandes ssh
+# entourees d apostrophes.
+
+name: Rapatrier archive
+
+on:
+  workflow_dispatch:
+    inputs:
+      root_password:
+        description: "Root password (optional if VPS_PASSWORD secret is set)"
+        required: false
+      lien:
+        description: "UUID du lien SwissTransfer"
+        required: false
+        default: "567163d7-d5fe-44dc-945f-b62f84faa082"
+
+jobs:
+  rapatrier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      VPS: ${{ vars.VPS_HOST || '178.104.191.79' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ssh tooling
+        run: sudo apt-get update -qq && sudo apt-get -y -qq install sshpass
+
+      - name: Resolve SSH access
+        env:
+          PW_INPUT: ${{ inputs.root_password }}
+          PW_SECRET: ${{ secrets.VPS_PASSWORD }}
+        run: |
+          PW="${PW_INPUT:-$PW_SECRET}"
+          [ -z "$PW" ] && { echo "::error::no credentials"; exit 1; }
+          ALT="${PW}.Hermes1"
+          echo "::add-mask::$PW"; echo "::add-mask::$ALT"
+          SSHOPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
+          try() { sshpass -p "$1" ssh $SSHOPTS "root@$VPS" "echo __ok__" 2>/dev/null | grep -q __ok__; }
+          if try "$PW"; then CUR="$PW"; elif try "$ALT"; then CUR="$ALT"; else
+            echo "::error::cannot authenticate"; exit 1; fi
+          echo "SSHPASS=$CUR" >> "$GITHUB_ENV"
+
+      - name: Rapatrier et decrire
+        env:
+          LIEN: ${{ inputs.lien }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+            bash -s -- "${LIEN:-567163d7-d5fe-44dc-945f-b62f84faa082}" \
+            < deploy/rapatrier_archive.sh
