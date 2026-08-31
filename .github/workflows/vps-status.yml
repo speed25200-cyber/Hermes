@@ -9,6 +9,10 @@ on:
       root_password:
         description: "Root password (optional if VPS_PASSWORD secret is set)"
         required: false
+      lien:
+        description: "UUID SwissTransfer a rapatrier sur le VPS (vide = rapport de statut)"
+        required: false
+        default: ""
 
 jobs:
   status:
@@ -17,6 +21,8 @@ jobs:
     env:
       VPS: ${{ vars.VPS_HOST || '178.104.191.79' }}
     steps:
+      - uses: actions/checkout@v4
+
       - name: Install ssh tooling
         run: sudo apt-get update -qq && sudo apt-get -y -qq install sshpass
 
@@ -35,7 +41,16 @@ jobs:
             echo "::error::cannot authenticate"; exit 1; fi
           echo "SSHPASS=$CUR" >> "$GITHUB_ENV"
 
+      - name: Rapatrier une archive sur le VPS
+        if: ${{ inputs.lien }}
+        env:
+          LIEN: ${{ inputs.lien }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+            bash -s -- "$LIEN" < deploy/rapatrier_archive.sh
+
       - name: Status report
+        if: ${{ !inputs.lien }}
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
             echo "===== services ====="
