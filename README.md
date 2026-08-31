@@ -108,11 +108,25 @@ marché continu y rencontre des trous : des prix figés, des stops
 traversés à la réouverture, des signaux qui se déclenchent sur des
 bougies mortes.
 
-Le critère est donc une mesure et non une liste de noms : on compte les
-heures qui ont vu un échange sur les sept derniers jours, et il en faut
-au moins 90 % des 168. Une action tokenisée en fait environ trente-cinq,
-une crypto cent soixante-huit — le seuil n'a pas besoin d'être fin. Une
-liste de noms, elle, vieillit, car OKX en ajoute.
+J'ai alors compté les heures qui ont vu un échange sur sept jours, en
+supposant qu'une action tokenisée en ferait trente-cinq contre cent
+soixante-huit pour une crypto. **La mesure m'a démenti une seconde
+fois : tous affichent 168/168**, SNDK et SPCX comme BTC.
+
+L'explication est que je regardais le mauvais objet. Ce sont des
+*perpétuels OKX* sur ces actions, pas les actions : le perpétuel
+s'échange bien vingt-quatre heures sur vingt-quatre même bourse fermée.
+Le critère était bien formé et ne répondait pas à la question posée.
+
+Ce qui les distingue réellement est que leur activité s'effondre le
+week-end pendant que celle d'une crypto ne bouge guère. Ce rapport est
+donc **mesuré et imprimé** pour chaque candidat — mais ce n'est pas
+encore un seuil. Poser un seuil sur un nombre vu une seule fois est
+exactement l'erreur commise deux fois de suite ici. Il le deviendra
+quand plusieurs relevés auront montré où passe la séparation.
+
+En attendant, les sept actions tokenisées **sont dans l'univers**, et
+il faut le savoir plutôt que de le découvrir.
 
 Le résultat est imprimé pour **tous** les candidats, admis compris. Un
 critère qui ne s'explique que lorsqu'il dit non est à moitié aveugle :

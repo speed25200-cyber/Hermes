@@ -398,23 +398,46 @@ const CONTINUITE_TTL_MS = 12 * 3600 * 1000;
 async function mesurerContinuite(instId) {
   const cache = _continuite.get(instId);
   if (cache && Date.now() - cache.ts < CONTINUITE_TTL_MS) return cache;
-  let res = { continu: true, heures: -1, ts: Date.now() };
+  let res = { continu: true, heures: -1, weekend: -1, ts: Date.now() };
   try {
     const r = await axios.get(
       OKX.REST_BASE + `/api/v5/market/candles?instId=${encodeURIComponent(instId)}&bar=1H&limit=168`,
       { timeout: Number(process.env.HERMES_API_TIMEOUT_MS || 12000) }
     );
     const c = Array.isArray(r.data?.data) ? r.data.data : [];
-    // On compte les heures ou il sest VRAIMENT echange quelque chose.
-    // Compter les bougies rendues ne suffirait pas : un marche ferme
-    // peut encore en produire, plates et a volume nul.
     const heures = c.filter((b) => num(b[5]) > 0).length;
-    res = { continu: heures >= Math.round(168 * CONTINU_MIN), heures, ts: Date.now() };
+
+    // Le rapport entre lactivite du week-end et celle de la semaine.
+    //
+    // Le comptage dheures actives ci-dessus NE SEPARE RIEN : au premier
+    // releve, SNDK, XAU, SPCX et SOXL affichaient 168/168 comme BTC. La
+    // raison est que ce sont des PERPETUELS OKX sur ces actions, et non
+    // les actions : le perpetuel sechange bien vingt-quatre heures sur
+    // vingt-quatre, meme bourse fermee. Le critere etait bien forme et
+    // ne repondait pas a la question.
+    //
+    // Ce qui distingue vraiment ces instruments, cest que leur activite
+    // SEFFONDRE le week-end pendant que celle dune crypto ne bouge
+    // guere. La quantite est imprimee et NEST PAS un seuil : poser un
+    // seuil sur un nombre vu une seule fois est exactement lerreur qui
+    // vient detre commise deux fois de suite. Elle le deviendra quand
+    // plusieurs releves auront montre ou passe la separation.
+    let vSem = 0, nSem = 0, vWe = 0, nWe = 0;
+    for (const b of c) {
+      const j = new Date(num(b[0])).getUTCDay();      // 0 dimanche, 6 samedi
+      const v = num(b[7]) || num(b[6]) || num(b[5]);  // volume en quote si disponible
+      if (j === 0 || j === 6) { vWe += v; nWe++; } else { vSem += v; nSem++; }
+    }
+    const moyWe = nWe ? vWe / nWe : 0;
+    const moySem = nSem ? vSem / nSem : 0;
+    const weekend = moySem > 0 ? moyWe / moySem : -1;
+
+    res = { continu: heures >= Math.round(168 * CONTINU_MIN), heures, weekend, ts: Date.now() };
   } catch (e) {
     // Une mesure ratee nest pas une preuve de discontinuite. On laisse
     // passer, et le prochain rafraichissement retentera — refuser sur
     // un timeout viderait luniverse a la premiere minute difficile.
-    res = { continu: true, heures: -1, ts: Date.now() };
+    res = { continu: true, heures: -1, weekend: -1, ts: Date.now() };
   }
   _continuite.set(instId, res);
   return res;
@@ -457,7 +480,7 @@ async function loadUniverse() {
       paquet.forEach((x, k) => {
         const m = mesures[k];
         const nom = String(x.instId).replace("-USDT-SWAP", "");
-        trace.push(`${nom} ${(cote(x) / 1e6).toFixed(0)}M ${m.heures}/168h${m.continu ? "" : " REFUSE"}`);
+        trace.push(`${nom} ${(cote(x) / 1e6).toFixed(0)}M ${m.heures}/168h we=${m.weekend >= 0 ? m.weekend.toFixed(2) : "?"}${m.continu ? "" : " REFUSE"}`);
         if (m.continu && retenus.length < TAILLE_UNIVERS) retenus.push(x.instId);
       });
     }
