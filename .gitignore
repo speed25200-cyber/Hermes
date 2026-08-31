@@ -1,12 +1,22 @@
-__pycache__/
-*.pyc
-/data/
-/state/
-config.json
-config.local.json
-.pytest_cache/
-
-# Jamais dans le depot : ces fichiers portaient de vraies cles OKX LIVE.
+# Jamais dans le depot : larchive dorigine portait TROIS fichiers
+# denvironnement avec de vraies cles OKX de production, et ils sont
+# partis dans un commit pousse sur un depot public avant detre retires.
 .env
 .env.*
 !.env.example
+
+# Dependances : se reinstallent depuis package.json
+node_modules/
+
+# Donnees et traces : ce nest pas du code, et cest volumineux
+/data/
+/logs/
+/state/
+*.log
+*.jsonl
+
+# Etat dexecution : ces deux fichiers sont ecrits par le moteur en
+# marche. Versionnes, ils entrent en conflit a chaque deploiement.
+/runtime/*.json
+
+config.local.json
