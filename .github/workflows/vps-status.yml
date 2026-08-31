@@ -1,5 +1,11 @@
-# Check Hermes status on the VPS: services, research progress, engine logs,
-# deployed strategies and current equity. Trigger manually any time.
+# Letat dHermes sur le VPS. A declencher a la main quand on veut.
+#
+# Le rapport lui-meme est dans deploy/etat.sh, pousse par lentree
+# standard. Il etait auparavant ecrit A LINTERIEUR de la commande ssh,
+# elle-meme entouree dapostrophes : une seule apostrophe de plus
+# nimporte ou dedans cassait tout le releve, et il fallait les compter
+# a chaque modification. Le script est maintenant un fichier ordinaire,
+# lisible et verifiable par bash -n.
 
 name: VPS status
 
@@ -13,17 +19,11 @@ on:
         description: "UUID SwissTransfer a rapatrier sur le VPS (vide = rapport de statut)"
         required: false
         default: ""
-      importer:
-        description: "Importer la source Astra du VPS vers le depot (mettre oui)"
-        required: false
-        default: ""
 
 jobs:
   status:
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    permissions:
-      contents: write
     env:
       VPS: ${{ vars.VPS_HOST || '178.104.191.79' }}
     steps:
@@ -55,220 +55,8 @@ jobs:
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
             bash -s -- "$LIEN" < deploy/rapatrier_archive.sh
 
-      # Le code voyage du VPS vers le depot par le runner, qui a acces aux
-      # deux bouts : la source de telechargement est refusee par la
-      # politique reseau de la session dagent, et le VPS ne peut pas
-      # pousser dans le depot. Le runner, lui, peut les deux.
-      - name: Importer la source Astra dans le depot
-        if: ${{ inputs.importer }}
-        run: |
-          set -eu
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
-            bash -s < deploy/preparer_import.sh
-          sshpass -e scp -o StrictHostKeyChecking=accept-new \
-            "root@$VPS:/root/incoming/astra-source.tar.gz" ./astra-source.tar.gz
-          echo "recu : $(wc -c < astra-source.tar.gz) octets"
-          rm -rf astra
-          mkdir -p astra
-          tar xzf astra-source.tar.gz -C astra
-          rm -f astra-source.tar.gz
-          echo "deballe : $(find astra -type f | wc -l) fichiers"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A astra
-          git commit -q -m "Importer la source Hermes_Astra, sans ses dependances" \
-            -m "Le code arrive du VPS, ou larchive a ete rapatriee. Exclus: node_modules (276 Mo, se reinstalle depuis package.json), data et logs (des donnees et des traces, pas du code), .pak et .map (des artefacts de build). Le paquet est refuse au-dela de 60 Mo, et le refus imprime les plus gros fichiers gardes: un paquet trop gros nest pas un accident a reessayer, cest une exclusion qui manque." \
-            || echo "rien a committer"
-          git push origin HEAD:"$GITHUB_REF_NAME"
-
       - name: Status report
-        if: ${{ !inputs.lien && !inputs.importer }}
+        if: ${{ !inputs.lien }}
         run: |
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
-            echo "===== services ====="
-            systemctl is-active hermes-research && echo "(research running)" || echo "(research idle/done)"
-            systemctl is-active hermes || true
-            echo -n "dashboard: "; systemctl is-active hermes-dashboard || true
-            ss -tln | grep -q ":8899 " && echo "port 8899: LISTENING" || echo "port 8899: NOT listening"
-            echo
-            echo "===== research / engine journal (last 50 lines) ====="
-            journalctl -u hermes-research -u hermes -n 50 --no-pager || true
-            echo
-            # Trois fenetres separees, et le choix est delibere. Melangees,
-            # le bavardage des eclaireurs (un trade toutes les deux minutes)
-            # chassait les verdicts des horloges (un par heure) et les
-            # ouvertures sur regle validee hors de la fenetre. On ne peut
-            # pas repondre « cette horloge est-elle encore vivante » et
-            # « la regle trade-t-elle » avec un seul tail partage.
-            # NB: aucune apostrophe ici — la commande ssh en est deja
-            # entouree, et une seule casse tout le releve.
-            echo "===== verdicts des horloges et des têtes (12 h) ====="
-            journalctl -u hermes --since "-12 hours" --no-pager 2>/dev/null \
-              | grep -E "flow (90s|300s|900s) (live|veto)|clock .* (live|veto) \[" \
-              | tail -14 || true
-            echo
-            # Le panel top-20 ne peut accueillir un nom quapres son
-            # rattrapage dhistoire. Sans cette fenetre, « le classement ne
-            # marche pas » et « le rattrapage nest pas fini » se
-            # ressemblent exactement.
-            echo "===== univers et rattrapage dhistoire (6 h) ====="
-            journalctl -u hermes --since "-6 hours" --no-pager 2>/dev/null \
-              | grep -E "scalp universe|desk panel vise|scalp recale" \
-              | tail -14 || true
-            echo
-            # Le critere 24/7 a laisse passer sept actions tokenisees en
-            # ne parlant QUE pour refuser : le panel du 27 aout portait
-            # SNDK, XAU, SKHYNIX, SPCX, SOXL, MU et CRCL sans une seule
-            # ligne de recalage. Un critere qui ne sexplique que lorsquil
-            # dit non est a moitie aveugle. La ligne « scalp juge » porte
-            # donc les trois quantites mesurees pour TOUT nom juge, admis
-            # compris — et cest la seule chose capable de contredire le
-            # seuil de 0,15 au lieu de le confirmer par defaut.
-            #
-            # Fenetre separee, et non ajoutee a celle du dessus : vingt
-            # noms juges a chaque demarrage chasseraient les lignes de
-            # panel dun tail de quatorze.
-            echo "===== critere 24/7 : ce que chaque nom a mesure (6 h) ====="
-            journalctl -u hermes --since "-6 hours" --no-pager 2>/dev/null \
-              | grep -E "scalp juge " \
-              | sed -E "s/.*scalp juge //" \
-              | tail -30 || true
-            echo
-            # Une regle qui change didentite a chaque refit na pas de
-            # mesure en direct du tout : les trades de la fenetre viennent
-            # alors de plusieurs cellules differentes. Le mot « gardee »
-            # dit que lhysteresis a tenu ; sa rarete est le diagnostic.
-            # Le retard entre la cloture dune barre et la decision
-          # quelle declenche vaut vingt-six secondes sur la 1m et cent
-          # cinquante-deux sur la 15m, quand la porte simule zero. Trois
-          # nombres le decomposent et leur somme est le retard complet :
-          # la tournee de rafraichissement, le chargement des
-          # historiques, le calcul. Sans cette fenetre, « il faut
-          # reduire le retard » reste un voeu sans adresse.
-          # NB: aucune apostrophe ici, la commande ssh en est entouree.
-          echo "===== ou passe le temps entre la cloture et lordre ====="
-          journalctl -u hermes --since "-3 hours" --no-pager 2>/dev/null \
-            | grep -E "desk .* charge=" \
-            | sed -E "s/.*\] desk /desk /" \
-            | tail -12 || true
-          echo
-          echo "===== horloge 1m : la cellule retenue tient-elle (12 h) ====="
-            journalctl -u hermes --since "-12 hours" --no-pager 2>/dev/null \
-              | grep -E "clock 1m panel" \
-              | sed -E "s/.*clock 1m panel\[[0-9]+\] //" \
-              | sed -E "s/ic=.*net=/net=/" \
-              | tail -12 || true
-            echo
-            echo "===== profondeur par instrument (panel des horloges) ====="
-            # NB: commande ssh dejà entre apostrophes — aucune apostrophe ici,
-            # et une seule ligne, sinon le bloc YAML se casse sur l|indentation.
-            # Les six noms du panel etaient ecrits EN DUR ici, si bien que
-            # la fenetre ne pouvait pas repondre a la seule question qui
-            # compte : pourquoi les quatorze autres n entrent pas. On liste
-            # donc tous les instruments par profondeur 1m decroissante, avec
-            # une marque quand le seuil dadmission (5000 barres) est franchi.
-            # NB: aucune apostrophe ici, la commande ssh en est entouree ;
-            # le nom de barre voyage en parametre pour eviter den avoir.
-            /root/venv/bin/python -c "import sqlite3; q=sqlite3.connect(\"/root/hermes/data/market.db\").execute(\"SELECT inst,COUNT(*) FROM candles WHERE bar=? GROUP BY inst ORDER BY COUNT(*) DESC LIMIT 26\",(\"1m\",)); [print(f\"  {i.split(chr(45))[0]:12s} 1m {n:8d}  {chr(9989) if n>=5000 else chr(46)}\") for i,n in q]" 2>/dev/null || echo "  base illisible"
-            echo
-            echo "===== deployed book (registry summary) ====="
-            grep -E "\"(inst|signal|sharpe|dsr|oos_folds_positive|n_trials|consecutive_empty)\"" /root/hermes/state/registry.json 2>/dev/null || echo "no registry yet"
-            echo
-            echo "===== hermes state ====="
-            cd /root/hermes 2>/dev/null && /root/venv/bin/python -m hermes status 2>/dev/null | head -40 || echo "no state yet"
-            echo
-            echo "===== dashboard access ====="
-            # Printed on purpose: without it the owner cannot open their own
-            # console. The token already travels in cleartext in the URL of a
-            # plain-HTTP page, so a private Actions log adds little exposure —
-            # but it does persist, so rotate the token if that matters:
-            #   sed -i /^HERMES_DASH_TOKEN=/d /root/hermes/.env
-            #   bash /root/hermes/deploy/install.sh
-            if [ -f /root/hermes/.env ]; then
-              TOK=$(grep "^HERMES_DASH_TOKEN=" /root/hermes/.env | tail -1 | cut -d= -f2-)
-              [ -n "$TOK" ] && echo "url: http://178.104.191.79:8899/?key=$TOK" \
-                            || echo "no HERMES_DASH_TOKEN in .env"
-            else
-              echo ".env absent — the installer will mint a token on next run"
-            fi
-            echo
-            # Ordre delibere a partir dici. Les cinq fenetres que je lis
-            # a CHAQUE releve — ouvertures, sorties, execution, chaine
-            # de taille, deflation — sont les dernieres du rapport, et
-            # dans cet ordre. Le 29 aout au soir il ma fallu quatre
-            # rapatriements pour reunir les prix remplis et le cumule
-            # qui les recoupe, parce quils etaient separes par cent
-            # lignes de profondeurs et detat que je ne lis presque
-            # jamais. Un releve doit tenir dans une seule lecture.
-            echo "===== règle validée : ouvertures et fermetures (12 h) ====="
-            journalctl -u hermes --since "-12 hours" --no-pager 2>/dev/null \
-              | grep -E "ouverture |fermeture " | tail -20 \
-              || echo "aucune position sur règle validée"
-            echo
-            # Le suiveur ne se declenche que deux fois par campagne : une
-            # fenetre de deux heures ne le montre jamais. Celle-ci le
-            # cherche sur vingt-quatre heures et remonte les deux
-            # ouvertures qui precedent, pour avoir le prix dentree en
-            # face du prix de sortie. La ligne porte la largeur armee.
-            echo "===== sorties au suiveur, avec la largeur armee (24 h) ====="
-            # Lappariement se fait par le NOM de linstrument lu au motif,
-            # jamais par la position du champ : cest la lecon du 26 aout.
-            journalctl -u hermes --since "-24 hours" --no-pager 2>/dev/null \
-              | grep -E "ouverture |scalp TRAIL" \
-              | awk "{ if (match(\$0, /[A-Z0-9]+-USDT-SWAP/)) { k=substr(\$0, RSTART, RLENGTH); if (\$0 ~ / ouverture /) e[k]=\$0; else if (\$0 ~ / scalp TRAIL /) { if (k in e) print e[k]; print \$0; print \"--\" } } }" \
-              | tail -30 \
-              || echo "aucune sortie au suiveur en vingt-quatre heures"
-            echo
-            echo "===== éclaireurs et sorties (2 h) ====="
-            journalctl -u hermes --since "-2 hours" --no-pager 2>/dev/null \
-              | grep -E "TP .*maker|scalp SL|scalp TRAIL|scalp time-stop|explore |orpheline" \
-              | tail -14 || true
-            echo
-            echo "===== exécution mesurée (éclaireurs) ====="
-            # NB: toute cette commande ssh est déjà entre apostrophes —
-            # aucun script inséré ici ne doit en contenir une seule.
-            tr "," "\n" < /root/hermes/state/scalp.json 2>/dev/null \
-              | grep -E "tp_maker|tp_taker|entry_edge_bps|exit_maker_bps|exit_taker_bps|pnl_day_usd|confiance|frein_risque|frein_mesure|t_direct|n_carre|\"bps\"|\"n\"|retard_s|n_entrees|budget_usd|\"sl\"|\"time\"|\"trades\"" \
-              | head -20 || echo "pas encore de scalp.json"
-            echo
-            echo "===== chaine de taille : pourquoi la position fait CETTE taille ====="
-            python3 /root/hermes/deploy/releve_taille.py 2>/dev/null \
-              || echo "releve de taille indisponible"
-            echo
-            echo
-            # Cette fenetre est placee en DERNIER, et pour une raison
-            # bete : je lis le rapport par la fin, et tant quelle etait
-            # en tete il fallait rapatrier tout le rapport pour
-            # latteindre. Le 29 aout au soir jai fini un releve sans
-            # avoir pu repondre a ma propre question principale faute
-            # dy arriver. Une fenetre couteuse a lire est une fenetre
-            # quon finit par ne pas lire.
-            echo
-            # Le 29 aout, la cellule 5m [mlp/h1/abs] a ete lue deux fois :
-            # a 11h55 net=+55,93 sur 887 instants declenches, a 12h55
-            # net=+18,34 sur 2551. Meme signature, meme seuil dentree,
-            # « gardee » — et le net divise par trois. Le mot gardee ne
-            # protege que letiquette : le modele, lui, est refit a chaque
-            # cycle. Sans une fenetre qui met les verdicts successifs
-            # dune meme signature cote a cote, cette deflation nest
-            # visible que si je suis la a lheure ou elle arrive.
-            # La projection tient quarante lignes sur 24 h la ou la
-            # fenetre complete au-dessus nen tient que quatorze.
-            # Le 29 aout au soir jai verifie sur dix-neuf verdicts quel
-            # couple decide reellement du live : « sr contre vs bar »
-            # donne 19 sur 19, « net contre seuil » seulement 11 sur 19.
-            # Le champ seuil est le seuil DENTREE de la regle, pas le
-            # barreau dacceptation. La projection porte donc sr et
-            # vs bar — sans eux elle montrait tout sauf le critere.
-            # gainjour saute pour garder la ligne courte.
-            # NB: aucune apostrophe ici, la commande ssh en est entouree.
-            echo "===== deflation dun verdict a lautre : meme signature, deux lectures (24 h) ====="
-            journalctl -u hermes --since "-24 hours" --no-pager 2>/dev/null \
-              | grep -E "clock .* (live|veto) \[" \
-              | sed -E "s/^[A-Za-z]+ [0-9]+ ([0-9]+:[0-9]+):[0-9]+ .*\] clock /\1 /" \
-              | sed -E "s/panel\[[0-9]+\] //; s/ic=[^ ]+ //; s/stop=[^ ]+ //; s/pente=[^(]*\([^)]*\) //; s/profil=[^ ]+ //; s/ecart=[^ ]+ //; s/court=[^ ]+ //; s/suite=[^ ]+ //; s/trades=[^ ]+ //; s/ n=[0-9]+//; s/parjour=[^ ]+ //; s/gainjour=[^ ]+//; s/bps\/trade//" \
-              | tail -40 || true
-            echo
-            echo "===== disk / memory ====="
-            df -h / | tail -1; free -m | head -2
-          '
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+            bash -s < deploy/etat.sh
