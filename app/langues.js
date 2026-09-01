@@ -1,0 +1,284 @@
+/* ============================================================
+   Les langues de l'interface — français, anglais, albanais.
+
+   Un seul dictionnaire, trois colonnes, et une règle : TOUT texte que
+   la page montre vient d'ici. C'est aussi la passe de « bon
+   français » : chaque chaîne est écrite une fois, correctement —
+   apostrophes typographiques, espaces insécables devant les signes
+   doubles — au lieu d'être corrigée à dix endroits.
+
+   Ce qui n'est PAS traduit, et c'est un choix : le journal du moteur.
+   Ses lignes sont la voix technique du serveur — des données, pas de
+   l'interface — et les traduire fabriquerait deux vérités.
+
+   La langue est un réglage d'affichage : elle vit dans le navigateur
+   (localStorage), pas sur le serveur.
+   ============================================================ */
+"use strict";
+
+const Langues = (() => {
+
+  const D = {
+    /* ===== l'en-tête ===== */
+    "nav.marche":        { fr: "Marché", en: "Market", sq: "Tregu" },
+    "nav.labo":          { fr: "Laboratoire", en: "Laboratory", sq: "Laboratori" },
+    "tete.liaison":      { fr: "liaison…", en: "connecting…", sq: "duke u lidhur…" },
+    "tete.relie":        { fr: "relié", en: "connected", sq: "i lidhur" },
+    "tete.horsligne":    { fr: "hors ligne", en: "offline", sq: "jashtë linje" },
+    "tete.marche":       { fr: "moteur en marche", en: "engine running", sq: "motori në punë" },
+    "tete.arret":        { fr: "moteur à l’arrêt", en: "engine stopped", sq: "motori i ndalur" },
+    "tete.pilotage":     { fr: "pilotage", en: "full control", sq: "drejtim i plotë" },
+    "tete.lecture":      { fr: "lecture seule", en: "read-only", sq: "vetëm lexim" },
+    "tete.mode":         { fr: "mode…", en: "mode…", sq: "mënyra…" },
+    "tete.demarrer":     { fr: "Démarrer", en: "Start", sq: "Nis" },
+    "tete.arreter":      { fr: "Arrêter", en: "Stop", sq: "Ndal" },
+    "tete.indispo":      { fr: "Indisponible en lecture seule", en: "Unavailable in read-only mode", sq: "E padisponueshme në vetëm lexim" },
+    "tete.theme":        { fr: "Clair / sombre", en: "Light / dark", sq: "E çelët / e errët" },
+
+    /* ===== le héros ===== */
+    "hero.equite":       { fr: "Équité", en: "Equity", sq: "Kapitali" },
+    "hero.attente":      { fr: "en attente du premier relevé", en: "waiting for the first reading", sq: "në pritje të leximit të parë" },
+    "hero.aujourdhui":   { fr: "aujourd’hui · {n} trade{s}", en: "today · {n} trade{s}", sq: "sot · {n} tregti" },
+
+    /* ===== les tuiles ===== */
+    "tuile.marge":       { fr: "Marge engagée", en: "Margin in use", sq: "Marzhi i angazhuar" },
+    "tuile.notionnel":   { fr: "notionnel {v}", en: "notional {v}", sq: "nocionali {v}" },
+    "tuile.pnl":         { fr: "PnL latent", en: "Unrealized PnL", sq: "PnL i parealizuar" },
+    "tuile.pnl.sous":    { fr: "sur les positions ouvertes", en: "across open positions", sq: "në pozicionet e hapura" },
+    "tuile.positions":   { fr: "Positions", en: "Positions", sq: "Pozicionet" },
+    "tuile.dispo":       { fr: "disponible {v}", en: "available {v}", sq: "në dispozicion {v}" },
+    "tuile.gain":        { fr: "Taux de gain", en: "Win rate", sq: "Përqindja e fitoreve" },
+    "tuile.gain.sous":   { fr: "sur 24 heures", en: "over 24 hours", sq: "në 24 orë" },
+
+    /* ===== les positions ===== */
+    "pos.titre":         { fr: "Positions", en: "Positions", sq: "Pozicionet" },
+    "pos.aucune":        { fr: "aucune", en: "none", sq: "asnjë" },
+    "pos.ouvertes":      { fr: "{n} ouverte{s}", en: "{n} open", sq: "{n} të hapura" },
+    "pos.vide.titre":    { fr: "Aucune position ouverte", en: "No open positions", sq: "Asnjë pozicion i hapur" },
+    "pos.vide.texte":    { fr: "Les positions apparaissent ici dès qu’une stratégie en ouvre une, avec leur stop et leur take-profit.",
+                           en: "Positions appear here as soon as a strategy opens one, with their stop and take-profit.",
+                           sq: "Pozicionet shfaqen këtu sapo një strategji hap një të tillë, me stopin dhe take-profitin e tyre." },
+    "pos.vuetableau":    { fr: "Vue tableau", en: "Table view", sq: "Pamje tabelare" },
+    "pos.vuecartes":     { fr: "Vue cartes", en: "Card view", sq: "Pamje me karta" },
+    "pos.taille":        { fr: "Taille", en: "Size", sq: "Madhësia" },
+    "pos.marge":         { fr: "Marge", en: "Margin", sq: "Marzhi" },
+    "pos.notionnel":     { fr: "Notionnel", en: "Notional", sq: "Nocionali" },
+    "pos.tenue":         { fr: "Tenue", en: "Held", sq: "Mbajtur" },
+    "pos.delamarge":     { fr: "{v} de la marge", en: "{v} of margin", sq: "{v} e marzhit" },
+    "pos.sens":          { fr: "Sens", en: "Side", sq: "Kahu" },
+    "pos.levier":        { fr: "Levier", en: "Leverage", sq: "Leva" },
+    "pos.entree":        { fr: "Entrée", en: "Entry", sq: "Hyrja" },
+    "pos.prix":          { fr: "Prix", en: "Price", sq: "Çmimi" },
+    "pos.stop":          { fr: "Stop", en: "Stop", sq: "Stopi" },
+    "pos.mode":          { fr: "Mode", en: "Mode", sq: "Mënyra" },
+    "pos.instrument":    { fr: "Instrument", en: "Instrument", sq: "Instrumenti" },
+    "pos.ouvrirgraphe":  { fr: "Ouvrir le graphique", en: "Open the chart", sq: "Hap grafikun" },
+    "pos.trail.pose":    { fr: "posé", en: "armed", sq: "i vendosur" },
+    "pos.trail.titre":   { fr: "Un ordre de suivi est posé côté exchange", en: "A trailing order is armed on the exchange", sq: "Një urdhër ndjekës është vendosur në bursë" },
+    "pos.seuil.titre":   { fr: "Stop remonté au point mort : la position ne peut plus perdre", en: "Stop raised to break-even: the position can no longer lose", sq: "Stopi u ngrit në pikën e barazimit: pozicioni s’mund të humbasë më" },
+    "pos.trail.chip":    { fr: "Le stop suit le prix et ne redescend jamais", en: "The stop follows the price and never moves back", sq: "Stopi ndjek çmimin dhe s’kthehet kurrë mbrapa" },
+    "leg.stop":          { fr: "stop", en: "stop", sq: "stopi" },
+    "leg.stopverrou":    { fr: "stop (gain verrouillé)", en: "stop (profit locked)", sq: "stopi (fitim i kyçur)" },
+    "leg.entree":        { fr: "entrée", en: "entry", sq: "hyrja" },
+    "leg.prix":          { fr: "prix", en: "price", sq: "çmimi" },
+    "leg.tp":            { fr: "take-profit", en: "take-profit", sq: "take-profit" },
+    "regle.depart":      { fr: "départ {v}", en: "from {v}", sq: "nga {v}" },
+
+    /* ===== les clés OKX ===== */
+    "cles.titre":        { fr: "Aucune clé OKX sur le serveur.", en: "No OKX keys on the server.", sq: "Asnjë çelës OKX në server." },
+    "cles.texte":        { fr: "Hermes reçoit les prix et calcule ses signaux, mais il ne peut ni ouvrir ni fermer une position, et le compte affiché reste à zéro — ce n’est pas une perte, c’est un compte qu’il ne peut pas lire.",
+                           en: "Hermes receives prices and computes its signals, but it can neither open nor close a position, and the displayed account stays at zero — that is not a loss, it is an account it cannot read.",
+                           sq: "Hermes merr çmimet dhe llogarit sinjalet e veta, por s’mund të hapë e as të mbyllë pozicione, dhe llogaria e shfaqur mbetet zero — s’është humbje, është një llogari që ai s’mund ta lexojë." },
+    "cles.placeholder":  { fr: "Collez ici les lignes de votre .env — ou le fichier entier.\n\nOKX_API_KEY=...\nOKX_API_SECRET=...\nOKX_API_PASSPHRASE=...",
+                           en: "Paste your .env lines here — or the whole file.\n\nOKX_API_KEY=...\nOKX_API_SECRET=...\nOKX_API_PASSPHRASE=...",
+                           sq: "Ngjitni këtu rreshtat e .env tuaj — ose skedarin e plotë.\n\nOKX_API_KEY=...\nOKX_API_SECRET=...\nOKX_API_PASSPHRASE=..." },
+    "cles.poser":        { fr: "Poser les clés", en: "Set the keys", sq: "Vendos çelësat" },
+    "cles.note":         { fr: "Collez le fichier entier si c’est plus simple : Hermes n’y prend que les trois lignes OKX et ignore tout le reste. Les clés sont testées auprès d’OKX avant d’être écrites, et rien n’est enregistré si OKX les refuse. Ce formulaire ne sert qu’à l’amorçage : une fois des clés en place, il disparaît et ne peut plus les remplacer.",
+                           en: "Paste the whole file if that is easier: Hermes only reads the three OKX lines and ignores everything else. The keys are tested against OKX before being written, and nothing is saved if OKX rejects them. This form is for bootstrapping only: once keys are in place it disappears and can no longer replace them.",
+                           sq: "Ngjitni skedarin e plotë nëse është më e thjeshtë: Hermes merr vetëm tre rreshtat OKX dhe shpërfill gjithçka tjetër. Çelësat provohen te OKX para se të shkruhen, dhe asgjë nuk ruhet nëse OKX i refuzon. Ky formular shërben vetëm për nisje: sapo çelësat të jenë vendosur, ai zhduket dhe s’mund t’i zëvendësojë më." },
+    "cles.vide":         { fr: "Collez d’abord les lignes de votre .env.", en: "Paste your .env lines first.", sq: "Ngjitni fillimisht rreshtat e .env tuaj." },
+    "cles.test":         { fr: "Test auprès d’OKX…", en: "Testing against OKX…", sq: "Duke provuar te OKX…" },
+    "cles.ok":           { fr: "Clés posées et prises en compte : le moteur peut trader.", en: "Keys set and live: the engine can trade.", sq: "Çelësat u vendosën dhe janë aktivë: motori mund të tregtojë." },
+    "cles.incomplet":    { fr: "Introuvable dans ce qui a été collé : {v}", en: "Not found in what was pasted: {v}", sq: "Nuk u gjet në atë që u ngjit: {v}" },
+    "cles.deja":         { fr: "Des clés sont déjà en place : ce formulaire ne peut pas les remplacer.", en: "Keys are already in place: this form cannot replace them.", sq: "Çelësat janë tashmë të vendosur: ky formular s’mund t’i zëvendësojë." },
+    "cles.refus":        { fr: "OKX a refusé ces clés — rien n’a été écrit. {v}", en: "OKX rejected these keys — nothing was written. {v}", sq: "OKX i refuzoi këta çelësa — asgjë nuk u shkrua. {v}" },
+
+    /* ===== lecture seule ===== */
+    "lecture.titre":     { fr: "Lecture seule.", en: "Read-only.", sq: "Vetëm lexim." },
+    "lecture.texte":     { fr: "Cette page montre tout mais ne commande rien. Servi par le réseau, Hermes se met en lecture seule par défaut — l’adresse d’écoute ne dit rien de qui se connecte. Pour piloter : HERMES_UI_MODE=full dans l’environnement du service.",
+                           en: "This page shows everything but commands nothing. Served over the network, Hermes defaults to read-only — the listening address says nothing about who is connecting. To take control: HERMES_UI_MODE=full in the service environment.",
+                           sq: "Kjo faqe tregon gjithçka por s’komandon asgjë. E shërbyer nga rrjeti, Hermes kalon si parazgjedhje në vetëm lexim — adresa e dëgjimit s’thotë asgjë për atë që lidhet. Për të drejtuar: HERMES_UI_MODE=full në mjedisin e shërbimit." },
+
+    /* ===== courbe, santé, journal ===== */
+    "courbe.titre":      { fr: "Courbe d’équité", en: "Equity curve", sq: "Kurba e kapitalit" },
+    "courbe.points":     { fr: "{n} points", en: "{n} points", sq: "{n} pika" },
+    "sante.titre":       { fr: "Santé", en: "Health", sq: "Gjendja" },
+    "journal.titre":     { fr: "Journal", en: "Log", sq: "Ditari" },
+    "journal.vider":     { fr: "Vider", en: "Clear", sq: "Pastro" },
+
+    /* ===== le graphique ===== */
+    "gr.chargement":     { fr: "Chargement des chandelles…", en: "Loading candles…", sq: "Duke ngarkuar qirinjtë…" },
+    "gr.echec":          { fr: "Les chandelles ne sont pas arrivées{v}.", en: "The candles did not arrive{v}.", sq: "Qirinjtë nuk mbërritën{v}." },
+    "gr.injoignable":    { fr: "Le serveur n’a pas répondu.", en: "The server did not respond.", sq: "Serveri nuk u përgjigj." },
+    "gr.fermer":         { fr: "Fermer le graphique", en: "Close the chart", sq: "Mbyll grafikun" },
+    "gr.unite":          { fr: "Unité de temps", en: "Timeframe", sq: "Njësia kohore" },
+    "gr.aria":           { fr: "Graphique de la position", en: "Position chart", sq: "Grafiku i pozicionit" },
+    "gr.o":              { fr: "O", en: "O", sq: "H" },
+    "gr.h":              { fr: "H", en: "H", sq: "L" },
+    "gr.b":              { fr: "B", en: "L", sq: "U" },
+    "gr.c":              { fr: "C", en: "C", sq: "M" },
+    "gr.vol":            { fr: "VOL", en: "VOL", sq: "VOL" },
+    "gr.entree.tag":     { fr: "ENTRÉE", en: "ENTRY", sq: "HYRJA" },
+    "gr.seuil.tag":      { fr: "SEUIL", en: "B/E", sq: "PRAGU" },
+    "gr.niv.entree":     { fr: "Entrée", en: "Entry", sq: "Hyrja" },
+    "gr.niv.tp":         { fr: "Take-profit", en: "Take-profit", sq: "Take-profit" },
+    "gr.niv.stop":       { fr: "Stop", en: "Stop", sq: "Stopi" },
+    "gr.niv.stopverrou": { fr: "Stop (gain verrouillé)", en: "Stop (profit locked)", sq: "Stopi (fitim i kyçur)" },
+    "gr.niv.trail":      { fr: "Stop suiveur", en: "Trailing stop", sq: "Stop ndjekës" },
+    "gr.niv.liq":        { fr: "Liquidation", en: "Liquidation", sq: "Likuidimi" },
+    "gr.niv.prix":       { fr: "Prix", en: "Price", sq: "Çmimi" },
+    "gr.niv.tenue":      { fr: "Tenue", en: "Held", sq: "Mbajtur" },
+    "gr.fermee":         { fr: "position fermée", en: "position closed", sq: "pozicion i mbyllur" },
+    "gr.plusouverte":    { fr: "Cette position n’est plus ouverte — le graphique reste consultable.", en: "This position is no longer open — the chart remains available.", sq: "Ky pozicion s’është më i hapur — grafiku mbetet i disponueshëm." },
+
+    /* ===== le laboratoire ===== */
+    "labo.titre":        { fr: "Laboratoire autonome", en: "Autonomous laboratory", sq: "Laboratori autonom" },
+    "labo.sous":         { fr: "Toutes les trente minutes, le chercheur rejoue le concours entier : treize signaux, quatre familles de sorties, trois durées — jugés sur deux fenêtres de sélection disjointes, puis validés sur sept jours jamais regardés par le choix. Pas de perle = pas de trade.",
+                           en: "Every thirty minutes, the researcher replays the whole contest: thirteen signals, four exit families, three durations — judged on two disjoint selection windows, then validated on seven days the choice never saw. No pearl = no trade.",
+                           sq: "Çdo tridhjetë minuta, kërkuesi e riluan të gjithë konkursin: trembëdhjetë sinjale, katër familje daljesh, tri kohëzgjatje — të gjykuara në dy dritare të ndara përzgjedhjeje, pastaj të vlerësuara në shtatë ditë që zgjedhja s’i ka parë kurrë. S’ka perlë = s’ka tregti." },
+    "labo.perles.sur":   { fr: "perle{s} sur {n} candidats", en: "pearl{s} out of {n} candidates", sq: "perla nga {n} kandidatë" },
+    "labo.attente":      { fr: "en attente du premier verdict", en: "waiting for the first verdict", sq: "në pritje të verdiktit të parë" },
+    "labo.derniere":     { fr: "Dernière passe", en: "Last run", sq: "Kalimi i fundit" },
+    "labo.prochaine":    { fr: "Prochaine", en: "Next", sq: "Tjetri" },
+    "labo.imminente":    { fr: "imminente", en: "imminent", sq: "i afërt" },
+    "labo.dans":         { fr: "dans {v}", en: "in {v}", sq: "pas {v}" },
+    "labo.fenetres":     { fr: "Fenêtres", en: "Windows", sq: "Dritaret" },
+    "labo.fenetres.val": { fr: "{j} j · validation {v} j", en: "{j} d · validation {v} d", sq: "{j} d · vlerësim {v} d" },
+    "labo.joue":         { fr: "Le moteur joue", en: "The engine plays", sq: "Motori luan" },
+    "labo.verdict":      { fr: "ce verdict", en: "this verdict", sq: "këtë verdikt" },
+    "labo.repli":        { fr: "le repli du 31/08", en: "the 31/08 fallback", sq: "rezervën e 31/08" },
+    "labo.encours":      { fr: "Recherche en cours", en: "Search running", sq: "Kërkimi në punë" },
+    "labo.candidats":    { fr: "candidats…", en: "candidates…", sq: "kandidatët…" },
+    "labo.lancer":       { fr: "Lancer une recherche", en: "Run a search", sq: "Nis një kërkim" },
+    "labo.enrecherche":  { fr: "Recherche en cours…", en: "Search in progress…", sq: "Kërkimi në vazhdim…" },
+    "labo.constellation":{ fr: "La constellation", en: "The constellation", sq: "Plejada" },
+    "labo.posees":       { fr: "{n} posée{s}", en: "{n} placed", sq: "{n} të vendosura" },
+    "labo.carte.aria":   { fr: "Constellation : winrate de sélection contre winrate de validation", en: "Constellation: selection win rate versus validation win rate", sq: "Plejada: përqindja e fitoreve në përzgjedhje kundrejt vlerësimit" },
+    "labo.carte.vide":   { fr: "La constellation se dessinera au premier verdict du chercheur.<br>Chaque perle y sera posée par ses deux winrates — sélection et validation —<br>et le sur-ajustement se verra à l’œil : loin sous la diagonale, une stratégie a promis plus qu’elle n’a tenu.",
+                           en: "The constellation will draw itself at the researcher’s first verdict.<br>Each pearl will be placed by its two win rates — selection and validation —<br>and overfitting will be visible at a glance: far below the diagonal, a strategy promised more than it delivered.",
+                           sq: "Plejada do të vizatohet me verdiktin e parë të kërkuesit.<br>Çdo perlë do të vendoset nga dy përqindjet e saj të fitoreve — përzgjedhja dhe vlerësimi —<br>dhe mbipërshtatja do të duket me sy: larg nën diagonale, një strategji premtoi më shumë se ç’mbajti." },
+    "labo.axe.x":        { fr: "winrate de sélection (%)", en: "selection win rate (%)", sq: "fitore në përzgjedhje (%)" },
+    "labo.axe.y":        { fr: "winrate de validation (%)", en: "validation win rate (%)", sq: "fitore në vlerësim (%)" },
+    "labo.diagonale":    { fr: "au-dessus : a confirmé mieux qu’annoncé", en: "above: confirmed better than promised", sq: "sipër: konfirmoi më mirë se ç’premtoi" },
+    "labo.point.titre":  { fr: "{nom} — sélection {x} %, validation {y} %, net {net} marges", en: "{nom} — selection {x}%, validation {y}%, net {net} margins", sq: "{nom} — përzgjedhje {x}%, vlerësim {y}%, neto {net} marzhe" },
+    "labo.retenues":     { fr: "Les perles retenues", en: "Pearls retained", sq: "Perlat e mbajtura" },
+    "labo.sorties":      { fr: "TP +{tp} % marge · trail dès +{act} % · ≤ {h} h", en: "TP +{tp}% margin · trail from +{act}% · ≤ {h}h", sq: "TP +{tp}% marzh · trail nga +{act}% · ≤ {h} orë" },
+    "labo.selection":    { fr: "Sélection", en: "Selection", sq: "Përzgjedhja" },
+    "labo.validation":   { fr: "Validation", en: "Validation", sq: "Vlerësimi" },
+    "labo.trades":       { fr: "{n} trades", en: "{n} trades", sq: "{n} tregti" },
+    "labo.net":          { fr: "net {a} marges en sélection · {b} en validation", en: "net {a} margins in selection · {b} in validation", sq: "neto {a} marzhe në përzgjedhje · {b} në vlerësim" },
+    "labo.vide.verdict": { fr: "Le chercheur n’a pas encore rendu son premier verdict — il concourt en ce moment, et cette page se remplira seule.", en: "The researcher has not delivered its first verdict yet — it is competing right now, and this page will fill itself.", sq: "Kërkuesi s’e ka dhënë ende verdiktin e parë — po konkurron tani, dhe kjo faqe do të mbushet vetë." },
+    "labo.vide.repli":   { fr: "En attendant, le moteur joue le roster de repli du 31/08 :", en: "Meanwhile, the engine plays the 31/08 fallback roster:", sq: "Ndërkohë, motori luan listën rezervë të 31/08:" },
+    "labo.ecartees":     { fr: "Écartées — le verdict honnête", en: "Rejected — the honest verdict", sq: "Të skartuarat — verdikti i ndershëm" },
+    "labo.rien.ecarte":  { fr: "Rien d’écarté sur la dernière passe.", en: "Nothing rejected on the last run.", sq: "Asgjë e skartuar në kalimin e fundit." },
+    "labo.concourantes": { fr: "{n} concourante{s}", en: "{n} contender{s}", sq: "{n} konkurrente" },
+    "refus.validation":  { fr: "le vainqueur ({v}) échoue en validation", en: "the winner ({v}) fails validation", sq: "fituesi ({v}) dështon në vlerësim" },
+    "refus.aucune":      { fr: "aucune concourante positive dans A et B", en: "no contender positive in both A and B", sq: "asnjë konkurrente pozitive në A dhe B" },
+    "refus.courte":      { fr: "histoire trop courte", en: "history too short", sq: "histori tepër e shkurtër" },
+    "refus.collecte":    { fr: "échec de collecte", en: "data collection failed", sq: "mbledhja e të dhënave dështoi" },
+
+    /* ===== tuiles (suite), santé, journal, courbe ===== */
+    "tuile.trades":      { fr: "{n} trades au total", en: "{n} trades overall", sq: "{n} tregti gjithsej" },
+    "sante.attente":     { fr: "En attente du premier battement.", en: "Waiting for the first heartbeat.", sq: "Në pritje të rrahjes së parë." },
+    "sante.vert":        { fr: "{ok} / {n} au vert", en: "{ok} / {n} green", sq: "{ok} / {n} në rregull" },
+    "sante.wsPublic":    { fr: "Flux public", en: "Public feed", sq: "Rrjedha publike" },
+    "sante.wsPrivate":   { fr: "Flux privé", en: "Private feed", sq: "Rrjedha private" },
+    "sante.rest":        { fr: "API REST", en: "REST API", sq: "API REST" },
+    "sante.dataFlow":    { fr: "Données", en: "Data", sq: "Të dhënat" },
+    "sante.strategy":    { fr: "Stratégie", en: "Strategy", sq: "Strategjia" },
+    "sante.aiEngine":    { fr: "Moteur", en: "Engine", sq: "Motori" },
+    "sante.orders":      { fr: "Ordres", en: "Orders", sq: "Urdhrat" },
+    "sante.stops":       { fr: "Protections", en: "Protections", sq: "Mbrojtjet" },
+    "sante.portfolio":   { fr: "Portefeuille", en: "Portfolio", sq: "Portofoli" },
+    "journal.vide":      { fr: "Rien pour l’instant. Le journal se remplit dès que le moteur agit.",
+                           en: "Nothing yet. The log fills up as soon as the engine acts.",
+                           sq: "Asgjë ende. Ditari mbushet sapo motori vepron." },
+    "courbe.vide.titre": { fr: "Pas encore d’historique", en: "No history yet", sq: "Ende pa historik" },
+    "courbe.vide.texte": { fr: "La courbe apparaît dès que le moteur a relevé quelques points.",
+                           en: "The curve appears as soon as the engine has recorded a few points.",
+                           sq: "Kurba shfaqet sapo motori të ketë regjistruar disa pika." },
+    "courbe.plate.titre":{ fr: "Équité constante à {v} $", en: "Equity flat at {v} $", sq: "Kapital konstant në {v} $" },
+    "courbe.plate.texte":{ fr: "{n} points relevés, tous identiques. La courbe apparaîtra dès que l’équité bougera.",
+                           en: "{n} points recorded, all identical. The curve will appear as soon as equity moves.",
+                           sq: "{n} pika të regjistruara, të gjitha njësoj. Kurba do të shfaqet sapo kapitali të lëvizë." },
+    "courbe.plats":      { fr: "{n} points, plats", en: "{n} points, flat", sq: "{n} pika, të sheshta" },
+
+    /* ===== durées ===== */
+    "t.jours":           { fr: "{j} j {h} h", en: "{j}d {h}h", sq: "{j} d {h} o" },
+    "t.heures":          { fr: "{h} h {m} min", en: "{h}h {m}m", sq: "{h} o {m} min" },
+    "t.minutes":         { fr: "{m} min", en: "{m}m", sq: "{m} min" },
+    "t.secondes":        { fr: "{s} s", en: "{s}s", sq: "{s} s" },
+  };
+
+  const LOCALES = { fr: "fr-FR", en: "en-GB", sq: "sq-AL" };
+  const DISPONIBLES = ["fr", "en", "sq"];
+
+  let langue = "fr";
+  try {
+    const v = localStorage.getItem("hermes-langue");
+    if (DISPONIBLES.includes(v)) langue = v;
+  } catch {}
+
+  const abonnes = new Set();
+
+  function t(cle, vars) {
+    const e = D[cle];
+    let s = (e && (e[langue] || e.fr)) || cle;
+    if (vars) {
+      for (const k in vars) s = s.split("{" + k + "}").join(String(vars[k]));
+      // Le pluriel le plus simple qui soit : {s} devient « s » au-delà
+      // de un. Suffisant pour les trois langues telles qu’écrites ici.
+      if ("n" in vars && !("s" in vars)) s = s.split("{s}").join(Number(vars.n) > 1 ? "s" : "");
+    }
+    return s;
+  }
+
+  /* Les textes ÉCRITS dans la page (data-l, data-l-ph pour un
+     placeholder, data-l-title, data-l-aria). Le HTML garde le français
+     en dur : c’est ce qu’on voit pendant le chargement du script, et
+     c’est la langue par défaut. */
+  function appliquer() {
+    document.documentElement.lang = langue;
+    for (const el of document.querySelectorAll("[data-l]")) el.innerHTML = t(el.dataset.l);
+    for (const el of document.querySelectorAll("[data-l-ph]")) el.placeholder = t(el.dataset.lPh);
+    for (const el of document.querySelectorAll("[data-l-title]")) el.title = t(el.dataset.lTitle);
+    for (const el of document.querySelectorAll("[data-l-aria]")) el.setAttribute("aria-label", t(el.dataset.lAria));
+    for (const b of document.querySelectorAll("#nav-langue button")) {
+      b.setAttribute("aria-pressed", String(b.dataset.langue === langue));
+    }
+  }
+
+  function changer(v) {
+    if (!DISPONIBLES.includes(v) || v === langue) return;
+    langue = v;
+    try { localStorage.setItem("hermes-langue", v); } catch {}
+    appliquer();
+    for (const fn of abonnes) { try { fn(); } catch {} }
+  }
+
+  document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest("#nav-langue button[data-langue]");
+    if (b) changer(b.dataset.langue);
+  });
+
+  appliquer();
+
+  return {
+    t,
+    locale: () => LOCALES[langue],
+    langue: () => langue,
+    surChangement: (fn) => { abonnes.add(fn); return () => abonnes.delete(fn); },
+  };
+})();
+
+const t = Langues.t;

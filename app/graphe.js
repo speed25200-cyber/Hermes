@@ -53,7 +53,7 @@ const Graphe = (() => {
     try {
       const r = await api.invoke("chandelles", { instId: G.instId, bar: G.bar });
       if (!r || !r.ok || !Array.isArray(r.rows) || !r.rows.length) {
-        $g("g-zone").innerHTML = `<div class="attente">Les chandelles ne sont pas arrivées${r && r.error ? " — " + ech(r.error) : ""}.</div>`;
+        $g("g-zone").innerHTML = `<div class="attente">${ech(t("gr.echec", { v: r && r.error ? " — " + r.error : "" }))}</div>`;
         return;
       }
       // Pendant un geste ou une inertie, on ne touche a rien : la serie
@@ -73,7 +73,7 @@ const Graphe = (() => {
       }
       dessiner();
     } catch (e) {
-      $g("g-zone").innerHTML = `<div class="attente">Le serveur n'a pas répondu.</div>`;
+      $g("g-zone").innerHTML = `<div class="attente">${ech(t("gr.injoignable"))}</div>`;
     }
   }
 
@@ -95,12 +95,12 @@ const Graphe = (() => {
   function heure(ts) {
     const d = new Date(ts);
     const hm = String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
-    if (G.bar === "1D") return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" });
+    if (G.bar === "1D") return d.toLocaleDateString(Langues.locale(), { day: "2-digit", month: "short" });
     return hm;
   }
   function heurePleine(ts) {
     const d = new Date(ts);
-    return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" }) + " " +
+    return d.toLocaleDateString(Langues.locale(), { day: "2-digit", month: "short" }) + " " +
            String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
   }
 
@@ -229,9 +229,9 @@ const Graphe = (() => {
     if (pos) {
       const verrou = pos.stopActuel > 0 && pos.entryPrice > 0 &&
         (pos.side === "LONG" ? pos.stopActuel >= pos.entryPrice : pos.stopActuel <= pos.entryPrice);
-      ligne(pos.entryPrice, cT2, "ENTRÉE", "5 4");
+      ligne(pos.entryPrice, cT2, t("gr.entree.tag"), "5 4");
       ligne(pos.takeProfit, cBon, "TP");
-      ligne(pos.stopActuel, verrou ? cBon : cCrit, pos.stopMode === "TRAIL" ? "TRAIL" : verrou ? "SEUIL" : "SL");
+      ligne(pos.stopActuel, verrou ? cBon : cCrit, pos.stopMode === "TRAIL" ? "TRAIL" : verrou ? t("gr.seuil.tag") : "SL");
       ligne(pos.liqPrice, cPerte, "LIQ", "2 4");
     }
     const cPrix = dernier[4] >= dernier[1] ? cGain : cPerte;
@@ -267,11 +267,11 @@ const Graphe = (() => {
     const cls = monte ? "gain" : "perte";
     zone.innerHTML =
       `<span class="et">${ech(heurePleine(k[0]))}</span>` +
-      `<span class="${cls}"><span class="et">O</span> <b>${prix(k[1])}</b></span>` +
-      `<span class="${cls}"><span class="et">H</span> <b>${prix(k[2])}</b></span>` +
-      `<span class="${cls}"><span class="et">B</span> <b>${prix(k[3])}</b></span>` +
-      `<span class="${cls}"><span class="et">C</span> <b>${prix(k[4])}</b></span>` +
-      `<span><span class="et">VOL</span> <b>${taille(k[5])}</b></span>`;
+      `<span class="${cls}"><span class="et">${ech(t("gr.o"))}</span> <b>${prix(k[1])}</b></span>` +
+      `<span class="${cls}"><span class="et">${ech(t("gr.h"))}</span> <b>${prix(k[2])}</b></span>` +
+      `<span class="${cls}"><span class="et">${ech(t("gr.b"))}</span> <b>${prix(k[3])}</b></span>` +
+      `<span class="${cls}"><span class="et">${ech(t("gr.c"))}</span> <b>${prix(k[4])}</b></span>` +
+      `<span><span class="et">${ech(t("gr.vol"))}</span> <b>${taille(k[5])}</b></span>`;
   }
 
   function reticule(px, py) {
@@ -323,15 +323,15 @@ const Graphe = (() => {
       u.className = "u " + signe(pnl);
       u.textContent = usd(pnl);
       p.className = "p " + signe(pnl);
-      p.textContent = pct(Number(pos.pnlPctOfMargin) || 0) + " de la marge";
-    } else { u.textContent = ""; p.textContent = "position fermée"; p.className = "p"; }
+      p.textContent = t("pos.delamarge", { v: pct(Number(pos.pnlPctOfMargin) || 0) });
+    } else { u.textContent = ""; p.textContent = t("gr.fermee"); p.className = "p"; }
   }
 
   function niveauxPied(pos, prixCourant) {
     const zone = $g("g-niveaux");
-    if (!pos) { zone.innerHTML = `<span class="g-niv">Cette position n'est plus ouverte — le graphique reste consultable.</span>`; return; }
+    if (!pos) { zone.innerHTML = `<span class="g-niv">${ech(t("gr.plusouverte"))}</span>`; return; }
     const d = (v) => (pos.entryPrice > 0 && v > 0)
-      ? " · " + (((v - pos.entryPrice) / pos.entryPrice) * 100).toLocaleString("fr-FR", { maximumFractionDigits: 2, minimumFractionDigits: 2 }) + " %"
+      ? " · " + (((v - pos.entryPrice) / pos.entryPrice) * 100).toLocaleString(Langues.locale(), { maximumFractionDigits: 2, minimumFractionDigits: 2 }) + " %"
       : "";
     const verrou = pos.stopActuel > 0 && pos.entryPrice > 0 &&
       (pos.side === "LONG" ? pos.stopActuel >= pos.entryPrice : pos.stopActuel <= pos.entryPrice);
@@ -341,13 +341,13 @@ const Graphe = (() => {
       morceaux.push(`<span class="g-niv${pointille ? " pointille" : ""}" style="--c:${couleur}">
         <i></i>${etiq} <b>${prix(v)}</b>${note || ""}</span>`);
     };
-    niv("Entrée", pos.entryPrice, "var(--texte-2)", true);
-    niv("Take-profit", pos.takeProfit, "var(--bon)", false, d(pos.takeProfit));
-    niv(pos.stopMode === "TRAIL" ? "Stop suiveur" : verrou ? "Stop (gain verrouillé)" : "Stop",
+    niv(ech(t("gr.niv.entree")), pos.entryPrice, "var(--texte-2)", true);
+    niv(ech(t("gr.niv.tp")), pos.takeProfit, "var(--bon)", false, d(pos.takeProfit));
+    niv(ech(pos.stopMode === "TRAIL" ? t("gr.niv.trail") : verrou ? t("gr.niv.stopverrou") : t("gr.niv.stop")),
         pos.stopActuel, verrou ? "var(--bon)" : "var(--critique)", false, d(pos.stopActuel));
-    niv("Liquidation", pos.liqPrice, "var(--perte)", true, d(pos.liqPrice));
-    niv("Prix", prixCourant, "var(--texte)", false, d(prixCourant));
-    morceaux.push(`<span class="g-niv" style="opacity:.75">Tenue <b>${duree(pos.entryTime)}</b></span>`);
+    niv(ech(t("gr.niv.liq")), pos.liqPrice, "var(--perte)", true, d(pos.liqPrice));
+    niv(ech(t("gr.niv.prix")), prixCourant, "var(--texte)", false, d(prixCourant));
+    morceaux.push(`<span class="g-niv" style="opacity:.75">${ech(t("gr.niv.tenue"))} <b>${duree(pos.entryTime)}</b></span>`);
     zone.innerHTML = morceaux.join("");
   }
 
@@ -577,7 +577,7 @@ const Graphe = (() => {
       G.bar = b.dataset.bar;
       G.rows = []; G.a = 0; G.b = 0;
       cadres();
-      $g("g-zone").innerHTML = `<div class="attente">Chargement des chandelles…</div>`;
+      $g("g-zone").innerHTML = `<div class="attente">${ech(t("gr.chargement"))}</div>`;
       charger();
     }));
   }
@@ -591,7 +591,7 @@ const Graphe = (() => {
     document.body.style.overflow = "hidden";
     cadres();
     entete(positionCourante());
-    $g("g-zone").innerHTML = `<div class="attente">Chargement des chandelles…</div>`;
+    $g("g-zone").innerHTML = `<div class="attente">${ech(t("gr.chargement"))}</div>`;
     $g("g-niveaux").innerHTML = "";
     $g("g-ohlc").innerHTML = "";
     charger();

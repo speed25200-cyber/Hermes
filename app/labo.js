@@ -51,13 +51,28 @@ const Labo = (() => {
   const quand = (iso) => {
     const d = new Date(iso);
     if (isNaN(d)) return "—";
-    return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" }) + " " +
+    return d.toLocaleDateString(Langues.locale(), { day: "2-digit", month: "short" }) + " " +
       String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
   };
   const compte = (ms) => {
-    if (ms <= 0) return "imminente";
+    if (ms <= 0) return t("labo.imminente");
     const h = Math.floor(ms / 3600e3), m = Math.floor((ms % 3600e3) / 60e3);
-    return "dans " + (h ? h + " h " : "") + m + " min";
+    return t("labo.dans", { v: h ? t("t.heures", { h, m }) : t("t.minutes", { m }) });
+  };
+
+  /* Les raisons de refus arrivent dans la langue du serveur — le
+     francais du journal. On les traduit par MOTIF, pas par texte :
+     chaque forme connue a sa cle, et une forme inconnue passe telle
+     quelle plutot que de disparaitre. */
+  const raisonTexte = (brut) => {
+    const c = String(brut || "");
+    let m = c.match(/^le vainqueur \((.+)\) echoue en validation$/);
+    if (m) return t("refus.validation", { v: m[1] });
+    if (/aucune (?:positive|concourante positive) dans A/i.test(c)) return t("refus.aucune");
+    if (/histoire trop courte/.test(c)) return t("refus.courte");
+    m = c.match(/^echec de collecte\s*:?\s*(.*)$/);
+    if (m) return t("refus.collecte") + (m[1] ? " : " + m[1] : "");
+    return c;
   };
   const netTxt = (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
 
@@ -86,27 +101,27 @@ const Labo = (() => {
 
     $l("lb-n").textContent = r ? String(noms.length) : "—";
     $l("lb-sur").textContent = r
-      ? `perle${noms.length > 1 ? "s" : ""} sur ${nCand} candidats`
-      : "en attente du premier verdict";
+      ? t("labo.perles.sur", { n: nCand, s: noms.length > 1 ? "s" : "" })
+      : t("labo.attente");
 
     const meta = [];
     if (r) {
-      meta.push(`<span class="g-niv">Dernière passe <b>${ech(quand(r.genere))}</b>${r.dureeS ? ` · ${Math.round(r.dureeS / 60)} min` : ""}</span>`);
-      meta.push(`<span class="g-niv">Prochaine <b data-prochaine>${ech(compte(new Date(r.genere).getTime() + 30 * 60e3 - Date.now()))}</b></span>`);
+      meta.push(`<span class="g-niv">${ech(t("labo.derniere"))} <b>${ech(quand(r.genere))}</b>${r.dureeS ? ` · ${Math.round(r.dureeS / 60)} min` : ""}</span>`);
+      meta.push(`<span class="g-niv">${ech(t("labo.prochaine"))} <b data-prochaine>${ech(compte(new Date(r.genere).getTime() + 30 * 60e3 - Date.now()))}</b></span>`);
       const f = r.fenetres || {};
-      meta.push(`<span class="g-niv">Fenêtres <b>${f.jours ?? 30} j · validation ${f.validationJours ?? 7} j</b></span>`);
+      meta.push(`<span class="g-niv">${ech(t("labo.fenetres"))} <b>${ech(t("labo.fenetres.val", { j: f.jours ?? 30, v: f.validationJours ?? 7 }))}</b></span>`);
     }
     if (donnees?.joue) {
       const repli = donnees.joue.source !== "chercheur";
-      meta.push(`<span class="g-niv" style="--c:${repli ? "var(--short)" : "var(--bon)"}"><i></i>Le moteur joue <b>${repli ? "le repli du 31/08" : "ce verdict"}</b></span>`);
+      meta.push(`<span class="g-niv" style="--c:${repli ? "var(--short)" : "var(--bon)"}"><i></i>${ech(t("labo.joue"))} <b>${ech(repli ? t("labo.repli") : t("labo.verdict"))}</b></span>`);
     }
     const prog = donnees?.progression || null;
     if (prog) {
       const depuis = Math.max(0, Math.round((Date.now() - new Date(prog.debut).getTime()) / 1000));
-      const ou = prog.rang ? `${prog.rang}/${prog.total} · ${ech(prog.instId || "")}` : "candidats…";
-      meta.push(`<span class="g-niv labo-vif"><i class="labo-pouls"></i>Recherche en cours <b>${ou}</b> · ${depuis} s</span>`);
+      const ou = prog.rang ? `${prog.rang}/${prog.total} · ${ech(prog.instId || "")}` : ech(t("labo.candidats"));
+      meta.push(`<span class="g-niv labo-vif"><i class="labo-pouls"></i>${ech(t("labo.encours"))} <b>${ou}</b> · ${ech(t("t.secondes", { s: depuis }))}</span>`);
     }
-    meta.push(`<button id="lb-chercher" class="primaire" ${prog ? "disabled" : ""}>${prog ? "Recherche en cours…" : "Lancer une recherche"}</button>`);
+    meta.push(`<button id="lb-chercher" class="primaire" ${prog ? "disabled" : ""}>${ech(prog ? t("labo.enrecherche") : t("labo.lancer"))}</button>`);
     $l("lb-meta").innerHTML = meta.join("");
 
     rendreCarte(perles);
@@ -124,12 +139,10 @@ const Labo = (() => {
       y: p.mesures?.val?.winrate ?? null,
       net: (p.mesures?.sel?.netMarge ?? 0) + (p.mesures?.val?.netMarge ?? 0),
     })).filter((p) => p.x != null && p.y != null);
-    $l("lb-carte-n").textContent = pts.length ? `${pts.length} posée${pts.length > 1 ? "s" : ""}` : "—";
+    $l("lb-carte-n").textContent = pts.length ? t("labo.posees", { n: pts.length }) : "—";
 
     if (!pts.length) {
-      zone.innerHTML = `<div class="labo-vide">La constellation se dessinera au premier verdict du chercheur.<br>
-        Chaque perle y sera posée par ses deux winrates — sélection et validation —<br>
-        et le sur-ajustement se verra à l'œil : loin sous la diagonale, une stratégie a promis plus qu'elle n'a tenu.</div>`;
+      zone.innerHTML = `<div class="labo-vide">${t("labo.carte.vide")}</div>`;
       return;
     }
 
@@ -166,11 +179,11 @@ const Labo = (() => {
         <circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="${rayon(p.net).toFixed(1)}"
                 fill="var(--long)" fill-opacity=".85" stroke="var(--surface)" stroke-width="1.5"/>
         <text x="${(X(p.x) + rayon(p.net) + 6).toFixed(1)}" y="${(Y(p.y) + 3.5).toFixed(1)}" class="lc-nom">${ech(p.nom)}</text>
-        <title>${ech(p.nom)} — sélection ${p.x.toFixed(0)} %, validation ${p.y.toFixed(0)} %, net ${netTxt(p.net)} marges</title>
+        <title>${ech(t("labo.point.titre", { nom: p.nom, x: p.x.toFixed(0), y: p.y.toFixed(0), net: netTxt(p.net) }))}</title>
       </g>`).join("");
 
     zone.innerHTML = `
-      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Constellation : winrate de sélection contre winrate de validation">
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ech(t("labo.carte.aria"))}">
         <defs><filter id="lc-flou"><feGaussianBlur stdDeviation="4"/></filter></defs>
         <style>
           .lc-grad { font: 400 9.5px var(--mono); fill: var(--texte-3); }
@@ -188,10 +201,10 @@ const Labo = (() => {
         <line x1="${M.g}" y1="${Y(ay).toFixed(1)}" x2="${M.g + pw}" y2="${Y(ay).toFixed(1)}" stroke="var(--bon)" stroke-opacity=".5" stroke-dasharray="4 4"/>
         <line x1="${X(dx0).toFixed(1)}" y1="${Y(dx0).toFixed(1)}" x2="${X(dx1).toFixed(1)}" y2="${Y(dx1).toFixed(1)}"
               stroke="var(--texte-3)" stroke-opacity=".55" stroke-dasharray="2 5"/>
-        <text x="${(X(dx1) - 4).toFixed(1)}" y="${(Y(dx1) + 14).toFixed(1)}" text-anchor="end" class="lc-diag">au-dessus&nbsp;: a confirmé mieux qu'annoncé</text>
+        <text x="${(X(dx1) - 4).toFixed(1)}" y="${(Y(dx1) + 14).toFixed(1)}" text-anchor="end" class="lc-diag">${ech(t("labo.diagonale"))}</text>
         ${points}
-        <text x="${M.g + pw}" y="${H - 2}" text-anchor="end" class="lc-axe">winrate de sélection (%)</text>
-        <text x="12" y="${M.h + 10}" class="lc-axe" transform="rotate(-90 12 ${M.h + 10})" text-anchor="end">winrate de validation (%)</text>
+        <text x="${M.g + pw}" y="${H - 2}" text-anchor="end" class="lc-axe">${ech(t("labo.axe.x"))}</text>
+        <text x="12" y="${M.h + 10}" class="lc-axe" transform="rotate(-90 12 ${M.h + 10})" text-anchor="end">${ech(t("labo.axe.y"))}</text>
       </svg>`;
   }
 
@@ -206,16 +219,15 @@ const Labo = (() => {
       const joue = donnees?.joue?.strats || {};
       const nomsJoue = Object.keys(joue).map((k) => `${court(k)} <span style="color:var(--texte-3)">·</span> <code style="font-family:var(--mono);font-size:10.5px">${ech(joue[k].sig)}</code>`);
       zone.innerHTML = `<div class="labo-vide" style="grid-column:1/-1">
-        Le chercheur n'a pas encore rendu son premier verdict — il concourt en ce moment,
-        et cette page se remplira seule.<br><br>
-        En attendant, le moteur joue le roster de repli du 31/08&nbsp;:<br>
+        ${t("labo.vide.verdict")}<br><br>
+        ${t("labo.vide.repli")}<br>
         <span style="font-size:12px">${nomsJoue.join(" &nbsp; ") || "—"}</span></div>`;
       return;
     }
 
     const barre = (etiq, m) => `
       <div class="fenetre">
-        <div class="f-et"><span>${etiq} · ${m.trades} trades</span><b>${m.winrate.toFixed(0)} %</b></div>
+        <div class="f-et"><span>${etiq} · ${ech(t("labo.trades", { n: m.trades }))}</span><b>${m.winrate.toFixed(0)} %</b></div>
         <div class="f-barre"><s></s><i style="width:${Math.min(100, m.winrate).toFixed(0)}%"></i></div>
       </div>`;
 
@@ -224,12 +236,12 @@ const Labo = (() => {
       const ov = p.ov || {};
       return `<article class="perle">
         <div class="p-tete"><span class="p-nom">${ech(court(id))}</span><span class="p-sig">${ech(p.sig)}</span></div>
-        <div class="p-sorties">TP +${Math.round((ov.tpPctMargin || 0) * 100)} % marge · trail dès +${Math.round((ov.trailActPctMargin || 0) * 100)} % · ≤ ${Math.round((ov.holdMs || 0) / 3600e3)} h</div>
+        <div class="p-sorties">${ech(t("labo.sorties", { tp: Math.round((ov.tpPctMargin || 0) * 100), act: Math.round((ov.trailActPctMargin || 0) * 100), h: Math.round((ov.holdMs || 0) / 3600e3) }))}</div>
         <div class="p-fen">
-          ${m.sel ? barre("Sélection", m.sel) : ""}
-          ${m.val ? barre("Validation", m.val) : ""}
+          ${m.sel ? barre(ech(t("labo.selection")), m.sel) : ""}
+          ${m.val ? barre(ech(t("labo.validation")), m.val) : ""}
         </div>
-        <div class="p-net">net <b>${netTxt(m.sel?.netMarge ?? 0)}</b> marges en sélection · <b>${netTxt(m.val?.netMarge ?? 0)}</b> en validation</div>
+        <div class="p-net">${t("labo.net", { a: `<b>${netTxt(m.sel?.netMarge ?? 0)}</b>`, b: `<b>${netTxt(m.val?.netMarge ?? 0)}</b>` })}</div>
       </article>`;
     }).join("");
   }
@@ -241,12 +253,12 @@ const Labo = (() => {
     const entrees = Object.entries(refus);
     $l("lb-refus-n").textContent = entrees.length ? String(entrees.length) : "—";
     if (!entrees.length) {
-      zone.innerHTML = `<div class="refus" style="justify-content:center;color:var(--texte-3)">Rien d'écarté sur la dernière passe.</div>`;
+      zone.innerHTML = `<div class="refus" style="justify-content:center;color:var(--texte-3)">${ech(t("labo.rien.ecarte"))}</div>`;
       return;
     }
     zone.innerHTML = entrees.map(([id, r]) => `
-      <div class="refus"><b>${ech(court(id))}</b><span>${ech(r.raison || "—")}</span>
-        <span class="r-note">${r.concourantes || 0} concourante${(r.concourantes || 0) > 1 ? "s" : ""}</span></div>`).join("");
+      <div class="refus"><b>${ech(court(id))}</b><span>${ech(raisonTexte(r.raison) || "—")}</span>
+        <span class="r-note">${ech(t("labo.concourantes", { n: r.concourantes || 0 }))}</span></div>`).join("");
   }
 
   /* ===== la recherche manuelle ===== */
@@ -265,18 +277,20 @@ const Labo = (() => {
   document.addEventListener("click", async (e) => {
     if (!e.target || e.target.id !== "lb-chercher") return;
     e.target.disabled = true;
-    e.target.textContent = "Recherche en cours…";
+    e.target.textContent = t("labo.enrecherche");
     try {
       const r = await api.invoke("chercher-perles", {});
       if (r && (r.lance || r.dejaEnCours)) suivreLaPasse();
-      else { e.target.disabled = false; e.target.textContent = "Lancer une recherche"; }
+      else { e.target.disabled = false; e.target.textContent = t("labo.lancer"); }
     } catch {
       e.target.disabled = false;
-      e.target.textContent = "Lancer une recherche";
+      e.target.textContent = t("labo.lancer");
     }
   });
 
   /* ===== démarrage ===== */
+
+  Langues.surChangement(() => { if (donnees) rendre(); });
 
   let choix = "marche";
   try { choix = localStorage.getItem("hermes-page") || "marche"; } catch {}

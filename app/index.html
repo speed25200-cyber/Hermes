@@ -579,6 +579,9 @@ tbody tr:hover { background: var(--surface-2); }
   background: var(--surface); color: var(--texte);
   box-shadow: 0 1px 5px rgb(0 0 0 / .2);
 }
+/* Le selecteur de langue : la meme piece que la nav des pages, en
+   plus etroit — deux lettres suffisent a se reconnaitre. */
+.nav-langue button { padding: 7px 9px; font-size: 11px; letter-spacing: .05em; }
 
 .labo-hero {
   display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-end;
@@ -813,23 +816,28 @@ tbody tr:hover { background: var(--surface-2); }
       Hermes
     </div>
 
-    <span class="jeton"><span class="pt" id="pt-lien"></span><span id="t-lien">liaison…</span></span>
+    <span class="jeton"><span class="pt" id="pt-lien"></span><span id="t-lien" data-l="tete.liaison">liaison…</span></span>
     <span class="jeton"><span class="pt" id="pt-moteur"></span><span id="t-moteur">moteur</span></span>
-    <span class="jeton" id="j-mode"><span id="t-mode">mode…</span></span>
+    <span class="jeton" id="j-mode"><span id="t-mode" data-l="tete.mode">mode…</span></span>
 
     <nav class="nav-pages" aria-label="Pages">
-      <button id="nav-marche" aria-pressed="true">Marché</button>
-      <button id="nav-labo" aria-pressed="false">Laboratoire</button>
+      <button id="nav-marche" aria-pressed="true" data-l="nav.marche">Marché</button>
+      <button id="nav-labo" aria-pressed="false" data-l="nav.labo">Laboratoire</button>
     </nav>
 
     <div class="pousse">
-      <button class="icone" id="b-theme" title="Clair / sombre" aria-label="Basculer clair ou sombre">
+      <nav class="nav-pages nav-langue" id="nav-langue" aria-label="Langue">
+        <button data-langue="fr" aria-pressed="true">FR</button>
+        <button data-langue="en" aria-pressed="false">EN</button>
+        <button data-langue="sq" aria-pressed="false">SQ</button>
+      </nav>
+      <button class="icone" id="b-theme" data-l-title="tete.theme" data-l-aria="tete.theme" title="Clair / sombre" aria-label="Clair / sombre">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
           <path d="M13.4 9.7A5.7 5.7 0 0 1 6.3 2.6 5.7 5.7 0 1 0 13.4 9.7Z"
                 stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
         </svg>
       </button>
-      <button id="b-moteur" class="primaire">Démarrer</button>
+      <button id="b-moteur" class="primaire" data-l="tete.demarrer">Démarrer</button>
     </div>
   </div>
 </header>
@@ -838,11 +846,11 @@ tbody tr:hover { background: var(--surface-2); }
 
   <section class="hero">
     <div>
-      <div class="hero-etiq">Équité</div>
+      <div class="hero-etiq" data-l="hero.equite">Équité</div>
       <div class="hero-val"><span id="h-val">—</span><span class="dev">USDT</span></div>
       <div class="hero-bas">
         <span class="delta plat" id="h-delta">—</span>
-        <span class="hero-note" id="h-note">en attente du premier relevé</span>
+        <span class="hero-note" id="h-note" data-l="hero.attente">en attente du premier relevé</span>
       </div>
     </div>
     <div class="hero-etincelle" id="h-spark"></div>
@@ -854,16 +862,17 @@ tbody tr:hover { background: var(--surface-2); }
       <path d="M5.6 7V5.2a2.4 2.4 0 0 1 4.8 0V7" stroke="currentColor" stroke-width="1.5"/>
     </svg>
     <div style="flex:1;min-width:0">
-      <strong>Aucune clé OKX sur le serveur.</strong> Hermes reçoit les prix et calcule ses signaux,
+      <strong data-l="cles.titre">Aucune clé OKX sur le serveur.</strong>
+      <span data-l="cles.texte">Hermes reçoit les prix et calcule ses signaux,
       mais il ne peut ni ouvrir ni fermer une position, et le compte affiché reste à zéro —
-      ce n'est pas une perte, c'est un compte qu'il ne peut pas lire.
+      ce n'est pas une perte, c'est un compte qu'il ne peut pas lire.</span>
       <div class="cles" id="cles-form">
-        <textarea id="c-env" spellcheck="false" autocomplete="off" rows="4"
+        <textarea id="c-env" spellcheck="false" autocomplete="off" rows="4" data-l-ph="cles.placeholder"
           placeholder="Collez ici les lignes de votre .env — ou le fichier entier.&#10;&#10;OKX_API_KEY=...&#10;OKX_API_SECRET=...&#10;OKX_API_PASSPHRASE=..."></textarea>
-        <button id="c-poser" class="primaire">Poser les clés</button>
+        <button id="c-poser" class="primaire" data-l="cles.poser">Poser les clés</button>
       </div>
       <div class="cles-etat" id="cles-etat"></div>
-      <div class="cles-note">Collez le fichier entier si c'est plus simple : Hermes n'y prend que
+      <div class="cles-note" data-l="cles.note">Collez le fichier entier si c'est plus simple : Hermes n'y prend que
         les trois lignes OKX et ignore tout le reste. Les clés sont testées auprès d'OKX avant
         d'être écrites, et rien n'est enregistré si OKX les refuse. Ce formulaire ne sert qu'à
         l'amorçage : une fois des clés en place, il disparaît et ne peut plus les remplacer.</div>
@@ -875,37 +884,38 @@ tbody tr:hover { background: var(--surface-2); }
       <circle cx="8" cy="8" r="6.6" stroke="currentColor" stroke-width="1.5"/>
       <path d="M8 4.6v4.2M8 11.1v.6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
     </svg>
-    <div><strong>Lecture seule.</strong> Cette page montre tout mais ne commande rien. Servi par le réseau,
+    <div><strong data-l="lecture.titre">Lecture seule.</strong>
+      <span data-l="lecture.texte">Cette page montre tout mais ne commande rien. Servi par le réseau,
       Hermes se met en lecture seule par défaut — l'adresse d'écoute ne dit rien de qui se connecte.
-      Pour piloter&nbsp;: <code>HERMES_UI_MODE=full</code> dans l'environnement du service.</div>
+      Pour piloter&nbsp;: <code>HERMES_UI_MODE=full</code> dans l'environnement du service.</span></div>
   </div>
 
   <section class="tuiles" id="tuiles"></section>
 
   <section class="bloc">
     <div class="bloc-tete">
-      <h2>Positions</h2><span class="compte" id="n-pos">—</span>
-      <div class="pousse"><button id="b-vue" class="mini">Vue tableau</button></div>
+      <h2 data-l="pos.titre">Positions</h2><span class="compte" id="n-pos">—</span>
+      <div class="pousse"><button id="b-vue" class="mini" data-l="pos.vuetableau">Vue tableau</button></div>
     </div>
     <div class="bloc-corps" id="z-pos"></div>
     <div id="z-tab" hidden></div>
   </section>
 
   <section class="bloc">
-    <div class="bloc-tete"><h2>Courbe d'équité</h2><span class="compte" id="n-eq">—</span></div>
+    <div class="bloc-tete"><h2 data-l="courbe.titre">Courbe d'équité</h2><span class="compte" id="n-eq">—</span></div>
     <div class="bloc-corps courbe" id="z-courbe"></div>
   </section>
 
   <div class="duo">
     <section class="bloc">
-      <div class="bloc-tete"><h2>Santé</h2><span class="compte" id="n-sante">—</span></div>
+      <div class="bloc-tete"><h2 data-l="sante.titre">Santé</h2><span class="compte" id="n-sante">—</span></div>
       <div class="bloc-corps"><div class="sante" id="z-sante"></div></div>
     </section>
 
     <section class="bloc">
       <div class="bloc-tete">
-        <h2>Journal</h2><span class="compte" id="n-jrn">0</span>
-        <div class="pousse"><button id="b-vider" class="mini">Vider</button></div>
+        <h2 data-l="journal.titre">Journal</h2><span class="compte" id="n-jrn">0</span>
+        <div class="pousse"><button id="b-vider" class="mini" data-l="journal.vider">Vider</button></div>
       </div>
       <div class="journal" id="z-jrn"></div>
     </section>
@@ -916,8 +926,8 @@ tbody tr:hover { background: var(--surface-2); }
 <div class="page" id="page-labo" hidden>
   <div class="labo-hero">
     <div>
-      <h1>Laboratoire autonome</h1>
-      <div class="sous">Toutes les trente minutes, le chercheur rejoue le concours entier&nbsp;:
+      <h1 data-l="labo.titre">Laboratoire autonome</h1>
+      <div class="sous" data-l="labo.sous">Toutes les trente minutes, le chercheur rejoue le concours entier&nbsp;:
         treize signaux, quatre familles de sorties, trois durées — jugés sur deux fenêtres de
         sélection disjointes, puis validés sur sept jours jamais regardés par le choix.
         Pas de perle&nbsp;= pas de trade.</div>
@@ -930,42 +940,43 @@ tbody tr:hover { background: var(--surface-2); }
   <div class="labo-meta" id="lb-meta"></div>
 
   <section class="bloc">
-    <div class="bloc-tete"><h2>La constellation</h2><span class="compte" id="lb-carte-n">—</span></div>
+    <div class="bloc-tete"><h2 data-l="labo.constellation">La constellation</h2><span class="compte" id="lb-carte-n">—</span></div>
     <div class="bloc-corps labo-carte" id="lb-carte"></div>
   </section>
 
   <section class="bloc">
-    <div class="bloc-tete"><h2>Les perles retenues</h2><span class="compte" id="lb-perles-n">—</span></div>
+    <div class="bloc-tete"><h2 data-l="labo.retenues">Les perles retenues</h2><span class="compte" id="lb-perles-n">—</span></div>
     <div class="bloc-corps"><div class="labo-perles" id="lb-perles"></div></div>
   </section>
 
   <section class="bloc">
-    <div class="bloc-tete"><h2>Écartées — le verdict honnête</h2><span class="compte" id="lb-refus-n">—</span></div>
+    <div class="bloc-tete"><h2 data-l="labo.ecartees">Écartées — le verdict honnête</h2><span class="compte" id="lb-refus-n">—</span></div>
     <div class="bloc-corps"><div class="refus-liste" id="lb-refus"></div></div>
   </section>
 </div>
 
 <div class="voile" id="g-voile" hidden>
-  <section class="graphe" role="dialog" aria-modal="true" aria-label="Graphique de la position">
+  <section class="graphe" role="dialog" aria-modal="true" data-l-aria="gr.aria" aria-label="Graphique de la position">
     <header class="g-tete">
       <span class="g-sym" id="g-sym"></span>
       <span class="sens" id="g-sens"></span>
       <span class="lev" id="g-lev"></span>
       <span class="g-pnl"><span class="u" id="g-pnl"></span><span class="p" id="g-pct"></span></span>
-      <div class="g-cadres" id="g-cadres" role="tablist" aria-label="Unité de temps"></div>
-      <button class="icone" id="g-fermer" aria-label="Fermer le graphique">
+      <div class="g-cadres" id="g-cadres" role="tablist" data-l-aria="gr.unite" aria-label="Unité de temps"></div>
+      <button class="icone" id="g-fermer" data-l-aria="gr.fermer" aria-label="Fermer le graphique">
         <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
           <path d="M3.5 3.5l8 8m0-8l-8 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
         </svg>
       </button>
     </header>
     <div class="g-lecture" id="g-ohlc"></div>
-    <div class="g-zone" id="g-zone"><div class="attente">Chargement des chandelles…</div></div>
+    <div class="g-zone" id="g-zone"><div class="attente" data-l="gr.chargement">Chargement des chandelles…</div></div>
     <footer class="g-niveaux" id="g-niveaux"></footer>
   </section>
 </div>
 
 <script src="/pont.js"></script>
+<script src="/langues.js"></script>
 <script src="/vue.js"></script>
 <script src="/graphe.js"></script>
 <script src="/labo.js"></script>

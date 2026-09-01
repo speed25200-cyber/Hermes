@@ -26,7 +26,7 @@
 /* ===== mise en forme ===== */
 
 const nf = (n, d = 2) => (Number.isFinite(n) ? n : 0)
-  .toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d });
+  .toLocaleString(Langues.locale(), { minimumFractionDigits: d, maximumFractionDigits: d });
 
 // Un prix na pas un nombre fixe de decimales : BTC a 110 000 et PUMP a
 // 0,0043 ne se lisent pas avec la meme regle.
@@ -35,7 +35,7 @@ function prix(p) {
   if (!Number.isFinite(v) || v === 0) return "—";
   const a = Math.abs(v);
   const d = a >= 1000 ? 1 : a >= 10 ? 2 : a >= 1 ? 3 : a >= 0.01 ? 5 : 7;
-  return v.toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d });
+  return v.toLocaleString(Langues.locale(), { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 // « 820 000,0000 » ne dit rien de plus que « 820 000 » : il occupe la
 // place ou devrait tenir un chiffre utile.
@@ -44,7 +44,7 @@ function taille(q) {
   if (!Number.isFinite(v)) return "—";
   const a = Math.abs(v);
   const d = a >= 1000 ? 0 : a >= 10 ? 2 : a >= 1 ? 3 : 4;
-  return v.toLocaleString("fr-FR", { minimumFractionDigits: d, maximumFractionDigits: d });
+  return v.toLocaleString(Langues.locale(), { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 const usd = (n) => (n >= 0 ? "+" : "−") + nf(Math.abs(n)) + " $";
 const pct = (n) => (n >= 0 ? "+" : "−") + nf(Math.abs(n)) + " %";
@@ -56,9 +56,9 @@ function duree(ms) {
   const j = Math.floor(s / 86400); s -= j * 86400;
   const h = Math.floor(s / 3600);  s -= h * 3600;
   const m = Math.floor(s / 60);
-  if (j) return `${j} j ${h} h`;
-  if (h) return `${h} h ${m} min`;
-  return `${m} min`;
+  if (j) return t("t.jours", { j, h });
+  if (h) return t("t.heures", { h, m });
+  return t("t.minutes", { m });
 }
 const court = (s) => String(s || "").replace(/-USDT-SWAP$/, "").replace(/-SWAP$/, "");
 const ech = (s) => String(s == null ? "" : s)
@@ -81,7 +81,7 @@ const SOBRE = matchMedia("(prefers-reduced-motion: reduce)").matches;
    cesse de voir, et pire, quon finit par ne plus distinguer dun vrai
    mouvement.
    ============================================================ */
-const _valeurs = new WeakMap();
+let _valeurs = new WeakMap();   // reinitialise au changement de langue
 function poserNombre(el, valeur, formate, teinte) {
   if (!el) return;
   const avant = _valeurs.get(el);
@@ -194,7 +194,7 @@ function majReglette(svg, p) {
   const verrou = Number.isFinite(sl) && entree > 0 && (long ? sl >= entree : sl <= entree);
   const couleurStop = verrou ? "var(--bon)" : "var(--critique)";
   const modeStop = p.stopMode || null;
-  const etiqStop = modeStop === "TRAIL" ? "TRAIL " : modeStop === "BE" ? "SEUIL " : "SL ";
+  const etiqStop = modeStop === "TRAIL" ? "TRAIL " : modeStop === "BE" ? t("gr.seuil.tag") + " " : "SL ";
 
   // La bande entre lentree et le prix : elle dit le sens ET lampleur
   // du mouvement sans quon ait a comparer deux nombres.
@@ -231,7 +231,7 @@ function majReglette(svg, p) {
   poser("tp", tp, "TP " + prix(tp), "var(--bon)");
   poser("prix", marque, prix(marque), long ? "var(--long)" : "var(--short)");
   poser("sl", sl, etiqStop + prix(sl), couleurStop);
-  poser("entree", entree, "ENTRÉE " + prix(entree), "var(--texte-2)");
+  poser("entree", entree, t("gr.entree.tag") + " " + prix(entree), "var(--texte-2)");
 
   // Le stop dorigine, quand le trail la deplace. Sans lui on ne mesure
   // pas le chemin parcouru, qui est tout lapport dun trail.
@@ -242,7 +242,7 @@ function majReglette(svg, p) {
       const xa = x(slInit), xb = x(sl);
       f.style.transform = `translateX(${xa.toFixed(1)}px)`;
       f.querySelector("line").setAttribute("x2", (xb - xa).toFixed(1));
-      f.querySelector("text").textContent = "départ " + prix(slInit);
+      f.querySelector("text").textContent = t("regle.depart", { v: prix(slInit) });
     } else f.style.opacity = "0";
   }
   return { verrou, long };
@@ -260,7 +260,7 @@ function coquePosition(p) {
       <span class="sens"></span>
       <span class="lev"></span>
       <span data-marques></span>
-      <span class="apercu-ind" aria-hidden="true" title="Ouvrir le graphique">
+      <span class="apercu-ind" aria-hidden="true" title="${ech(t("pos.ouvrirgraphe"))}">
         <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
           <path d="M3.2 2.4v3.4M3.2 9v4.2M8 2.4v1.8M8 10.4v3.2M12.8 2.4v4.6M12.8 12v1.6"
                 stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
@@ -272,10 +272,10 @@ function coquePosition(p) {
       <div class="pos-pnl"><div class="u"></div><div class="p"></div></div>
     </div>
     <div class="faits">
-      <div class="fait"><div class="e">Taille</div><div class="v" data-f="size"></div></div>
-      <div class="fait"><div class="e">Marge</div><div class="v" data-f="marge"></div></div>
-      <div class="fait"><div class="e">Notionnel</div><div class="v" data-f="notio"></div></div>
-      <div class="fait"><div class="e">Tenue</div><div class="v" data-f="tenue"></div></div>
+      <div class="fait"><div class="e" data-l="pos.taille">${t("pos.taille")}</div><div class="v" data-f="size"></div></div>
+      <div class="fait"><div class="e" data-l="pos.marge">${t("pos.marge")}</div><div class="v" data-f="marge"></div></div>
+      <div class="fait"><div class="e" data-l="pos.notionnel">${t("pos.notionnel")}</div><div class="v" data-f="notio"></div></div>
+      <div class="fait"><div class="e" data-l="pos.tenue">${t("pos.tenue")}</div><div class="v" data-f="tenue"></div></div>
     </div>
     <div class="regle">
       ${squeletteReglette()}
@@ -295,13 +295,13 @@ function majPosition(el, p) {
 
   let marques = "";
   if (p.stopMode === "TRAIL") {
-    marques += `<span class="marque trail" title="Le stop suit le prix et ne redescend jamais">
+    marques += `<span class="marque trail" title="${ech(t("pos.trail.chip"))}">
       <svg width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M2 8L8 2M8 2H4M8 2v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>TRAIL</span>`;
   } else if (p.stopMode === "BE") {
-    marques += `<span class="marque seuil" title="Stop remonté au point mort : la position ne peut plus perdre">= SEUIL</span>`;
+    marques += `<span class="marque seuil" title="${ech(t("pos.seuil.titre"))}">= ${ech(t("gr.seuil.tag"))}</span>`;
   }
-  if (p.trailArme) marques += `<span class="marque trail" title="Un ordre de suivi est posé côté exchange">
-      <svg width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M4.2 5.8 5.8 4.2M3 7 2 8a1.7 1.7 0 0 0 2.4 2.4l1-1M7 3l1-1a1.7 1.7 0 0 0-2.4-2.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" transform="translate(1.2 0.6) scale(0.85)"/></svg>posé</span>`;
+  if (p.trailArme) marques += `<span class="marque trail" title="${ech(t("pos.trail.titre"))}">
+      <svg width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M4.2 5.8 5.8 4.2M3 7 2 8a1.7 1.7 0 0 0 2.4 2.4l1-1M7 3l1-1a1.7 1.7 0 0 0-2.4-2.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" transform="translate(1.2 0.6) scale(0.85)"/></svg>${ech(t("pos.trail.pose"))}</span>`;
   const zm = el.querySelector("[data-marques]");
   if (zm.innerHTML !== marques) zm.innerHTML = marques;
 
@@ -309,7 +309,7 @@ function majPosition(el, p) {
   const u = el.querySelector(".pos-pnl .u");
   u.className = "u " + signe(pnl);
   poserNombre(u, pnl, usd);
-  el.querySelector(".pos-pnl .p").textContent = pct(Number(p.pnlPctOfMargin) || 0) + " de la marge";
+  el.querySelector(".pos-pnl .p").textContent = t("pos.delamarge", { v: pct(Number(p.pnlPctOfMargin) || 0) });
 
   // La taille arrive en monnaie de base, comme sur lexchange ; nommer
   // la monnaie evite de relire le titre de la carte pour savoir de quoi
@@ -324,10 +324,10 @@ function majPosition(el, p) {
   // au-dela de lentree y est vert, lannoncer rouge ferait mentir lun
   // des deux.
   el.querySelector("[data-legende]").innerHTML =
-    `<span><i style="background:${r.verrou ? "var(--bon)" : "var(--critique)"}"></i>${r.verrou ? "stop (gain verrouillé)" : "stop"}</span>
-     <span><i style="background:var(--texte-2)"></i>entrée</span>
-     <span><i style="background:${long ? "var(--long)" : "var(--short)"}"></i>prix</span>
-     <span><i style="background:var(--bon)"></i>take-profit</span>`;
+    `<span><i style="background:${r.verrou ? "var(--bon)" : "var(--critique)"}"></i>${ech(r.verrou ? t("leg.stopverrou") : t("leg.stop"))}</span>
+     <span><i style="background:var(--texte-2)"></i>${ech(t("leg.entree"))}</span>
+     <span><i style="background:${long ? "var(--long)" : "var(--short)"}"></i>${ech(t("leg.prix"))}</span>
+     <span><i style="background:var(--bon)"></i>${ech(t("leg.tp"))}</span>`;
 }
 
 /* ============================================================
@@ -340,7 +340,7 @@ function majPosition(el, p) {
    ============================================================ */
 function rendrePositions() {
   const liste = (E.pf && E.pf.openPositionsDetails) || [];
-  $("n-pos").textContent = liste.length ? `${liste.length} ouverte${liste.length > 1 ? "s" : ""}` : "aucune";
+  $("n-pos").textContent = liste.length ? t("pos.ouvertes", { n: liste.length }) : t("pos.aucune");
 
   const zc = $("z-pos"), zt = $("z-tab");
   zc.hidden = E.tableau; zt.hidden = !E.tableau;
@@ -351,8 +351,8 @@ function rendrePositions() {
   if (!liste.length) {
     zc.innerHTML = `<div class="vide">
       <svg width="34" height="34" viewBox="0 0 24 24" fill="none"><rect x="3" y="3" width="18" height="18" rx="4" stroke="currentColor" stroke-width="1.6"/><path d="M8 12h8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-      <strong>Aucune position ouverte</strong>
-      Les positions apparaissent ici dès qu'une stratégie en ouvre une, avec leur stop et leur take-profit.</div>`;
+      <strong>${ech(t("pos.vide.titre"))}</strong>
+      ${ech(t("pos.vide.texte"))}</div>`;
     return;
   }
   if (!grille) { zc.innerHTML = `<div class="positions"></div>`; grille = zc.querySelector(".positions"); }
@@ -381,10 +381,10 @@ function rendrePositions() {
 }
 
 function tableau(l) {
-  if (!l.length) return `<div class="vide">Aucune position ouverte.</div>`;
+  if (!l.length) return `<div class="vide">${ech(t("pos.vide.titre"))}.</div>`;
   return `<div class="roule"><table>
-    <thead><tr><th>Instrument</th><th>Sens</th><th>Levier</th><th>Taille</th><th>Marge</th>
-    <th>Entrée</th><th>Prix</th><th>Stop</th><th>Mode</th><th>TP</th><th>PnL</th><th>Tenue</th></tr></thead>
+    <thead><tr><th>${ech(t("pos.instrument"))}</th><th>${ech(t("pos.sens"))}</th><th>${ech(t("pos.levier"))}</th><th>${ech(t("pos.taille"))}</th><th>${ech(t("pos.marge"))}</th>
+    <th>${ech(t("pos.entree"))}</th><th>${ech(t("pos.prix"))}</th><th>${ech(t("pos.stop"))}</th><th>${ech(t("pos.mode"))}</th><th>TP</th><th>PnL</th><th>${ech(t("pos.tenue"))}</th></tr></thead>
     <tbody>${l.map((p) => `<tr data-sym="${ech(p.symbol)}">
       <td>${ech(court(p.symbol))}</td>
       <td>${p.side === "LONG" ? "↑ LONG" : "↓ SHORT"}</td>
@@ -450,7 +450,7 @@ function etincelle(points, sens) {
 function courbe(points) {
   const z = $("z-courbe");
   if (!points || points.length < 2) {
-    z.innerHTML = `<div class="vide"><strong>Pas encore d'historique</strong>La courbe apparaît dès que le moteur a relevé quelques points.</div>`;
+    z.innerHTML = `<div class="vide"><strong>${ech(t("courbe.vide.titre"))}</strong>${ech(t("courbe.vide.texte"))}</div>`;
     return;
   }
   const vs = points.map((p) => Number(p.v) || 0);
@@ -459,9 +459,9 @@ function courbe(points) {
   // que de nen montrer aucune : lecart affiche viendrait du
   // remplissage, et le lecteur croirait voir une variation.
   if (mn === mx) {
-    z.innerHTML = `<div class="vide"><strong>Équité constante à ${nf(mn)} $</strong>
-      ${points.length} points relevés, tous identiques. La courbe apparaîtra dès que l'équité bougera.</div>`;
-    $("n-eq").textContent = `${points.length} points, plats`;
+    z.innerHTML = `<div class="vide"><strong>${ech(t("courbe.plate.titre", { v: nf(mn) }))}</strong>
+      ${ech(t("courbe.plate.texte", { n: points.length }))}</div>`;
+    $("n-eq").textContent = t("courbe.plats", { n: points.length });
     return;
   }
 
@@ -513,7 +513,7 @@ function courbe(points) {
     bulle.style.opacity = "1";
     bulle.style.left = (px / w * r.width) + "px";
     bulle.style.top = (py / h * r.height) + "px";
-    bulle.textContent = `${nf(points[i].v)} $ · ${new Date(points[i].t).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}`;
+    bulle.textContent = `${nf(points[i].v)} $ · ${new Date(points[i].t).toLocaleTimeString(Langues.locale(), { hour: "2-digit", minute: "2-digit" })}`;
   };
   const sortie = () => { vis.setAttribute("opacity", "0"); pt.setAttribute("opacity", "0"); bulle.style.opacity = "0"; };
   const cap = $("capteur");
@@ -522,7 +522,7 @@ function courbe(points) {
   cap.addEventListener("touchmove", survol, { passive: true });
   cap.addEventListener("touchend", sortie);
 
-  $("n-eq").textContent = `${points.length} points`;
+  $("n-eq").textContent = t("courbe.points", { n: points.length });
 }
 
 /* ===== hero et tuiles ===== */
@@ -541,50 +541,52 @@ function rendreHero() {
     `<svg width="11" height="11" viewBox="0 0 12 12" fill="none" style="transform:rotate(${jour > 0 ? 0 : 180}deg)">
        <path d="M6 10V2M6 2L2.5 5.5M6 2l3.5 3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`)
     + `<span>${usd(jour)}</span>`;
-  $("h-note").textContent = `aujourd'hui · ${Number(pe.dailyTrades) || 0} trade${(Number(pe.dailyTrades) || 0) > 1 ? "s" : ""}`;
+  $("h-note").textContent = t("hero.aujourdhui", { n: Number(pe.dailyTrades) || 0 });
 
   etincelle(d.history ? d.history.spot : [], jour);
 }
 
 const TUILES = [
-  { cle: "marge", e: "Marge engagée", v: (d) => Number(d.positions && d.positions.totalMargin) || 0, fmt: (v) => nf(v) + " $",
-    s: (d) => `notionnel ${nf(Number(d.positions && d.positions.totalValue) || 0)} $` },
-  { cle: "latent", e: "PnL latent", v: (d) => Number(d.futures && d.futures.unrealizedPnL) || 0, fmt: usd, teinte: true,
-    s: () => "sur les positions ouvertes" },
-  { cle: "ouvertes", e: "Positions", v: (d) => Number(d.positions && d.positions.count) || 0, fmt: (v) => String(Math.round(v)),
-    s: (d) => `disponible ${nf(Number(d.futures && d.futures.available) || 0)} $` },
-  { cle: "gain", e: "Taux de gain", v: (d) => Number(d.performance && d.performance.winrate) || 0, fmt: (v) => nf(v, 1) + " %",
-    s: (d) => `${Number(d.performance && d.performance.totalTrades) || 0} trades au total` },
+  { cle: "marge", e: () => t("tuile.marge"), v: (d) => Number(d.positions && d.positions.totalMargin) || 0, fmt: (v) => nf(v) + " $",
+    s: (d) => t("tuile.notionnel", { v: nf(Number(d.positions && d.positions.totalValue) || 0) + " $" }) },
+  { cle: "latent", e: () => t("tuile.pnl"), v: (d) => Number(d.futures && d.futures.unrealizedPnL) || 0, fmt: usd, teinte: true,
+    s: () => t("tuile.pnl.sous") },
+  { cle: "ouvertes", e: () => t("tuile.positions"), v: (d) => Number(d.positions && d.positions.count) || 0, fmt: (v) => String(Math.round(v)),
+    s: (d) => t("tuile.dispo", { v: nf(Number(d.futures && d.futures.available) || 0) + " $" }) },
+  { cle: "gain", e: () => t("tuile.gain"), v: (d) => Number(d.performance && d.performance.winrate) || 0, fmt: (v) => nf(v, 1) + " %",
+    s: (d) => t("tuile.trades", { n: Number(d.performance && d.performance.totalTrades) || 0 }) },
 ];
 
 function rendreTuiles() {
   const d = E.pf || {};
   const z = $("tuiles");
   if (!z.children.length) {
-    z.innerHTML = TUILES.map((t, i) => `<div class="tuile entre" data-t="${t.cle}" style="animation-delay:${i * 60}ms">
-      <div class="e">${t.e}</div><div class="v"></div><div class="s"></div></div>`).join("");
+    z.innerHTML = TUILES.map((tl, i) => `<div class="tuile entre" data-t="${tl.cle}" style="animation-delay:${i * 60}ms">
+      <div class="e"></div><div class="v"></div><div class="s"></div></div>`).join("");
   }
-  for (const t of TUILES) {
-    const el = z.querySelector(`[data-t="${t.cle}"]`);
+  for (const tl of TUILES) {
+    const el = z.querySelector(`[data-t="${tl.cle}"]`);
     const v = el.querySelector(".v");
-    poserNombre(v, t.v(d), t.fmt, t.teinte);
-    if (t.teinte) v.className = "v " + signe(t.v(d));
-    el.querySelector(".s").textContent = t.s(d);
+    el.querySelector(".e").textContent = tl.e();
+    poserNombre(v, tl.v(d), tl.fmt, tl.teinte);
+    if (tl.teinte) v.className = "v " + signe(tl.v(d));
+    el.querySelector(".s").textContent = tl.s(d);
   }
 }
 
 /* ===== sante ===== */
 
-const NOMS = {
-  wsPublic: "Flux public", wsPrivate: "Flux privé", rest: "API REST",
-  dataFlow: "Données", strategy: "Stratégie", aiEngine: "Moteur",
-  orders: "Ordres", stops: "Protections", portfolio: "Portefeuille",
+// Chaque module connu a sa cle de traduction ; un module inconnu garde
+// son nom technique, qui vaut mieux quun trou.
+const NOMS = (k) => {
+  const connu = ["wsPublic", "wsPrivate", "rest", "dataFlow", "strategy", "aiEngine", "orders", "stops", "portfolio"];
+  return connu.includes(k) ? t("sante." + k) : k;
 };
 function rendreSante() {
   const m = E.sante.modules || {};
   const cles = Object.keys(m);
   const z = $("z-sante");
-  if (!cles.length) { z.innerHTML = `<div class="vide" style="padding:26px">En attente du premier battement.</div>`; return; }
+  if (!cles.length) { z.innerHTML = `<div class="vide" style="padding:26px">${ech(t("sante.attente"))}</div>`; return; }
   let ok = 0;
   z.innerHTML = cles.map((k, i) => {
     const v = m[k] || {};
@@ -595,9 +597,9 @@ function rendreSante() {
     // Le statut ne se lit pas quau point : le mot est a cote.
     return `<div class="mod${E.premier ? " entre" : ""}" style="animation-delay:${i * 35}ms" title="${ech(detail)}">
       <span class="pt ${c}${s === "OK" ? " vif" : ""}"></span>
-      <div><div class="n">${ech(NOMS[k] || k)}</div><div class="i">${ech(detail)}</div></div></div>`;
+      <div><div class="n">${ech(NOMS(k))}</div><div class="i">${ech(detail)}</div></div></div>`;
   }).join("");
-  $("n-sante").textContent = `${ok} / ${cles.length} au vert`;
+  $("n-sante").textContent = t("sante.vert", { ok, n: cles.length });
 }
 
 /* ===== journal ===== */
@@ -614,14 +616,14 @@ let _vuJournal = 0;
 function rendreJournal() {
   const z = $("z-jrn");
   if (!E.journal.length) {
-    z.innerHTML = `<div class="vide" style="padding:34px">Rien pour l'instant. Le journal se remplit dès que le moteur agit.</div>`;
+    z.innerHTML = `<div class="vide" style="padding:34px">${ech(t("journal.vide"))}</div>`;
     _vuJournal = 0; return;
   }
   const auBas = z.scrollTop + z.clientHeight >= z.scrollHeight - 44;
   const vis = E.journal.slice(-260);
   z.innerHTML = vis.map((l, i) => {
     const { ts, event, ...reste } = l;
-    const h = ts ? new Date(ts).toLocaleTimeString("fr-FR", { hour12: false }) : "--:--:--";
+    const h = ts ? new Date(ts).toLocaleTimeString(Langues.locale(), { hour12: false }) : "--:--:--";
     const c = CLASSE(event);
     const neuf = i >= vis.length - (E.journal.length - _vuJournal) ? " neuf" : "";
     return `<div class="jl ${c}${neuf}"><span class="t">${ech(h)}</span>
@@ -637,9 +639,9 @@ function rendreJournal() {
 
 function rendreEntete() {
   $("pt-lien").className = "pt " + (E.relie ? "bon vif" : "critique");
-  $("t-lien").textContent = E.relie ? "relié" : "hors ligne";
+  $("t-lien").textContent = E.relie ? t("tete.relie") : t("tete.horsligne");
   $("pt-moteur").className = "pt " + (E.moteur ? "bon vif" : "");
-  $("t-moteur").textContent = E.moteur ? "moteur en marche" : "moteur à l'arrêt";
+  $("t-moteur").textContent = E.moteur ? t("tete.marche") : t("tete.arret");
 
   // Sans cles, le compte affiche zero. Le dire est plus utile que de le
   // montrer : un zero muet se lit comme une perte ou une panne.
@@ -647,14 +649,14 @@ function rendreEntete() {
   $("avis-cles").hidden = !sansCles;
 
   const pilote = E.mode === "full";
-  $("t-mode").textContent = pilote ? "pilotage" : "lecture seule";
+  $("t-mode").textContent = pilote ? t("tete.pilotage") : t("tete.lecture");
   $("avis-lecture").hidden = pilote;
 
   const b = $("b-moteur");
-  b.textContent = E.moteur ? "Arrêter" : "Démarrer";
+  b.textContent = E.moteur ? t("tete.arreter") : t("tete.demarrer");
   b.className = E.moteur ? "stop" : "primaire";
   b.disabled = !pilote;
-  b.title = pilote ? "" : "Indisponible en lecture seule";
+  b.title = pilote ? "" : t("tete.indispo");
 }
 
 /* ===== boucle ===== */
@@ -701,7 +703,7 @@ $("b-moteur").addEventListener("click", async () => {
 });
 $("b-vue").addEventListener("click", () => {
   E.tableau = !E.tableau;
-  $("b-vue").textContent = E.tableau ? "Vue cartes" : "Vue tableau";
+  $("b-vue").textContent = E.tableau ? t("pos.vuecartes") : t("pos.vuetableau");
   $("z-pos").innerHTML = "";           // la grille se reconstruit au retour
   rendrePositions();
 });
@@ -713,8 +715,8 @@ $("b-vider").addEventListener("click", () => { E.journal = []; rendreJournal(); 
 $("c-poser").addEventListener("click", async () => {
   const b = $("c-poser"), e = $("cles-etat");
   const env = $("c-env").value;
-  if (!env.trim()) { e.className = "cles-etat ko"; e.textContent = "Collez d'abord les lignes de votre .env."; return; }
-  b.disabled = true; e.className = "cles-etat"; e.textContent = "Test auprès d'OKX…";
+  if (!env.trim()) { e.className = "cles-etat ko"; e.textContent = t("cles.vide"); return; }
+  b.disabled = true; e.className = "cles-etat"; e.textContent = t("cles.test");
   try {
     const r = await api.invoke("poser-cles", { env });
     // Le champ est vide des la reponse recue, quelle quelle soit : un
@@ -723,11 +725,20 @@ $("c-poser").addEventListener("click", async () => {
     $("c-env").value = "";
     if (r && r.ok) {
       e.className = "cles-etat ok";
-      e.textContent = `Acceptées par OKX — compte niveau ${r.niveau}, mode ${r.modePosition}. Le moteur les utilise déjà.`;
+      e.textContent = t("cles.ok") + ` (acctLv ${r.niveau} · ${r.modePosition})`;
       setTimeout(rafraichir, 1200);
+    } else if (r && r.error === "DEJA_POSEES") {
+      e.className = "cles-etat ko"; e.textContent = t("cles.deja");
+    } else if (r && r.error === "INCOMPLET") {
+      // Le serveur nomme les lignes absentes a la fin de son message ;
+      // on garde ses noms, on traduit la phrase.
+      const noms = String(r.message || "").match(/OKX_[A-Z_]+(?:, OKX_[A-Z_]+)*/);
+      e.className = "cles-etat ko"; e.textContent = t("cles.incomplet", { v: noms ? noms[0] : "?" });
+    } else if (r && r.error === "REFUSE_PAR_OKX") {
+      e.className = "cles-etat ko"; e.textContent = t("cles.refus", { v: r.message || r.code || "" });
     } else {
       e.className = "cles-etat ko";
-      e.textContent = (r && (r.message || r.error)) || "refus sans explication";
+      e.textContent = (r && (r.message || r.error)) || "?";
     }
   } catch (err) {
     e.className = "cles-etat ko"; e.textContent = String(err.message || err);
@@ -752,6 +763,22 @@ $("c-poser").addEventListener("click", async () => {
     rafraichir._n = -1; rafraichir();
   });
 })();
+
+// Le changement de langue re-rend tout ce que le script ecrit lui-meme
+// (les textes poses dans la page, eux, sont deja re-appliques par
+// Langues). La grille des positions est videe pour que les cartes
+// renaissent avec leurs nouvelles etiquettes, et la courbe se
+// redessine pour ses graduations.
+Langues.surChangement(() => {
+  // Sans cette purge, un nombre inchange garderait son ancien format :
+  // poserNombre ne reformate que ce qui a bouge.
+  _valeurs = new WeakMap();
+  $("z-pos").innerHTML = "";
+  $("b-vue").textContent = E.tableau ? t("pos.vuecartes") : t("pos.vuetableau");
+  rendreSante(); rendreJournal();
+  rafraichir._n = -1;
+  rafraichir();
+});
 
 rendreEntete(); rendreJournal(); rendreSante(); rafraichir();
 setInterval(rafraichir, 4000);
