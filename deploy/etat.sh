@@ -43,9 +43,13 @@ fi
 echo
 
 echo "===== dashboard ====="
-if [ -f "$DIR/.env" ]; then
-  TOK=$(grep "^HERMES_DASH_TOKEN=" "$DIR/.env" | tail -1 | cut -d= -f2-)
-  [ -n "$TOK" ] && echo "url: http://178.104.191.79:8899/?key=$TOK" || echo "pas de cle"
+# La cle nest pas imprimee : elle commande un moteur en pilotage
+# complet, et un journal de run se partage par un lien sans quon pense
+# a ce quil contient.
+if [ -f "$DIR/.env" ] && grep -q "^HERMES_DASH_TOKEN=.\+" "$DIR/.env"; then
+  echo "  cle presente — http://178.104.191.79:8899/?key=<votre cle>"
+else
+  echo "  pas de cle"
 fi
 echo
 
@@ -87,8 +91,36 @@ echo "===== letat que la page affiche ====="
 # des fichiers detat : ce qui compte est ce que le proprietaire VOIT.
 if [ -f "$DIR/.env" ]; then
   TOK=$(grep "^HERMES_DASH_TOKEN=" "$DIR/.env" | tail -1 | cut -d= -f2-)
+  # Une ligne par position, avec exactement les champs que le
+  # proprietaire a compares a lapplication OKX le jour ou laffichage
+  # mentait : sens, taille, entree, mark, TP, stop, pourcentage, tenue.
+  # Le brut tronque a 900 caracteres coupait au milieu dun objet et ne
+  # permettait de verifier aucun de ces champs.
   curl -s --max-time 8 -X POST "http://127.0.0.1:8899/api/fetch-portfolio?key=$TOK" \
-    | head -c 900 | sed -e "s/,/,\n  /g" | head -22 || echo "  injoignable"
+    | node -e '
+      let b = "";
+      process.stdin.on("data", (c) => b += c);
+      process.stdin.on("end", () => {
+        let j; try { j = JSON.parse(b); } catch { console.log("  reponse illisible"); return; }
+        const d = (j && j.data) || {};
+        console.log("  equite " + ((d.futures && d.futures.total) || 0).toFixed(2)
+          + " USDT | disponible " + ((d.futures && d.futures.available) || 0).toFixed(2));
+        const ps = d.openPositionsDetails || [];
+        if (!ps.length) { console.log("  aucune position ouverte"); return; }
+        for (const p of ps) {
+          const min = p.entryTime ? Math.round((Date.now() - p.entryTime) / 60000) : null;
+          console.log("  " + p.symbol.replace("-USDT-SWAP", "").padEnd(6)
+            + " " + String(p.side).padEnd(5)
+            + " taille " + p.size
+            + " | entree " + p.entryPrice + " mark " + p.markPrice
+            + " | TP " + (p.takeProfit ?? "—") + " stop " + (p.stopActuel ?? "—")
+            + (p.stopMode ? " (" + p.stopMode + ")" : "")
+            + " | pnl " + Number(p.unrealizedPnl).toFixed(2)
+            + " (" + Number(p.pnlPctOfMargin).toFixed(2) + " %)"
+            + " | tenue " + (min == null ? "—" : min + " min"));
+        }
+      });
+    ' || echo "  injoignable"
 fi
 echo
 
