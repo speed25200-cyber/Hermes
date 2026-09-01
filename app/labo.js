@@ -14,6 +14,10 @@
 const Labo = (() => {
   const $l = (id) => document.getElementById(id);
   let donnees = null;
+  /* Quels details sont ouverts. La page se re-rend toutes les minutes
+     (toutes les quatre secondes pendant une passe) : sans cette
+     memoire, chaque rafraichissement refermerait ce qu'on lit. */
+  const deplies = new Set();
   let minuterie = null, tictac = null;
   let ouvert = false;
 
@@ -127,6 +131,8 @@ const Labo = (() => {
     rendreCarte(perles);
     rendrePerles(perles, r);
     rendreRefus(refus);
+    rendreMethode();
+    rendreHisto();
   }
 
   /* — la carte : sélection en x, validation en y — */
@@ -208,6 +214,76 @@ const Labo = (() => {
       </svg>`;
   }
 
+  /* — les pieces communes des details — */
+
+  const CHEVRON = `<svg class="chevron" width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+    <path d="M3 5.2l4 4 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+
+  const barreFen = (etiq, m, mauvaise) => m ? `
+    <div class="fenetre">
+      <div class="f-et"><span>${etiq} · ${ech(t("labo.trades", { n: m.trades }))}</span><b>${m.winrate.toFixed(0)} % · ${netTxt(m.netMarge)}</b></div>
+      <div class="f-barre"><s></s><i class="${mauvaise ? "mauvais" : ""}" style="width:${Math.min(100, Math.max(2, m.winrate)).toFixed(0)}%"></i></div>
+    </div>` : "";
+
+  const sortiesTxt = (ov) => t("labo.sorties", {
+    tp: Math.round(((ov || {}).tpPctMargin || 0) * 100),
+    act: Math.round(((ov || {}).trailActPctMargin || 0) * 100),
+    h: Math.round(((ov || {}).holdMs || 0) / 3600e3),
+  });
+
+  const strate = (sig, ov, porte) => `
+    <div class="r-strate"><span class="p-sig">${ech(sig)}</span>
+      <span class="r-sorties">${ech(sortiesTxt(ov))}</span>
+      ${porte ? `<span class="r-porte">${ech(t("labo.recale", { v: t("porte." + porte) }))}</span>` : ""}</div>`;
+
+  const podiumHtml = (finalistes) => {
+    if (!Array.isArray(finalistes) || !finalistes.length) return "";
+    return `<div><div class="r-titre">${ech(t("labo.finalistes"))}</div>
+      <div class="podium">${finalistes.map((f, i) => `
+        <div class="p-rang"><span class="rang">${i + 1}</span><span class="p-sig">${ech(f.sig)}</span>
+          <span class="r-sorties">${ech(sortiesTxt(f.ov))}</span>
+          <span class="mes">wr ${Number(f.wr).toFixed(0)} % · ${netTxt(Number(f.net) || 0)}</span></div>`).join("")}
+      </div></div>`;
+  };
+
+  /* Le detail d'un refus : l'explication d'abord — c'est elle qu'on
+     vient chercher — puis les nombres qui la portent. */
+  function detailRefus(r, roster) {
+    const vj = roster?.fenetres?.validationJours ?? 7;
+    const raison = String(r.raison || "");
+    const parts = [];
+    if (r.vainqueur) {
+      const v = r.vainqueur, m = v.mesures || {};
+      parts.push(`<div class="r-explique">${ech(t("refus.exp.valid", { v: vj }))}</div>`);
+      parts.push(`<div><div class="r-titre">${ech(t("labo.vainqueur"))}</div>
+        ${strate(v.sig, v.ov, v.porte || "negatif")}
+        <div class="r-fens" style="margin-top:9px">
+          ${barreFen(ech(t("labo.fen.a")), m.a)}
+          ${barreFen(ech(t("labo.fen.b")), m.b)}
+          ${barreFen(ech(t("labo.selection")), m.sel)}
+          ${barreFen(ech(t("labo.validation")), m.val, true)}
+        </div></div>`);
+      parts.push(podiumHtml(r.finalistes));
+    } else if (/aucune (?:positive|concourante positive) dans A/i.test(raison)) {
+      parts.push(`<div class="r-explique">${ech(t("refus.exp.aucune"))}</div>`);
+      if (r.presque) {
+        const p = r.presque, m = p.mesures || {};
+        parts.push(`<div><div class="r-titre">${ech(t("labo.presque"))}</div>
+          ${strate(p.sig, p.ov, p.porte)}
+          <div class="r-fens" style="margin-top:9px">
+            ${barreFen(ech(t("labo.fen.a")), m.a, m.a && m.a.netMarge <= 0)}
+            ${barreFen(ech(t("labo.fen.b")), m.b, m.b && m.b.netMarge <= 0)}
+            ${barreFen(ech(t("labo.selection")), m.sel)}
+          </div></div>`);
+      }
+    } else if (/histoire trop courte/.test(raison)) {
+      parts.push(`<div class="r-explique">${ech(t("refus.exp.courte"))}</div>`);
+    } else {
+      parts.push(`<div class="r-explique">${ech(t("refus.exp.collecte"))}</div>`);
+    }
+    return parts.filter(Boolean).join("");
+  }
+
   /* — les cartes de perles — */
 
   function rendrePerles(perles, roster) {
@@ -234,14 +310,29 @@ const Labo = (() => {
     zone.innerHTML = entrees.map(([id, p]) => {
       const m = p.mesures || {};
       const ov = p.ov || {};
-      return `<article class="perle">
-        <div class="p-tete"><span class="p-nom">${ech(court(id))}</span><span class="p-sig">${ech(p.sig)}</span></div>
-        <div class="p-sorties">${ech(t("labo.sorties", { tp: Math.round((ov.tpPctMargin || 0) * 100), act: Math.round((ov.trailActPctMargin || 0) * 100), h: Math.round((ov.holdMs || 0) / 3600e3) }))}</div>
+      const cle = "p:" + id;
+      const ouv = deplies.has(cle);
+      // Le sous-sol de la carte : les deux sous-fenetres et le podium
+      // n'apparaissent qu'au clic — la carte reste d'abord un verdict.
+      const plus = `
+        <div class="p-plus">
+          <div class="r-explique">${ech(t("labo.perle.explique"))}</div>
+          ${m.a || m.b ? `<div class="r-fens">
+            ${barreFen(ech(t("labo.fen.a")), m.a)}
+            ${barreFen(ech(t("labo.fen.b")), m.b)}
+          </div>` : ""}
+          ${podiumHtml(p.finalistes)}
+        </div>`;
+      return `<article class="perle" data-depli="${ech(cle)}" role="button" tabindex="0"
+        aria-expanded="${ouv}" title="${ech(t("labo.deplier"))}">
+        <div class="p-tete"><span class="p-nom">${ech(court(id))}</span><span class="p-sig">${ech(p.sig)}</span>${CHEVRON}</div>
+        <div class="p-sorties">${ech(sortiesTxt(ov))}</div>
         <div class="p-fen">
           ${m.sel ? barre(ech(t("labo.selection")), m.sel) : ""}
           ${m.val ? barre(ech(t("labo.validation")), m.val) : ""}
         </div>
         <div class="p-net">${t("labo.net", { a: `<b>${netTxt(m.sel?.netMarge ?? 0)}</b>`, b: `<b>${netTxt(m.val?.netMarge ?? 0)}</b>` })}</div>
+        <div class="depli${ouv ? " ouvert" : ""}"><div class="depli-int">${plus}</div></div>
       </article>`;
     }).join("");
   }
@@ -256,10 +347,110 @@ const Labo = (() => {
       zone.innerHTML = `<div class="refus" style="justify-content:center;color:var(--texte-3)">${ech(t("labo.rien.ecarte"))}</div>`;
       return;
     }
-    zone.innerHTML = entrees.map(([id, r]) => `
-      <div class="refus"><b>${ech(court(id))}</b><span>${ech(raisonTexte(r.raison) || "—")}</span>
-        <span class="r-note">${ech(t("labo.concourantes", { n: r.concourantes || 0 }))}</span></div>`).join("");
+    const roster = donnees?.roster;
+    zone.innerHTML = entrees.map(([id, r]) => {
+      const cle = "r:" + id;
+      const ouv = deplies.has(cle);
+      return `
+      <div class="refus-item">
+        <div class="refus" data-depli="${ech(cle)}" role="button" tabindex="0" aria-expanded="${ouv}"
+             title="${ech(t("labo.deplier"))}">
+          <b>${ech(court(id))}</b><span>${ech(raisonTexte(r.raison) || "—")}</span>
+          <span class="r-note">${ech(t("labo.concourantes", { n: r.concourantes || 0 }))}</span>${CHEVRON}
+        </div>
+        <div class="depli${ouv ? " ouvert" : ""}"><div class="depli-int"><div class="r-corps">${detailRefus(r, roster)}</div></div></div>
+      </div>`;
+    }).join("");
   }
+
+  /* — la methode du juge : la frise des fenetres et les trois pas — */
+
+  function rendreMethode() {
+    const zone = $l("lb-methode-int");
+    if (!zone) return;
+    const f = donnees?.roster?.fenetres || {};
+    const jours = f.jours ?? 30, vj = f.validationJours ?? 7;
+    const demiSel = (jours - vj) / 2;
+    const W = 720, H = 64, y = 14, h = 26;
+    const px = (j) => (j / jours) * W;
+    const seg = (x0, j, couleur, op, etiq, sous, bord) => `
+      <rect x="${px(x0).toFixed(1)}" y="${y}" width="${(px(j) - 1.5).toFixed(1)}" height="${h}" rx="6"
+            fill="${couleur}" opacity="${op}"/>
+      <text x="${(px(x0) + px(j) / 2).toFixed(1)}" y="${y + h / 2 + 3.5}" text-anchor="middle" class="mf-et">${etiq}</text>
+      <text x="${bord ? W : (px(x0) + px(j) / 2).toFixed(1)}" y="${H - 4}" text-anchor="${bord ? "end" : "middle"}" class="mf-sous">${sous}</text>`;
+    zone.innerHTML = `
+      <div class="meth-frise">
+        <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ech(t("labo.methode"))}">
+          <style>
+            .mf-et { font: 650 11px var(--sans); fill: var(--texte); letter-spacing: .03em; }
+            .mf-sous { font: 400 9.5px var(--mono); fill: var(--texte-3); }
+          </style>
+          <defs><clipPath id="mf-clip"><rect x="0" y="${y}" width="${W}" height="${h}" rx="6"/></clipPath></defs>
+          ${seg(0, demiSel, "var(--long)", ".28", ech(t("labo.fen.a")), demiSel.toFixed(1) + " j")}
+          ${seg(demiSel, demiSel, "var(--long)", ".18", ech(t("labo.fen.b")), demiSel.toFixed(1) + " j")}
+          ${seg(jours - vj, vj, "var(--bon)", ".26", ech(t("labo.validation")), vj + " j · " + ech(t("labo.fen.jamais")), true)}
+          <g clip-path="url(#mf-clip)">
+            <rect class="balaye" x="0" y="${y}" width="${(W * 0.12).toFixed(0)}" height="${h}"
+                  fill="var(--texte)" opacity="0"/>
+          </g>
+        </svg>
+      </div>
+      <div class="meth">
+        ${[1, 2, 3].map((n) => `<div class="meth-pas"><div class="num">${n}</div>
+          <h3>${ech(t("labo.m" + n + ".titre"))}</h3><p>${ech(t("labo.m" + n + ".texte"))}</p></div>`).join("")}
+      </div>`;
+  }
+
+  /* — les passes precedentes : une barre par passe, la derniere en
+       lumiere. La hauteur dit le nombre de perles ; une passe bredouille
+       est un pointille, pas un trou — zero est aussi un verdict. — */
+
+  function rendreHisto() {
+    const zone = $l("lb-histo");
+    if (!zone) return;
+    const h = Array.isArray(donnees?.historique) ? donnees.historique : [];
+    $l("lb-histo-n").textContent = h.length ? String(h.length) : "—";
+    if (!h.length) { zone.innerHTML = `<div class="labo-vide" style="flex:1">${ech(t("labo.attente"))}</div>`; return; }
+    const max = Math.max(1, ...h.map((p) => p.perles || 0));
+    zone.innerHTML = h.map((p, i) => {
+      const n = p.perles || 0;
+      const haut = n ? Math.max(14, (n / max) * 100) : 6;
+      const dernier = i === h.length - 1;
+      const d = p.dureeS >= 60 ? t("t.minutes", { m: Math.round(p.dureeS / 60) }) : t("t.secondes", { s: p.dureeS || 0 });
+      return `<div class="h-barre${n ? "" : " vide"}${dernier ? " actuelle" : ""}"
+        style="height:${haut.toFixed(0)}%;animation-delay:${Math.min(i * 18, 700)}ms"
+        title="${ech(t("labo.histo.point", { p: quand(p.ts), n, d }))}"></div>`;
+    }).join("");
+  }
+
+  /* ===== les depliables : un seul ecouteur pour tous ===== */
+
+  function basculer(el) {
+    const cle = el.dataset.depli;
+    if (!cle) return;
+    const panneau = cle === "methode" ? $l("lb-methode-corps")
+      : el.matches(".perle") ? el.querySelector(":scope > .depli")
+      : el.parentElement.querySelector(":scope > .depli");
+    if (!panneau) return;
+    const ouv = !deplies.has(cle);
+    if (ouv) deplies.add(cle); else deplies.delete(cle);
+    panneau.classList.toggle("ouvert", ouv);
+    el.setAttribute("aria-expanded", String(ouv));
+  }
+
+  document.addEventListener("click", (e) => {
+    const el = e.target.closest && e.target.closest("[data-depli]");
+    if (!el) return;
+    // Le sous-sol d'une perle est DANS la carte cliquable : un clic
+    // dedans (copier un nombre, par exemple) ne doit pas la refermer.
+    if (e.target.closest(".p-plus")) return;
+    basculer(el);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const el = e.target.closest && e.target.closest("[data-depli]");
+    if (el) { e.preventDefault(); basculer(el); }
+  });
 
   /* ===== la recherche manuelle ===== */
 

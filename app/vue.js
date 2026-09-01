@@ -115,7 +115,13 @@ const E = {
   pf: null, sante: {}, mode: "viewer",
   moteur: false, relie: false, journal: [], tableau: false,
   premier: true,
+  // Ce qui est deplie survit aux re-rendus : la page respire toutes
+  // les quatre secondes, elle ne doit pas refermer ce qu'on lit.
+  tuilesOuvertes: new Set(), jrnOuverts: new Set(), santeOuverts: new Set(),
 };
+
+const CHEVRON_HTML = `<svg class="chevron" width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+  <path d="M3 5.2l4 4 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 /* ============================================================
    LA REGLETTE
@@ -557,12 +563,44 @@ const TUILES = [
     s: (d) => t("tuile.trades", { n: Number(d.performance && d.performance.totalTrades) || 0 }) },
 ];
 
+/* Le tiroir d'une tuile : le meme chiffre, decompose. La marge et le
+   PnL se repartissent par position ; le taux de gain s'entoure de ses
+   liens — trades du jour, volume, PnL du jour. */
+function detailTuile(cle, d) {
+  const ligne = (etiq, val, teinte) =>
+    `<div class="t-ligne"><span>${ech(etiq)}</span><b class="${teinte || ""}">${ech(val)}</b></div>`;
+  const lignePos = (p, val, teinte) =>
+    `<div class="t-ligne"><span class="t-sym">${ech(court(p.symbol))}</span><b class="${teinte || ""}">${ech(val)}</b></div>`;
+  const pos = (d.openPositionsDetails || []);
+  const pe = d.performance || {}, fu = d.futures || {};
+  if (cle === "marge")
+    return pos.length ? pos.map((p) => lignePos(p, nf(Number(p.margin) || 0) + " $")).join("") : ligne(t("pos.aucune"), "—");
+  if (cle === "latent")
+    return pos.length ? pos.map((p) => {
+      const u = Number(p.unrealizedPnl) || 0;
+      return lignePos(p, usd(u), signe(u));
+    }).join("") : ligne(t("pos.aucune"), "—");
+  if (cle === "ouvertes")
+    return (pos.length ? pos.map((p) => lignePos(p, nf(Number(p.notional) || 0) + " $")).join("") : "")
+      + ligne(t("tuile.d.dispo"), nf(Number(fu.available) || 0) + " $");
+  if (cle === "gain") {
+    const pj = Number(pe.dailyPnL) || 0;
+    return ligne(t("tuile.d.trades24"), String(Number(pe.dailyTrades) || 0))
+      + ligne(t("tuile.trades", { n: Number(pe.totalTrades) || 0 }), "")
+      + ligne(t("tuile.d.volume"), nf(Number(pe.dailyVolume) || 0) + " $")
+      + ligne(t("tuile.d.pnljour"), usd(pj), signe(pj));
+  }
+  return "";
+}
+
 function rendreTuiles() {
   const d = E.pf || {};
   const z = $("tuiles");
   if (!z.children.length) {
-    z.innerHTML = TUILES.map((tl, i) => `<div class="tuile entre" data-t="${tl.cle}" style="animation-delay:${i * 60}ms">
-      <div class="e"></div><div class="v"></div><div class="s"></div></div>`).join("");
+    z.innerHTML = TUILES.map((tl, i) => `<div class="tuile entre" data-t="${tl.cle}" role="button" tabindex="0"
+      aria-expanded="false" style="animation-delay:${i * 60}ms">
+      ${CHEVRON_HTML}<div class="e"></div><div class="v"></div><div class="s"></div>
+      <div class="depli"><div class="depli-int"><div class="t-detail"></div></div></div></div>`).join("");
   }
   for (const tl of TUILES) {
     const el = z.querySelector(`[data-t="${tl.cle}"]`);
@@ -571,8 +609,27 @@ function rendreTuiles() {
     poserNombre(v, tl.v(d), tl.fmt, tl.teinte);
     if (tl.teinte) v.className = "v " + signe(tl.v(d));
     el.querySelector(".s").textContent = tl.s(d);
+    const ouv = E.tuilesOuvertes.has(tl.cle);
+    el.setAttribute("aria-expanded", String(ouv));
+    el.querySelector(".depli").classList.toggle("ouvert", ouv);
+    const det = el.querySelector(".t-detail");
+    const html = detailTuile(tl.cle, d);
+    if (det.innerHTML !== html) det.innerHTML = html;
   }
 }
+
+$("tuiles").addEventListener("click", (e) => {
+  const el = e.target.closest(".tuile[data-t]");
+  if (!el) return;
+  const cle = el.dataset.t;
+  if (E.tuilesOuvertes.has(cle)) E.tuilesOuvertes.delete(cle); else E.tuilesOuvertes.add(cle);
+  rendreTuiles();
+});
+$("tuiles").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const el = e.target.closest(".tuile[data-t]");
+  if (el) { e.preventDefault(); el.click(); }
+});
 
 /* ===== sante ===== */
 
@@ -588,16 +645,23 @@ function rendreSante() {
   const z = $("z-sante");
   if (!cles.length) { z.innerHTML = `<div class="vide" style="padding:26px">${ech(t("sante.attente"))}</div>`; return; }
   let ok = 0;
+  const CONNUS = ["wsPublic", "wsPrivate", "rest", "dataFlow", "strategy", "aiEngine", "orders", "stops", "portfolio"];
   z.innerHTML = cles.map((k, i) => {
     const v = m[k] || {};
     const s = String(v.status || "").toUpperCase();
     if (s === "OK") ok++;
     const c = s === "OK" ? "bon" : s === "FAULT" ? "critique" : "attention";
     const detail = s + (v.info ? " · " + String(v.info) : "");
-    // Le statut ne se lit pas quau point : le mot est a cote.
-    return `<div class="mod${E.premier ? " entre" : ""}" style="animation-delay:${i * 35}ms" title="${ech(detail)}">
+    const ouv = E.santeOuverts.has(k);
+    const desc = CONNUS.includes(k) ? t("sante.d." + k) : "";
+    // Le statut ne se lit pas quau point : le mot est a cote. Et au
+    // clic, le module dit son metier — la ligne technique entiere,
+    // plus une phrase pour qui ne la parle pas.
+    return `<div class="mod${E.premier ? " entre" : ""}${ouv ? " ouvert" : ""}" data-mod="${ech(k)}"
+      role="button" tabindex="0" aria-expanded="${ouv}" style="animation-delay:${i * 35}ms" title="${ech(detail)}">
       <span class="pt ${c}${s === "OK" ? " vif" : ""}"></span>
-      <div><div class="n">${ech(NOMS(k))}</div><div class="i">${ech(detail)}</div></div></div>`;
+      <div><div class="n">${ech(NOMS(k))}</div><div class="i">${ech(detail)}</div>
+      ${ouv && desc ? `<div class="m-desc">${ech(desc)}</div>` : ""}</div></div>`;
   }).join("");
   $("n-sante").textContent = t("sante.vert", { ok, n: cles.length });
 }
@@ -626,9 +690,16 @@ function rendreJournal() {
     const h = ts ? new Date(ts).toLocaleTimeString(Langues.locale(), { hour12: false }) : "--:--:--";
     const c = CLASSE(event);
     const neuf = i >= vis.length - (E.journal.length - _vuJournal) ? " neuf" : "";
-    return `<div class="jl ${c}${neuf}"><span class="t">${ech(h)}</span>
+    const cle = (ts || "") + "|" + (event || "");
+    const ouv = E.jrnOuverts.has(cle);
+    // Fermee, la ligne resume ; ouverte, elle montre chaque champ de
+    // l'evenement sur sa propre ligne — la meme donnee, dépliée.
+    const d = ouv
+      ? Object.entries(reste).map(([k, v]) => k + " : " + (typeof v === "object" ? JSON.stringify(v) : String(v))).join("\n") || "—"
+      : JSON.stringify(reste).slice(1, -1).replace(/","/g, " · ").replace(/"/g, "");
+    return `<div class="jl ${c}${neuf}${ouv ? " ouvert" : ""}" data-jl="${ech(cle)}"><span class="t">${ech(h)}</span>
       <span class="e ${c}">${ech(event || "—")}</span>
-      <span class="d">${ech(JSON.stringify(reste).slice(1, -1).replace(/","/g, " · ").replace(/"/g, ""))}</span></div>`;
+      <span class="d">${ech(d)}</span></div>`;
   }).join("");
   _vuJournal = E.journal.length;
   if (auBas) z.scrollTop = z.scrollHeight;
@@ -744,6 +815,23 @@ $("c-poser").addEventListener("click", async () => {
     e.className = "cles-etat ko"; e.textContent = String(err.message || err);
   }
   b.disabled = false;
+});
+
+// Un module de sante ou une ligne de journal se deplie au clic. Les
+// deux zones se re-rendent souvent : l'etat vit dans E, pas dans le DOM.
+$("z-sante").addEventListener("click", (e) => {
+  const el = e.target.closest("[data-mod]");
+  if (!el) return;
+  const k = el.dataset.mod;
+  if (E.santeOuverts.has(k)) E.santeOuverts.delete(k); else E.santeOuverts.add(k);
+  rendreSante();
+});
+$("z-jrn").addEventListener("click", (e) => {
+  const el = e.target.closest("[data-jl]");
+  if (!el) return;
+  const k = el.dataset.jl;
+  if (E.jrnOuverts.has(k)) E.jrnOuverts.delete(k); else E.jrnOuverts.add(k);
+  rendreJournal();
 });
 
 // Le theme : le choix explicite lemporte sur le systeme et tient dun

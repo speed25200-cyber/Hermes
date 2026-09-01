@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
-<title>Hermes</title>
+<title>Hermes-Astra</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 17 L8 7 L12 13.5 L16 4.5 L21 17' fill='none' stroke='%233987e5' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 
 <link rel="preload" href="/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
@@ -211,18 +211,50 @@ h1,h2,h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
 }
 @media (max-width: 640px) { .entete-int { padding: 10px 13px; gap: 8px; } }
 
-.marque {
+/* ============================================================
+   La marque Hermes-Astra.
+
+   Le dessin raconte le nom : la trajectoire du messager monte et
+   s'efface dans le ciel ; a son sommet, l'astre — une etoile a quatre
+   branches — et son orbite, ou une comete tourne sans fin. Tout est
+   dessine a l'ecran dans cet ordre : la voie se trace, l'etoile nait,
+   l'orbite parait, la comete s'elance. Le mouvement perpetuel est
+   discret a dessein — un logo qui gesticule fatigue ; une comete qui
+   passe, on la guette.
+   ============================================================ */
+.marque-ha {
   display: flex; align-items: center; gap: 10px;
   font-size: 17px; font-weight: 620; letter-spacing: -0.035em;
 }
-.marque svg { display: block; overflow: visible; }
-.marque .trace {
-  stroke-dasharray: 46; stroke-dashoffset: 46;
-  animation: tracer 1.5s var(--ressort) .15s forwards;
+.marque-ha svg { display: block; overflow: visible; }
+.marque-ha .astra {
+  background: linear-gradient(100deg, var(--long), var(--bon));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  font-weight: 700;
 }
-@keyframes tracer { to { stroke-dashoffset: 0; } }
-.marque .astre { opacity: 0; animation: paraitre .5s var(--ressort) 1.2s forwards; }
-@keyframes paraitre { from { opacity: 0; transform: scale(.3); } to { opacity: 1; transform: scale(1); } }
+.marque-ha .ha-trace {
+  stroke-dasharray: 34; stroke-dashoffset: 34;
+  animation: ha-tracer 1.1s var(--doux) .1s forwards;
+}
+@keyframes ha-tracer { to { stroke-dashoffset: 0; } }
+.marque-ha .ha-astre {
+  opacity: 0; transform-box: fill-box; transform-origin: center;
+  animation: ha-nait .65s var(--ressort) .85s forwards;
+}
+@keyframes ha-nait { from { opacity: 0; transform: scale(.2) rotate(-90deg); } to { opacity: 1; transform: none; } }
+.marque-ha .ha-orbite { opacity: 0; animation: ha-fondre .8s ease 1.15s forwards; }
+@keyframes ha-fondre { to { opacity: .38; } }
+.marque-ha .ha-comete {
+  stroke-dasharray: 5 31; opacity: 0;
+  animation: ha-comete-nait .6s ease 1.45s forwards, ha-orbiter 7s linear 1.45s infinite;
+}
+@keyframes ha-comete-nait { to { opacity: .9; } }
+@keyframes ha-orbiter { to { stroke-dashoffset: -36; } }
+.marque-ha .ha-etincelle { opacity: 0; animation: ha-scintiller 4.2s ease-in-out 2s infinite; }
+@keyframes ha-scintiller {
+  0%, 100% { opacity: 0; } 10% { opacity: .95; } 24% { opacity: .12; }
+  38% { opacity: .6; } 55% { opacity: 0; }
+}
 
 .jeton {
   display: inline-flex; align-items: center; gap: 7px;
@@ -351,6 +383,26 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
   font-variation-settings: "opsz" 28; font-variant-numeric: tabular-nums;
 }
 .tuile .s { font-size: 12.5px; color: var(--texte-2); margin-top: 3px; }
+/* La tuile s'ouvre au clic : le resume au-dessus, le detail en dessous.
+   Le chevron n'apparait qu'au survol — la tuile reste d'abord un
+   chiffre, pas un bouton. */
+.tuile { cursor: pointer; }
+.tuile .chevron { position: absolute; top: 13px; right: 13px; opacity: 0; transition: opacity .25s, transform .4s var(--ressort); }
+.tuile:hover .chevron { opacity: .8; }
+.tuile[aria-expanded="true"] .chevron { opacity: .8; }
+.tuile:focus-visible { outline: 2px solid var(--serie); outline-offset: 2px; }
+.t-detail { padding-top: 11px; display: grid; gap: 4px; }
+.t-ligne {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  font-size: 11.5px; color: var(--texte-2);
+}
+.t-ligne b { font-family: var(--mono); font-weight: 500; color: var(--texte); font-variant-numeric: tabular-nums; }
+.t-ligne b.gain { color: var(--gain); } .t-ligne b.perte { color: var(--perte); }
+.t-ligne .t-sym { font-weight: 600; color: var(--texte); }
+.depli.ouvert .t-ligne { animation: glisser .4s var(--ressort) backwards; }
+.depli.ouvert .t-ligne:nth-child(2) { animation-delay: .05s; }
+.depli.ouvert .t-ligne:nth-child(3) { animation-delay: .1s; }
+.depli.ouvert .t-ligne:nth-child(4) { animation-delay: .15s; }
 .gain { color: var(--gain); } .perte { color: var(--perte); }
 
 /* La breve pulsation quand un nombre change. Elle dure moins dune
@@ -484,6 +536,9 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
   background: var(--surface-2); transition: border-color .3s, background .3s;
 }
 .mod:hover { border-color: var(--bord-vif); background: var(--surface-3); }
+.mod { cursor: pointer; }
+.mod .m-desc { font-size: 11px; color: var(--texte-2); line-height: 1.55; padding-top: 5px; animation: glisser .35s var(--ressort); }
+.mod.ouvert .i { white-space: normal; overflow: visible; }
 .mod > div { flex: 1; min-width: 0; }
 .mod .n { font-size: 12.5px; font-weight: 560; letter-spacing: -0.01em; }
 .mod .i { font-family: var(--mono); font-size: 10.5px; color: var(--texte-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -491,11 +546,15 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
 .journal { font-family: var(--mono); font-size: 11.5px; line-height: 1.7; max-height: 380px; overflow-y: auto; padding: 6px 0; }
 .journal::-webkit-scrollbar { width: 8px; }
 .journal::-webkit-scrollbar-thumb { background: var(--bord-vif); border-radius: 4px; }
-.jl { display: flex; gap: 10px; padding: 3px 18px; border-left: 2px solid transparent; }
+.jl { display: flex; gap: 10px; padding: 3px 18px; border-left: 2px solid transparent; cursor: pointer; }
 .jl:hover { background: var(--surface-2); }
 .jl .t { color: var(--texte-3); flex: none; }
 .jl .e { font-weight: 400; flex: none; min-width: 104px; letter-spacing: -0.03em; }
-.jl .d { color: var(--texte-2); word-break: break-word; }
+/* Fermee, la ligne tient sur une ligne ; ouverte, elle montre tout ce
+   que l'evenement portait, champ par champ. */
+.jl .d { color: var(--texte-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.jl.ouvert { background: var(--surface-2); border-radius: 0 8px 8px 0; }
+.jl.ouvert .d { white-space: pre-wrap; word-break: break-word; overflow: visible; }
 .jl.neuf { animation: glisser .45s var(--ressort); }
 @keyframes glisser { from { opacity: 0; transform: translateX(-8px); } to { opacity: 1; transform: none; } }
 .e-in   { color: var(--long); }  .jl.e-in   { border-left-color: var(--long); }
@@ -669,6 +728,92 @@ tbody tr:hover { background: var(--surface-2); }
   line-height: 1.6;
 }
 
+/* ============================================================
+   Le depliable — la piece commune de tous les details au clic.
+
+   grid-template-rows 0fr -> 1fr est la seule facon d'animer une
+   hauteur INCONNUE sans la mesurer : le navigateur interpole la
+   fraction, le contenu suit. Le rembourrage vit sur un enfant, car un
+   padding sur la rangee elle-meme resterait visible a 0fr.
+   ============================================================ */
+.depli { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .5s var(--ressort); }
+.depli > .depli-int { overflow: hidden; min-height: 0; }
+.depli.ouvert { grid-template-rows: 1fr; }
+.chevron { flex: none; color: var(--texte-3); transition: transform .4s var(--ressort), color .25s; }
+[aria-expanded="true"] .chevron { transform: rotate(180deg); color: var(--texte); }
+.depliant { cursor: pointer; user-select: none; -webkit-user-select: none; }
+.depliant:hover .chevron { color: var(--texte); }
+.depliant:focus-visible { outline: 2px solid var(--serie); outline-offset: 2px; border-radius: 8px; }
+.bloc-tete.depliant .chevron { margin-left: auto; }
+
+/* — la methode du juge : trois pas et une frise — */
+.meth-frise { padding: 16px 4px 2px; }
+.meth-frise svg { display: block; width: 100%; height: auto; }
+.meth { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; padding: 12px 4px 16px; }
+.meth-pas { border: 1px solid var(--bord); border-radius: 12px; background: var(--surface); padding: 13px 15px; position: relative; overflow: hidden; }
+.meth-pas .num {
+  font-family: var(--mono); font-size: 26px; font-weight: 650; line-height: 1;
+  background: linear-gradient(120deg, var(--long), var(--bon));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.meth-pas h3 { margin: 7px 0 5px; font-size: 13px; letter-spacing: -0.01em; }
+.meth-pas p { margin: 0; font-size: 12px; color: var(--texte-2); line-height: 1.6; }
+.depli.ouvert .meth-pas { animation: labo-pose .55s var(--ressort) backwards; }
+.depli.ouvert .meth-pas:nth-child(2) { animation-delay: .08s; }
+.depli.ouvert .meth-pas:nth-child(3) { animation-delay: .16s; }
+/* Le balayage de la frise : la lecture du temps, de gauche a droite. */
+.meth-frise .balaye { animation: meth-balaye 3.2s var(--doux) infinite; }
+@keyframes meth-balaye { 0% { transform: translateX(-12%); opacity: 0; } 12% { opacity: .12; } 88% { opacity: .12; } 100% { transform: translateX(112%); opacity: 0; } }
+
+/* — les refus cliquables — */
+.refus-liste > .refus-item { background: var(--surface); }
+.refus { cursor: pointer; transition: background .25s; }
+.refus:hover { background: color-mix(in oklab, var(--fond-2) 45%, var(--surface)); }
+.refus .chevron { align-self: center; }
+.refus:focus-visible { outline: 2px solid var(--serie); outline-offset: -2px; }
+.r-corps { padding: 3px 13px 15px; display: grid; gap: 12px; }
+.r-explique { font-size: 12px; color: var(--texte-2); line-height: 1.65; max-width: 720px; }
+.r-titre { font-size: 10px; letter-spacing: .09em; text-transform: uppercase; font-weight: 650; color: var(--texte-3); }
+.r-fens { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px 16px; }
+.f-barre i.mauvais { background: linear-gradient(90deg, color-mix(in oklab, var(--short) 70%, var(--perte)), var(--perte)); }
+.r-strate { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.r-strate .p-sig { font-family: var(--mono); font-size: 10.5px; color: var(--texte-2); border: 1px solid var(--bord); border-radius: 6px; padding: 3px 7px; }
+.r-strate .r-sorties { color: var(--texte-3); font-size: 11px; font-variant-numeric: tabular-nums; }
+.r-porte { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--perte); font-weight: 550; }
+.r-porte::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--perte); opacity: .8; }
+
+/* — le podium — */
+.podium { display: grid; gap: 5px; }
+.podium .p-rang {
+  display: flex; align-items: baseline; gap: 9px; font-size: 11.5px;
+  border: 1px solid var(--bord); border-radius: 9px; padding: 6px 10px; background: var(--fond-2);
+}
+/* Dans une carte etroite, les sorties se taisent plutot que de plier
+   la ligne en accordeon : le signal et les mesures d'abord. */
+.podium .p-rang .r-sorties { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.podium .p-rang .rang { font-family: var(--mono); font-weight: 650; color: var(--texte-3); }
+.podium .p-rang:first-child .rang { color: var(--bon); }
+.podium .p-rang .mes { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--texte-2); white-space: nowrap; }
+
+/* — la perle depliable — */
+.perle { cursor: pointer; }
+.perle .p-plus { display: grid; gap: 12px; padding-top: 12px; }
+.perle .chevron { align-self: center; margin-left: 2px; }
+
+/* — les passes precedentes — */
+.histo { display: flex; align-items: flex-end; gap: 3px; height: 86px; padding: 4px 2px 0; }
+.histo .h-barre {
+  flex: 1 1 0; min-width: 5px; max-width: 26px; border-radius: 4px 4px 2px 2px;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--long) 80%, var(--bon)), color-mix(in oklab, var(--long) 30%, transparent));
+  transition: height .8s var(--doux), opacity .25s;
+  animation: histo-pousse .8s var(--doux) backwards;
+}
+.histo .h-barre.vide { background: var(--fond-2); border: 1px dashed var(--bord-vif); }
+.histo .h-barre.actuelle { background: linear-gradient(180deg, var(--bon), color-mix(in oklab, var(--bon) 30%, transparent)); }
+.histo .h-barre:hover { opacity: .75; }
+@keyframes histo-pousse { from { height: 3px; } }
+
+
 /* Lentree en scene : chaque bloc du laboratoire se pose, en cascade. */
 #page-labo .bloc, #page-labo .labo-hero { animation: labo-pose .6s var(--ressort) backwards; }
 #page-labo .bloc:nth-of-type(2) { animation-delay: .06s; }
@@ -807,13 +952,24 @@ tbody tr:hover { background: var(--surface-2); }
 
 <header class="entete">
   <div class="entete-int">
-    <div class="marque">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path class="trace" d="M3 17 L8 7 L12 13.5 L16 4.5 L21 17" stroke="currentColor"
-              stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>
-        <circle class="astre" cx="16" cy="4.5" r="2.8" fill="var(--serie)"/>
+    <div class="marque-ha">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden="true">
+        <defs>
+          <linearGradient id="ha-voie" x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0" stop-color="var(--long)"/>
+            <stop offset="1" stop-color="var(--bon)"/>
+          </linearGradient>
+        </defs>
+        <path class="ha-trace" d="M3 24 C 9.5 23.5, 12.5 19, 14.5 14.5 C 16 11 17 9.2 18.6 7.8"
+              stroke="url(#ha-voie)" stroke-width="2.2" stroke-linecap="round"/>
+        <ellipse class="ha-orbite" cx="19.5" cy="7.6" rx="7.6" ry="3.2"
+                 transform="rotate(-24 19.5 7.6)" stroke="var(--texte-3)" stroke-width="1"/>
+        <ellipse class="ha-comete" cx="19.5" cy="7.6" rx="7.6" ry="3.2"
+                 transform="rotate(-24 19.5 7.6)" stroke="var(--bon)" stroke-width="1.6" stroke-linecap="round"/>
+        <path class="ha-astre" d="M19.5 2.6 L20.7 6.4 L24.5 7.6 L20.7 8.8 L19.5 12.6 L18.3 8.8 L14.5 7.6 L18.3 6.4 Z" fill="var(--serie)"/>
+        <circle class="ha-etincelle" cx="24.4" cy="3.2" r="0.9" fill="var(--bon)"/>
       </svg>
-      Hermes
+      <span>Hermes<span class="astra">-Astra</span></span>
     </div>
 
     <span class="jeton"><span class="pt" id="pt-lien"></span><span id="t-lien" data-l="tete.liaison">liaison…</span></span>
@@ -940,6 +1096,17 @@ tbody tr:hover { background: var(--surface-2); }
   <div class="labo-meta" id="lb-meta"></div>
 
   <section class="bloc">
+    <div class="bloc-tete depliant" id="lb-methode-tete" role="button" tabindex="0" data-depli="methode"
+         aria-expanded="false" aria-controls="lb-methode-corps">
+      <h2 data-l="labo.methode">Comment le juge décide</h2>
+      <svg class="chevron" width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+        <path d="M3 5.2l4 4 4-4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <div class="depli" id="lb-methode-corps"><div class="depli-int"><div id="lb-methode-int"></div></div></div>
+  </section>
+
+  <section class="bloc">
     <div class="bloc-tete"><h2 data-l="labo.constellation">La constellation</h2><span class="compte" id="lb-carte-n">—</span></div>
     <div class="bloc-corps labo-carte" id="lb-carte"></div>
   </section>
@@ -952,6 +1119,11 @@ tbody tr:hover { background: var(--surface-2); }
   <section class="bloc">
     <div class="bloc-tete"><h2 data-l="labo.ecartees">Écartées — le verdict honnête</h2><span class="compte" id="lb-refus-n">—</span></div>
     <div class="bloc-corps"><div class="refus-liste" id="lb-refus"></div></div>
+  </section>
+
+  <section class="bloc">
+    <div class="bloc-tete"><h2 data-l="labo.histo">Les passes précédentes</h2><span class="compte" id="lb-histo-n">—</span></div>
+    <div class="bloc-corps"><div class="histo" id="lb-histo"></div></div>
   </section>
 </div>
 

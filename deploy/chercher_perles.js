@@ -22,8 +22,8 @@
 
    Tourne sur le VPS (points publics OKX, aucune clé, aucun ordre), écrit
    config/roster.json de façon atomique ; le moteur le recharge à chaud.
-   Relancé par systemd toutes les douze heures : la recherche n'est pas un
-   événement, c'est un entretien.
+   Relancé par systemd toutes les trente minutes : la recherche n'est pas
+   un événement, c'est un entretien.
    ============================================================================ */
 "use strict";
 const https = require("https");
@@ -205,6 +205,11 @@ async function histoire5m(instId) {
 
 /* ---- 3. le juge : deux fenêtres, le winrate tranche les positives ---- */
 
+/* Une mesure compacte, prete a etre ecrite dans le roster : la page du
+   laboratoire montre ces nombres au clic, ils doivent donc exister. */
+const mesure = (r) => ({ trades: r.trades, winrate: +r.winrate.toFixed(1), netMarge: +r.netMarge.toFixed(3) });
+const ovDe = (sortie) => ({ tpPctMargin: sortie.tpPctMargin, trailActPctMargin: sortie.trailActPctMargin, holdMs: sortie.holdMs });
+
 function chercherPourInstrument(c5) {
   if (c5.length < 299 + 288 * 3) return { perle: null, raison: "histoire trop courte" };
   const finTs = c5[c5.length - 1][0];
@@ -230,6 +235,8 @@ function chercherPourInstrument(c5) {
      winrate. Dans du bruit pur. */
   let vainqueur = null;
   let concourantes = 0;
+  const podium = [];        // les concourantes, resumees — le classement complet en sortira
+  let presque = null;       // la meilleure recalee a l'eligibilite, et la porte qui l'a arretee
   for (const sig of SIGNAUX) {
     const signaux = serieSignaux(sig, c5);
     if (!signaux.some((v) => v !== 0)) continue;
@@ -239,11 +246,25 @@ function chercherPourInstrument(c5) {
         const trades = simuler({ c5, signaux, sortie, lev: LEVIER });
         const a = resumer(trades.filter((t) => t.tsIn < borneAB));
         const b = resumer(trades.filter((t) => t.tsIn >= borneAB && t.tsIn < borneV));
-        if (a.trades < Math.ceil(MIN_TRADES_SEL / 2) || b.trades < Math.ceil(MIN_TRADES_SEL / 2)) continue;
-        if (a.netMarge <= 0 || b.netMarge <= 0) continue;
         const ab = resumer(trades.filter((t) => t.tsIn < borneV));
-        if (ab.winrate < MIN_WR_SEL || ab.moyenneMarge < MIN_MOYENNE) continue;
+        // La porte qui arrete une combinaison est une information : la
+        // page du laboratoire montre au clic POURQUOI personne n'a
+        // concouru, pas seulement que personne n'a concouru.
+        const porte =
+          (a.trades < Math.ceil(MIN_TRADES_SEL / 2) || b.trades < Math.ceil(MIN_TRADES_SEL / 2)) ? "trades" :
+          (a.netMarge <= 0) ? "negA" :
+          (b.netMarge <= 0) ? "negB" :
+          (ab.winrate < MIN_WR_SEL) ? "wr" :
+          (ab.moyenneMarge < MIN_MOYENNE) ? "moyenne" : null;
+        if (porte) {
+          if (porte !== "trades" && (!presque || ab.winrate > presque.wr)) {
+            presque = { sig, ov: ovDe(sortie), wr: +ab.winrate.toFixed(1),
+                        mesures: { a: mesure(a), b: mesure(b), sel: mesure(ab) }, porte };
+          }
+          continue;
+        }
         concourantes++;
+        podium.push({ sig, ov: ovDe(sortie), wr: +ab.winrate.toFixed(1), net: +ab.netMarge.toFixed(3) });
         const cand = { sig, sortie, a, b, ab, trades };
         if (!vainqueur
             || cand.ab.winrate > vainqueur.ab.winrate
@@ -253,14 +274,33 @@ function chercherPourInstrument(c5) {
       }
     }
   }
-  if (!vainqueur) return { perle: null, candidates: concourantes, raison: concourantes + " concourante(s), aucune positive dans A ET B" };
+  podium.sort((x, y) => y.wr - x.wr || y.net - x.net);
+  const finalistes = podium.slice(0, 3);
+
+  if (!vainqueur) {
+    return { perle: null, candidates: concourantes,
+             raison: concourantes + " concourante(s), aucune positive dans A ET B",
+             detail: { presque } };
+  }
 
   const val = resumer(vainqueur.trades.filter((t) => t.tsIn >= borneV));
+  const vDetail = {
+    sig: vainqueur.sig, ov: ovDe(vainqueur.sortie),
+    mesures: { a: mesure(vainqueur.a), b: mesure(vainqueur.b), sel: mesure(vainqueur.ab), val: mesure(val) },
+  };
   if (val.trades < MIN_TRADES_VAL || val.netMarge <= 0 || val.winrate < MIN_WR_VAL || val.moyenneMarge < MIN_MOYENNE) {
+    // La porte de validation qui l'a recale, elle aussi, se montre.
+    vDetail.porte =
+      (val.trades < MIN_TRADES_VAL) ? "trades" :
+      (val.netMarge <= 0) ? "negatif" :
+      (val.winrate < MIN_WR_VAL) ? "wr" : "moyenne";
     return { perle: null, candidates: concourantes,
-             raison: `le vainqueur (${vainqueur.sig}, wr ${vainqueur.ab.winrate.toFixed(0)} %) echoue en validation` };
+             raison: `le vainqueur (${vainqueur.sig}, wr ${vainqueur.ab.winrate.toFixed(0)} %) echoue en validation`,
+             detail: { vainqueur: vDetail, finalistes } };
   }
-  return { perle: { sig: vainqueur.sig, sortie: vainqueur.sortie, sel: vainqueur.ab, val }, candidates: concourantes };
+  return { perle: { sig: vainqueur.sig, sortie: vainqueur.sortie,
+                    a: vainqueur.a, b: vainqueur.b, sel: vainqueur.ab, val, finalistes },
+           candidates: concourantes };
 }
 
 /* ---- 4. la passe entière ---- */
@@ -289,9 +329,10 @@ async function main() {
     direProgression({ debut: new Date(debut).toISOString(), rang, total: liste.length, instId: nom });
     try {
       const c5 = await histoire5m(instId);
-      const { perle, candidates, raison } = chercherPourInstrument(c5);
+      const { perle, candidates, raison, detail } = chercherPourInstrument(c5);
       if (!perle) {
-        refus[instId] = { raison: raison || "aucune concourante positive dans A et B", concourantes: candidates || 0 };
+        refus[instId] = { raison: raison || "aucune concourante positive dans A et B", concourantes: candidates || 0,
+                          ...(detail || {}) };
         rapport.push(`  ${nom.padEnd(10)} — pas de perle (${refus[instId].raison})`);
         continue;
       }
@@ -299,9 +340,10 @@ async function main() {
         sig: perle.sig,
         ov: { tpPctMargin: perle.sortie.tpPctMargin, trailActPctMargin: perle.sortie.trailActPctMargin, holdMs: perle.sortie.holdMs },
         mesures: {
-          sel: { trades: perle.sel.trades, winrate: +perle.sel.winrate.toFixed(1), netMarge: +perle.sel.netMarge.toFixed(3) },
-          val: { trades: perle.val.trades, winrate: +perle.val.winrate.toFixed(1), netMarge: +perle.val.netMarge.toFixed(3) },
+          a: mesure(perle.a), b: mesure(perle.b),
+          sel: mesure(perle.sel), val: mesure(perle.val),
         },
+        finalistes: perle.finalistes,
       };
       rapport.push(`  ${nom.padEnd(10)} ${perle.sig.padEnd(14)} tp ${perle.sortie.tpPctMargin} act ${perle.sortie.trailActPctMargin} ` +
         `hold ${perle.sortie.holdMs / 3600e3}h | sel ${perle.sel.trades}t wr ${perle.sel.winrate.toFixed(0)}% net ${perle.sel.netMarge.toFixed(2)} ` +
