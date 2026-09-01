@@ -1212,8 +1212,16 @@ async function loadPortfolio() {
       sz:      num(x.pos || x.sz || 0),
       avgPx:   num(x.avgPx || x.openAvgPx),
       margin:  num(x.margin ?? x.imr ?? 0),   // marge isolée réellement immobilisée
-      upl:     num(x.upl),
-      uplRatio:num(x.uplRatio)
+      // null quand OKX ne la pas fourni, jamais 0 : un PnL absent et un
+      // PnL nul sont deux informations differentes, et les confondre
+      // ferait retomber laffichage sur un calcul local moins juste.
+      upl:      x.upl      === undefined ? null : num(x.upl),
+      uplRatio: x.uplRatio === undefined ? null : num(x.uplRatio),
+      markPx:  num(x.markPx),
+      liqPx:   num(x.liqPx),
+      cTime:   num(x.cTime)     // heure douverture COTE EXCHANGE : elle
+                                // survit aux redemarrages du moteur, la
+                                // notre non
     }));
 
     setHealth("portfolio", { status: "OK", info: "fetch", lastOk: Date.now() });
@@ -1225,6 +1233,47 @@ async function loadPortfolio() {
   }
 }
 
+/* Les protections VIVANTES, lues chez OKX et non dans la memoire du
+   moteur.
+
+   La page affichait le stop et le take-profit depuis AI.openPositions.
+   Or cette memoire meurt a chaque redemarrage : une position readoptee
+   ny a plus ni tp, ni sl, ni stop — et la carte montrait alors une
+   position nue, comme si rien ne la protegeait, pendant quOKX detenait
+   bel et bien un OCO et un trailing poses par le moteur lui-meme.
+   Lecran de lexchange et le notre racontaient deux histoires.
+
+   La source de verite est donc la liste des ordres algo EN ATTENTE chez
+   OKX. Elle dit aussi une chose que la memoire ne dira jamais : ou en
+   est le trailing (moveTriggerPx), puisque cest lexchange qui le fait
+   glisser. */
+let ALGOS = { ts: 0, par: {} };
+async function chargerAlgosEnCours() {
+  if (!OKX.KEY || !OKX.SECRET || !OKX.PASS) return;
+  if (Date.now() - ALGOS.ts < 10000) return;   // 4 requetes toutes les 10 s suffisent
+  ALGOS.ts = Date.now();                        // pose AVANT : un echec ne doit pas marteler
+  const par = {};
+  // Le point dOKX nadmet quUN ordType par appel, do la boucle.
+  for (const t of ["oco", "conditional", "trigger", "move_order_stop"]) {
+    try {
+      const r = await okxGET("/api/v5/trade/orders-algo-pending", { instType: "SWAP", ordType: t });
+      for (const a of (Array.isArray(r?.data) ? r.data : [])) {
+        const id = String(a.instId || "");
+        if (!id) continue;
+        (par[id] = par[id] || []).push({
+          type: t,
+          tp:        num(a.tpTriggerPx),
+          sl:        num(a.slTriggerPx),
+          declenche: num(a.triggerPx),
+          suit:      num(a.moveTriggerPx),  // le trail, la ou il en est
+          actif:     num(a.activePx)
+        });
+      }
+    } catch (e) { /* la prochaine passe retentera ; rien a casser ici */ }
+  }
+  ALGOS.par = par;
+}
+
 async function portfolioLoop() {
   while (RUNNING) {
     try {
@@ -1232,6 +1281,9 @@ async function portfolioLoop() {
       AI.equityUSDT = num(port.balances?.totalEq || AI.equityUSDT);
       refreshTier();
       try { rapportAccessibilite(); } catch {}
+      // Sans await : la fraicheur des protections vaut moins que la
+      // regularite de cette boucle, qui synchronise aussi les positions.
+      chargerAlgosEnCours().catch(() => {});
 
       /* Synchro de l'état des positions avec OKX (toutes les 4 s) : garantit que
          canPlaceOrder voit fidèlement les symboles déjà ouverts → empêche la
@@ -1794,53 +1846,108 @@ ipcMain.handle("fetch-portfolio", async () => {
       const last = lastMap[p.instId]?.lastPrice || 0;
       const szAbs = Math.abs(p.sz || 0);
       const ct = num(meta.ctVal || 1);
-      const notional = last * szAbs * ct;
+      const entree = p.avgPx || 0;
+
+      /* Le SENS. Ce compte est en mode net : OKX repond posSide "net",
+         et lancien test posSide === "LONG" rendait donc SHORT pour
+         TOUTE position — deux longs se sont affiches SHORT pendant que
+         lexchange, lui, disait Acheter. En mode net, le sens est dans
+         le SIGNE de la taille ; posSide ne le porte quen mode hedge. */
+      const brut = String(p.posSide || "").toLowerCase();
+      const sens = brut === "long" ? "LONG" : brut === "short" ? "SHORT"
+                 : ((p.sz || 0) < 0 ? "SHORT" : "LONG");
+      const long = sens === "LONG";
+
+      /* Le prix qui fait foi pour le PnL est le mark dOKX, pas notre
+         dernier trade recu : cest sur lui que lexchange calcule, et
+         cest lui que son application affiche. */
+      const marque = num(p.markPx) || last;
+      const notional = marque * szAbs * ct;
       const lev = p.lever || DEFAULT_LEVERAGE;
-      const margin = (lev > 0 && last > 0) ? (notional / lev) : 0;
-      const upl = (p.upl !== undefined)
-        ? Number(p.upl)
-        : ((p.posSide || "").toUpperCase() === "LONG"
-            ? (last - (p.avgPx || last)) * szAbs * ct
-            : ((p.avgPx || last) - last) * szAbs * ct);
+
+      /* La marge REELLE, celle quOKX immobilise. La notre etait
+         notionnel/levier au prix courant — proche, jamais egale, et la
+         page contredisait lexchange de quelques centimes en
+         permanence. Un chiffre presque juste est plus corrosif quun
+         chiffre faux : on ne sait jamais lequel croire. */
+      const margin = num(p.margin) > 0 ? num(p.margin)
+                   : ((lev > 0 && marque > 0) ? notional / lev : 0);
+
+      /* PnL et pourcentage : ceux dOKX quand ils existent. uplRatio
+         est le rapport que son application affiche — le reproduire par
+         calcul local, cest garantir un ecart. */
+      const upl = (p.upl != null) ? p.upl
+                : (long ? (marque - entree) : (entree - marque)) * szAbs * ct;
+      const pctMarge = (p.uplRatio != null) ? p.uplRatio * 100
+                     : (margin > 0 ? (upl / margin) * 100 : 0);
 
       totalValue  += notional;
       totalMargin += margin;
       unreal      += upl;
 
-      // Ce que lexchange rend ne suffit pas a afficher une position :
-      // il ignore les protections que le moteur a posees. La taille, le
-      // take-profit, le stop et le trail vivent dans AI.openPositions,
-      // et sans eux la page ne peut pas montrer ce quelle doit montrer.
       const suivi = AI.openPositions[p.instId] || {};
 
+      /* Les protections, lues chez OKX (cache ALGOS) et non dans la
+         memoire du moteur : celle-ci meurt a chaque redemarrage, et une
+         position readoptee saffichait nue alors quun OCO et un trail
+         etaient bel et bien poses cote exchange.
+
+         Classement dun trigger nu : de quel cote de lentree tombe-t-il.
+         Sous lentree pour un long, cest un stop ; au-dessus, un
+         take-profit. Sil y a plusieurs stops, on garde le plus
+         PROTECTEUR — le plus haut pour un long, le plus bas pour un
+         short : cest celui qui se declenchera en premier. */
+      let tpX = null, slX = null, trailSuit = null, trailPose = false;
+      for (const a of (ALGOS.par[p.instId] || [])) {
+        if (a.type === "move_order_stop") {
+          trailPose = true;
+          if (a.suit > 0) trailSuit = a.suit;
+          continue;
+        }
+        if (a.tp > 0) tpX = a.tp;
+        if (a.sl > 0) slX = slX == null ? a.sl : (long ? Math.max(slX, a.sl) : Math.min(slX, a.sl));
+        if (a.declenche > 0 && !(a.tp > 0) && !(a.sl > 0) && entree > 0) {
+          if (long ? a.declenche < entree : a.declenche > entree) {
+            slX = slX == null ? a.declenche : (long ? Math.max(slX, a.declenche) : Math.min(slX, a.declenche));
+          } else if (tpX == null) tpX = a.declenche;
+        }
+      }
+
+      const stopActuel = trailSuit || slX || suivi.stopPx || suivi.slPx || null;
       // stopMode dit COMMENT le stop est arrive la ou il est :
       //   INIT  le stop initial, pose a lentree
       //   BE    remonte au point mort, la position ne peut plus perdre
       //   TRAIL il suit le prix et ne redescend jamais
-      // Cest la difference entre « un stop existe » et « un stop suit ».
-      const modeStop = suivi.stopMode || (suivi.slPx ? "INIT" : null);
-      const stopActuel = suivi.stopPx || suivi.slPx || null;
+      const modeStop = trailSuit ? "TRAIL"
+        : (stopActuel && entree > 0 && (long ? stopActuel >= entree : stopActuel <= entree)) ? "BE"
+        : (stopActuel ? (suivi.stopMode || "INIT") : null);
 
       return {
         symbol: p.instId,
-        side:   (p.posSide || "").toUpperCase() === "LONG" ? "LONG" : "SHORT",
+        side:   sens,
         leverage:  lev,
-        entryPrice: p.avgPx || 0,
-        markPrice:  last,
-        size:      suivi.qty || szAbs,
+        entryPrice: entree,
+        markPrice:  marque,
+        /* La taille en MONNAIE DE BASE (contrats x ctVal), comme
+           lexchange laffiche : 194 contrats MEGA sont 1 940 MEGA, et
+           cest 1 940 que le proprietaire lit sur son application. Deux
+           ecrans qui appellent « taille » deux unites differentes ne
+           peuvent que se contredire. */
+        size:      szAbs * ct,
         notional,
         margin,
-        // Lheure REELLE douverture. Elle valait Date.now() ici, donc la
-        // page affichait toujours « a linstant » et la duree de tenue
-        // etait invisible.
-        entryTime:  suivi.ts || null,
+        // Lheure douverture COTE EXCHANGE : la notre repartait de zero
+        // a chaque redemarrage du moteur, et la tenue affichait 0 min
+        // pour des positions vieilles de deux heures.
+        entryTime:  num(p.cTime) || suivi.ts || null,
+        liqPrice:   num(p.liqPx) || null,
         unrealizedPnl: upl,
-        pnlPctOfMargin: margin > 0 ? (upl / margin) * 100 : 0,
-        takeProfit: suivi.tpPx || null,
-        stopLoss:   suivi.slPx || null,
+        pnlPctOfMargin: pctMarge,
+        takeProfit: tpX || suivi.tpPx || null,
+        stopLoss:   suivi.slPx || slX || null,
         stopActuel,
         stopMode:   modeStop,
-        trailArme:  !!suivi.trailAlgoId,
+        trailArme:  trailPose || !!suivi.trailAlgoId,
         protection: suivi.protection || null
       };
     });

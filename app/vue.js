@@ -301,7 +301,10 @@ function majPosition(el, p) {
   poserNombre(u, pnl, usd);
   el.querySelector(".pos-pnl .p").textContent = pct(Number(p.pnlPctOfMargin) || 0) + " de la marge";
 
-  el.querySelector('[data-f="size"]').textContent  = taille(p.size);
+  // La taille arrive en monnaie de base, comme sur lexchange ; nommer
+  // la monnaie evite de relire le titre de la carte pour savoir de quoi
+  // 1 940 est le compte.
+  el.querySelector('[data-f="size"]').textContent  = taille(p.size) + " " + court(p.symbol);
   el.querySelector('[data-f="marge"]').textContent = nf(Number(p.margin) || 0) + " $";
   el.querySelector('[data-f="notio"]').textContent = nf(Number(p.notional) || 0) + " $";
   el.querySelector('[data-f="tenue"]').textContent = duree(p.entryTime);
