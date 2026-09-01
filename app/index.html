@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <title>Hermes-Astra</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 1.6 L14 10 L22.4 12 L14 14 L12 22.4 L10 14 L1.6 12 L10 10 Z' fill='%237fb2ff'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 1.6 L14 10 L22.4 12 L14 14 L12 22.4 L10 14 L1.6 12 L10 10 Z' fill='%23c9a254'/%3E%3C/svg%3E">
 
 <link rel="preload" href="/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/SpaceGrotesk.woff2" as="font" type="font/woff2" crossorigin>
@@ -62,38 +62,36 @@
 :root {
   color-scheme: dark;
 
-  /* Le graphite : un sombre NEUTRE, sans teinte. Le noir bleute est
-     le tic des tableaux de bord ; les outils dessines avec discipline
-     travaillent en gris purs et laissent la couleur aux donnees et a
-     UN accent. */
-  --fond:        #0a0a0b;
-  --fond-2:      #0e0e10;
-  --surface:     #131315;
-  --surface-2:   #18181b;
-  --surface-3:   #202024;
+  /* Noir & champagne : le registre des terminaux prives. Un noir
+     profond a peine chaud, des gris sans teinte, et UN métal — le
+     champagne — pour la marque et les commandes. Les donnees parlent
+     la langue universelle du marche : VERT pour le long et le gain,
+     ROUGE pour le short et la perte. */
+  --fond:        #070708;
+  --fond-2:      #0c0c0d;
+  --surface:     #111112;
+  --surface-2:   #161617;
+  --surface-3:   #1d1d1f;
   --bord:        rgba(255,255,255,.07);
   --bord-vif:    rgba(255,255,255,.14);
 
-  --texte:       #ededef;
-  --texte-2:     #9c9ca4;
-  --texte-3:     #626268;
+  --texte:       #f0efec;
+  --texte-2:     #a3a19b;
+  --texte-3:     #67655f;
 
-  --long:        #3987e5;
-  --short:       #d95926;
-  --serie:       #3987e5;
-  --bon:         #0ca30c;
-  --attention:   #fab219;
-  --critique:    #d03b3b;
-  --gain:        #22c55e;
-  --perte:       #ef4444;
+  --long:        #0ecb81;
+  --short:       #f6465d;
+  --serie:       #d8b46c;
+  --bon:         #0ecb81;
+  --attention:   #f0b90b;
+  --critique:    #f6465d;
+  --gain:        #0ecb81;
+  --perte:       #f6465d;
 
-  /* L'accent, au singulier : un violet pervenche tenu. La voix de la
-     marque et des commandes — jamais celle des donnees, qui gardent
-     leurs couleurs validees. */
-  --astra-a:     #9aa0f5;
-  --astra-b:     #b18cf5;
-  --accent:      #7d74f2;
-  --astra-encre: #ffffff;
+  --astra-a:     #ead9a8;
+  --astra-b:     #c9a254;
+  --accent:      #c9a254;
+  --astra-encre: #171204;
 
   --lueur:       0 1px 2px rgba(0,0,0,.45), 0 8px 28px -14px rgba(0,0,0,.55);
   --lueur-haute: 0 2px 6px rgba(0,0,0,.45), 0 18px 46px -20px rgba(0,0,0,.7);
@@ -113,24 +111,26 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --fond:      #f7f7f8;
-  --fond-2:    #f0f0f2;
+  --fond:      #faf9f6;
+  --fond-2:    #f2f1ed;
   --surface:   #ffffff;
-  --surface-2: #f6f6f8;
-  --surface-3: #ececef;
-  --bord:      rgba(9,9,11,.09);
-  --bord-vif:  rgba(9,9,11,.17);
-  --texte:     #101013;
-  --texte-2:   #55555e;
-  --texte-3:   #8e8e96;
-  --long:      #2a78d6;
-  --short:     #eb6834;
-  --serie:     #2a78d6;
-  --gain:      #16a34a;
-  --perte:     #dc2626;
-  --astra-a:   #6366e8;
-  --astra-b:   #8b5cf6;
-  --accent:    #6459e8;
+  --surface-2: #f7f6f3;
+  --surface-3: #edecE7;
+  --bord:      rgba(20,18,10,.09);
+  --bord-vif:  rgba(20,18,10,.17);
+  --texte:     #141310;
+  --texte-2:   #5a5850;
+  --texte-3:   #93908a;
+  --long:      #0a9e68;
+  --short:     #e0324b;
+  --serie:     #a8842e;
+  --gain:      #0a9e68;
+  --perte:     #e0324b;
+  --critique:  #e0324b;
+  --bon:       #0a9e68;
+  --astra-a:   #b8933d;
+  --astra-b:   #8a6a1f;
+  --accent:    #9a7b2b;
   --astra-encre: #ffffff;
   --lueur:       0 1px 2px rgba(9,9,11,.05), 0 8px 24px -12px rgba(9,9,11,.10);
   --lueur-haute: 0 2px 6px rgba(9,9,11,.07), 0 18px 40px -16px rgba(9,9,11,.16);
@@ -144,24 +144,26 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     color-scheme: light;
-    --fond:      #f7f7f8;
-    --fond-2:    #f0f0f2;
+    --fond:      #faf9f6;
+    --fond-2:    #f2f1ed;
     --surface:   #ffffff;
-    --surface-2: #f6f6f8;
-    --surface-3: #ececef;
-    --bord:      rgba(9,9,11,.09);
-    --bord-vif:  rgba(9,9,11,.17);
-    --texte:     #101013;
-    --texte-2:   #55555e;
-    --texte-3:   #8e8e96;
-    --long:      #2a78d6;
-    --short:     #eb6834;
-    --serie:     #2a78d6;
-    --gain:      #16a34a;
-    --perte:     #dc2626;
-    --astra-a:   #6366e8;
-    --astra-b:   #8b5cf6;
-    --accent:    #6459e8;
+    --surface-2: #f7f6f3;
+    --surface-3: #edecE7;
+    --bord:      rgba(20,18,10,.09);
+    --bord-vif:  rgba(20,18,10,.17);
+    --texte:     #141310;
+    --texte-2:   #5a5850;
+    --texte-3:   #93908a;
+    --long:      #0a9e68;
+    --short:     #e0324b;
+    --serie:     #a8842e;
+    --gain:      #0a9e68;
+    --perte:     #e0324b;
+    --critique:  #e0324b;
+    --bon:       #0a9e68;
+    --astra-a:   #b8933d;
+    --astra-b:   #8a6a1f;
+    --accent:    #9a7b2b;
     --astra-encre: #ffffff;
     --lueur:       0 1px 2px rgba(9,9,11,.05), 0 8px 24px -12px rgba(9,9,11,.10);
     --lueur-haute: 0 2px 6px rgba(9,9,11,.07), 0 18px 40px -16px rgba(9,9,11,.16);
@@ -238,34 +240,39 @@ h1,h2,h3 { margin: 0; font-family: var(--titre); font-weight: 600; letter-spacin
 @media (max-width: 640px) { .entete-int { padding: 10px 13px; gap: 8px; } }
 
 /* ============================================================
-   La marque Hermes-Astra, troisieme dessin : typographique.
+   La marque Hermes-Astra, quatrieme dessin : la maison.
 
-   Plus d'ecrin, plus d'orbite — un logotype. Deux mots poses dans la
-   fonte d'affichage, et entre eux l'astre : une etoile a quatre
-   branches en argent-glace qui respire a peine. Les marques qui
-   durent sont des mots bien poses ; le pictogramme etait de trop.
+   Le registre des maisons qui durent : des CAPITALES, un espacement
+   large, une seule encre — et entre les deux mots, l'astre en
+   champagne. Pas de pictogramme, pas de degrade criard : le luxe est
+   dans l'espace et la tenue, la couleur est une signature discrete.
    ============================================================ */
 .marque-ha {
-  display: flex; align-items: center; gap: 7px;
+  display: flex; align-items: center; gap: 9px;
   font-family: var(--titre);
-  font-size: 18px; font-weight: 500; letter-spacing: -0.01em;
+  font-size: 13px; font-weight: 500;
+  letter-spacing: .32em; text-transform: uppercase;
+  color: var(--texte);
 }
 .marque-ha .astra {
-  background: linear-gradient(105deg, var(--astra-a), var(--astra-b) 85%);
+  background: linear-gradient(100deg, var(--astra-a), var(--astra-b));
   -webkit-background-clip: text; background-clip: text; color: transparent;
-  font-weight: 700; letter-spacing: 0;
+  font-weight: 600;
 }
-.ha-sep { display: block; overflow: visible; margin-top: 1px; }
-.ha-s1 { stop-color: color-mix(in oklab, var(--texte) 90%, var(--astra-a)); }
-.ha-s2 { stop-color: var(--astra-a); }
+/* L'espacement de lettres laisse un vide apres la derniere : on le
+   rend pour que l'etoile soit optiquement centree. */
+.marque-ha > span { margin-right: -0.32em; }
+.ha-sep { display: block; overflow: visible; flex: none; }
+.ha-s1 { stop-color: color-mix(in oklab, var(--texte) 55%, var(--astra-a)); }
+.ha-s2 { stop-color: var(--astra-b); }
 .marque-ha .ha-astre {
   transform-box: fill-box; transform-origin: center;
-  animation: ha-nait .8s var(--ressort) .15s backwards, ha-respire 7s ease-in-out 2s infinite;
+  animation: ha-nait .8s var(--ressort) .15s backwards, ha-respire 8s ease-in-out 2s infinite;
 }
 @keyframes ha-nait { from { opacity: 0; transform: scale(.2) rotate(-90deg); } }
 @keyframes ha-respire {
   0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(.86) rotate(8deg); opacity: .82; }
+  50% { transform: scale(.88) rotate(6deg); opacity: .85; }
 }
 
 .jeton {
@@ -524,10 +531,12 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
 .sens {
   display: inline-flex; align-items: center; gap: 4px;
   font-size: 10.5px; font-weight: 700; letter-spacing: .07em;
-  padding: 3.5px 9px; border-radius: 6px; color: #fff;
+  padding: 3.5px 9px; border-radius: 6px;
 }
-.sens.long  { background: var(--long); }
-.sens.short { background: var(--short); }
+/* Vert et rouge — la langue universelle du marche — en pastilles
+   teintees : le bloc plein criait, la teinte affirme. */
+.sens.long  { color: var(--long);  background: color-mix(in srgb, var(--long) 13%, transparent);  border: 1px solid color-mix(in srgb, var(--long) 36%, transparent); }
+.sens.short { color: var(--short); background: color-mix(in srgb, var(--short) 13%, transparent); border: 1px solid color-mix(in srgb, var(--short) 36%, transparent); }
 .lev {
   font-family: var(--mono); font-size: 11px; color: var(--texte-2);
   padding: 3.5px 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--bord);
@@ -763,7 +772,7 @@ tbody tr:hover { background: var(--surface-2); }
 }
 .fenetre .f-barre i {
   position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 3px;
-  background: linear-gradient(90deg, color-mix(in oklab, var(--long) 45%, transparent), var(--long));
+  background: linear-gradient(90deg, color-mix(in oklab, var(--serie) 45%, transparent), var(--serie));
   transition: width 1s var(--doux);
 }
 .fenetre .f-barre s {
@@ -799,12 +808,12 @@ tbody tr:hover { background: var(--surface-2); }
 .hist .lev { font-size: 10px; padding: 2.5px 6px; }
 @media (max-width: 640px) { .hist .h-quand { min-width: 0; } .hist .h-prix { display: none; } }
 
-.labo-vif { border-color: color-mix(in oklab, var(--long) 45%, var(--bord)); }
+.labo-vif { border-color: color-mix(in oklab, var(--accent) 45%, var(--bord)); }
 /* Dans un g-niv, i est par defaut un trait de legende ; le pouls doit
    gagner ce duel de specificite, sinon il herite d'une hauteur nulle. */
 .g-niv i.labo-pouls {
   width: 8px; height: 8px; border-top: 0;
-  border-radius: 50%; background: var(--long); display: inline-block;
+  border-radius: 50%; background: var(--accent); display: inline-block;
   animation: labo-pouls 1.2s ease-in-out infinite;
 }
 @keyframes labo-pouls { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .35; transform: scale(.7); } }
@@ -913,7 +922,7 @@ tbody tr:hover { background: var(--surface-2); }
 .histo { display: flex; align-items: flex-end; gap: 3px; height: 86px; padding: 4px 2px 0; }
 .histo .h-barre {
   flex: 1 1 0; min-width: 5px; max-width: 26px; border-radius: 4px 4px 2px 2px;
-  background: linear-gradient(180deg, color-mix(in oklab, var(--long) 80%, var(--bon)), color-mix(in oklab, var(--long) 30%, transparent));
+  background: linear-gradient(180deg, color-mix(in oklab, var(--serie) 90%, transparent), color-mix(in oklab, var(--serie) 25%, transparent));
   transition: height .8s var(--doux), opacity .25s;
   animation: histo-pousse .8s var(--doux) backwards;
 }
@@ -1063,7 +1072,7 @@ tbody tr:hover { background: var(--surface-2); }
   <div class="entete-int">
     <div class="marque-ha">
       <span>Hermes</span>
-      <svg class="ha-sep" width="13" height="13" viewBox="0 0 14 14" aria-hidden="true">
+      <svg class="ha-sep" width="11" height="11" viewBox="0 0 14 14" aria-hidden="true">
         <defs>
           <linearGradient id="ha-argent" x1="0" y1="0" x2="1" y2="1">
             <stop class="ha-s1" offset="0"/>
