@@ -236,22 +236,6 @@ jobs:
             fi
           '
 
-      # Mesure, jamais ecriture. Elle interroge les points PUBLICS dOKX
-      # depuis le VPS — la seule machine du circuit qui puisse les
-      # joindre — et repond a une question quon ne peut pas deviner :
-      # un perpetuel sachete par contrats entiers, et la valeur dun
-      # contrat varie dun facteur mille dun instrument a lautre.
-      - name: Mesurer ce que le capital peut ouvrir
-        if: ${{ inputs.diagnostic == 'true' }}
-        run: |
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
-            eq=$(journalctl -u hermes -n 400 --no-pager 2>/dev/null \
-                 | grep -o "\[TAILLE\] equite [0-9.]*" | tail -1 | awk "{print \$3}")
-            [ -z "$eq" ] && eq=0
-            echo "equite lue dans le journal : $eq"
-            node /root/hermes/deploy/accessibles.js "$eq"
-          '
-
       # always() : cest quand une etape a echoue quon a le plus besoin
       # de letat de la machine. Saute sur echec, ce releve ne servait
       # qua confirmer les succes.
@@ -281,4 +265,20 @@ jobs:
               echo "  !! aucune cle de tableau de bord dans le .env"
             fi
             echo "=== journal ==="; journalctl -u hermes -n 30 --no-pager || true
+          '
+
+      # Mesure, jamais ecriture. Elle interroge les points PUBLICS dOKX
+      # depuis le VPS — la seule machine du circuit qui puisse les
+      # joindre — et repond a une question quon ne peut pas deviner :
+      # un perpetuel sachete par contrats entiers, et la valeur dun
+      # contrat varie dun facteur mille dun instrument a lautre.
+      - name: Mesurer ce que le capital peut ouvrir
+        if: ${{ inputs.diagnostic == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            eq=$(journalctl -u hermes -n 400 --no-pager 2>/dev/null \
+                 | grep -o "\[TAILLE\] equite [0-9.]*" | tail -1 | awk "{print \$3}")
+            [ -z "$eq" ] && eq=0
+            echo "equite lue dans le journal : $eq"
+            node /root/hermes/deploy/accessibles.js "$eq"
           '

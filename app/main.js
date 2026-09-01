@@ -291,18 +291,31 @@ function rapportAccessibilite() {
   const s = positionSizing(AI.equityUSDT);
   if (!(s.perTradeUSDT > 0)) return;
 
+  /* On ne juge QUE les instruments dont un prix est arrivé.
+
+     Sans ce filtre, la toute première exécution ment. Elle tombe entre
+     le démarrage et l'ouverture du flux public — mesuré : rapport à
+     .794, « [WS] public open » à .971 — donc lastPrice vaut 0 partout,
+     qtyFromUSDT rend 0 partout, et la ligne annonce « AUCUN instrument
+     accessible ». C'est faux, et c'est pire que muet : ça désigne un
+     coupable qui n'y est pour rien, et on part régler la taille ou le
+     levier pendant que le seul problème était l'ordre d'arrivée. */
+  const cotes = univers.filter((id) => (MARKET.tick[id]?.lastPrice || 0) > 0);
+  if (!cotes.length) return;
+
   const oui = [], non = [];
-  for (const id of univers) {
+  for (const id of cotes) {
     (qtyFromUSDT(id, s.perTradeUSDT) > 0 ? oui : non).push(id.replace("-USDT-SWAP", ""));
   }
 
-  const empreinte = `${s.perTradeUSDT.toFixed(2)}|${s.maxPositions}|${oui.length}|${non.length}`;
+  const empreinte = `${s.perTradeUSDT.toFixed(2)}|${s.maxPositions}|${oui.length}|${non.length}|${cotes.length}`;
   if (empreinte === __accesEmpreinte) return;
   __accesEmpreinte = empreinte;
 
   log(`[TAILLE] equite ${AI.equityUSDT.toFixed(2)} USDT -> marge ${s.perTradeUSDT.toFixed(2)}`
     + ` x levier ${DEFAULT_LEVERAGE} = ${(s.perTradeUSDT * DEFAULT_LEVERAGE).toFixed(0)} USDT de notionnel,`
-    + ` ${s.maxPositions} place(s) | ${oui.length}/${univers.length} instruments acceptent ce lot`
+    + ` ${s.maxPositions} place(s) | ${oui.length}/${cotes.length} instruments acceptent ce lot`
+    + (cotes.length < univers.length ? ` (${univers.length - cotes.length} sans prix encore)` : "")
     + (oui.length ? ` : ${oui.join(", ")}` : "")
     + (non.length ? ` | lot trop gros pour : ${non.join(", ")}` : "")
     + (oui.length ? "" : " | AUCUN instrument accessible a cette taille : rien ne sera ouvert."));
