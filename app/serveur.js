@@ -193,7 +193,24 @@ async function traiter(req, rep) {
 
   const auth = autorise(req);
   if (!auth.ok) {
-    repondre(rep, 403, "Hermes : cle dacces requise");
+    /* La porte fermee n'est plus un mur de texte : une page ou POSER
+       la cle. Le cas reel : le proprietaire ouvre le lien sur un
+       nouvel appareil et la cle du lien est fausse ou absente — lui
+       laisser la taper vaut mieux que le renvoyer a son autre écran.
+       Tout est en ligne (styles compris) : les fichiers statiques
+       vivent derriere la meme porte. */
+    repondre(rep, 403, `<!doctype html><html lang="fr"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hermes-Astra</title></head>
+<body style="margin:0;min-height:100vh;display:grid;place-items:center;background:#070708;color:#f0efec;font:14px/1.5 system-ui,sans-serif">
+<form onsubmit="location='/?key='+encodeURIComponent(this.cle.value.trim());return false"
+      style="text-align:center;padding:24px;max-width:340px">
+  <div style="letter-spacing:.32em;font-weight:600;font-size:13px;margin-bottom:6px">HERMES <span style="color:#c9a254">&#10022;</span> ASTRA</div>
+  <p style="color:#a3a19b;font-size:12.5px;margin:0 0 18px">Cl&eacute; d&rsquo;acc&egrave;s requise.<br>Collez la cl&eacute; du tableau de bord&nbsp;&mdash; elle sera retenue sur cet appareil.</p>
+  <input name="cle" autocomplete="off" autofocus placeholder="cl&eacute;"
+    style="width:100%;box-sizing:border-box;padding:11px 13px;border-radius:9px;border:1px solid rgba(255,255,255,.14);background:#111112;color:#f0efec;font:13px ui-monospace,monospace;text-align:center;outline:none">
+  <button style="margin-top:11px;width:100%;padding:11px;border-radius:9px;border:0;background:#c9a254;color:#171204;font:600 13.5px system-ui;cursor:pointer">Entrer</button>
+</form></body></html>`, "text/html; charset=utf-8");
     return;
   }
   const entetes = auth.cookie ? { "Set-Cookie": auth.cookie } : {};
