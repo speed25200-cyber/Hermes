@@ -2471,7 +2471,20 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
       const s  = positionSizing(AI.equityUSDT);
       const restant = Math.max(0, MAX_RISK_PCT * AI.equityUSDT - usedMarginNow());
       const marge = Math.min(s.perTradeUSDT, restant * 0.98, availableUSDT * 0.95);
-      if (marge < Math.max(MIN_BALANCE_AVAIL, 5)) return { ok:false, reason:"budgetEpuise" };
+      /* Le plancher etait la constante 5 USDT, et il a coute la deuxieme
+         place sur un compte de 11,35 : marge calculee 4,97, refusee pour
+         trois centimes par un seuil qui n'a aucun rapport avec le
+         capital. La question qu'il doit poser n'est pas « cinq dollars
+         est-ce beaucoup » mais « ce trade vaut-il encore la peine face a
+         celui qu'on visait ». La moitie de la taille visee repond a
+         celle-la, et repond pareil a tout capital — sur un gros compte
+         elle reste au-dessus de 5, donc rien ne change la-bas.
+
+         Ce qui garde les poussieres a distance est ailleurs, et c'est sa
+         place : qtyFromUSDT refuse instrument par instrument des que
+         l'arrondi au lot depasse la marge. */
+      const plancher = Math.min(MIN_BALANCE_AVAIL, s.perTradeUSDT * 0.5);
+      if (marge < plancher) return { ok:false, reason:"budgetEpuise" };
       const qty = qtyFromUSDT(instId, marge);
       if (qty<=0) return { ok:false, reason:"noQty" };
       if (!__shouldPlace(instId, side)) return { ok:false, reason:"dedup" };
