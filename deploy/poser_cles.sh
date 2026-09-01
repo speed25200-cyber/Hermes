@@ -24,9 +24,18 @@ ENV=/root/hermes/.env
 # depend de personne — ni dun depot, ni dune conversation, ni dun
 # service tiers — et cest donc celle qui reste quand les autres
 # echouent.
+# Trois formes acceptees, et le script les distingue seul. La raison
+# est simple : cest a loutil de sadapter a ce quon lui donne, pas
+# linverse.
+#
+#   1. un terminal          -> il demande les trois valeurs, masquees
+#   2. quatre lignes        -> cle, secret, phrase, demo (un workflow)
+#   3. un fichier .env colle -> il y prend ce dont il a besoin
+#
+# La troisieme est celle qui demande le moins : coller le fichier tel
+# quel, sans rien decouper ni renommer.
 if [ -t 0 ]; then
   echo "Saisie des cles OKX. Rien ne saffiche pendant la frappe, cest normal."
-  echo "Coller la valeur puis Entree."
   echo
   printf "  cle dAPI          : "; IFS= read -rs CLE;    echo
   printf "  secret            : "; IFS= read -rs SECRET; echo
@@ -35,38 +44,53 @@ if [ -t 0 ]; then
   SIMULE="${SIMULE:-0}"
   echo
 else
-  IFS= read -r CLE       || CLE=""
-  IFS= read -r SECRET    || SECRET=""
-  IFS= read -r PASSE     || PASSE=""
-  IFS= read -r SIMULE    || SIMULE=""
+  BRUT=$(cat)
+  if printf '%s' "$BRUT" | grep -q "^[[:space:]]*OKX_API_KEY[[:space:]]*="; then
+    echo "  un fichier .env a ete reconnu : $(printf '%s' "$BRUT" | grep -c "^[[:space:]]*[A-Za-z_][A-Za-z_0-9]*[[:space:]]*=") variables"
+    lire() {
+      printf '%s' "$BRUT" | grep -m1 "^[[:space:]]*$1[[:space:]]*=" \
+        | sed -E "s/^[[:space:]]*[A-Za-z_0-9]+[[:space:]]*=[[:space:]]*//" \
+        | sed -E "s/^[\"']//; s/[\"']$//" | tr -d '\r'
+    }
+    CLE=$(lire OKX_API_KEY)
+    SECRET=$(lire OKX_API_SECRET)
+    PASSE=$(lire OKX_API_PASSPHRASE)
+    # Certains fichiers portent OKX_API_PASS au lieu de la forme longue.
+    [ -z "$PASSE" ] && PASSE=$(lire OKX_API_PASS)
+    SIMULE=$(lire OKX_SIMULATED); SIMULE="${SIMULE:-0}"
+    # Le reste du fichier est garde de cote : il ne sert a rien au code
+    # actuel, mais le jeter serait decider a la place du proprietaire.
+    printf '%s\n' "$BRUT" > ${DIR}/.env.recu
+    chmod 600 ${DIR}/.env.recu
+    echo "  fichier complet garde dans ${DIR}/.env.recu (droits 600)"
+  else
+    CLE=$(printf '%s' "$BRUT"    | sed -n 1p | tr -d '\r')
+    SECRET=$(printf '%s' "$BRUT" | sed -n 2p | tr -d '\r')
+    PASSE=$(printf '%s' "$BRUT"  | sed -n 3p | tr -d '\r')
+    SIMULE=$(printf '%s' "$BRUT" | sed -n 4p | tr -d '\r'); SIMULE="${SIMULE:-0}"
+  fi
 fi
 
-# Un secret unique portant les trois valeurs.
+# Une seule ligne portant les trois valeurs, separees par un signe.
+# Cest la forme la plus courte a saisir sur telephone, et elle sert de
+# repli quand le fichier complet nest pas disponible.
 #
-# Sur telephone, creer trois secrets veut dire remplir trois
-# formulaires ; en modifier un seul en veut dire un. Cest une raison
-# suffisante pour accepter les deux formes. Quand la premiere ligne
-# contient des separateurs et que les deux suivantes sont vides, elle
-# est decoupee ici.
-#
-# Le decoupage se fait sur le SERVEUR et non sur le runner, et ce
-# detail nest pas anodin : GitHub masque la valeur EXACTE dun secret
-# dans ses journaux, mais pas ses morceaux. Decouper « a:b:c » cote
-# runner produirait trois fragments que plus rien ne masquerait.
+# Le decoupage se fait ICI, sur le serveur, et non sur le runner : GitHub
+# masque la valeur EXACTE dun secret dans ses journaux, jamais ses
+# morceaux. Decouper « a:b:c » la-bas produirait trois fragments que
+# plus rien ne protegerait.
 if [ -n "$CLE" ] && [ -z "$SECRET$PASSE" ]; then
   case "$CLE" in
-    *:*|*\|*|*\;*|*,*|*\ *)
+    *:*|*\|*|*\;*|*,*)
       ancien="$CLE"; n=0; CLE=""; SECRET=""; PASSE=""
-      for m in $(printf '%s' "$ancien" | tr ':|;, \t' '\n\n\n\n\n\n'); do
+      for m in $(printf '%s' "$ancien" | tr ':|;,' '\n\n\n\n'); do
         [ -z "$m" ] && continue
         n=$((n + 1))
         case $n in 1) CLE="$m";; 2) SECRET="$m";; 3) PASSE="$m";; esac
       done
-      echo "  secret unique detecte : $n morceau(x)"
+      echo "  une seule ligne, $n morceau(x)"
       if [ "$n" -ne 3 ]; then
-        echo "  !! il en faut exactement TROIS, dans cet ordre :"
-        echo "     cle:secret:phrase_de_passe"
-        echo "     (les separateurs acceptes sont : | ; , espace)"
+        echo "  !! il en faut exactement TROIS : cle:secret:phrase_de_passe"
         exit 1
       fi
       ;;

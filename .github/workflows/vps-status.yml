@@ -131,9 +131,20 @@ jobs:
           # Pas de « ; rm » derriere : le code de retour serait celui du
           # rm, qui reussit toujours, et une pose refusee par OKX se
           # presenterait comme un succes. Le script se supprime lui-meme.
-          printf '%s\n%s\n%s\n%s\n' "$K" "$S" "$P" "${SIM:-0}" \
-            | sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
-              "bash /tmp/poser_cles.sh"
+          # La valeur part TELLE QUELLE quand elle vient dun secret unique :
+          # ce peut etre un fichier .env entier, une ligne a trois
+          # morceaux, ou les trois valeurs separement. Le serveur
+          # reconnait la forme — cest lui qui doit le faire, puisque cest
+          # lui qui peut decouper sans produire de fragments non masques.
+          if [ -n "$UN" ] && [ -z "$S$P" ]; then
+            printf '%s\n' "$UN" \
+              | sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+                "bash /tmp/poser_cles.sh"
+          else
+            printf '%s\n%s\n%s\n%s\n' "$K" "$S" "$P" "${SIM:-0}" \
+              | sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+                "bash /tmp/poser_cles.sh"
+          fi
 
       - name: Status report
         if: ${{ !inputs.lien && !inputs.poser_cles }}
