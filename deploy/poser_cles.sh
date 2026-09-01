@@ -101,3 +101,7 @@ journalctl -u hermes --since "-30 seconds" --no-pager 2>/dev/null \
   | grep -E "ACCOUNT|posMode|\[WS\] private" | head -4 | sed -e "s/^.*: //" -e "s/^/  /"
 echo
 echo "fait."
+
+# Le script se supprime : il ne porte aucun secret, mais laisser des
+# outils qui ecrivent dans .env trainer dans /tmp na aucun interet.
+rm -f /tmp/poser_cles.sh

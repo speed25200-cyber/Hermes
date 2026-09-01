@@ -76,13 +76,53 @@ jobs:
           S: ${{ secrets.OKX_API_SECRET }}
           P: ${{ secrets.OKX_API_PASSPHRASE }}
           SIM: ${{ secrets.OKX_SIMULATED }}
+          # Noms voisins, sondes UNIQUEMENT pour dire sous lequel les
+          # secrets ont ete enregistres. « vide » ne dit pas ou chercher ;
+          # « vous les avez appeles OKX_KEY » le dit.
+          V1: ${{ secrets.OKX_KEY }}
+          V2: ${{ secrets.OKX_ACCESS_KEY }}
+          V3: ${{ secrets.OK_ACCESS_KEY }}
+          V4: ${{ secrets.API_KEY }}
+          V5: ${{ secrets.OKX_SECRET }}
+          V6: ${{ secrets.OKX_PASSPHRASE }}
+          V7: ${{ secrets.OKX_API_PASS }}
         run: |
           set -eu
+          # Diagnostic AVANT toute connexion : on ne derange pas le
+          # serveur pour rien, et surtout on NOMME le probleme au lieu de
+          # le constater.
+          echo "secrets attendus :"
+          echo "  OKX_API_KEY        : $( [ -n "$K" ] && echo present || echo VIDE )"
+          echo "  OKX_API_SECRET     : $( [ -n "$S" ] && echo present || echo VIDE )"
+          echo "  OKX_API_PASSPHRASE : $( [ -n "$P" ] && echo present || echo VIDE )"
+          if [ -z "$K$S$P" ]; then
+            echo
+            echo "aucun des trois nest visible. Noms voisins trouves :"
+            trouve=0
+            for n in OKX_KEY:$V1 OKX_ACCESS_KEY:$V2 OK_ACCESS_KEY:$V3 API_KEY:$V4 \
+                     OKX_SECRET:$V5 OKX_PASSPHRASE:$V6 OKX_API_PASS:$V7 ; do
+              nom="${n%%:*}"; val="${n#*:}"
+              if [ -n "$val" ]; then echo "  -> $nom est renseigne : nom different de celui attendu"; trouve=1; fi
+            done
+            [ "$trouve" = "0" ] && echo "  aucun."
+            echo
+            echo "La cause la plus frequente est longlet : la page"
+            echo "Settings > Secrets and variables > Actions porte DEUX onglets,"
+            echo "Secrets et Variables. Un secret depose dans Variables nest"
+            echo "jamais lu par secrets.NOM. Verifier aussi quil sagit de"
+            echo "Repository secrets, et non de Dependabot ni Codespaces, qui"
+            echo "ont chacun leur propre page."
+            exit 1
+          fi
+
           sshpass -e scp -o StrictHostKeyChecking=accept-new \
             deploy/poser_cles.sh "root@$VPS:/tmp/poser_cles.sh"
+          # Pas de « ; rm » derriere : le code de retour serait celui du
+          # rm, qui reussit toujours, et une pose refusee par OKX se
+          # presenterait comme un succes. Le script se supprime lui-meme.
           printf '%s\n%s\n%s\n%s\n' "$K" "$S" "$P" "${SIM:-0}" \
             | sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
-              "bash /tmp/poser_cles.sh; rm -f /tmp/poser_cles.sh"
+              "bash /tmp/poser_cles.sh"
 
       - name: Status report
         if: ${{ !inputs.lien && !inputs.poser_cles }}
