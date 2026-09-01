@@ -2637,7 +2637,13 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
      NES retirée (−10 réels) · ENSO v1 → v2 (RSI + moitié du range 24 h, méga-validée)
      GPS → gen_regime_3 (4/4 : 3 fenêtres + Binance) · SOON → Keltner reclaim (4/4)
      Ajouts : O (Keltner), ACT (Donchian width), POPCAT (ROC+vol), LIT (%B+range). */
-  const STRATS = {
+  /* Le roster ecrit en dur du 31/08 — desormais le REPLI, plus la
+     source. La source est config/roster.json, ecrit par le chercheur de
+     perles (deploy/chercher_perles.js) toutes les douze heures et
+     recharge ici a chaud. Le repli ne sert que tant qu'aucun roster
+     valide n'existe : mieux vaut trader les perles validees d'hier
+     qu'un fichier absent. */
+  const STRATS_REPLI = {
     "ENSO-USDT-SWAP":  { sig:"rsi_regime",    ov:{ tpPctMargin:0.80, trailActPctMargin:0.30, holdMs:12*H } },
     "GRASS-USDT-SWAP": { sig:"z48_5m",        ov:{ tpPctMargin:0.60, trailActPctMargin:0.30, holdMs:12*H } },
     /* GPS version haut-winrate (boucle Fable, bi-époque wr 68,7/65,8 %) : TP court +30 %, trail à mi-chemin. */
@@ -2657,6 +2663,47 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
     "PENGU-USDT-SWAP": { sig:"vwap_reclaim",  ov:{ tpPctMargin:0.60, trailActPctMargin:0.20, holdMs:24*H } }
   };
   // SL -30 % et trail 5 % (SPEC) pour toutes.
+
+  let STRATS = STRATS_REPLI;
+  let rosterVu = "";        // empreinte du dernier roster charge, pour ne journaliser que les changements
+  function chargerRoster() {
+    try {
+      const brut = fs.readFileSync(path.join(ROOT, "config", "roster.json"), "utf8");
+      const j = JSON.parse(brut);
+      const perles = j && j.perles && typeof j.perles === "object" ? j.perles : null;
+      if (!perles || !Object.keys(perles).length) return;   // roster vide : on garde ce qu'on a
+      const neuf = {};
+      for (const [instId, p] of Object.entries(perles)) {
+        if (!p || typeof p.sig !== "string" || !p.ov) continue;
+        neuf[instId] = { sig: p.sig, ov: p.ov };
+      }
+      if (!Object.keys(neuf).length) return;
+      const empreinte = JSON.stringify(neuf);
+      if (empreinte === rosterVu) return;
+      const avant = new Set(Object.keys(STRATS));
+      const apres = new Set(Object.keys(neuf));
+      const entrent = [...apres].filter((k) => !avant.has(k)).map((k) => k.replace("-USDT-SWAP", ""));
+      const sortent = [...avant].filter((k) => !apres.has(k)).map((k) => k.replace("-USDT-SWAP", ""));
+      const changent = [...apres].filter((k) => avant.has(k) && STRATS[k] && STRATS[k].sig !== neuf[k].sig)
+        .map((k) => k.replace("-USDT-SWAP", "") + " " + STRATS[k].sig + "->" + neuf[k].sig);
+      STRATS = neuf;
+      rosterVu = empreinte;
+      // Une position deja ouverte garde SES sorties : elles ont ete
+      // attachees a l'entree, cote exchange. Le roster ne gouverne que
+      // les prochaines entrees — un instrument qui en sort n'est donc
+      // jamais abandonne en cours de trade.
+      log(`[ROSTER] ${Object.keys(neuf).length} perle(s) chargee(s) (${j.genere || "?"})`
+        + (entrent.length ? ` | entrent: ${entrent.join(", ")}` : "")
+        + (sortent.length ? ` | sortent: ${sortent.join(", ")}` : "")
+        + (changent.length ? ` | changent: ${changent.join(", ")}` : ""));
+    } catch (e) {
+      // Fichier absent au premier demarrage : normal, le repli joue.
+      if (e && e.code !== "ENOENT") log("[ROSTER_ERR]", e.message);
+    }
+  }
+  chargerRoster();
+  setInterval(chargerRoster, 60 * 1000);
+
   const lastClosed = {};   // instId -> ts de la dernière bougie 5m traitée
   /* Les évaluateurs vivent dans modules/signaux.js, partagés avec le
      chercheur de perles : une seule formule, deux consommateurs, aucun
@@ -2713,7 +2760,7 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
     }
   }, 60 * 1000);
 
-  log("[HERMES15] actif —", Object.keys(STRATS).length, "stratégies par crypto (générique débranché)");
+  log("[HERMES15] actif —", Object.keys(STRATS).length, "perle(s) au roster (repli du 31/08 tant que le chercheur n'a pas ecrit)");
 })();
 
 

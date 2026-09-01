@@ -20,3 +20,7 @@ node_modules/
 /runtime/*.json
 
 config.local.json
+
+# Ecrit par le chercheur de perles SUR la machine ; le deployer depuis
+# le depot ecraserait le verdict le plus recent par un vieux.
+/config/roster.json

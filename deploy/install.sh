@@ -140,8 +140,44 @@ StandardError=journal
 WantedBy=multi-user.target
 UNIT
 
+cat > /etc/systemd/system/hermes-perles.service <<UNIT
+[Unit]
+Description=Hermes — chercheur de perles (une strategie validee par crypto)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=$DIR
+EnvironmentFile=-$DIR/.env
+Environment=NODE_OPTIONS=--dns-result-order=ipv4first
+ExecStart=/usr/bin/env node deploy/chercher_perles.js
+# La recherche pagine trente jours de bougies par instrument : elle
+# prend plusieurs minutes, et cest son rythme normal.
+TimeoutStartSec=1800
+UNIT
+
+cat > /etc/systemd/system/hermes-perles.timer <<UNIT
+[Unit]
+Description=Relance du chercheur de perles
+
+[Timer]
+# Cinq minutes apres le demarrage, puis toutes les douze heures. La
+# recherche nest pas un evenement, cest un entretien : chaque passe
+# rejoue le concours entier, et une perle chanceuse doit re-gagner.
+OnBootSec=5min
+OnUnitActiveSec=12h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+
 systemctl daemon-reload
 systemctl enable hermes >/dev/null 2>&1 || true
+systemctl enable --now hermes-perles.timer >/dev/null 2>&1 || true
+# Premiere recherche SANS attendre le minuteur, en arriere-plan : le
+# moteur rechargera le roster a chaud des quelle aura ecrit.
+systemctl start --no-block hermes-perles.service || true
 systemctl restart hermes
 
 echo "=== 7. verification ==="

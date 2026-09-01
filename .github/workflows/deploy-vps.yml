@@ -40,6 +40,10 @@ on:
         description: "Mesurer sur OKX ce que le capital peut ouvrir (aucune ecriture)"
         required: false
         default: "false"
+      chercher:
+        description: "Lancer la recherche de perles maintenant et afficher le verdict"
+        required: false
+        default: "false"
 
 concurrency:
   group: vps-deploy
@@ -132,10 +136,14 @@ jobs:
           # autre architecture que celle qui les executera.
           # logs et runtime sont ecrits par le moteur en marche ; --delete
           # les effacerait a chaque mise en ligne.
+          # config/roster.json est ecrit par le chercheur de perles SUR la
+          # machine : sans cette exclusion, chaque mise en ligne
+          # ecraserait le verdict le plus recent.
           sshpass -e rsync -az --delete \
             --exclude '/.git' --exclude '/state' --exclude '/data' \
             --exclude '/.env' --exclude '/node_modules' \
             --exclude '/logs' --exclude '/runtime' \
+            --exclude '/config/roster.json' \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             ./ "root@$VPS:/root/hermes/"
 
@@ -266,6 +274,14 @@ jobs:
             fi
             echo "=== journal ==="; journalctl -u hermes -n 30 --no-pager || true
           '
+
+      - name: Chercher les perles maintenant
+        if: ${{ inputs.chercher == 'true' }}
+        run: |
+          # La meme commande que le minuteur systemd, lancee a la main :
+          # le verdict complet arrive dans ce journal de run.
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+            "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first node deploy/chercher_perles.js"
 
       # Mesure, jamais ecriture. Elle interroge les points PUBLICS dOKX
       # depuis le VPS — la seule machine du circuit qui puisse les
