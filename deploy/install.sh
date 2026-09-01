@@ -102,6 +102,19 @@ EnvironmentFile=-$DIR/.env
 Environment=NODE_ENV=production
 Environment=HERMES_PORT=8899
 Environment=HERMES_HOST=0.0.0.0
+# Le pilotage, demande explicitement par le proprietaire.
+#
+# Le defaut du code est « lecture seule », et ce defaut est le bon :
+# servi par le reseau, ladresse decoute ne dit rien de qui se connecte,
+# et un robot de trading joignable sur Internet ne doit pas obeir au
+# premier venu. Ici la garde qui reste est la cle du tableau de bord —
+# trente-deux caracteres, exigee a chaque requete, sans laquelle le
+# serveur repond 403 avant meme de lire le chemin demande.
+#
+# Ce que cela ouvre, dit franchement : quiconque possede cette cle peut
+# demarrer et arreter le moteur, et passer un ordre. La cle merite donc
+# le meme soin quun mot de passe de compte.
+Environment=HERMES_UI_MODE=full
 ExecStart=/usr/bin/env node app/main.js
 Restart=always
 RestartSec=10

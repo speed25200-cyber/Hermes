@@ -1449,6 +1449,98 @@ ipcMain.handle("ui-auth", async (_e, pass) => {
 
 ipcMain.handle("ui-mode", async () => ({ ok: true, mode: UI_RUNTIME_MODE }));
 
+/* ============================================================
+   IPC: poser-cles — amorcage des identifiants depuis la page.
+
+   Pourquoi ce canal existe. Les cles doivent atteindre le .env du
+   serveur, et toutes les autres voies se sont fermees : le proxy de la
+   session dagent coupe SSH, et un secret de depot ne peut etre ecrit
+   que par le proprietaire. Il restait la page elle-meme, quil ouvre
+   deja et qui est protegee par sa cle.
+
+   UNE SEULE GARDE, et elle suffit : le canal REFUSE de travailler si
+   des cles sont deja en place. Il peut amorcer, il ne peut pas
+   remplacer. Quelquun qui obtiendrait la cle du tableau de bord ne
+   pourrait donc pas substituer ses propres identifiants a ceux du
+   proprietaire — la fenetre est ouverte une fois, puis elle se ferme
+   toute seule.
+
+   Les cles sont EPROUVEES avant detre ecrites. Une cle posee sans
+   verification est une cle dont on decouvre trois jours plus tard
+   quelle portait la mauvaise restriction dIP.
+   ============================================================ */
+ipcMain.handle("poser-cles", async (_e, p = {}) => {
+  try {
+    if (OKX.KEY && OKX.SECRET && OKX.PASS) {
+      return { ok: false, error: "DEJA_POSEES",
+               message: "Des cles sont deja en place. Ce canal ne sert qua lamorcage ; pour les remplacer, editer le fichier .env sur le serveur." };
+    }
+    const cle    = String(p.cle || "").trim();
+    const secret = String(p.secret || "").trim();
+    const passe  = String(p.passe || "").trim();
+    if (!cle || !secret || !passe) {
+      return { ok: false, error: "INCOMPLET", message: "Les trois valeurs sont necessaires." };
+    }
+
+    // Une vraie requete signee : cest OKX qui dit si les cles valent
+    // quelque chose, pas nous.
+    const ts = new Date().toISOString().replace(/(\.\d{3})\d*Z$/, "$1Z");
+    const chemin = "/api/v5/account/config";
+    const sign = crypto.createHmac("sha256", secret).update(ts + "GET" + chemin).digest("base64");
+    let rep;
+    try {
+      rep = await axios.get(OKX.REST_BASE + chemin, {
+        timeout: 15000,
+        headers: { "OK-ACCESS-KEY": cle, "OK-ACCESS-SIGN": sign,
+                   "OK-ACCESS-TIMESTAMP": ts, "OK-ACCESS-PASSPHRASE": passe,
+                   "Content-Type": "application/json" },
+      });
+    } catch (e) {
+      rep = e.response || null;
+    }
+    const j = (rep && rep.data) || {};
+    if (String(j.code) !== "0") {
+      const aide = {
+        "50111": "cle dAPI invalide ou inconnue",
+        "50113": "signature invalide — le secret ne correspond pas a la cle",
+        "50105": "phrase de passe invalide",
+        "50110": "adresse IP non autorisee : ajouter celle du serveur dans les restrictions de la cle",
+        "50102": "horloge du serveur desynchronisee",
+      }[String(j.code)];
+      return { ok: false, error: "REFUSE_PAR_OKX", code: j.code || "?",
+               message: (j.msg || "reponse illisible") + (aide ? " — " + aide : "") };
+    }
+
+    // Ecriture seulement maintenant. Les anciennes lignes partent
+    // dabord : dotenv garde la PREMIERE occurrence, donc en ajoutant
+    // sans effacer on ecrirait une cle que rien ne lirait.
+    const fenv = path.join(ROOT, ".env");
+    let avant = "";
+    try { avant = fs.readFileSync(fenv, "utf8"); } catch {}
+    const garde = avant.split(/\r?\n/)
+      .filter((l) => !/^\s*(OKX_API_KEY|OKX_API_SECRET|OKX_API_PASSPHRASE|OKX_API_PASS)\s*=/.test(l))
+      .join("\n").replace(/\n+$/, "");
+    fs.writeFileSync(fenv,
+      (garde ? garde + "\n" : "") +
+      `OKX_API_KEY=${cle}\nOKX_API_SECRET=${secret}\nOKX_API_PASSPHRASE=${passe}\n`,
+      { mode: 0o600 });
+    try { fs.chmodSync(fenv, 0o600); } catch {}
+
+    // Prise en compte immediate, sans redemarrage : le moteur tient ses
+    // identifiants en memoire, il suffit de les y poser.
+    OKX.KEY = cle; OKX.SECRET = secret; OKX.PASS = passe;
+    process.env.OKX_API_KEY = cle;
+    process.env.OKX_API_SECRET = secret;
+    process.env.OKX_API_PASSPHRASE = passe;
+    log("[CLES] posees et validees par OKX, ecrites dans .env, prises en compte a chaud");
+    try { startPrivateWS(); } catch (e) { log("[CLES] flux prive:", e.message); }
+    const d = (Array.isArray(j.data) && j.data[0]) || {};
+    return { ok: true, niveau: d.acctLv || "?", modePosition: d.posMode || "?" };
+  } catch (e) {
+    return { ok: false, error: "ERREUR", message: String(e.message || e) };
+  }
+});
+
 /* === IPC: log subscribe + simple statuses === */
 if (ipcMain && !global.__AI_LOG_SUB__) {
   global.__AI_LOG_SUB__ = true;

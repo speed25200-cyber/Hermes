@@ -690,6 +690,31 @@ $("b-vue").addEventListener("click", () => {
 });
 $("b-vider").addEventListener("click", () => { E.journal = []; rendreJournal(); });
 
+// Lamorcage des cles depuis la page. Les champs sont vides des la
+// reponse recue, quelle quelle soit : un secret qui reste affiche dans
+// un formulaire est un secret quun regard par-dessus lepaule ramasse.
+$("c-poser").addEventListener("click", async () => {
+  const b = $("c-poser"), e = $("cles-etat");
+  const cle = $("c-cle").value.trim(), secret = $("c-secret").value.trim(), passe = $("c-passe").value.trim();
+  if (!cle || !secret || !passe) { e.className = "cles-etat ko"; e.textContent = "Les trois valeurs sont nécessaires."; return; }
+  b.disabled = true; e.className = "cles-etat"; e.textContent = "Test auprès d'OKX…";
+  try {
+    const r = await api.invoke("poser-cles", { cle, secret, passe });
+    $("c-cle").value = ""; $("c-secret").value = ""; $("c-passe").value = "";
+    if (r && r.ok) {
+      e.className = "cles-etat ok";
+      e.textContent = `Acceptées par OKX — compte niveau ${r.niveau}, mode ${r.modePosition}. Le moteur les utilise déjà.`;
+      setTimeout(rafraichir, 1200);
+    } else {
+      e.className = "cles-etat ko";
+      e.textContent = (r && (r.message || r.error)) || "refus sans explication";
+    }
+  } catch (err) {
+    e.className = "cles-etat ko"; e.textContent = String(err.message || err);
+  }
+  b.disabled = false;
+});
+
 // Le theme : le choix explicite lemporte sur le systeme et tient dun
 // passage a lautre. Toute lecture de stockage est gardee — un
 // navigateur en navigation privee la refuse, et la page doit sen
