@@ -80,6 +80,43 @@ if [ -f "$DIR/.env" ]; then
 fi
 echo
 
+echo "===== dou vient le code deploye ====="
+# Larchive telechargee depuis SwissTransfer, telle quelle est arrivee.
+# Elle est gardee sur la machine : cest la piece qui permet de verifier
+# que ce qui tourne vient bien delle, et non dune reconstruction.
+if [ -f /root/incoming/Hermes_Astra.zip ]; then
+  echo "  archive : $(stat -c %s /root/incoming/Hermes_Astra.zip) octets, tiree le $(stat -c %y /root/incoming/Hermes_Astra.zip | cut -d. -f1)"
+  echo "  sha256  : $(sha256sum /root/incoming/Hermes_Astra.zip | cut -c1-32)"
+  [ -f /root/incoming/link.json ] && echo "  source  : $(grep -o "downloadHost[^,]*" /root/incoming/link.json | head -1)"
+else
+  echo "  larchive nest plus sur la machine"
+fi
+
+# La verification qui manquait. Limport a filtre par la TAILLE, et une
+# regle de taille ne sait pas distinguer une donnee dun gros fichier
+# source. Si un .js ou un .json de code depassait 400 Ko, il a ete
+# ecarte sans que personne le remarque. On compare donc, fichier par
+# fichier, ce que larchive contient et ce qui tourne.
+if [ -d /root/astra/Hermes_Astra ]; then
+  cd /root/astra/Hermes_Astra || exit 0
+  manquants=0; total=0
+  for f in $(find app modules services config public scripts -type f \
+               \( -name "*.js" -o -name "*.json" -o -name "*.html" -o -name "*.css" \) \
+               2>/dev/null | grep -v node_modules); do
+    total=$((total + 1))
+    if [ ! -f "/root/hermes/$f" ]; then
+      manquants=$((manquants + 1))
+      [ "$manquants" -le 12 ] && echo "  MANQUE  $(stat -c %s "$f") octets  $f"
+    fi
+  done
+  echo "  $total fichiers source dans larchive, $manquants absents du deploiement"
+  [ "$manquants" = "0" ] && echo "  -> le deploiement porte bien tout le code de larchive"
+  cd - >/dev/null || true
+else
+  echo "  larchive nest plus deballee, comparaison impossible"
+fi
+echo
+
 echo "===== ce que limport filtre a pu laisser derriere ====="
 # Limport a ecarte tout fichier de plus de 400 Ko, plus data/ et logs/.
 # La question qui compte est : le moteur a-t-il besoin de quelque chose
