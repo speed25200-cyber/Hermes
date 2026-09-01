@@ -556,6 +556,103 @@ tbody tr:hover { background: var(--surface-2); }
    cartes qui montent ne sont pas un agrement, ce sont des symptomes.
    La page garde exactement la meme information.
    ============================================================ */
+/* ============================================================
+   La vue graphique dune position.
+
+   Un panneau plein ecran sur telephone, une scene centree sur grand
+   ecran. Tout le dessin est un seul SVG reconstruit par graphe.js ;
+   ici ne vivent que la coquille, la tete et les niveaux.
+   ============================================================ */
+.voile {
+  position: fixed; inset: 0; z-index: 60;
+  background: color-mix(in oklab, var(--fond) 62%, transparent);
+  backdrop-filter: blur(14px) saturate(1.1);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transition: opacity .3s var(--doux);
+}
+.voile.ouvert { opacity: 1; pointer-events: auto; }
+
+.graphe {
+  width: min(1120px, 100vw); height: min(760px, 100dvh);
+  display: flex; flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--bord); border-radius: 16px;
+  box-shadow: 0 32px 80px -24px rgb(0 0 0 / .55);
+  overflow: hidden;
+  transform: translateY(14px) scale(.985);
+  transition: transform .38s var(--ressort);
+}
+.voile.ouvert .graphe { transform: none; }
+@media (max-width: 720px) {
+  .voile { align-items: stretch; justify-content: stretch; }
+  .graphe { width: 100vw; height: 100dvh; border-radius: 0; border: 0; }
+}
+
+.g-tete {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 12px 14px 10px; border-bottom: 1px solid var(--bord);
+}
+.g-sym { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+.g-pnl { font-family: var(--mono); font-size: 13.5px; letter-spacing: -0.03em; display: flex; gap: 9px; align-items: baseline; }
+.g-pnl .u.gain, .g-pnl .p.gain { color: var(--gain); }
+.g-pnl .u.perte, .g-pnl .p.perte { color: var(--perte); }
+.g-pnl .p { font-size: 12px; color: var(--texte-2); }
+
+.g-cadres { display: flex; gap: 2px; margin-left: auto; background: var(--fond-2); border: 1px solid var(--bord); border-radius: 9px; padding: 2px; }
+.g-cadres button {
+  border: 0; background: transparent; color: var(--texte-2);
+  font: 600 11px/1 var(--sans); letter-spacing: .04em;
+  padding: 6px 9px; border-radius: 7px; cursor: pointer;
+  transition: background .2s, color .2s;
+}
+.g-cadres button:hover { color: var(--texte); }
+.g-cadres button[aria-pressed="true"] { background: var(--surface); color: var(--texte); box-shadow: 0 1px 4px rgb(0 0 0 / .18); }
+
+/* La lecture OHLC : une ligne de chiffres qui suit le reticule. */
+.g-lecture {
+  display: flex; gap: 13px; flex-wrap: wrap; align-items: baseline;
+  padding: 8px 14px 0; font-family: var(--mono); font-size: 11.5px;
+  color: var(--texte-2); letter-spacing: -0.02em; min-height: 24px;
+}
+.g-lecture b { color: var(--texte); font-weight: 500; }
+.g-lecture .gain b { color: var(--gain); } .g-lecture .perte b { color: var(--perte); }
+.g-lecture .et { font-size: 9.5px; font-weight: 600; letter-spacing: .09em; color: var(--texte-3); }
+
+.g-zone { flex: 1; min-height: 0; position: relative; }
+.g-zone svg { position: absolute; inset: 0; display: block; touch-action: none; cursor: crosshair; }
+.g-zone .attente {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--texte-3); font-size: 12.5px; letter-spacing: .02em;
+}
+
+/* Les niveaux : entree, TP, stop, liquidation — les memes couleurs que
+   sur le dessin, pour que la legende et le trait racontent une seule
+   histoire. */
+.g-niveaux {
+  display: flex; gap: 8px; flex-wrap: wrap;
+  padding: 10px 14px 12px; border-top: 1px solid var(--bord);
+}
+.g-niv {
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--bord); border-radius: 8px;
+  padding: 5px 9px; font-size: 11px; color: var(--texte-2);
+}
+.g-niv i { width: 14px; height: 0; border-top: 2px solid var(--c, var(--texte-2)); display: inline-block; }
+.g-niv.pointille i { border-top-style: dashed; }
+.g-niv b { font-family: var(--mono); font-weight: 500; color: var(--texte); font-size: 11.5px; letter-spacing: -0.02em; }
+
+/* La carte est cliquable, et elle le dit sans crier. */
+.pos { cursor: pointer; }
+/* Lespace elastique passe AVANT lindice : le glyphe et le PnL se
+   rangent ensemble a droite, dans cet ordre. */
+.pos .apercu-ind { margin-left: auto; color: var(--texte-3); opacity: .55; transition: opacity .25s, color .25s; display: inline-flex; }
+.pos .pos-pnl { margin-left: 6px; }
+.pos:hover .apercu-ind { opacity: 1; color: var(--texte-2); }
+#z-tab tbody tr { cursor: pointer; }
+#z-tab tbody tr:hover td { background: color-mix(in oklab, var(--fond-2) 55%, transparent); }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: .001ms !important;
@@ -676,7 +773,28 @@ tbody tr:hover { background: var(--surface-2); }
 
 </div>
 
+<div class="voile" id="g-voile" hidden>
+  <section class="graphe" role="dialog" aria-modal="true" aria-label="Graphique de la position">
+    <header class="g-tete">
+      <span class="g-sym" id="g-sym"></span>
+      <span class="sens" id="g-sens"></span>
+      <span class="lev" id="g-lev"></span>
+      <span class="g-pnl"><span class="u" id="g-pnl"></span><span class="p" id="g-pct"></span></span>
+      <div class="g-cadres" id="g-cadres" role="tablist" aria-label="Unité de temps"></div>
+      <button class="icone" id="g-fermer" aria-label="Fermer le graphique">
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none" aria-hidden="true">
+          <path d="M3.5 3.5l8 8m0-8l-8 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        </svg>
+      </button>
+    </header>
+    <div class="g-lecture" id="g-ohlc"></div>
+    <div class="g-zone" id="g-zone"><div class="attente">Chargement des chandelles…</div></div>
+    <footer class="g-niveaux" id="g-niveaux"></footer>
+  </section>
+</div>
+
 <script src="/pont.js"></script>
 <script src="/vue.js"></script>
+<script src="/graphe.js"></script>
 </body>
 </html>

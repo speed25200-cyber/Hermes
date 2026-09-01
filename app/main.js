@@ -1833,6 +1833,45 @@ ipcMain.handle("fetch-data", async () => {
   }
 });
 
+/* Les chandelles dun instrument, pour la vue graphique dune position.
+
+   Le point interroge est PUBLIC : pas de cle requise, rien decrit, et
+   la page peut donc dessiner meme quand le compte est en lecture seule.
+
+   Un cache de vingt secondes par instrument : la vue se rouvre, se
+   rafraichit, et sans lui chaque geste paierait un aller-retour a OKX
+   — qui finirait par repondre 429 a force detre sollicite pour des
+   donnees quil vient de donner. */
+const CHANDELLES_CACHE = new Map();
+ipcMain.handle("chandelles", async (_e, p) => {
+  try {
+    const instId = String(p?.instId || "");
+    // Le nom part dans une URL : on ne laisse passer que la forme
+    // exacte dun perpetuel USDT, pas ce quun client aurait envie dy
+    // glisser.
+    if (!/^[A-Z0-9]{1,20}-USDT-SWAP$/.test(instId)) {
+      return { ok: false, error: "INSTRUMENT_INVALIDE" };
+    }
+    const bar = ["1m", "5m", "15m", "1H", "4H", "1D"].includes(p?.bar) ? p.bar : "5m";
+    const cle = instId + "|" + bar;
+    const enCache = CHANDELLES_CACHE.get(cle);
+    if (enCache && Date.now() - enCache.ts < 20000) {
+      return { ok: true, instId, bar, rows: enCache.rows, last: MARKET.tick[instId]?.lastPrice || 0, cache: true };
+    }
+    const r = await axios.get(OKX.REST_BASE + "/api/v5/market/candles", {
+      params: { instId, bar, limit: "300" }, timeout: 10000
+    });
+    const brut = Array.isArray(r?.data?.data) ? r.data.data : [];
+    // OKX rend la plus recente en premier ; un graphique se lit dans
+    // lautre sens. Six nombres suffisent : heure, OHLC, volume.
+    const rows = brut.map(k => [num(k[0]), num(k[1]), num(k[2]), num(k[3]), num(k[4]), num(k[5])]).reverse();
+    if (rows.length) CHANDELLES_CACHE.set(cle, { ts: Date.now(), rows });
+    return { ok: true, instId, bar, rows, last: MARKET.tick[instId]?.lastPrice || 0 };
+  } catch (e) {
+    return { ok: false, error: String(e.message || e) };
+  }
+});
+
 ipcMain.handle("fetch-portfolio", async () => {
   try {
     const port = await loadPortfolio();

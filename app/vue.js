@@ -260,6 +260,15 @@ function coquePosition(p) {
       <span class="sens"></span>
       <span class="lev"></span>
       <span data-marques></span>
+      <span class="apercu-ind" aria-hidden="true" title="Ouvrir le graphique">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none">
+          <path d="M3.2 2.4v3.4M3.2 9v4.2M8 2.4v1.8M8 10.4v3.2M12.8 2.4v4.6M12.8 12v1.6"
+                stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+          <rect x="2" y="5.8" width="2.4" height="3.2" rx="0.7" stroke="currentColor" stroke-width="1.3"/>
+          <rect x="6.8" y="4.2" width="2.4" height="6.2" rx="0.7" stroke="currentColor" stroke-width="1.3"/>
+          <rect x="11.6" y="7" width="2.4" height="5" rx="0.7" stroke="currentColor" stroke-width="1.3"/>
+        </svg>
+      </span>
       <div class="pos-pnl"><div class="u"></div><div class="p"></div></div>
     </div>
     <div class="faits">
@@ -291,7 +300,8 @@ function majPosition(el, p) {
   } else if (p.stopMode === "BE") {
     marques += `<span class="marque seuil" title="Stop remonté au point mort : la position ne peut plus perdre">= SEUIL</span>`;
   }
-  if (p.trailArme) marques += `<span class="marque trail" title="Un ordre de suivi est posé côté exchange">⛓ posé</span>`;
+  if (p.trailArme) marques += `<span class="marque trail" title="Un ordre de suivi est posé côté exchange">
+      <svg width="9" height="9" viewBox="0 0 10 10" fill="none"><path d="M4.2 5.8 5.8 4.2M3 7 2 8a1.7 1.7 0 0 0 2.4 2.4l1-1M7 3l1-1a1.7 1.7 0 0 0-2.4-2.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" transform="translate(1.2 0.6) scale(0.85)"/></svg>posé</span>`;
   const zm = el.querySelector("[data-marques]");
   if (zm.innerHTML !== marques) zm.innerHTML = marques;
 
@@ -375,7 +385,7 @@ function tableau(l) {
   return `<div class="roule"><table>
     <thead><tr><th>Instrument</th><th>Sens</th><th>Levier</th><th>Taille</th><th>Marge</th>
     <th>Entrée</th><th>Prix</th><th>Stop</th><th>Mode</th><th>TP</th><th>PnL</th><th>Tenue</th></tr></thead>
-    <tbody>${l.map((p) => `<tr>
+    <tbody>${l.map((p) => `<tr data-sym="${ech(p.symbol)}">
       <td>${ech(court(p.symbol))}</td>
       <td>${p.side === "LONG" ? "↑ LONG" : "↓ SHORT"}</td>
       <td>×${ech(p.leverage || "?")}</td>
@@ -665,6 +675,10 @@ async function rafraichir() {
   } catch { E.relie = false; }
 
   rendreEntete(); rendreHero(); rendreTuiles(); rendrePositions();
+  // La vue graphique, si elle est ouverte, suit les memes releves : la
+  // tete, la ligne de prix et les niveaux restent vivants sans quelle
+  // ait sa propre boucle de portefeuille.
+  try { if (typeof Graphe !== "undefined" && Graphe.estOuvert()) Graphe.battement(); } catch {}
   // La grande courbe se redessine avec son animation de trace : on ne
   // la rejoue donc que si les points ont change de nombre, sinon elle
   // se redessinerait toutes les quatre secondes.
