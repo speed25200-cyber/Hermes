@@ -628,6 +628,11 @@ function rendreEntete() {
   $("pt-moteur").className = "pt " + (E.moteur ? "bon vif" : "");
   $("t-moteur").textContent = E.moteur ? "moteur en marche" : "moteur à l'arrêt";
 
+  // Sans cles, le compte affiche zero. Le dire est plus utile que de le
+  // montrer : un zero muet se lit comme une perte ou une panne.
+  const sansCles = !!(E.pf && E.pf.clesOkx === false);
+  $("avis-cles").hidden = !sansCles;
+
   const pilote = E.mode === "full";
   $("t-mode").textContent = pilote ? "pilotage" : "lecture seule";
   $("avis-lecture").hidden = pilote;

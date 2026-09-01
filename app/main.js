@@ -1652,6 +1652,12 @@ ipcMain.handle("fetch-portfolio", async () => {
       openPositionsDetails: posDetails,
       dealsRecent: ds.slice(0, 150),
       history: { spot: HISTORY && HISTORY.spot ? HISTORY.spot.slice(-600) : [] },
+      // Le moteur SAIT quil na pas de cles — loadPortfolio pose la note
+      // NO_OKX_CREDS — mais elle ne montait pas jusqua la page, qui
+      // affichait donc un compte a zero sans dire pourquoi. Un tableau
+      // de bord qui montre zero sans expliquer laisse croire a une
+      // perte, ou a une panne, quand il ny a quune cle absente.
+      clesOkx: port.note !== "NO_OKX_CREDS",
       lastUpdate: port.ts
     };
     return { ok: true, success: true, data, ts: port.ts };
