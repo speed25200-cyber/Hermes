@@ -200,7 +200,7 @@ const Labo = (() => {
           @keyframes lc-nait { from { opacity: 0; transform: scale(.3); } }
         </style>
         <rect x="${X(ax).toFixed(1)}" y="${M.h}" width="${(X(x1) - X(ax)).toFixed(1)}"
-              height="${(Y(ay) - M.h).toFixed(1)}" fill="var(--bon)" opacity=".06"/>
+              height="${(Y(ay) - M.h).toFixed(1)}" fill="var(--bon)" opacity=".04"/>
         <path d="${grille}" stroke="var(--bord)" stroke-opacity=".5" fill="none" shape-rendering="crispEdges"/>
         ${grads}
         <line x1="${X(ax).toFixed(1)}" y1="${M.h}" x2="${X(ax).toFixed(1)}" y2="${M.h + ph}" stroke="var(--bon)" stroke-opacity=".5" stroke-dasharray="4 4"/>
