@@ -99,6 +99,10 @@
   --r:  12px;
   --r2: 9px;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  /* La voix des CHIFFRES : Inter en chiffres tabulaires. Le mono reste
+     la voix du journal et des identifiants techniques — sur une valeur
+     lisible, il faisait terminal. */
+  --num: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
   /* La voix d'affichage : Space Grotesk porte la marque, les titres et
      les grands nombres. Inter reste la voix de lecture — un texte
@@ -443,7 +447,7 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
   display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
   font-size: 11.5px; color: var(--texte-2);
 }
-.t-ligne b { font-family: var(--mono); font-weight: 500; color: var(--texte); font-variant-numeric: tabular-nums; }
+.t-ligne b { font-family: var(--num); font-weight: 500; color: var(--texte); font-variant-numeric: tabular-nums; }
 .t-ligne b.gain { color: var(--gain); } .t-ligne b.perte { color: var(--perte); }
 .t-ligne .t-sym { font-weight: 600; color: var(--texte); }
 .depli.ouvert .t-ligne { animation: glisser .4s var(--ressort) backwards; }
@@ -479,7 +483,7 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
 }
 .bloc-tete h2 { font-size: 14.5px; font-weight: 600; }
 .bloc-corps { padding: 18px; }
-.compte { font-family: var(--mono); font-size: 11.5px; color: var(--texte-3); letter-spacing: -0.02em; }
+.compte { font-family: var(--num); font-size: 11.5px; color: var(--texte-3); letter-spacing: -0.02em; }
 
 .vide { padding: 46px 18px; text-align: center; color: var(--texte-3); font-size: 13.5px; }
 .vide strong { display: block; color: var(--texte-2); font-size: 15px; font-weight: 600; margin-bottom: 6px; letter-spacing: -0.02em; }
@@ -538,7 +542,7 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
 .sens.long  { color: var(--long);  background: color-mix(in srgb, var(--long) 13%, transparent);  border: 1px solid color-mix(in srgb, var(--long) 36%, transparent); }
 .sens.short { color: var(--short); background: color-mix(in srgb, var(--short) 13%, transparent); border: 1px solid color-mix(in srgb, var(--short) 36%, transparent); }
 .lev {
-  font-family: var(--mono); font-size: 11px; color: var(--texte-2);
+  font-family: var(--num); font-size: 11px; color: var(--texte-2);
   padding: 3.5px 8px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--bord);
 }
 .marque {
@@ -553,13 +557,13 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
 
 .pos-pnl { margin-left: auto; text-align: right; }
 .pos-pnl .u { font-size: 19px; font-weight: 500; letter-spacing: -0.035em; font-variant-numeric: tabular-nums; font-variation-settings: "opsz" 26; }
-.pos-pnl .p { font-family: var(--mono); font-size: 11px; color: var(--texte-3); }
+.pos-pnl .p { font-family: var(--num); font-size: 11px; color: var(--texte-3); }
 
 .faits { display: grid; grid-template-columns: repeat(4,1fr); gap: 1px; background: var(--bord); }
 @media (max-width: 420px) { .faits { grid-template-columns: repeat(2,1fr); } }
 .fait { background: var(--surface); padding: 10px 13px; }
 .fait .e { font-size: 9.5px; font-weight: 600; letter-spacing: .09em; text-transform: uppercase; color: var(--texte-3); }
-.fait .v { font-family: var(--mono); font-size: 13px; margin-top: 3px; letter-spacing: -0.03em; }
+.fait .v { font-family: var(--num); font-size: 13px; margin-top: 3px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; font-weight: 500; }
 
 .regle { padding: 16px 15px 13px; }
 .legende { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--texte-2); margin-top: 9px; }
@@ -587,7 +591,7 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
   background: var(--surface-3); color: var(--texte);
   border: 1px solid var(--bord-vif);
   padding: 7px 11px; border-radius: 9px; white-space: nowrap;
-  font-family: var(--mono); font-size: 12px; letter-spacing: -0.03em;
+  font-family: var(--num); font-size: 12px; letter-spacing: -0.03em;
   box-shadow: var(--lueur-haute); z-index: 6;
 }
 
@@ -634,7 +638,7 @@ table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
 th, td { padding: 9px 12px; text-align: right; white-space: nowrap; border-bottom: 1px solid var(--bord); }
 th { font-size: 10px; text-transform: uppercase; letter-spacing: .09em; color: var(--texte-3); font-weight: 600; }
 th:first-child, td:first-child { text-align: left; }
-td { font-family: var(--mono); letter-spacing: -0.03em; }
+td { font-family: var(--num); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 tbody tr { transition: background .2s; }
 tbody tr:hover { background: var(--surface-2); }
 
@@ -765,7 +769,7 @@ tbody tr:hover { background: var(--surface-2); }
 .perle .p-sorties { color: var(--texte-3); font-size: 11px; margin-top: 5px; font-variant-numeric: tabular-nums; }
 .perle .p-fen { margin-top: 11px; display: grid; gap: 7px; }
 .fenetre .f-et { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: .07em; color: var(--texte-3); text-transform: uppercase; font-weight: 600; }
-.fenetre .f-et b { color: var(--texte); font-family: var(--mono); font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 11.5px; }
+.fenetre .f-et b { color: var(--texte); font-family: var(--num); font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 11.5px; }
 .fenetre .f-barre {
   height: 6px; border-radius: 3px; background: var(--fond-2);
   position: relative; margin-top: 4px; overflow: hidden;
@@ -779,7 +783,7 @@ tbody tr:hover { background: var(--surface-2); }
   position: absolute; top: -2px; bottom: -2px; left: 50%; width: 1.5px;
   background: var(--texte-3); opacity: .6;
 }
-.perle .p-net { margin-top: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--texte-2); }
+.perle .p-net { margin-top: 10px; font-family: var(--num); font-size: 11.5px; color: var(--texte-2); }
 .perle .p-net b { color: var(--gain); font-weight: 500; }
 
 .refus-liste { display: grid; gap: 1px; background: var(--bord); border: 1px solid var(--bord); border-radius: 11px; overflow: hidden; }
@@ -788,7 +792,7 @@ tbody tr:hover { background: var(--surface-2); }
   padding: 9px 13px; font-size: 12px; color: var(--texte-2);
 }
 .refus b { font-size: 12.5px; color: var(--texte); min-width: 52px; font-weight: 600; }
-.refus .r-note { margin-left: auto; color: var(--texte-3); font-family: var(--mono); font-size: 10.5px; white-space: nowrap; }
+.refus .r-note { margin-left: auto; color: var(--texte-3); font-family: var(--num); font-size: 10.5px; white-space: nowrap; }
 
 /* — l'historique des positions : la liste des cloturees — */
 .hist-liste { display: grid; gap: 1px; background: var(--bord); border: 1px solid var(--bord); border-radius: 13px; overflow: hidden; }
@@ -798,11 +802,11 @@ tbody tr:hover { background: var(--surface-2); }
   background: color-mix(in srgb, var(--surface) 88%, transparent);
   padding: 10px 14px; font-size: 12px; color: var(--texte-2);
 }
-.hist .h-quand { font-family: var(--mono); font-size: 10.5px; color: var(--texte-3); min-width: 86px; }
+.hist .h-quand { font-family: var(--num); font-size: 10.5px; color: var(--texte-3); min-width: 86px; }
 .hist .h-sym { font-size: 13px; color: var(--texte); font-weight: 650; letter-spacing: -0.02em; min-width: 46px; }
-.hist .h-prix { font-family: var(--mono); font-size: 11px; letter-spacing: -0.02em; }
-.hist .h-tenue { font-family: var(--mono); font-size: 10.5px; color: var(--texte-3); }
-.hist .h-pnl { margin-left: auto; font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hist .h-prix { font-family: var(--num); font-size: 11px; letter-spacing: -0.02em; }
+.hist .h-tenue { font-family: var(--num); font-size: 10.5px; color: var(--texte-3); }
+.hist .h-pnl { margin-left: auto; font-family: var(--num); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hist .h-pnl.gain { color: var(--gain); } .hist .h-pnl.perte { color: var(--perte); }
 .hist .sens { font-size: 9.5px; padding: 3px 7px; }
 .hist .lev { font-size: 10px; padding: 2.5px 6px; }
@@ -848,7 +852,7 @@ tbody tr:hover { background: var(--surface-2); }
   background: color-mix(in srgb, var(--fond-2) 55%, transparent);
 }
 .p-guet > span:first-of-type { font-weight: 650; letter-spacing: .02em; }
-.p-guet .g-det { color: var(--texte-3); font-family: var(--mono); font-size: 10px; }
+.p-guet .g-det { color: var(--texte-3); font-family: var(--num); font-size: 10px; }
 .p-guet i { flex: none; align-self: center; width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .p-guet.affut  { border-color: color-mix(in srgb, var(--accent) 35%, var(--bord)); }
 .p-guet.affut > span:first-of-type { color: var(--accent); }
@@ -890,7 +894,7 @@ tbody tr:hover { background: var(--surface-2); }
 .meth { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; padding: 12px 4px 16px; }
 .meth-pas { border: 1px solid var(--bord); border-radius: 12px; background: var(--surface); padding: 13px 15px; position: relative; overflow: hidden; }
 .meth-pas .num {
-  font-family: var(--mono); font-size: 26px; font-weight: 650; line-height: 1;
+  font-family: var(--titre); font-size: 26px; font-weight: 600; line-height: 1;
   background: linear-gradient(120deg, var(--astra-a), var(--astra-b));
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
@@ -930,9 +934,9 @@ tbody tr:hover { background: var(--surface-2); }
    une phrase complete vaut mieux qu'une ellipse. */
 .podium .p-rang { flex-wrap: wrap; }
 .podium .p-rang .r-sorties { flex: 1 1 100%; order: 9; }
-.podium .p-rang .rang { font-family: var(--mono); font-weight: 650; color: var(--texte-3); }
+.podium .p-rang .rang { font-family: var(--num); font-weight: 650; color: var(--texte-3); }
 .podium .p-rang:first-child .rang { color: var(--bon); }
-.podium .p-rang .mes { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--texte-2); white-space: nowrap; }
+.podium .p-rang .mes { margin-left: auto; font-family: var(--num); font-size: 10.5px; color: var(--texte-2); white-space: nowrap; }
 
 /* — la perle depliable — */
 .perle { cursor: pointer; }
@@ -1017,7 +1021,7 @@ tbody tr:hover { background: var(--surface-2); }
   padding: 12px 14px 10px; border-bottom: 1px solid var(--bord);
 }
 .g-sym { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
-.g-pnl { font-family: var(--mono); font-size: 13.5px; letter-spacing: -0.03em; display: flex; gap: 9px; align-items: baseline; }
+.g-pnl { font-family: var(--num); font-size: 13.5px; letter-spacing: -0.02em; display: flex; gap: 9px; align-items: baseline; font-variant-numeric: tabular-nums; }
 .g-pnl .u.gain, .g-pnl .p.gain { color: var(--gain); }
 .g-pnl .u.perte, .g-pnl .p.perte { color: var(--perte); }
 .g-pnl .p { font-size: 12px; color: var(--texte-2); }
@@ -1035,7 +1039,7 @@ tbody tr:hover { background: var(--surface-2); }
 /* La lecture OHLC : une ligne de chiffres qui suit le reticule. */
 .g-lecture {
   display: flex; gap: 13px; flex-wrap: wrap; align-items: baseline;
-  padding: 8px 14px 0; font-family: var(--mono); font-size: 11.5px;
+  padding: 8px 14px 0; font-family: var(--num); font-size: 11.5px;
   color: var(--texte-2); letter-spacing: -0.02em; min-height: 24px;
 }
 .g-lecture b { color: var(--texte); font-weight: 500; }
@@ -1063,7 +1067,7 @@ tbody tr:hover { background: var(--surface-2); }
 }
 .g-niv i { width: 14px; height: 0; border-top: 2px solid var(--c, var(--texte-2)); display: inline-block; }
 .g-niv.pointille i { border-top-style: dashed; }
-.g-niv b { font-family: var(--mono); font-weight: 500; color: var(--texte); font-size: 11.5px; letter-spacing: -0.02em; }
+.g-niv b { font-family: var(--num); font-weight: 500; color: var(--texte); font-size: 11.5px; letter-spacing: -0.02em; }
 
 /* La carte est cliquable, et elle le dit sans crier. */
 .pos { cursor: pointer; }

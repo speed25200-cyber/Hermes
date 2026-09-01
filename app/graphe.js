@@ -167,7 +167,7 @@ const Graphe = (() => {
     const morceaux = [];
     const texte = (tx, ty, contenu, fill, ancre, gras) =>
       `<text x="${tx}" y="${ty}" fill="${fill}" font-size="10"${gras ? ' font-weight="600"' : ""}` +
-      `${ancre ? ` text-anchor="${ancre}"` : ""} font-family="var(--mono)">${contenu}</text>`;
+      `${ancre ? ` text-anchor="${ancre}"` : ""} font-family="var(--num)">${contenu}</text>`;
 
     /* — grille + graduations — */
     let dGrille = "";
@@ -300,7 +300,7 @@ const Graphe = (() => {
       }));
       const t = el("text", { x: d.pw + 1 + Math.min(72, texte.length * 6.4 + 10) / 2, y: (py + 3.6).toFixed(1),
         fill: "var(--surface)", "font-size": 10, "font-weight": 600,
-        "text-anchor": "middle", "font-family": "var(--mono)" });
+        "text-anchor": "middle", "font-family": "var(--num)" });
       t.textContent = texte;
       g.appendChild(t);
     }

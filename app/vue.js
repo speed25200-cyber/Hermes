@@ -171,7 +171,7 @@ function squeletteReglette() {
       <line x1="0" y1="${YAXE}" x2="0" y2="${yFin}" stroke="${couleur}" stroke-width="1" opacity=".5"/>
       ${formeRepere(forme, couleur, yM)}
       <text y="${yTexte}" text-anchor="middle" font-size="11.5" fill="${couleur}"
-            font-family="var(--mono)" letter-spacing="-.4"
+            font-family="var(--num)" letter-spacing="-.2"
             paint-order="stroke" stroke="var(--surface)" stroke-width="3.5"
             stroke-linejoin="round"></text>
     </g>`;
@@ -182,7 +182,7 @@ function squeletteReglette() {
     <g class="rep" data-rep="fantome" opacity="0">
       <line x1="0" y1="${YAXE + 7}" x2="0" y2="${YAXE + 7}" stroke="var(--texte-3)" stroke-width="1.2" stroke-dasharray="3 3" opacity=".75"/>
       <path d="M-4 ${YAXE + 3.5} L4 ${YAXE + 3.5} L0 ${YAXE + 10} Z" fill="none" stroke="var(--texte-3)" stroke-width="1.2" opacity=".75"/>
-      <text y="${YAXE + 19}" text-anchor="middle" font-size="9" fill="var(--texte-3)" font-family="var(--mono)"
+      <text y="${YAXE + 19}" text-anchor="middle" font-size="9" fill="var(--texte-3)" font-family="var(--num)"
             paint-order="stroke" stroke="var(--surface)" stroke-width="3" stroke-linejoin="round"></text>
     </g>
     ${g("tp", "haut", "var(--bon)", LIGNE.tp)}
@@ -529,7 +529,7 @@ function courbe(points) {
     const v = c.min + (i / 4) * etendue, yy = c.y(v);
     grille += `<line x1="${m.g}" y1="${yy.toFixed(1)}" x2="${w - m.d}" y2="${yy.toFixed(1)}" stroke="var(--bord)" stroke-width="1"/>
       <text x="${m.g - 10}" y="${(yy + 3.5).toFixed(1)}" text-anchor="end" font-size="10.5"
-            fill="var(--texte-3)" font-family="var(--mono)">${nf(v, dec)}</text>`;
+            fill="var(--texte-3)" font-family="var(--num)">${nf(v, dec)}</text>`;
   }
 
   z.innerHTML = `

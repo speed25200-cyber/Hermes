@@ -195,7 +195,7 @@ const Labo = (() => {
       <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ech(t("labo.carte.aria"))}">
         <defs><filter id="lc-flou"><feGaussianBlur stdDeviation="4"/></filter></defs>
         <style>
-          .lc-grad { font: 400 9.5px var(--mono); fill: var(--texte-3); }
+          .lc-grad { font: 400 9.5px var(--num); fill: var(--texte-3); }
           .lc-nom  { font: 600 10.5px var(--sans); fill: var(--texte); paint-order: stroke; stroke: var(--surface); stroke-width: 3px; }
           .lc-axe  { font: 600 9.5px var(--sans); fill: var(--texte-3); letter-spacing: .08em; text-transform: uppercase; }
           .lc-diag { font: 500 9.5px var(--sans); fill: var(--texte-3); }
@@ -408,7 +408,7 @@ const Labo = (() => {
         <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${ech(t("labo.methode"))}">
           <style>
             .mf-et { font: 650 11px var(--sans); fill: var(--texte); letter-spacing: .03em; }
-            .mf-sous { font: 400 9.5px var(--mono); fill: var(--texte-3); }
+            .mf-sous { font: 400 9.5px var(--num); fill: var(--texte-3); }
           </style>
           <defs><clipPath id="mf-clip"><rect x="0" y="${y}" width="${W}" height="${h}" rx="6"/></clipPath></defs>
           ${seg(0, demiSel, "var(--long)", ".28", ech(t("labo.fen.a")), demiSel.toFixed(1) + " j")}
