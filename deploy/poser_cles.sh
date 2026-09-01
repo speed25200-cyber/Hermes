@@ -58,11 +58,12 @@ else
     # Certains fichiers portent OKX_API_PASS au lieu de la forme longue.
     [ -z "$PASSE" ] && PASSE=$(lire OKX_API_PASS)
     SIMULE=$(lire OKX_SIMULATED); SIMULE="${SIMULE:-0}"
-    # Le reste du fichier est garde de cote : il ne sert a rien au code
-    # actuel, mais le jeter serait decider a la place du proprietaire.
-    printf '%s\n' "$BRUT" > ${DIR}/.env.recu
-    chmod 600 ${DIR}/.env.recu
-    echo "  fichier complet garde dans ${DIR}/.env.recu (droits 600)"
+    # Le proprietaire a tranche : rien dautre que les cles. La question
+    # a ete posee une fois, avec son cout chiffre — HERMES_MAX_POSITIONS
+    # 5 contre 10 par defaut, HERMES_CANDLE_SECONDS 60 contre 15 — et la
+    # reponse a ete confirmee. Cest sa decision, elle sapplique.
+    total=$(printf '%s' "$BRUT" | grep -c "^[[:space:]]*[A-Za-z_][A-Za-z_0-9]*[[:space:]]*=")
+    echo "  $total variables recues, 3 conservees (les cles OKX), $((total - 3)) ecartees"
   else
     CLE=$(printf '%s' "$BRUT"    | sed -n 1p | tr -d '\r')
     SECRET=$(printf '%s' "$BRUT" | sed -n 2p | tr -d '\r')
@@ -153,12 +154,11 @@ echo "===== 2. ecriture dans $ENV ====="
 touch "$ENV"; chmod 600 "$ENV"
 # Les anciennes lignes sont retirees avant, sinon dotenv garderait la
 # PREMIERE occurrence et la nouvelle cle nauraient servi a rien.
-sed -i -E '/^(OKX_API_KEY|OKX_API_SECRET|OKX_API_PASSPHRASE|OKX_SIMULATED|OK_ACCESS_KEY|OK_SECRET_KEY|OK_PASSPHRASE)=/d' "$ENV"
+sed -i -E '/^(OKX_API_KEY|OKX_API_SECRET|OKX_API_PASSPHRASE|OKX_SIMULATED|OK_ACCESS_KEY|OK_SECRET_KEY|OK_PASSPHRASE|OKX_API_PASS)=/d' "$ENV"
 {
   printf 'OKX_API_KEY=%s\n' "$CLE"
   printf 'OKX_API_SECRET=%s\n' "$SECRET"
   printf 'OKX_API_PASSPHRASE=%s\n' "$PASSE"
-  printf 'OKX_SIMULATED=%s\n' "${SIMULE:-0}"
 } >> "$ENV"
 chmod 600 "$ENV"
 echo "  ecrit, droits 600 (lisible par root seul)"
