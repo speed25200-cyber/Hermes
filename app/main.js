@@ -89,7 +89,6 @@ const AI_CFG = safeReadJSON(path.join(ROOT, "config", "ai.config.json"), {
 const DEFAULT_UNIVERSE       = (process.env.HERMES_MARKETS || "").split(",").map(s => s.trim()).filter(Boolean);
 const MAX_POSITIONS_GLOBAL   = Number(process.env.HERMES_MAX_POSITIONS || 10);
 const DEFAULT_LEVERAGE       = Number(process.env.HERMES_DEFAULT_LEVERAGE || 15);  // ×15 validé client 30/08 (ex-20)
-const CANDLE_SECONDS         = Number(process.env.HERMES_CANDLE_SECONDS || 15);
 const SYMBOL_COOLDOWN_SEC    = 10;
 const MAX_ORDERS_INFLIGHT    = 5;
 
@@ -158,7 +157,6 @@ const AI = {
   tierStopLossPct: 0.5,
 
   openPositions: {},             // { instId: { side, qty, avgPx, ts, stopId?, stopPx?, stopMode? } }
-  pendingSignals: [],            // [{instId, side, score, ts}]
   inflight: 0,
   cooldown: {},
 
@@ -171,7 +169,7 @@ const AI = {
 const MARKET = {
   universe: [...DEFAULT_UNIVERSE],
   tick: {}, candles: {},         // 15s store
-  bars5m: {},                    // {instId: [{t,o,h,l,c,v}]}
+
   meta: {},                      // instId -> {ctVal, lotSz, minSz}
   fees: { maker: null, taker: null },
 
@@ -325,135 +323,13 @@ function currentOpenCount() { return Object.keys(AI.openPositions).length; }
 function perSymbolCooldown(instId) { const t = AI.cooldown[instId] || 0; return now() < t; }
 function setCooldown(instId, sec = SYMBOL_COOLDOWN_SEC) { AI.cooldown[instId] = now() + sec * 1000; }
 
-/* ===== CandleStore (15s) ===== */
-class CandleStore {
-  constructor(instId, sec = CANDLE_SECONDS) {
-    this.instId = instId; this.sec = sec;
-    this.active = null;           // { t,o,h,l,c,v }
-    this.lastClosed = [];         // tableau d'historiques
-    this.maxKeep = 600;
-  }
-  onTick(price, ts) {
-    const slot = Math.floor(ts / 1000 / this.sec) * this.sec;
-    if (!this.active || this.active.t !== slot) {
-      if (this.active) {
-        this.active.c = this.active.c ?? this.active.o;
-        this.lastClosed.push({ ...this.active });
-        if (this.lastClosed.length > this.maxKeep) this.lastClosed.shift();
-        onCandleClose(this.instId, this.active);
-      }
-      this.active = { t: slot, o: price, h: price, l: price, c: price, v: 0 };
-    } else {
-      if (price > this.active.h) this.active.h = price;
-      if (price < this.active.l) this.active.l = price;
-      this.active.c = price;
-    }
-  }
-  getHistory() { return this.lastClosed.slice(); }
-}
+/* Le moteur generique (score SuperTrend/Bollinger/RSI sur bougies de
+   15 s) et ses classes CandleStore/Bars5m ont ete SUPPRIMES le
+   01/09 a la demande du proprietaire : debranches depuis le 30/08,
+   ils calculaient encore a chaque tick pour un journal que personne
+   ne lisait. Les entrees viennent de HERMES15 (fin de fichier),
+   nourri par config/roster.json que le chercheur de perles ecrit. */
 
-/* ===== Bars 5m store ===== */
-class Bars5m {
-  constructor(instId) { this.instId = instId; this.rows = []; this.maxKeep = 500; }
-  // arr: [[ts,o,h,l,c,vol,volCcy]...], newest first
-  prefillFromRest(arr) {
-    try {
-      const mapped = arr.map(k => ({
-        t: Number(k[0]), o: num(k[1]), h: num(k[2]), l: num(k[3]), c: num(k[4]), v: num(k[5] || 0)
-      })).reverse();
-      this.rows = mapped.slice(-this.maxKeep);
-    } catch {}
-  }
-  // data: ["ts","o","h","l","c", ...]
-  onWS(data) {
-    try {
-      const ts = Number(data[0]);
-      const o = num(data[1]), h = num(data[2]), l = num(data[3]), c = num(data[4]), v = num(data[5] || 0);
-      const last = this.rows[this.rows.length - 1];
-      if (!last || last.t < ts) {
-        this.rows.push({ t: ts, o, h, l, c, v });
-        if (this.rows.length > this.maxKeep) this.rows.shift();
-      } else if (last.t === ts) {
-        last.o = o; last.h = h; last.l = l; last.c = c; last.v = v;
-      }
-    } catch (e) { log("[BARS5_ERR]", e.message); }
-  }
-  get() { return this.rows.slice(); }
-}
-
-/* ===== Indicators ===== */
-function sma(values, period) { const p = Math.min(period, values.length); if (p <= 0) return 0; let s = 0; for (let i = values.length - p; i < values.length; i++) s += values[i]; return s / p; }
-function ema(values, period) { if (!values.length) return 0; const k = 2 / (period + 1); let r = values[0]; for (let i = 1; i < values.length; i++) r = values[i] * k + r * (1 - k); return r; }
-function atr(c, period = 14) {
-  if (c.length < 2) return 0;
-  const trs = [];
-  for (let i = 1; i < c.length; i++) {
-    const H = c[i].h, L = c[i].l, C = c[i - 1].c;
-    trs.push(Math.max(H - L, Math.abs(H - C), Math.abs(L - C)));
-  }
-  return ema(trs, Math.min(period, trs.length));
-}
-function computeSuperTrend(c, period = 10, factor = 3) {
-  if (c.length < period + 2) return { dir: null, line: null };
-  const a = atr(c, period); const last = c[c.length - 1]; const mid = (last.h + last.l) / 2;
-  const upper = mid + factor * a, lower = mid - factor * a;
-  const dir = (last.c > upper) ? "long" : (last.c < lower) ? "short" : null;
-  const line = dir === "long" ? lower : dir === "short" ? upper : mid;
-  return { dir, line };
-}
-function computeRSIfromCloses(closes, period = 14) {
-  if (closes.length < period + 1) return 50;
-  let gains = 0, losses = 0;
-  for (let i = closes.length - period; i < closes.length; i++) {
-    const d = closes[i] - closes[i - 1];
-    if (d >= 0) gains += d; else losses -= d;
-  }
-  const avgGain = gains / period, avgLoss = losses / period;
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return 100 - (100 / (1 + rs));
-}
-function computeBollinger(closes, period = 20, mult = 2) {
-  if (closes.length < period) return { basis: closes[closes.length - 1] || 0, upper: 0, lower: 0, width: 0 };
-  const basis = sma(closes, period); let variance = 0;
-  for (let i = closes.length - period; i < closes.length; i++) variance += Math.pow(closes[i] - basis, 2);
-  variance /= period; const sd = Math.sqrt(variance);
-  const upper = basis + mult * sd, lower = basis - mult * sd; const width = (upper - lower) / (basis || 1);
-  return { basis, upper, lower, width };
-}
-function computeKeltner(c, period = 20, mult = 1.5) {
-  if (c.length < period) { const last = c[c.length - 1] || { c: 0 }; return { ma: last.c, upper: last.c, lower: last.c }; }
-  const closes = c.map(x => x.c); const ma = ema(closes, period); const a = atr(c, period);
-  return { ma, upper: ma + mult * a, lower: ma - mult * a };
-}
-function computeSqueeze(c) {
-  if (c.length < 25) return { active: false, dir: null, momentum: 0 };
-  const closes = c.map(x => x.c); const bb = computeBollinger(closes, 20, 2); const kc = computeKeltner(c, 20, 1.5);
-  const active = (bb.upper - bb.lower) < (kc.upper - kc.lower);
-  const deviation = closes.map(v => v - bb.basis);
-  const mom = ema(deviation.slice(-20), 10);
-  const dir = mom > 0 ? "long" : mom < 0 ? "short" : null;
-  return { active, dir, momentum: mom };
-}
-function computeScore(c) {
-  const closes = c.map(x => x.c);
-  const st = computeSuperTrend(c, 10, 3);
-  const rsi = computeRSIfromCloses(closes, 14);
-  const bb = computeBollinger(closes, 20, 2);
-  const sq = computeSqueeze(c);
-
-  let score = 0;
-  if (st.dir === "long")  score += 3;
-  if (st.dir === "short") score -= 3;
-  if (closes[closes.length - 1] < bb.lower && rsi < 35) score += 2;
-  if (closes[closes.length - 1] > bb.upper && rsi > 65) score -= 2;
-  if (sq.active) score += (sq.dir === "long" ? 1 : sq.dir === "short" ? -1 : 0);
-
-  const volBoost = clamp(bb.width, 0, 0.05) / 0.05;
-  score = score * (1 + 0.5 * volBoost);
-  const dir = score > 0 ? "long" : score < 0 ? "short" : null;
-  return { score, dir, st, rsi, bb, sq };
-}
 /* ===== Universe loader ===== */
 const TAILLE_UNIVERS = Number(process.env.HERMES_UNIVERSE_SIZE || 20);
 const RAFRAICHIR_UNIVERS_MS = Number(process.env.HERMES_UNIVERSE_REFRESH_MS || 3600000);
@@ -845,22 +721,6 @@ async function okxPOST(pathname, body) {
   }
 }
 /* ===== Prefill bars 5m ===== */
-async function prefill5m() {
-  try {
-    const frame = (OKX_CFG.bars?.prefill?.frame) || "5m";
-    const limit = (OKX_CFG.bars?.prefill?.limit) || 200;
-    const uni = MARKET.universe.slice(0, 100);
-    for (const instId of uni) {
-      try {
-        const r = await okxGET("/api/v5/market/candles", { instId, bar: frame, limit: String(limit) });
-        const arr = Array.isArray(r?.data) ? r.data : [];
-        if (!MARKET.bars5m[instId]) MARKET.bars5m[instId] = new Bars5m(instId);
-        MARKET.bars5m[instId].prefillFromRest(arr);
-        await sleep(30);
-      } catch (e) { log("[PREFILL_5M_ERR]", instId, e.message); }
-    }
-  } catch (e) { log("[PREFILL_5M_ROOT_ERR]", e.message); }
-}
 
 /* ===== Helpers qty from USDT (contracts) ===== */
 function roundQtyToLot(instId, qty) {
@@ -1056,86 +916,6 @@ async function placeMarket(instId, side) {
   }
 }
 
-async function updateDynamicStop(instId) {
-  try {
-    const pos = AI.openPositions[instId];
-    if (!pos) return;
-    const s = positionSizing(AI.equityUSDT);
-    const step = s.step;
-    const last = MARKET.tick[instId]?.lastPrice || 0;
-    if (!last || !pos.avgPx) return;
-
-    // approx PnL USDT
-    const pnlUSDT = (pos.side === "long") ? (last - pos.avgPx) * pos.qty : (pos.avgPx - last) * pos.qty;
-
-    const beThreshold    = step;
-    const trailThreshold = 2 * step;
-    const trailOffset    = step;
-
-    if (pnlUSDT >= beThreshold && (!pos.stopMode || pos.stopMode === "INIT")) {
-      const newStop = pos.avgPx;
-      pos.stopMode  = "BE";
-      pos.stopPx    = newStop;
-      AI.counters.be++; setHealth("stops", { be: AI.counters.be, status: "OK", info: "BE" });
-      logAIEvent({ event: "STOP_BE", instId, newStop, pnlUSDT, live: true });
-      return;
-    }
-    if (pnlUSDT >= trailThreshold) {
-      const newStop = pos.side === "long" ? (last - trailOffset) : (last + trailOffset);
-      if (!pos.stopMode || pos.stopMode !== "TRAIL" || (pos.side === "long" ? newStop > pos.stopPx : newStop < pos.stopPx)) {
-        pos.stopMode = "TRAIL";
-        pos.stopPx   = newStop;
-        AI.counters.trail++; setHealth("stops", { trail: AI.counters.trail, status: "OK", info: "TRAIL" });
-        logAIEvent({ event: "STOP_TRAIL", instId, newStop, last, pnlUSDT, live: true });
-        return;
-      }
-    }
-  } catch (e) { log("[STOP_UPDATE_ERR]", instId, e.message); }
-}
-/* ===== Decision Engine ===== */
-function pushPendingSignal(instId, side, score) {
-  AI.pendingSignals.push({ instId, side, score, ts: now() });
-  if (AI.pendingSignals.length > 500) AI.pendingSignals.shift();
-}
-
-function onCandleClose(instId, candle) {
-  setHealth("strategy", { lastCandle: Date.now() });
-
-  const hist = MARKET.candles[instId]?.getHistory() || [];
-  if (hist.length < 8) return;
-
-  const { score, dir } = computeScore(hist);
-
-  // SIM (toujours ON) + anti-spam lÃƒÂ©ger pour le flux UI
-  appendJSONL(AI.simLogsFile, { ts: tsISO(), event: "SIM_SIGNAL", instId, dir, score, px: candle.c });
-  try {
-    if (!globalThis.__simRateLimiter) globalThis.__simRateLimiter = { lastAt: 0, count: 0 };
-    const rl = globalThis.__simRateLimiter;
-    const t  = Date.now();
-    if (Math.abs(score) >= 4) {
-      if (t - rl.lastAt > 1000) { rl.count = 0; rl.lastAt = t; }
-      if (rl.count < 4) { broadcastAILog({ event: "SIM_SIGNAL", instId, score, price: candle.c, live: false }); rl.count++; }
-    }
-  } catch {}
-
-  if (!dir) return;
-
-  AI.counters.signals++;
-  setHealth("strategy", { lastSignal: Date.now(), status: "OK", info: `score=${score.toFixed(2)}` });
-
-  if (AI.on && OKX.KEY && OKX.SECRET && OKX.PASS) {
-    if (canPlaceOrder(instId, dir)) {
-      placeMarket(instId, dir);
-    } else {
-      pushPendingSignal(instId, dir, score);
-    }
-  } else {
-    if (Math.abs(score) >= 3) pushPendingSignal(instId, dir, score);
-  }
-
-  if (AI.openPositions[instId]) updateDynamicStop(instId);
-}
-
 /* ===== Logging (push vers UI) ===== */
 function broadcastAILog(payload) {
   try {
@@ -1318,21 +1098,6 @@ async function portfolioLoop() {
         if (HISTORY.spot.length > 7200) HISTORY.spot.shift();
       } catch {}
 
-      // Consume pending signals if room available
-      const open = currentOpenCount();
-      const sizing = positionSizing(AI.equityUSDT);
-      if (AI.on && OKX.KEY && OKX.SECRET && OKX.PASS &&
-          open < Math.min(MAX_POSITIONS_GLOBAL, sizing.maxPositions) &&
-          AI.pendingSignals.length) {
-        /* Péremption : un signal de plus de 5 min est basé sur une bougie morte — on le jette. */
-        const ttlMs = Number(process.env.HERMES_SIGNAL_TTL_MS || 5 * 60 * 1000);
-        AI.pendingSignals = AI.pendingSignals.filter(x => (now() - (x.ts || 0)) <= ttlMs);
-        AI.pendingSignals.sort((a, b) => b.score - a.score);
-        const next = AI.pendingSignals.shift();
-        if (next && !perSymbolCooldown(next.instId)) {
-          await placeMarket(next.instId, next.side);
-        }
-      }
     } catch {}
     await sleep(4000);
   }
@@ -1355,7 +1120,7 @@ async function startPublicWS() {
     log("[WS] public open");
     setTimeout(() => { if (ws.readyState === 1) resetBackoff("public"); }, 30000);
 
-    // Subscribe in chunks (tickers + funding-rate + candle5m)
+    // Subscribe in chunks (tickers + funding-rate)
     const syms = MARKET.universe.slice();
     const chunkMax = Number(OKX_CFG.subscribeChunkMax || 40);
     const chunks = [];
@@ -1368,7 +1133,6 @@ async function startPublicWS() {
         await sleep(rndInt(OKX_CFG.subscribeJitterMs?.[0] || 25, OKX_CFG.subscribeJitterMs?.[1] || 50));
         const argsFund = symbols.map(i => ({ channel: "funding-rate", instId: i })); send({ op: "subscribe", args: argsFund });
         await sleep(rndInt(OKX_CFG.subscribeJitterMs?.[0] || 25, OKX_CFG.subscribeJitterMs?.[1] || 50));
-        const argsBar5 = symbols.map(i => ({ channel: "candle5m",     instId: i })); send({ op: "subscribe", args: argsBar5 });
         await sleep(rndInt(OKX_CFG.subscribeJitterMs?.[0] || 25, OKX_CFG.subscribeJitterMs?.[1] || 50));
       }
     })();
@@ -1401,10 +1165,6 @@ async function startPublicWS() {
           ts, rx: Date.now()
         };
 
-        // Bougies 15s (IA interne)
-        if (!MARKET.candles[id]) MARKET.candles[id] = new CandleStore(id, CANDLE_SECONDS);
-        MARKET.candles[id].onTick(last, ts);
-
         // DataFlow health
         const c = HEALTH.modules.dataFlow;
         c.count++; c.lastTs = Date.now();
@@ -1420,12 +1180,6 @@ async function startPublicWS() {
         MARKET.tick[id].fundingRate = fr;
       }
 
-      // candle5m
-      if (m.arg?.channel && String(m.arg.channel).startsWith("candle") && m.data?.[0]) {
-        const id = m.arg.instId;
-        if (!MARKET.bars5m[id]) MARKET.bars5m[id] = new Bars5m(id);
-        MARKET.bars5m[id].onWS(m.data[0]); // ["ts","o","h","l","c",...]
-      }
     } catch (e) { log("[WS_PUBLIC_MSG_ERR]", e.message); }
   });
 
@@ -1805,7 +1559,7 @@ ipcMain.handle("get-ai-state", async () => {
       mode: AI.mode,
       equityUSDT: AI.equityUSDT,
       tier: AI.tier,
-      pending: AI.pendingSignals.length,
+      pending: 0,
       ts: tsISO()
     };
   } catch (e) {
@@ -2078,7 +1832,7 @@ ipcMain.handle("toggle-ai", async (_e, desired) => {
       mode: AI.mode,
       equityUSDT: AI.equityUSDT,
       tier: AI.tier,
-      pending: AI.pendingSignals.length,
+      pending: 0,
       ts: tsISO(),
       logs: []
     };
@@ -2255,7 +2009,6 @@ async function createWindow() {
       const url = win.webContents.getURL();
       UI_RUNTIME_MODE = computeUIModeFromURL(url);
       log("[UI] did-finish-load Ã¢â€ â€™", url, "Ã¢â€ â€™ mode:", UI_RUNTIME_MODE);
-      prefill5m().catch(() => {});
     });
     win.webContents.on("did-fail-load", (_e, code, desc) => log("[WEB] did-fail-load:", code, desc));
     win.webContents.on("render-process-gone", (_e, details) => log("[WEB] render-process-gone:", JSON.stringify(details)));
@@ -2740,7 +2493,6 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
     /* Les protections vivent sur OKX (TP/SL attachés + trailing move_order_stop).
        L'ancien BE/trailing « dynamique » ne modifiait que la mémoire locale en
        affichant de faux logs STOP_BE/TRAIL — supprimé. */
-    updateDynamicStop = async function(_instId){ /* protections exchange-side : rien à faire ici */ };
 
     /* ===== GARDE HORAIRE : vérifie et RÉPARE les protections de chaque position =====
        - resynchronise AI.openPositions avec les positions réelles OKX (fantômes/manquantes)
@@ -2860,50 +2612,9 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
     setTimeout(() => { ensureProtections().catch(()=>{}); }, 20 * 1000);       // 1er contrôle 90 s après le boot
     setInterval(() => { ensureProtections().catch(()=>{}); }, 3600 * 1000);    // puis toutes les heures (spec client)
 
-    // Gating sur onCandleClose (seuils score & push pending)
-    const __prev_onCandleClose = (typeof onCandleClose==="function") ? onCandleClose : null;
-    onCandleClose = function(instId, candle){
-      try{
-        setHealth("strategy",{lastCandle:Date.now()});
-        const hist = MARKET.candles[instId]?.getHistory() || [];
-        if (hist.length < 8) return;
-        const { score, dir } = computeScore(hist);
-        try { globalThis.__fableD_ombre && globalThis.__fableD_ombre.onSignal(instId, dir, score); } catch {}
-
-        // Log SIM pour apprentissage
-        appendJSONL(AI.simLogsFile, { ts: tsISO(), event:"SIM_SIGNAL", instId, dir, score, px:candle.c });
-
-        const live   = !!AI.on;
-        const minAbs = live ? Math.abs(POLICY.minLiveScoreAbs||3) : Math.abs(POLICY.minSimScoreAbs||2);
-        if (!dir || Math.abs(score) < minAbs) return;
-
-        /* DIAG : pour un signal AU-DESSUS du seuil, on trace (max 1/3 s) pourquoi il
-           ne devient pas un ordre — état IA, clés, verdict canPlaceOrder. */
-        try {
-          globalThis.__diagT = globalThis.__diagT || 0;
-          if (Date.now() - globalThis.__diagT > 3000) {
-            globalThis.__diagT = Date.now();
-            const cpo = canPlaceOrder(instId, dir);
-            log(`[DIAG] signal ${instId} ${dir} score ${score.toFixed(2)} | AI.on=${AI.on} keys=${!!(OKX.KEY&&OKX.SECRET&&OKX.PASS)} equity=${AI.equityUSDT?.toFixed(2)} open=${currentOpenCount()} canPlace=${cpo} tickAge=${MARKET.tick[instId]?.rx?((Date.now()-MARKET.tick[instId].rx)/1000).toFixed(1)+'s':'noTick'}`);
-          }
-        } catch(e){ log("[DIAG_ERR]", e.message); }
-
-        /* Mode HERMES 15 (client 30/08) : la stratégie générique par score est
-           DÉBRANCHÉE — les entrées viennent des 9 stratégies par crypto (module
-           HERMES15 en fin de fichier). HERMES_MODE=generique pour revenir. */
-        if (String(process.env.HERMES_MODE || "15") !== "generique") return;
-
-        if (live && OKX.KEY && OKX.SECRET && OKX.PASS){
-          if (canPlaceOrder(instId, dir)) placeMarket(instId, dir);
-          else pushPendingSignal(instId, dir, score);
-        } else {
-          pushPendingSignal(instId, dir, score);
-        }
-
-        if (AI.openPositions[instId]) updateDynamicStop(instId);
-      }catch(e){ log("[ONCLOSE_ERR]", instId, e.message); }
-    };
-
+    /* Le gating onCandleClose du moteur generique vivait ici ; parti
+       avec lui. Les entrees passent par __hermesEntre, appele par
+       HERMES15 avec les sorties propres a chaque strategie. */
     globalThis.__hermesEntre = (instId, side, ov) => placeMarket(instId, side, ov);
     log("[LIVE_SIM_GATE_V2] actif");
   }catch(e){
@@ -2918,7 +2629,6 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
    Boucle indépendante : bougies 5 m par REST public toutes les 20 s.
    ============================================================================ */
 (() => {
-  if (String(process.env.HERMES_MODE || "15") === "generique") { log("[HERMES15] désactivé (mode générique)"); return; }
   const H = 3600 * 1000;
   /* sig : rsi5m (RSI14 <25 long />75 short) · z48_5m (|z|>2,5 vs SMA48 -> contre-pied)
            run5_5m (5 bougies consécutives -> contre-pied) · meche5m / meche15m
@@ -2946,7 +2656,6 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
     /* PENGU x3_combos_3 (3/4 : +3,53 60j / +0,99 180j / Binance +3,20, recale J-180→365) — validé client 31/08. */
     "PENGU-USDT-SWAP": { sig:"vwap_reclaim",  ov:{ tpPctMargin:0.60, trailActPctMargin:0.20, holdMs:24*H } }
   };
-  globalThis.__hermes15Instruments = new Set(Object.keys(STRATS));   // pour exclure les conflits avec la stratégie inverse armée
   // SL -30 % et trail 5 % (SPEC) pour toutes.
   const lastClosed = {};   // instId -> ts de la dernière bougie 5m traitée
   /* Les évaluateurs vivent dans modules/signaux.js, partagés avec le
@@ -3113,32 +2822,8 @@ try {
    automatique type martingale, dangereux (perte en spirale). Ne jamais réactiver.
    (Les deux étaient déjà inertes ; on retire le require par sécurité.) */
 
-/* === FABLE D — OMBRE INVERSE (ancienne stratégie) : trades PAPIER uniquement ===
-   Journal : data/ombre-inverse.jsonl · kill-switch : HERMES_OMBRE=off puis restart.
-   Aucun ordre, aucun appel privé : le module ne touche ni AI.*, ni le budget,
-   ni les 13 stratégies HERMES15. Formule et validation : lab_vagues/fableD_*. */
-(() => {
-  try {
-    if (String(process.env.HERMES_OMBRE || "on").toLowerCase() === "off") { log("[OMBRE_INV] désactivé (HERMES_OMBRE=off)"); return; }
-    const ombreInverse = require(path.join(ROOT, "lab_vagues", "fableD_ombre_inverse.js"));
-    ombreInverse.demarrer({ MARKET, DATADIR, log,
-      /* Phase ARMÉE (accord client 31/08) : la variante fablew déclenche des ordres RÉELS
-         via le circuit standard du bot (maker, budget, protections OKX, sizing 100-200).
-         HERMES_INVERSE_ARME=off pour revenir au papier pur. Sorties de la formule fableW :
-         TP +80 % / SL −30 % / trail 20 % activé à +20 % / durée max 12 h. */
-      armer: String(process.env.HERMES_INVERSE_ARME || "fablew"),
-      entrerReel: (instId, side) => {
-        try {
-          if (globalThis.__hermes15Instruments && globalThis.__hermes15Instruments.has(instId)) return;  // pas de conflit avec les 13
-          if (!AI.on || typeof globalThis.__hermesEntre !== "function") return;
-          if (!canPlaceOrder(instId, side)) { log("[INVERSE_ARME] refus (budget/slots/fraîcheur)", instId, side); return; }
-          log("[INVERSE_ARME] entrée RÉELLE", instId, side);
-          globalThis.__hermesEntre(instId, side, {
-            tpPctMargin: 0.80, slPctMargin: 0.30, trailActPctMargin: 0.20, trailCbPctMargin: 0.20, holdMs: 12 * 3600e3
-          });
-        } catch (e) { log("[INVERSE_ARME_ERR]", e.message); }
-      }
-    });
-    globalThis.__fableD_ombre = ombreInverse;
-  } catch (e) { try { log("[OMBRE_INV_ERR]", e.message); } catch {} }
-})();
+/* L'« ombre inverse » (Fable D) chargee ici a ete SUPPRIMEE le 01/09 :
+   presentee comme papier, elle etait ARMEE par defaut (fablew) et
+   passait des ordres reels sur la formule de l'ancienne strategie —
+   nourrie par le moteur generique, supprime le meme jour. Les
+   fichiers d'etude restent dans lab_vagues/. */
