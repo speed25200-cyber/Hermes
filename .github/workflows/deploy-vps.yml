@@ -149,9 +149,13 @@ jobs:
       # donc ici, conditionnees a la presence dun paquet — sans paquet,
       # ce workflow se comporte exactement comme avant.
       #
-      # Le paquet arrive CHIFFRE. La page dun run affiche ses entrees et
-      # ce depot est public : une cle deposee la serait lisible par
-      # tout le monde, ce qui est laccident deja survenu ici une fois.
+      # Le paquet arrive CHIFFRE. La page dun run affiche ses entrees ;
+      # le depot est prive, donc cette page nest pas publique, mais la
+      # verification na ete faite quapres coup et le chiffrement reste
+      # : il ne coute rien, et il retire la question du chemin. Une cle
+      # en clair dans une entree de workflow depend, pour rester
+      # discrete, dun reglage de visibilite quil suffit de changer.
+      #
       # Ce que le champ porte est un bloc AES-256-GCM, ouvrable par la
       # seule machine qui detient HERMES_DASH_TOKEN — le serveur.
       - name: Deposer louvreur de paquet
@@ -239,12 +243,14 @@ jobs:
             echo "=== port 8899 ==="
             ss -tln | grep -q ":8899 " && echo LISTENING || echo "NOT listening"
             echo "=== dashboard ==="
-            # La cle nest PAS imprimee. Ce depot est public, donc le
-            # journal de ce run lest aussi, et cette cle commande un
-            # moteur regle en pilotage complet : la lire suffit pour
-            # demarrer, arreter, et passer un ordre. Elle la ete dans
-            # les runs precedents, et cest la raison pour laquelle elle
-            # doit etre changee.
+            # La cle nest PAS imprimee. Le depot est prive — verifie
+            # par lAPI, visibility: private — donc ce journal nest
+            # lisible que par son proprietaire, et limprimer nest pas
+            # une fuite publique. Ce nest pas une raison de le faire :
+            # cette cle commande un moteur regle en pilotage complet,
+            # la lire suffit pour demarrer, arreter et passer un ordre,
+            # et un journal de run se partage par un lien sans quon
+            # pense a ce quil contient.
             #
             # Ce quon imprime a la place repond a la seule question
             # quon se pose ici — la cle existe-t-elle — sans repondre a

@@ -54,9 +54,16 @@ fois : par le nom du fichier, puis par son contenu.
 
 Ce n'est pas une précaution théorique. L'archive d'origine contenait
 trois fichiers d'environnement portant de vraies clés OKX de
-production, et ils sont partis dans un commit poussé sur ce dépôt —
-qui est public — avant d'être retirés. Les clés concernées ont dû être
-changées. Un secret dans un dépôt ne se répare pas en le supprimant.
+production, et ils sont partis dans un commit poussé sur ce dépôt
+avant d'être retirés.
+
+Une correction s'impose ici, parce que la première version de ce
+paragraphe disait le dépôt public et en tirait des conséquences plus
+graves qu'elles ne le sont. Vérification faite par l'API, il est
+**privé** (`visibility: private`) : ces clés n'ont donc pas été
+exposées au monde, seulement à qui a accès au dépôt. Cela réduit
+l'urgence, cela ne l'annule pas — l'historique garde ce qu'on y a
+écrit, et un secret dans un dépôt ne se répare pas en le supprimant.
 
 ## Réglages qui décident du comportement
 
