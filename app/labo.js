@@ -69,7 +69,7 @@ const Labo = (() => {
     tictac = setInterval(() => {
       const el = document.querySelector("[data-prochaine]");
       if (!el || !donnees?.roster?.genere) return;
-      el.textContent = compte(new Date(donnees.roster.genere).getTime() + 12 * 3600e3 - Date.now());
+      el.textContent = compte(new Date(donnees.roster.genere).getTime() + 30 * 60e3 - Date.now());
     }, 1000);
   }
   function arreterTictac() { clearInterval(tictac); tictac = null; }
@@ -92,7 +92,7 @@ const Labo = (() => {
     const meta = [];
     if (r) {
       meta.push(`<span class="g-niv">Dernière passe <b>${ech(quand(r.genere))}</b>${r.dureeS ? ` · ${Math.round(r.dureeS / 60)} min` : ""}</span>`);
-      meta.push(`<span class="g-niv">Prochaine <b data-prochaine>${ech(compte(new Date(r.genere).getTime() + 12 * 3600e3 - Date.now()))}</b></span>`);
+      meta.push(`<span class="g-niv">Prochaine <b data-prochaine>${ech(compte(new Date(r.genere).getTime() + 30 * 60e3 - Date.now()))}</b></span>`);
       const f = r.fenetres || {};
       meta.push(`<span class="g-niv">Fenêtres <b>${f.jours ?? 30} j · validation ${f.validationJours ?? 7} j</b></span>`);
     }
@@ -100,6 +100,13 @@ const Labo = (() => {
       const repli = donnees.joue.source !== "chercheur";
       meta.push(`<span class="g-niv" style="--c:${repli ? "var(--short)" : "var(--bon)"}"><i></i>Le moteur joue <b>${repli ? "le repli du 31/08" : "ce verdict"}</b></span>`);
     }
+    const prog = donnees?.progression || null;
+    if (prog) {
+      const depuis = Math.max(0, Math.round((Date.now() - new Date(prog.debut).getTime()) / 1000));
+      const ou = prog.rang ? `${prog.rang}/${prog.total} · ${ech(prog.instId || "")}` : "candidats…";
+      meta.push(`<span class="g-niv labo-vif"><i class="labo-pouls"></i>Recherche en cours <b>${ou}</b> · ${depuis} s</span>`);
+    }
+    meta.push(`<button id="lb-chercher" class="primaire" ${prog ? "disabled" : ""}>${prog ? "Recherche en cours…" : "Lancer une recherche"}</button>`);
     $l("lb-meta").innerHTML = meta.join("");
 
     rendreCarte(perles);
@@ -120,7 +127,7 @@ const Labo = (() => {
     $l("lb-carte-n").textContent = pts.length ? `${pts.length} posée${pts.length > 1 ? "s" : ""}` : "—";
 
     if (!pts.length) {
-      zone.innerHTML = `<div class="labo-vide">La carte se dessinera au premier verdict du chercheur.<br>
+      zone.innerHTML = `<div class="labo-vide">La constellation se dessinera au premier verdict du chercheur.<br>
         Chaque perle y sera posée par ses deux winrates — sélection et validation —<br>
         et le sur-ajustement se verra à l'œil : loin sous la diagonale, une stratégie a promis plus qu'elle n'a tenu.</div>`;
       return;
@@ -163,7 +170,7 @@ const Labo = (() => {
       </g>`).join("");
 
     zone.innerHTML = `
-      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Carte des perles : winrate de sélection contre winrate de validation">
+      <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Constellation : winrate de sélection contre winrate de validation">
         <defs><filter id="lc-flou"><feGaussianBlur stdDeviation="4"/></filter></defs>
         <style>
           .lc-grad { font: 400 9.5px var(--mono); fill: var(--texte-3); }
@@ -241,6 +248,33 @@ const Labo = (() => {
       <div class="refus"><b>${ech(court(id))}</b><span>${ech(r.raison || "—")}</span>
         <span class="r-note">${r.concourantes || 0} concourante${(r.concourantes || 0) > 1 ? "s" : ""}</span></div>`).join("");
   }
+
+  /* ===== la recherche manuelle ===== */
+
+  let suivi = null;
+  function suivreLaPasse() {
+    // Pendant une passe, la page respire toutes les quatre secondes au
+    // lieu de la minute : la progression est faite pour etre regardee.
+    clearInterval(suivi);
+    suivi = setInterval(async () => {
+      await charger();
+      if (!donnees?.progression) { clearInterval(suivi); suivi = null; }
+    }, 4000);
+  }
+
+  document.addEventListener("click", async (e) => {
+    if (!e.target || e.target.id !== "lb-chercher") return;
+    e.target.disabled = true;
+    e.target.textContent = "Recherche en cours…";
+    try {
+      const r = await api.invoke("chercher-perles", {});
+      if (r && (r.lance || r.dejaEnCours)) suivreLaPasse();
+      else { e.target.disabled = false; e.target.textContent = "Lancer une recherche"; }
+    } catch {
+      e.target.disabled = false;
+      e.target.textContent = "Lancer une recherche";
+    }
+  });
 
   /* ===== démarrage ===== */
 

@@ -161,11 +161,14 @@ cat > /etc/systemd/system/hermes-perles.timer <<UNIT
 Description=Relance du chercheur de perles
 
 [Timer]
-# Cinq minutes apres le demarrage, puis toutes les douze heures. La
-# recherche nest pas un evenement, cest un entretien : chaque passe
-# rejoue le concours entier, et une perle chanceuse doit re-gagner.
+# Cinq minutes apres le demarrage, puis toutes les trente minutes
+# (demande du proprietaire). Ce rythme nest tenable que grace au cache
+# incremental du chercheur : la premiere passe telecharge trente jours,
+# les suivantes ne vont chercher que les bougies nouvelles et durent
+# moins dune minute. Sans le cache, ce serait markteler OKX toutes les
+# demi-heures pour des donnees deja vues.
 OnBootSec=5min
-OnUnitActiveSec=12h
+OnUnitActiveSec=30min
 Persistent=true
 
 [Install]

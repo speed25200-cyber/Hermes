@@ -1647,7 +1647,48 @@ ipcMain.handle("laboratoire", async () => {
       }
     } catch {}
     const joue = (typeof globalThis.__hermes15Roster === "function") ? globalThis.__hermes15Roster() : null;
-    return { ok: true, roster, historique, joue, ts: tsISO() };
+    // La progression d'une passe en cours, ecrite par le chercheur
+    // lui-meme. Un marqueur plus vieux que trente minutes est un
+    // cadavre de passe tuee : on ne le montre pas.
+    let progression = null;
+    try {
+      const p = JSON.parse(fs.readFileSync(path.join(DATADIR, "perles-progression.json"), "utf8"));
+      if (p && p.debut && Date.now() - new Date(p.debut).getTime() < 30 * 60e3) progression = p;
+    } catch {}
+    return { ok: true, roster, historique, joue, progression, ts: tsISO() };
+  } catch (e) {
+    return { ok: false, error: String(e.message || e) };
+  }
+});
+
+/* Le bouton « lancer une recherche » de l'onglet Laboratoire. On passe
+   par systemd quand il est la : meme unite que le minuteur, meme
+   journal, et deux demandes simultanees se fondent en une. Sans
+   systemd (poste de developpement), le script part en processus
+   detache. Public et sans danger : le chercheur ne lit que des points
+   publics et n'ecrit que son roster. */
+ipcMain.handle("chercher-perles", async () => {
+  try {
+    try {
+      const p = JSON.parse(fs.readFileSync(path.join(DATADIR, "perles-progression.json"), "utf8"));
+      if (p && p.debut && Date.now() - new Date(p.debut).getTime() < 30 * 60e3) {
+        return { ok: true, dejaEnCours: true };
+      }
+    } catch {}
+    const cp = require("child_process");
+    const parSystemd = await new Promise((fin) => {
+      cp.execFile("systemctl", ["start", "--no-block", "hermes-perles.service"], { timeout: 5000 },
+        (err) => fin(!err));
+    });
+    if (!parSystemd) {
+      const enfant = cp.spawn(process.execPath, [path.join(ROOT, "deploy", "chercher_perles.js")], {
+        cwd: ROOT, detached: true, stdio: "ignore",
+        env: { ...process.env, NODE_OPTIONS: "--dns-result-order=ipv4first" },
+      });
+      enfant.unref();
+    }
+    log("[PERLES] recherche demandee depuis la page", parSystemd ? "(systemd)" : "(processus direct)");
+    return { ok: true, lance: true };
   } catch (e) {
     return { ok: false, error: String(e.message || e) };
   }

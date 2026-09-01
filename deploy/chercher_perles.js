@@ -36,6 +36,20 @@ const { SIGNAUX } = require(path.join(__dirname, "..", "modules", "signaux.js"))
 const RACINE = path.join(__dirname, "..");
 const ROSTER = path.join(RACINE, "config", "roster.json");
 const HISTORIQUE = path.join(RACINE, "data", "perles-historique.jsonl");
+const CACHE_DIR = path.join(RACINE, "data", "cache-5m");
+const PROGRESSION = path.join(RACINE, "data", "perles-progression.json");
+
+/* La progression est ecrite dans un fichier que le moteur sert a la
+   page : le bouton « lancer une recherche » a besoin de voir la passe
+   avancer, et un minuteur de trente minutes a besoin que la passe soit
+   COURTE — les deux vivent ici. */
+function direProgression(obj) {
+  try {
+    if (obj == null) { fs.unlinkSync(PROGRESSION); return; }
+    fs.mkdirSync(path.dirname(PROGRESSION), { recursive: true });
+    fs.writeFileSync(PROGRESSION, JSON.stringify(obj));
+  } catch {}
+}
 
 const JOURS = Number(process.env.PERLES_JOURS || 30);
 const JOURS_VALID = Number(process.env.PERLES_VALID_JOURS || 7);
@@ -132,11 +146,45 @@ async function candidats() {
 
 /* ---- 2. l'histoire : JOURS jours de 5 m, paginés vers le passé ---- */
 
+/* Le cache est ce qui rend la cadence de trente minutes honnete. La
+   premiere passe pagine trente jours (plusieurs minutes) ; les
+   suivantes relisent le cache et ne demandent a OKX que les bougies
+   nouvelles — une page suffit, la passe entiere tient sous la minute.
+   Sans lui, on martelerait l'exchange toutes les demi-heures pour des
+   donnees deja vues. */
+function lireCache(instId) {
+  try {
+    const rows = JSON.parse(fs.readFileSync(path.join(CACHE_DIR, instId + ".json"), "utf8"));
+    return Array.isArray(rows) && rows.length ? rows : null;
+  } catch { return null; }
+}
+function ecrireCache(instId, rows) {
+  try {
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+    const tmp = path.join(CACHE_DIR, instId + ".tmp");
+    fs.writeFileSync(tmp, JSON.stringify(rows));
+    fs.renameSync(tmp, path.join(CACHE_DIR, instId + ".json"));
+  } catch {}
+}
+
 async function histoire5m(instId) {
   const besoin = JOURS * 288;
+
+  const enCache = lireCache(instId);
+  if (enCache && Date.now() - enCache[enCache.length - 1][0] < 24 * 3600e3) {
+    // Le cache est frais : la page la plus recente (300 bougies = 25 h)
+    // couvre forcement le trou. On fusionne, on taille, on repart.
+    const r0 = await getSur(`/api/v5/market/candles?instId=${encodeURIComponent(instId)}&bar=5m&limit=300`);
+    const neuves = r0.data.slice(1).map((k) => [Number(k[0]), Number(k[1]), Number(k[2]), Number(k[3]), Number(k[4]), Number(k[5])]).reverse();
+    const parTs = new Map(enCache.map((k) => [k[0], k]));
+    for (const k of neuves) parTs.set(k[0], k);   // la version fraiche fait foi
+    const rows = [...parTs.values()].sort((a, b) => a[0] - b[0]).slice(-(besoin + 50));
+    ecrireCache(instId, rows);
+    return rows;
+  }
+
+  // Pas de cache utilisable : la collecte pleine, paginee vers le passe.
   let rows = [];
-  // La première page vient de /candles (les plus récentes), la suite de
-  // /history-candles en remontant le temps par ?after=.
   const r0 = await getSur(`/api/v5/market/candles?instId=${encodeURIComponent(instId)}&bar=5m&limit=300`);
   rows = r0.data.slice();
   while (rows.length < besoin + 2) {
@@ -151,6 +199,7 @@ async function histoire5m(instId) {
   // Les pages peuvent se chevaucher d'une bougie : dédoublonnage par ts.
   const vus = new Set(); const propre = [];
   for (const k of asc) { if (!vus.has(k[0])) { vus.add(k[0]); propre.push(k); } }
+  ecrireCache(instId, propre);
   return propre;
 }
 
@@ -221,6 +270,7 @@ async function main() {
   console.log(`[PERLES] recherche — ${JOURS} j de 5 m, validation ${JOURS_VALID} j, ` +
     `seuils ${MIN_TRADES_SEL}/${MIN_TRADES_VAL} trades, wr ${MIN_WR_SEL}/${MIN_WR_VAL} %, moyenne ${MIN_MOYENNE}, levier ${LEVIER}`);
 
+  direProgression({ debut: new Date(debut).toISOString(), phase: "candidats" });
   const liste = await candidats();
   console.log(`[PERLES] ${liste.length} candidats : ${liste.map((s) => s.replace("-USDT-SWAP", "")).join(", ")}`);
 
@@ -236,6 +286,7 @@ async function main() {
     // fait couper par le premier equipement du chemin, et la premiere
     // passe est morte exactement comme ca.
     console.log(`[PERLES] ${++rang}/${liste.length} ${nom} : collecte de ${JOURS} j…`);
+    direProgression({ debut: new Date(debut).toISOString(), rang, total: liste.length, instId: nom });
     try {
       const c5 = await histoire5m(instId);
       const { perle, candidates, raison } = chercherPourInstrument(c5);
@@ -287,9 +338,10 @@ async function main() {
     `${Math.round((Date.now() - debut) / 1000)} s) :`);
   for (const l of rapport) console.log(l);
   console.log(`[PERLES] roster ecrit : ${ROSTER}`);
+  direProgression(null);
 }
 
 if (require.main === module) {
-  main().catch((e) => { console.error("[PERLES] echec :", e.message); process.exit(1); });
+  main().catch((e) => { console.error("[PERLES] echec :", e.message); direProgression(null); process.exit(1); });
 }
 module.exports = { chercherPourInstrument, SORTIES, DUREES };
