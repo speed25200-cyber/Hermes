@@ -287,7 +287,7 @@ jobs:
           sshpass -e ssh -o StrictHostKeyChecking=accept-new \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             "root@$VPS" \
-            "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first node deploy/chercher_perles.js"
+            "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first HERMES_UNIVERSE_SIZE=50 node deploy/chercher_perles.js"
 
       # Mesure, jamais ecriture. Elle interroge les points PUBLICS dOKX
       # depuis le VPS — la seule machine du circuit qui puisse les
