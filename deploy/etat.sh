@@ -99,16 +99,21 @@ fi
 # fichier, ce que larchive contient et ce qui tourne.
 if [ -d /root/astra/Hermes_Astra ]; then
   cd /root/astra/Hermes_Astra || exit 0
+  # Les noms sont lus un par un, separes par des octets nuls. Une boucle
+  # « for f in $(find ...) » decoupe sur les espaces, et larchive
+  # contient un dossier « app/Archives app/ » : le premier essai a
+  # compte des morceaux de noms comme des fichiers manquants.
   manquants=0; total=0
-  for f in $(find app modules services config public scripts -type f \
-               \( -name "*.js" -o -name "*.json" -o -name "*.html" -o -name "*.css" \) \
-               2>/dev/null | grep -v node_modules); do
+  while IFS= read -r -d "" f; do
+    case "$f" in *node_modules*) continue ;; esac
     total=$((total + 1))
     if [ ! -f "/root/hermes/$f" ]; then
       manquants=$((manquants + 1))
-      [ "$manquants" -le 12 ] && echo "  MANQUE  $(stat -c %s "$f") octets  $f"
+      [ "$manquants" -le 12 ] && echo "  MANQUE  $(stat -c %s "$f" 2>/dev/null) octets  $f"
     fi
-  done
+  done < <(find app modules services config public scripts -type f \
+             \( -name "*.js" -o -name "*.json" -o -name "*.html" -o -name "*.css" \) \
+             -print0 2>/dev/null)
   echo "  $total fichiers source dans larchive, $manquants absents du deploiement"
   [ "$manquants" = "0" ] && echo "  -> le deploiement porte bien tout le code de larchive"
   cd - >/dev/null || true
