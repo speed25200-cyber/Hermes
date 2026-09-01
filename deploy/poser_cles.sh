@@ -117,7 +117,7 @@ echo "  (les valeurs elles-memes ne sont jamais imprimees)"
 # openssl passerait le secret en argument ou par un fichier temporaire,
 # et les deux laissent une trace.
 export OKX_CLE="$CLE" OKX_SECRET="$SECRET" OKX_PASSE="$PASSE" OKX_SIMULE="${SIMULE:-0}"
-node --input-type=module -e '
+node --dns-result-order=ipv4first --input-type=module -e '
 const crypto = await import("node:crypto");
 const cle = process.env.OKX_CLE, secret = process.env.OKX_SECRET, passe = process.env.OKX_PASSE;
 const simule = String(process.env.OKX_SIMULE || "0") === "1";
@@ -138,7 +138,7 @@ if (j.code !== "0") {
     "50111": "cle dAPI invalide ou inconnue",
     "50113": "signature invalide — le SECRET ne correspond pas a la cle",
     "50105": "phrase de passe invalide",
-    "50110": "adresse IP non autorisee : ajouter 178.104.191.79 dans les restrictions de la cle",
+    "50110": "adresse IP non autorisee. Ladresse que voit OKX est nommee dans le message ci-dessus — cest CELLE-LA quil faut ajouter aux restrictions de la cle, pas celle quon suppose. Le moteur sort desormais en IPv4, donc 178.104.191.79 ; si le message montre encore une adresse en 2a01:, cest que le service na pas ete relance avec le nouveau reglage.",
     "50102": "horloge de la machine desynchronisee",
   }[String(j.code)];
   if (aide) console.log("  -> " + aide);

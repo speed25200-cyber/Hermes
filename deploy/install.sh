@@ -115,6 +115,21 @@ Environment=HERMES_HOST=0.0.0.0
 # demarrer et arreter le moteur, et passer un ordre. La cle merite donc
 # le meme soin quun mot de passe de compte.
 Environment=HERMES_UI_MODE=full
+# Sortir en IPv4.
+#
+# La machine a une adresse dans chaque famille. Node, depuis la 18,
+# contacte lhote dans lordre que le resolveur renvoie — souvent lIPv6
+# dabord. OKX a donc vu arriver 2a01:4f8:c014:5ea::1 et a refuse la cle
+# en code 50110, alors que la liste blanche porte ladresse IPv4.
+#
+# Cest une panne qui ne ressemble pas a ce quelle est : le message
+# parle de liste blanche, on ajoute ladresse quon connait, et rien ne
+# change — parce que ce nest pas par celle-la que le moteur sort.
+#
+# ipv4first restaure lordre attendu. Le trafic part alors de
+# 178.104.191.79, ladresse que le proprietaire a sous les yeux et la
+# seule quil ait une raison dautoriser.
+Environment=NODE_OPTIONS=--dns-result-order=ipv4first
 ExecStart=/usr/bin/env node app/main.js
 Restart=always
 RestartSec=10
