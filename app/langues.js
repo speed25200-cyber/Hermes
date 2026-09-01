@@ -281,8 +281,19 @@ const Langues = (() => {
     "tuile.d.trades24":  { fr: "Trades sur 24 h", en: "Trades in 24h", sq: "Tregti në 24 orë" },
     "tuile.d.dispo":     { fr: "Disponible", en: "Available", sq: "Në dispozicion" },
 
+    /* ===== l'historique des positions ===== */
+    "hist.titre":        { fr: "Historique des positions", en: "Position history", sq: "Historiku i pozicioneve" },
+    "hist.vide":         { fr: "Aucune position clôturée pour l’instant. Les positions fermées apparaissent ici avec leur résultat réel, frais compris — la vérité d’OKX, pas la nôtre.",
+                           en: "No closed positions yet. Closed positions appear here with their real result, fees included — OKX’s truth, not ours.",
+                           sq: "Ende asnjë pozicion i mbyllur. Pozicionet e mbyllura shfaqen këtu me rezultatin e tyre real, me tarifat përfshirë — e vërteta e OKX, jo e jona." },
+    "hist.ilya":         { fr: "il y a {v}", en: "{v} ago", sq: "para {v}" },
+    "hist.fermees":      { fr: "{n} clôturée{s}", en: "{n} closed", sq: "{n} të mbyllura" },
+    "hist.gagnees":      { fr: "{g} gagnée{s} sur {n}", en: "{g} won out of {n}", sq: "{g} të fituara nga {n}" },
+
     /* ===== durées ===== */
     "t.jours":           { fr: "{j} j {h} h", en: "{j}d {h}h", sq: "{j} d {h} o" },
+    "t.j":               { fr: "{j} j", en: "{j}d", sq: "{j} d" },
+    "t.h":               { fr: "{h} h", en: "{h}h", sq: "{h} o" },
     "t.heures":          { fr: "{h} h {m} min", en: "{h}h {m}m", sq: "{h} o {m} min" },
     "t.minutes":         { fr: "{m} min", en: "{m}m", sq: "{m} min" },
     "t.secondes":        { fr: "{s} s", en: "{s}s", sq: "{s} s" },

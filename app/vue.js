@@ -50,14 +50,26 @@ const usd = (n) => (n >= 0 ? "+" : "−") + nf(Math.abs(n)) + " $";
 const pct = (n) => (n >= 0 ? "+" : "−") + nf(Math.abs(n)) + " %";
 const signe = (n) => (n > 0 ? "gain" : n < 0 ? "perte" : "");
 
+function ecart(msA, msB) {
+  if (!msA || !msB) return "—";
+  let s = Math.max(0, Math.floor((msB - msA) / 1000));
+  const j = Math.floor(s / 86400); s -= j * 86400;
+  const h = Math.floor(s / 3600);  s -= h * 3600;
+  const m = Math.floor(s / 60);
+  // « 2 h 0 min » dit moins bien que « 2 h » : le zero se tait.
+  if (j) return h ? t("t.jours", { j, h }) : t("t.j", { j });
+  if (h) return m ? t("t.heures", { h, m }) : t("t.h", { h });
+  return t("t.minutes", { m });
+}
 function duree(ms) {
   if (!ms) return "—";
   let s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
   const j = Math.floor(s / 86400); s -= j * 86400;
   const h = Math.floor(s / 3600);  s -= h * 3600;
   const m = Math.floor(s / 60);
-  if (j) return t("t.jours", { j, h });
-  if (h) return t("t.heures", { h, m });
+  // « 2 h 0 min » dit moins bien que « 2 h » : le zero se tait.
+  if (j) return h ? t("t.jours", { j, h }) : t("t.j", { j });
+  if (h) return m ? t("t.heures", { h, m }) : t("t.h", { h });
   return t("t.minutes", { m });
 }
 const court = (s) => String(s || "").replace(/-USDT-SWAP$/, "").replace(/-SWAP$/, "");
@@ -407,6 +419,37 @@ function tableau(l) {
       <td>${duree(p.entryTime)}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
+/* ============================================================
+   L'historique des positions : les cloturees, telles qu'OKX les
+   rend — PnL realise frais compris, prix d'entree et de sortie,
+   tenue. C'est le meme relevé qui nourrit le taux de gain.
+   ============================================================ */
+function rendreHistorique() {
+  const l = (E.pf && E.pf.positionsFermees) || [];
+  const nh = $("n-hist");
+  if (nh) nh.textContent = l.length ? t("hist.fermees", { n: l.length }) : "—";
+  const z = $("z-hist");
+  if (!z) return;
+  if (!l.length) {
+    z.innerHTML = `<div class="vide" style="grid-column:1/-1">${ech(t("hist.vide"))}</div>`;
+    return;
+  }
+  z.innerHTML = l.map((p) => {
+    const long = p.side === "LONG";
+    const pnl = Number(p.pnl) || 0;
+    const ratio = Number(p.pnlRatio) || 0;
+    return `<div class="hist">
+      <span class="h-quand">${ech(t("hist.ilya", { v: duree(p.closeTime) }))}</span>
+      <b class="h-sym">${ech(court(p.symbol))}</b>
+      <span class="sens ${long ? "long" : "short"}">${long ? "↑ LONG" : "↓ SHORT"}</span>
+      <span class="lev">×${ech(p.leverage || "?")}</span>
+      <span class="h-prix">${prix(p.entryPrice)} → ${prix(p.closePrice)}</span>
+      <span class="h-tenue">${ech(ecart(p.openTime, p.closeTime))}</span>
+      <span class="h-pnl ${signe(pnl)}">${usd(pnl)} · ${pct(ratio)}</span>
+    </div>`;
+  }).join("");
+}
+
 /* ===== courbes ===== */
 
 function cheminCourbe(points, w, h, m) {
@@ -621,9 +664,12 @@ function detailTuile(cle, d) {
       + ligne(t("tuile.d.dispo"), nf(Number(fu.available) || 0) + " $");
   if (cle === "gain") {
     const pj = Number(pe.dailyPnL) || 0;
+    const fermees = d.positionsFermees || [];
+    const gagnees = fermees.filter((p) => Number(p.pnl) > 0).length;
     // Le total est deja le sous-titre de la tuile : le tiroir n'apporte
     // que ce qui ne s'y lit pas.
-    return ligne(t("tuile.d.trades24"), String(Number(pe.dailyTrades) || 0))
+    return (fermees.length ? ligne(t("hist.gagnees", { g: gagnees, n: fermees.length, s: gagnees > 1 ? "s" : "" }), "") : "")
+      + ligne(t("tuile.d.trades24"), String(Number(pe.dailyTrades) || 0))
       + ligne(t("tuile.d.volume"), nf(Number(pe.dailyVolume) || 0) + " $")
       + ligne(t("tuile.d.pnljour"), usd(pj), signe(pj));
   }
@@ -784,7 +830,7 @@ async function rafraichir() {
     E.relie = true;
   } catch { E.relie = false; }
 
-  rendreEntete(); rendreHero(); rendreTuiles(); rendrePositions();
+  rendreEntete(); rendreHero(); rendreTuiles(); rendrePositions(); rendreHistorique();
   // La vue graphique, si elle est ouverte, suit les memes releves : la
   // tete, la ligne de prix et les niveaux restent vivants sans quelle
   // ait sa propre boucle de portefeuille.

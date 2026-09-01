@@ -1054,6 +1054,38 @@ async function chargerAlgosEnCours() {
   ALGOS.par = par;
 }
 
+/* Les positions FERMEES — la verite d'OKX, pas la notre. Le winrate
+   affiche se calculait sur une liste de « deals » persistee par le
+   moteur : elle derive (redemarrages, fusions de fills) et racontait
+   50 % la ou l'exchange comptait trois cloturees, trois gagnees.
+   positions-history rend chaque position fermee avec son PnL realise,
+   frais et financement compris : c'est elle qui fait foi, et c'est
+   elle que la page montre en historique. */
+let FERMEES = { ts: 0, liste: [] };
+async function chargerPositionsFermees() {
+  if (!OKX.KEY || !OKX.SECRET || !OKX.PASS) return;
+  if (Date.now() - FERMEES.ts < 60000) return;   // une fois par minute suffit
+  FERMEES.ts = Date.now();                        // pose AVANT : un echec ne martele pas
+  try {
+    const r = await okxGET("/api/v5/account/positions-history", { instType: "SWAP", limit: "100" });
+    const rows = Array.isArray(r?.data) ? r.data : [];
+    const liste = rows.map((p) => ({
+      symbol:     String(p.instId || ""),
+      side:       String(p.direction || "").toLowerCase() === "short" ? "SHORT" : "LONG",
+      leverage:   num(p.lever) || null,
+      openTime:   num(p.cTime) || null,
+      closeTime:  num(p.uTime) || null,
+      entryPrice: num(p.openAvgPx) || null,
+      closePrice: num(p.closeAvgPx) || null,
+      // realizedPnl inclut frais et financement ; pnl est le brut.
+      pnl:        num(p.realizedPnl !== undefined && p.realizedPnl !== "" ? p.realizedPnl : p.pnl),
+      pnlRatio:   num(p.pnlRatio) * 100,
+    })).filter((p) => p.symbol && p.closeTime);
+    liste.sort((a, b) => b.closeTime - a.closeTime);
+    FERMEES.liste = liste;
+  } catch (e) { /* la prochaine passe retentera */ }
+}
+
 async function portfolioLoop() {
   while (RUNNING) {
     try {
@@ -1064,6 +1096,7 @@ async function portfolioLoop() {
       // Sans await : la fraicheur des protections vaut moins que la
       // regularite de cette boucle, qui synchronise aussi les positions.
       chargerAlgosEnCours().catch(() => {});
+      chargerPositionsFermees().catch(() => {});
 
       /* Synchro de l'état des positions avec OKX (toutes les 4 s) : garantit que
          canPlaceOrder voit fidèlement les symboles déjà ouverts → empêche la
@@ -1816,11 +1849,27 @@ ipcMain.handle("fetch-portfolio", async () => {
     const ds = DEALS && Array.isArray(DEALS.recent) ? DEALS.recent : [];
     const nowMs = Date.now();
     const last24 = ds.filter(d => (nowMs - Number(d.time || 0)) <= 86400000);
-    const dailyTrades = last24.length;
-    const dailyPnL    = last24.reduce((a, d) => a + num(d.profit || d.pnl || 0), 0);
     const dailyVolume = last24.reduce((a, d) => a + num((d.notional != null) ? d.notional : ((d.margin || 0) * (d.leverage || DEFAULT_LEVERAGE || 20))), 0);
-    const wins        = last24.filter(d => num(d.profit || d.pnl || 0) > 0).length;
-    const winrate     = dailyTrades ? (wins * 100 / dailyTrades) : 0;
+
+    // La verite d'abord : les positions fermees d'OKX. Les deals
+    // locaux ne servent que de repli tant qu'elle n'est pas arrivee.
+    chargerPositionsFermees().catch(() => {});
+    const fermees = FERMEES.liste;
+    let winrate, dailyPnL, totalTrades, dailyTrades;
+    if (fermees.length) {
+      const f24     = fermees.filter((p) => nowMs - p.closeTime <= 86400000);
+      const gagnees = fermees.filter((p) => p.pnl > 0).length;
+      winrate     = gagnees * 100 / fermees.length;
+      dailyPnL    = f24.reduce((a, p) => a + p.pnl, 0);
+      totalTrades = fermees.length;
+      dailyTrades = f24.length;
+    } else {
+      dailyTrades = last24.length;
+      dailyPnL    = last24.reduce((a, d) => a + num(d.profit || d.pnl || 0), 0);
+      const wins  = last24.filter(d => num(d.profit || d.pnl || 0) > 0).length;
+      winrate     = dailyTrades ? (wins * 100 / dailyTrades) : 0;
+      totalTrades = ds.length;
+    }
 
     const data = {
       spot:    { total: 0 },
@@ -1835,9 +1884,10 @@ ipcMain.handle("fetch-portfolio", async () => {
         totalMargin
       },
       performance: {
-        winrate, dailyPnL, totalTrades: ds.length, dailyTrades, dailyVolume
+        winrate, dailyPnL, totalTrades, dailyTrades, dailyVolume
       },
       openPositionsDetails: posDetails,
+      positionsFermees: fermees.slice(0, 30),
       dealsRecent: ds.slice(0, 150),
       history: { spot: HISTORY && HISTORY.spot ? HISTORY.spot.slice(-600) : [] },
       // Le moteur SAIT quil na pas de cles — loadPortfolio pose la note

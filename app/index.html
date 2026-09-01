@@ -5,9 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
 <title>Hermes-Astra</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 17 L8 7 L12 13.5 L16 4.5 L21 17' fill='none' stroke='%233987e5' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 1.6 L14 10 L22.4 12 L14 14 L12 22.4 L10 14 L1.6 12 L10 10 Z' fill='%237fb2ff'/%3E%3C/svg%3E">
 
 <link rel="preload" href="/InterVariable.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/SpaceGrotesk.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/JetBrainsMono-Regular.woff2" as="font" type="font/woff2" crossorigin>
 
 <style>
@@ -32,6 +33,12 @@
   font-family: "Inter";
   src: url("/InterVariable.woff2") format("woff2-variations");
   font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/SpaceGrotesk.woff2") format("woff2-variations");
+  font-weight: 300 700;
   font-display: swap;
 }
 @font-face {
@@ -94,6 +101,10 @@
   --r2: 12px;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* La voix d'affichage : Space Grotesk porte la marque, les titres et
+     les grands nombres. Inter reste la voix de lecture — un texte
+     courant en grotesque geometrique fatigue. */
+  --titre: "Space Grotesk", "Inter", system-ui, sans-serif;
 
   --ressort: cubic-bezier(.16,1,.3,1);
   --doux:    cubic-bezier(.4,0,.2,1);
@@ -189,7 +200,7 @@ body::after {
 }
 :root[data-theme="light"] body::after { opacity: .028; }
 @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) body::after { opacity: .028; } }
-h1,h2,h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
+h1,h2,h3 { margin: 0; font-family: var(--titre); font-weight: 600; letter-spacing: -0.01em; }
 
 /* ============================================================
    L AURORE
@@ -257,53 +268,34 @@ h1,h2,h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
 @media (max-width: 640px) { .entete-int { padding: 10px 13px; gap: 8px; } }
 
 /* ============================================================
-   La marque Hermes-Astra, deuxieme dessin.
+   La marque Hermes-Astra, troisieme dessin : typographique.
 
-   Un ecrin de verre sombre, et dedans l'astre : une etoile a quatre
-   branches en degrade argent vers bleu, son orbite, une comete bleue
-   qui y tourne sans fin. Pas de vert — le vert appartient aux gains,
-   pas a la marque. Le mot suit la meme regle : « Hermes » dans
-   l'encre du texte, « -Astra » en argent qui glisse vers le bleu.
+   Plus d'ecrin, plus d'orbite — un logotype. Deux mots poses dans la
+   fonte d'affichage, et entre eux l'astre : une etoile a quatre
+   branches en argent-glace qui respire a peine. Les marques qui
+   durent sont des mots bien poses ; le pictogramme etait de trop.
    ============================================================ */
 .marque-ha {
-  display: flex; align-items: center; gap: 10px;
-  font-size: 17px; font-weight: 620; letter-spacing: -0.035em;
+  display: flex; align-items: center; gap: 7px;
+  font-family: var(--titre);
+  font-size: 18px; font-weight: 500; letter-spacing: -0.01em;
 }
 .marque-ha .astra {
   background: linear-gradient(105deg, var(--astra-a), var(--astra-b) 85%);
   -webkit-background-clip: text; background-clip: text; color: transparent;
-  font-weight: 700;
+  font-weight: 700; letter-spacing: 0;
 }
-.tuile-verre {
-  display: grid; place-items: center; width: 34px; height: 34px; border-radius: 11px;
-  background: linear-gradient(150deg,
-    color-mix(in oklab, var(--texte) 8%, transparent),
-    color-mix(in oklab, var(--texte) 2%, transparent) 55%,
-    color-mix(in oklab, var(--astra-b) 12%, transparent));
-  border: 1px solid color-mix(in oklab, var(--texte) 15%, transparent);
-  box-shadow: inset 0 1px 0 color-mix(in oklab, var(--texte) 12%, transparent),
-              0 3px 10px rgb(0 0 0 / .28);
-}
-.tuile-verre svg { display: block; overflow: visible; }
+.ha-sep { display: block; overflow: visible; margin-top: 1px; }
 .ha-s1 { stop-color: color-mix(in oklab, var(--texte) 90%, var(--astra-a)); }
 .ha-s2 { stop-color: var(--astra-a); }
 .marque-ha .ha-astre {
-  opacity: 0; transform-box: fill-box; transform-origin: center;
-  animation: ha-nait .7s var(--ressort) .25s forwards;
+  transform-box: fill-box; transform-origin: center;
+  animation: ha-nait .8s var(--ressort) .15s backwards, ha-respire 7s ease-in-out 2s infinite;
 }
-@keyframes ha-nait { from { opacity: 0; transform: scale(.2) rotate(-90deg); } to { opacity: 1; transform: none; } }
-.marque-ha .ha-orbite { opacity: 0; animation: ha-fondre .8s ease .7s forwards; }
-@keyframes ha-fondre { to { opacity: .45; } }
-.marque-ha .ha-comete {
-  stroke-dasharray: 4 41; opacity: 0;
-  animation: ha-comete-nait .6s ease 1s forwards, ha-orbiter 8s linear 1s infinite;
-}
-@keyframes ha-comete-nait { to { opacity: .85; } }
-@keyframes ha-orbiter { to { stroke-dashoffset: -45; } }
-.marque-ha .ha-etincelle { opacity: 0; animation: ha-scintiller 4.6s ease-in-out 1.6s infinite; }
-@keyframes ha-scintiller {
-  0%, 100% { opacity: 0; } 10% { opacity: .9; } 24% { opacity: .1; }
-  38% { opacity: .55; } 55% { opacity: 0; }
+@keyframes ha-nait { from { opacity: 0; transform: scale(.2) rotate(-90deg); } }
+@keyframes ha-respire {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(.86) rotate(8deg); opacity: .82; }
 }
 
 .jeton {
@@ -337,7 +329,7 @@ h1,h2,h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
 .pousse { margin-left: auto; display: flex; gap: 8px; align-items: center; }
 
 button {
-  font: inherit; font-weight: 550; letter-spacing: -0.01em; cursor: pointer;
+  font: inherit; font-family: var(--titre); font-weight: 500; letter-spacing: 0; cursor: pointer;
   border-radius: var(--r2); border: 1px solid var(--bord-vif);
   background: linear-gradient(180deg,
     color-mix(in srgb, var(--surface-3) 55%, transparent),
@@ -407,9 +399,9 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
    tabulaires, sinon la largeur saute a chaque changement de valeur et
    tout le bloc tremble. */
 .hero-val {
+  font-family: var(--titre);
   font-size: clamp(46px, 8.5vw, 78px);
-  font-weight: 270; letter-spacing: -0.045em; line-height: .95;
-  font-variation-settings: "opsz" 32;
+  font-weight: 320; letter-spacing: -0.03em; line-height: .95;
   font-variant-numeric: tabular-nums;
   display: flex; align-items: baseline; gap: .18em;
   /* Le chiffre est en lumiere, pas en aplat : blanc qui glisse vers
@@ -466,8 +458,9 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
 .tuile:hover::after { opacity: 1; }
 .tuile .e { font-size: 11px; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; color: var(--texte-3); }
 .tuile .v {
-  font-size: 27px; font-weight: 400; letter-spacing: -0.035em; margin-top: 7px;
-  font-variation-settings: "opsz" 28; font-variant-numeric: tabular-nums;
+  font-family: var(--titre);
+  font-size: 27px; font-weight: 430; letter-spacing: -0.02em; margin-top: 7px;
+  font-variant-numeric: tabular-nums;
 }
 .tuile .s { font-size: 12.5px; color: var(--texte-2); margin-top: 3px; }
 /* La tuile s'ouvre au clic : le resume au-dessus, le detail en dessous.
@@ -757,12 +750,13 @@ tbody tr:hover { background: var(--surface-2); }
   display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-end;
   padding: 26px 4px 8px;
 }
-.labo-hero h1 { margin: 0; font-size: 24px; letter-spacing: -0.03em; font-variation-settings: "opsz" 30; }
+.labo-hero h1 { margin: 0; font-size: 24px; letter-spacing: -0.015em; }
 .labo-hero .sous { color: var(--texte-2); font-size: 12.5px; max-width: 430px; margin-top: 6px; line-height: 1.55; }
 .labo-compte { margin-left: auto; text-align: right; }
 .labo-compte .grand {
-  font-size: 42px; font-weight: 650; letter-spacing: -0.045em; line-height: 1;
-  font-variation-settings: "opsz" 32; font-variant-numeric: tabular-nums;
+  font-family: var(--titre);
+  font-size: 42px; font-weight: 600; letter-spacing: -0.02em; line-height: 1;
+  font-variant-numeric: tabular-nums;
   background: linear-gradient(120deg, var(--astra-a), var(--astra-b));
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
@@ -830,6 +824,24 @@ tbody tr:hover { background: var(--surface-2); }
 }
 .refus b { font-size: 12.5px; color: var(--texte); min-width: 52px; font-weight: 600; }
 .refus .r-note { margin-left: auto; color: var(--texte-3); font-family: var(--mono); font-size: 10.5px; white-space: nowrap; }
+
+/* — l'historique des positions : la liste des cloturees — */
+.hist-liste { display: grid; gap: 1px; background: var(--bord); border: 1px solid var(--bord); border-radius: 13px; overflow: hidden; }
+.hist-liste:empty { display: none; }
+.hist {
+  display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap;
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  padding: 10px 14px; font-size: 12px; color: var(--texte-2);
+}
+.hist .h-quand { font-family: var(--mono); font-size: 10.5px; color: var(--texte-3); min-width: 86px; }
+.hist .h-sym { font-size: 13px; color: var(--texte); font-weight: 650; letter-spacing: -0.02em; min-width: 46px; }
+.hist .h-prix { font-family: var(--mono); font-size: 11px; letter-spacing: -0.02em; }
+.hist .h-tenue { font-family: var(--mono); font-size: 10.5px; color: var(--texte-3); }
+.hist .h-pnl { margin-left: auto; font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hist .h-pnl.gain { color: var(--gain); } .hist .h-pnl.perte { color: var(--perte); }
+.hist .sens { font-size: 9.5px; padding: 3px 7px; }
+.hist .lev { font-size: 10px; padding: 2.5px 6px; }
+@media (max-width: 640px) { .hist .h-quand { min-width: 0; } .hist .h-prix { display: none; } }
 
 .labo-vif { border-color: color-mix(in oklab, var(--long) 45%, var(--bord)); }
 /* Dans un g-niv, i est par defaut un trait de legende ; le pouls doit
@@ -1094,24 +1106,18 @@ tbody tr:hover { background: var(--surface-2); }
 <header class="entete">
   <div class="entete-int">
     <div class="marque-ha">
-      <span class="tuile-verre" aria-hidden="true">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-          <defs>
-            <linearGradient id="ha-argent" x1="0" y1="0" x2="1" y2="1">
-              <stop class="ha-s1" offset="0"/>
-              <stop class="ha-s2" offset="1"/>
-            </linearGradient>
-          </defs>
-          <ellipse class="ha-orbite" cx="12" cy="12" rx="9.6" ry="3.9"
-                   transform="rotate(-26 12 12)" stroke="var(--texte-3)" stroke-width="1"/>
-          <ellipse class="ha-comete" cx="12" cy="12" rx="9.6" ry="3.9"
-                   transform="rotate(-26 12 12)" stroke="var(--astra-b)" stroke-width="1.5" stroke-linecap="round"/>
-          <path class="ha-astre" d="M12 2.8 L13.7 10.3 L21.2 12 L13.7 13.7 L12 21.2 L10.3 13.7 L2.8 12 L10.3 10.3 Z"
-                fill="url(#ha-argent)"/>
-          <circle class="ha-etincelle" cx="18.6" cy="5" r="0.9" fill="var(--astra-a)"/>
-        </svg>
-      </span>
-      <span>Hermes<span class="astra">-Astra</span></span>
+      <span>Hermes</span>
+      <svg class="ha-sep" width="13" height="13" viewBox="0 0 14 14" aria-hidden="true">
+        <defs>
+          <linearGradient id="ha-argent" x1="0" y1="0" x2="1" y2="1">
+            <stop class="ha-s1" offset="0"/>
+            <stop class="ha-s2" offset="1"/>
+          </linearGradient>
+        </defs>
+        <path class="ha-astre" d="M7 0.6 L8.35 5.65 L13.4 7 L8.35 8.35 L7 13.4 L5.65 8.35 L0.6 7 L5.65 5.65 Z"
+              fill="url(#ha-argent)"/>
+      </svg>
+      <span class="astra">Astra</span>
     </div>
 
     <span class="jeton"><span class="pt" id="pt-lien"></span><span id="t-lien" data-l="tete.liaison">liaison…</span></span>
@@ -1201,6 +1207,11 @@ tbody tr:hover { background: var(--surface-2); }
     </div>
     <div class="bloc-corps" id="z-pos"></div>
     <div id="z-tab" hidden></div>
+  </section>
+
+  <section class="bloc">
+    <div class="bloc-tete"><h2 data-l="hist.titre">Historique des positions</h2><span class="compte" id="n-hist">—</span></div>
+    <div class="bloc-corps"><div class="hist-liste" id="z-hist"></div></div>
   </section>
 
   <section class="bloc">
