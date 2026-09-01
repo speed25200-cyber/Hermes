@@ -695,12 +695,15 @@ $("b-vider").addEventListener("click", () => { E.journal = []; rendreJournal(); 
 // un formulaire est un secret quun regard par-dessus lepaule ramasse.
 $("c-poser").addEventListener("click", async () => {
   const b = $("c-poser"), e = $("cles-etat");
-  const cle = $("c-cle").value.trim(), secret = $("c-secret").value.trim(), passe = $("c-passe").value.trim();
-  if (!cle || !secret || !passe) { e.className = "cles-etat ko"; e.textContent = "Les trois valeurs sont nécessaires."; return; }
+  const env = $("c-env").value;
+  if (!env.trim()) { e.className = "cles-etat ko"; e.textContent = "Collez d'abord les lignes de votre .env."; return; }
   b.disabled = true; e.className = "cles-etat"; e.textContent = "Test auprès d'OKX…";
   try {
-    const r = await api.invoke("poser-cles", { cle, secret, passe });
-    $("c-cle").value = ""; $("c-secret").value = ""; $("c-passe").value = "";
+    const r = await api.invoke("poser-cles", { env });
+    // Le champ est vide des la reponse recue, quelle quelle soit : un
+    // secret qui reste affiche est un secret quun regard par-dessus
+    // lepaule ramasse.
+    $("c-env").value = "";
     if (r && r.ok) {
       e.className = "cles-etat ok";
       e.textContent = `Acceptées par OKX — compte niveau ${r.niveau}, mode ${r.modePosition}. Le moteur les utilise déjà.`;

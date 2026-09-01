@@ -524,16 +524,16 @@ tbody tr:hover { background: var(--surface-2); }
 .avis svg { flex: none; margin-top: 1px; color: var(--attention); }
 .avis code { font-family: var(--mono); font-size: 12px; background: var(--surface-3); padding: 1px 6px; border-radius: 5px; }
 
-.cles { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-.cles input {
-  flex: 1 1 190px; min-width: 0;
-  font: inherit; font-family: var(--mono); font-size: 12.5px;
-  padding: 8px 11px; border-radius: var(--r2);
+.cles { display: flex; gap: 9px; margin-top: 12px; align-items: flex-start; flex-wrap: wrap; }
+.cles textarea {
+  flex: 1 1 340px; min-width: 0; resize: vertical;
+  font-family: var(--mono); font-size: 12.5px; line-height: 1.6;
+  padding: 10px 12px; border-radius: var(--r2);
   background: var(--surface); color: var(--texte);
   border: 1px solid var(--bord-vif);
 }
-.cles input:focus { outline: 2px solid var(--serie); outline-offset: 1px; border-color: transparent; }
-.cles input::placeholder { color: var(--texte-3); }
+.cles textarea:focus { outline: 2px solid var(--serie); outline-offset: 1px; border-color: transparent; }
+.cles textarea::placeholder { color: var(--texte-3); }
 .cles button { flex: 0 0 auto; }
 .cles-etat { margin-top: 9px; font-size: 12.5px; font-family: var(--mono); }
 .cles-etat.ok { color: var(--gain); }
@@ -621,15 +621,15 @@ tbody tr:hover { background: var(--surface-2); }
       mais il ne peut ni ouvrir ni fermer une position, et le compte affiché reste à zéro —
       ce n'est pas une perte, c'est un compte qu'il ne peut pas lire.
       <div class="cles" id="cles-form">
-        <input id="c-cle"    type="password" autocomplete="off" spellcheck="false" placeholder="clé d'API">
-        <input id="c-secret" type="password" autocomplete="off" spellcheck="false" placeholder="secret">
-        <input id="c-passe"  type="password" autocomplete="off" spellcheck="false" placeholder="phrase de passe">
+        <textarea id="c-env" spellcheck="false" autocomplete="off" rows="4"
+          placeholder="Collez ici les lignes de votre .env — ou le fichier entier.&#10;&#10;OKX_API_KEY=...&#10;OKX_API_SECRET=...&#10;OKX_API_PASSPHRASE=..."></textarea>
         <button id="c-poser" class="primaire">Poser les clés</button>
       </div>
       <div class="cles-etat" id="cles-etat"></div>
-      <div class="cles-note">Elles sont testées auprès d'OKX avant d'être écrites, et rien n'est
-        enregistré si OKX les refuse. Ce formulaire ne sert qu'à l'amorçage : une fois des clés en
-        place, il disparaît et ne peut plus les remplacer.</div>
+      <div class="cles-note">Collez le fichier entier si c'est plus simple : Hermes n'y prend que
+        les trois lignes OKX et ignore tout le reste. Les clés sont testées auprès d'OKX avant
+        d'être écrites, et rien n'est enregistré si OKX les refuse. Ce formulaire ne sert qu'à
+        l'amorçage : une fois des clés en place, il disparaît et ne peut plus les remplacer.</div>
     </div>
   </div>
 

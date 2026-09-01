@@ -1475,11 +1475,38 @@ ipcMain.handle("poser-cles", async (_e, p = {}) => {
       return { ok: false, error: "DEJA_POSEES",
                message: "Des cles sont deja en place. Ce canal ne sert qua lamorcage ; pour les remplacer, editer le fichier .env sur le serveur." };
     }
-    const cle    = String(p.cle || "").trim();
-    const secret = String(p.secret || "").trim();
-    const passe  = String(p.passe || "").trim();
+    let cle    = String(p.cle || "").trim();
+    let secret = String(p.secret || "").trim();
+    let passe  = String(p.passe || "").trim();
+
+    // On accepte des LIGNES DE .env collees telles quelles. Cest la
+    // forme sous laquelle le proprietaire possede deja ses cles :
+    // lobliger a les recopier champ par champ, cest lui faire faire un
+    // travail que le programme sait faire, et lexposer a une faute de
+    // frappe sur trente-six caracteres.
+    //
+    // Le fichier entier convient aussi bien que trois lignes : on ny
+    // prend que ce quon cherche, le reste est ignore sans etre lu.
+    const brut = String(p.env || "");
+    if (brut) {
+      const lire = (nom) => {
+        const m = brut.match(new RegExp("^[ \\t]*(?:export[ \\t]+)?" + nom + "[ \\t]*=[ \\t]*(.*)$", "m"));
+        if (!m) return "";
+        return m[1].trim().replace(/^["']/, "").replace(/["']$/, "").replace(/\r/g, "").trim();
+      };
+      cle    = cle    || lire("OKX_API_KEY");
+      secret = secret || lire("OKX_API_SECRET");
+      // Certains fichiers portent la forme courte au lieu de la longue.
+      passe  = passe  || lire("OKX_API_PASSPHRASE") || lire("OKX_API_PASS");
+    }
+
     if (!cle || !secret || !passe) {
-      return { ok: false, error: "INCOMPLET", message: "Les trois valeurs sont necessaires." };
+      const absents = [];
+      if (!cle) absents.push("OKX_API_KEY");
+      if (!secret) absents.push("OKX_API_SECRET");
+      if (!passe) absents.push("OKX_API_PASSPHRASE");
+      return { ok: false, error: "INCOMPLET",
+               message: "Introuvable dans ce qui a ete colle : " + absents.join(", ") };
     }
 
     // Une vraie requete signee : cest OKX qui dit si les cles valent
