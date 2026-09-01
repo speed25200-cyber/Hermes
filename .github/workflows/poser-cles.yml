@@ -1,0 +1,133 @@
+# Pose les cles OKX sur le VPS, puis demarre le moteur.
+#
+# Le probleme que ce workflow resout. Les cles sont sur une machine qui
+# n'a pas le droit de joindre le VPS ; le runner GitHub, lui, l'a. Il
+# faut donc les faire passer PAR le runner. Mais la seule entree
+# disponible est un champ de workflow_dispatch, que la page du run
+# affiche — et ce depot est public. Une cle deposee la serait lisible
+# par tout le monde, ce qui est exactement l'accident deja survenu ici.
+#
+# Elle voyage donc fermee. Le champ ne porte qu'un bloc AES-256-GCM ;
+# la cle qui l'ouvre est derivee de HERMES_DASH_TOKEN, qui vit dans le
+# .env du serveur et n'a jamais quitte cette machine. Le runner
+# transporte quelque chose qu'il ne peut pas lire, et le contenu
+# n'existe en clair que sur le VPS, dans un tube, jamais sur un disque.
+#
+# Ce que le workflow fait ensuite, dans cet ordre : il teste les cles
+# aupres d'OKX, n'ecrit que si OKX les accepte, relance le service,
+# puis demarre le moteur si on le lui demande.
+
+name: Poser les cles OKX
+
+on:
+  workflow_dispatch:
+    inputs:
+      paquet:
+        description: "Paquet chiffre (base64) contenant les lignes OKX"
+        required: true
+      root_password:
+        description: "Mot de passe root (inutile si le secret VPS_PASSWORD existe)"
+        required: false
+      demarrer:
+        description: "Demarrer le moteur apres la pose"
+        required: false
+        default: "true"
+
+concurrency:
+  group: vps-deploy
+  cancel-in-progress: false
+
+jobs:
+  poser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VPS: ${{ vars.VPS_HOST || '178.104.191.79' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ssh tooling
+        run: sudo apt-get update -qq && sudo apt-get -y -qq install sshpass
+
+      - name: Resolve SSH access
+        env:
+          PW_INPUT: ${{ inputs.root_password }}
+          PW_SECRET: ${{ secrets.VPS_PASSWORD }}
+        run: |
+          PW="${PW_INPUT:-$PW_SECRET}"
+          if [ -z "$PW" ]; then
+            echo "::error::no credentials: set the VPS_PASSWORD secret or pass root_password input"
+            exit 1
+          fi
+          ALT="${PW}.Hermes1"
+          echo "::add-mask::$PW"
+          echo "::add-mask::$ALT"
+          SSHOPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
+          try() { timeout 25 sshpass -p "$1" ssh $SSHOPTS "root@$VPS" "echo __ok__" 2>/dev/null | grep -q __ok__; }
+          if try "$PW"; then CUR="$PW"
+          elif try "$ALT"; then CUR="$ALT"
+          else echo "::error::cannot authenticate to $VPS"; exit 1
+          fi
+          echo "SSHPASS=$CUR" >> "$GITHUB_ENV"
+
+      - name: Deposer l'ouvreur
+        run: |
+          # Envoye a chaque fois plutot que suppose present : ce
+          # workflow doit pouvoir tourner sans qu'un deploiement complet
+          # l'ait precede.
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+            "cat > /tmp/ouvrir_paquet.js && chmod 600 /tmp/ouvrir_paquet.js" \
+            < deploy/ouvrir_paquet.js
+          echo "ouvreur depose"
+
+      - name: Ouvrir le paquet et poser les cles
+        env:
+          PAQUET: ${{ inputs.paquet }}
+        run: |
+          # PAQUET passe par l'environnement, jamais interpole dans le
+          # script : une valeur collee dans le corps d'un run est une
+          # injection de commande qui attend son heure.
+          #
+          # printf est une primitive du shell — pas de processus fils,
+          # donc rien a lire dans la liste des processus du runner.
+          printf '%s' "$PAQUET" | sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            set -o pipefail
+            node /tmp/ouvrir_paquet.js | bash /root/hermes/deploy/poser_cles.sh
+            code=$?
+            rm -f /tmp/ouvrir_paquet.js
+            exit $code
+          '
+          # Le rm est APRES la capture du code. Ecrit « commande ; rm »,
+          # le pas-a-pas renverrait le code du rm — qui reussit toujours
+          # — et un echec de pose passerait pour un succes.
+
+      - name: Demarrer le moteur
+        if: ${{ inputs.demarrer != 'false' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            TOK=$(grep "^HERMES_DASH_TOKEN=" /root/hermes/.env | tail -1 | cut -d= -f2-)
+            if [ -z "$TOK" ]; then echo "!! pas de jeton, impossible dappeler la console"; exit 1; fi
+            # La cle passe par un fichier de configuration lu sur
+            # lentree standard, et non en argument : un argument est
+            # visible dans la liste des processus le temps que la
+            # commande vive.
+            reponse=$(printf "url = \"http://127.0.0.1:8899/api/toggle-ai?key=%s\"\nrequest = \"POST\"\nheader = \"Content-Type: application/json\"\ndata = \"{\\\"arg\\\":true}\"\n" "$TOK" | curl -s --max-time 20 --config -)
+            echo "  reponse du moteur : $reponse"
+            case "$reponse" in
+              *\"active\":true*) echo "  le moteur est DEMARRE" ;;
+              *) echo "  !! le moteur na pas confirme son demarrage"; exit 1 ;;
+            esac
+          '
+
+      - name: Etat final
+        if: always()
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            echo "=== service ==="; systemctl is-active hermes || true
+            echo "=== cles vues par le moteur ==="
+            journalctl -u hermes -n 200 --no-pager 2>/dev/null | grep "\[ENV\] OKX key" | tail -1
+            echo "=== compte ==="
+            journalctl -u hermes -n 200 --no-pager 2>/dev/null | grep -E "ACCOUNT|posMode|\[WS\] private|IA activ" | tail -5
+            echo "=== erreurs OKX recentes ==="
+            journalctl -u hermes -n 200 --no-pager 2>/dev/null | grep -E "REST_ERR|FEE_ERR|50[0-9]{3}" | tail -5 || echo "  aucune"
+          '
