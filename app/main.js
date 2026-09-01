@@ -1680,6 +1680,7 @@ ipcMain.handle("laboratoire", async () => {
       }
     } catch {}
     const joue = (typeof globalThis.__hermes15Roster === "function") ? globalThis.__hermes15Roster() : null;
+    const guet = (typeof globalThis.__hermes15Guet === "function") ? globalThis.__hermes15Guet() : null;
     // La progression d'une passe en cours, ecrite par le chercheur
     // lui-meme. Un marqueur plus vieux que trente minutes est un
     // cadavre de passe tuee : on ne le montre pas.
@@ -1688,7 +1689,7 @@ ipcMain.handle("laboratoire", async () => {
       const p = JSON.parse(fs.readFileSync(path.join(DATADIR, "perles-progression.json"), "utf8"));
       if (p && p.debut && Date.now() - new Date(p.debut).getTime() < 30 * 60e3) progression = p;
     } catch {}
-    return { ok: true, roster, historique, joue, progression, ts: tsISO() };
+    return { ok: true, roster, historique, joue, guet, moteur: !!(typeof AI !== "undefined" && AI.on), progression, ts: tsISO() };
   } catch (e) {
     return { ok: false, error: String(e.message || e) };
   }
@@ -2838,6 +2839,30 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
     strats: Object.fromEntries(Object.entries(STRATS).map(([k, v]) => [k, { sig: v.sig, ov: v.ov }])),
   });
 
+  /* LE GUET. La page du laboratoire montrait ce qui a ete retenu,
+     mais rien de ce que le moteur ATTEND. Ici, la boucle ecrit apres
+     chaque bougie ce qu'elle voit : le signal (muet ou parle), la
+     bougie relue, le prix, et la garde qui bloquerait une entree en
+     ce moment — dans les memes termes que canPlaceOrder, porte par
+     porte. C'est la reponse a « qu'attend-il pour ouvrir ? ». */
+  const GUET = {};
+  function expliquerGarde(instId) {
+    if (!AI.on) return "moteur";
+    if (AI.openPositions[instId]) return "enPosition";
+    const sizing = positionSizing(AI.equityUSDT);
+    if (currentOpenCount() >= Math.min(MAX_POSITIONS_GLOBAL, sizing.maxPositions)) return "place";
+    if (AI.equityUSDT < MIN_EQUITY_USDT) return "equite";
+    const maxLev = num(MARKET.meta[instId]?.maxLever || 0);
+    if (maxLev > 0 && maxLev < DEFAULT_LEVERAGE) return "levier";
+    if (perSymbolCooldown(instId)) return "repit";
+    const tk = MARKET.tick[instId];
+    if (!tk || !tk.rx || (Date.now() - tk.rx) > 10000) return "flux";
+    const seuil = Math.min(MIN_BALANCE_AVAIL, sizing.perTradeUSDT);
+    if (usedMarginNow() + seuil > MAX_RISK_PCT * AI.equityUSDT) return "budget";
+    return null;
+  }
+  globalThis.__hermes15Guet = () => GUET;
+
   const lastClosed = {};   // instId -> ts de la dernière bougie 5m traitée
   /* Les évaluateurs vivent dans modules/signaux.js, partagés avec le
      chercheur de perles : une seule formule, deux consommateurs, aucun
@@ -2865,13 +2890,19 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
 
         const dir = evalSignal(cfg.sig, closed, (etatsSignaux[instId] = etatsSignaux[instId] || {}));
         setHealth("strategy", { lastCandle: Date.now(), info: "hermes15" });
+        GUET[instId] = {
+          ts: Date.now(), bougie: lastTs, sig: cfg.sig, dir,
+          prix: num(t0?.last) || (MARKET.tick[instId] || {}).lastPrice || null,
+          dernierSignal: dir ? Date.now() : ((GUET[instId] || {}).dernierSignal || null),
+          garde: expliquerGarde(instId),
+        };
         if (!dir) continue;
         const side = dir > 0 ? "long" : "short";
         if (!AI.on) { log("[H15] signal", instId, side, "(AI.off, ignoré)"); continue; }
         if (!canPlaceOrder(instId, side)) continue;
         log("[H15] signal", instId, side, "stratégie", cfg.sig);
         const res = await globalThis.__hermesEntre(instId, side, cfg.ov);
-        if (!res?.ok) log("[H15] entrée refusée", instId, res?.reason || "");
+        if (!res?.ok) { log("[H15] entrée refusée", instId, res?.reason || ""); GUET[instId].refus = res?.reason || null; }
       } catch (e) { log("[H15_ERR]", instId, e.message); }
       await new Promise(r => setTimeout(r, 300));
     }

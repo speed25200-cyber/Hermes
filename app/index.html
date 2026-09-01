@@ -839,6 +839,27 @@ tbody tr:hover { background: var(--surface-2); }
 .hero:active .hero-val { transform: scale(.99); }
 .hero-val { transition: transform .2s var(--doux); }
 
+/* — le guet : l'etat vivant d'une perle — */
+.guet-note { margin: 0 0 14px; font-size: 12px; color: var(--texte-2); line-height: 1.65; max-width: 760px; }
+.p-guet {
+  display: flex; align-items: baseline; gap: 7px; flex-wrap: wrap;
+  margin-top: 10px; padding: 7px 10px; border-radius: 9px;
+  font-size: 11px; border: 1px solid var(--bord);
+  background: color-mix(in srgb, var(--fond-2) 55%, transparent);
+}
+.p-guet > span:first-of-type { font-weight: 650; letter-spacing: .02em; }
+.p-guet .g-det { color: var(--texte-3); font-family: var(--mono); font-size: 10px; }
+.p-guet i { flex: none; align-self: center; width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.p-guet.affut  { border-color: color-mix(in srgb, var(--accent) 35%, var(--bord)); }
+.p-guet.affut > span:first-of-type { color: var(--accent); }
+.p-guet.affut i { background: var(--accent); animation: labo-pouls 1.6s ease-in-out infinite; }
+.p-guet.enpos  { border-color: color-mix(in srgb, var(--long) 35%, var(--bord)); }
+.p-guet.enpos > span:first-of-type { color: var(--long); }
+.p-guet.enpos i { background: var(--long); }
+.p-guet.bloque { border-color: color-mix(in srgb, var(--attention) 40%, var(--bord)); }
+.p-guet.bloque > span:first-of-type { color: var(--attention); }
+.p-guet.bloque i { background: var(--attention); }
+
 .labo-vide {
   border: 1px dashed var(--bord-vif); border-radius: 13px;
   padding: 26px 20px; text-align: center; color: var(--texte-2); font-size: 13px;
@@ -1241,7 +1262,13 @@ tbody tr:hover { background: var(--surface-2); }
 
   <section class="bloc">
     <div class="bloc-tete"><h2 data-l="labo.retenues">Les perles retenues</h2><span class="compte" id="lb-perles-n">—</span></div>
-    <div class="bloc-corps"><div class="labo-perles" id="lb-perles"></div></div>
+    <div class="bloc-corps">
+      <p class="guet-note" data-l="guet.explique">Une perle retenue est guettée en continu :
+        toutes les vingt secondes, le moteur relit sa bougie de cinq minutes et ouvre la position
+        à l'instant où le signal se déclenche — si une place et du solde libre le permettent.
+        En attendant, elle est à l'affût ; rien d'autre n'est requis.</p>
+      <div class="labo-perles" id="lb-perles"></div>
+    </div>
   </section>
 
   <section class="bloc">

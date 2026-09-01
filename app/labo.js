@@ -119,6 +119,9 @@ const Labo = (() => {
       const repli = donnees.joue.source !== "chercheur";
       meta.push(`<span class="g-niv" style="--c:${repli ? "var(--short)" : "var(--bon)"}"><i></i>${ech(t("labo.joue"))} <b>${ech(repli ? t("labo.repli") : t("labo.verdict"))}</b></span>`);
     }
+    if (donnees?.moteur === false) {
+      meta.push(`<span class="g-niv" style="--c:var(--perte)"><i></i><b>${ech(t("guet.moteuroff"))}</b></span>`);
+    }
     const prog = donnees?.progression || null;
     if (prog) {
       const depuis = Math.max(0, Math.round((Date.now() - new Date(prog.debut).getTime()) / 1000));
@@ -284,6 +287,27 @@ const Labo = (() => {
     return parts.filter(Boolean).join("");
   }
 
+  /* — la puce de guet : ce que le moteur attend pour CETTE perle — */
+
+  const REFUS_GARDE = { budgetEpuise: "budget", cannotPlace: "place" };
+  function puceGuet(id) {
+    const g = donnees?.guet?.[id];
+    if (!g) return "";
+    const garde = REFUS_GARDE[g.refus] || g.refus || g.garde;
+    let cls = "affut", texte = t("guet.affut");
+    if (garde === "enPosition") { cls = "enpos"; texte = t("guet.enposition"); }
+    else if (garde) {
+      cls = "bloque";
+      const raison = donnees?.moteur === false ? t("garde.moteur")
+        : (String(garde).startsWith("garde.") ? t(garde) : t("garde." + garde));
+      texte = t("guet.bloquee", { v: raison.startsWith("garde.") ? garde : raison });
+    }
+    const det = [];
+    if (g.bougie) det.push(t("guet.bougie", { v: duree(g.bougie) }));
+    det.push(g.dernierSignal ? t("guet.signal", { v: duree(g.dernierSignal) }) : t("guet.jamais"));
+    return `<div class="p-guet ${cls}"><i></i><span>${ech(texte)}</span><span class="g-det">${ech(det.join(" · "))}</span></div>`;
+  }
+
   /* — les cartes de perles — */
 
   function rendrePerles(perles, roster) {
@@ -327,6 +351,7 @@ const Labo = (() => {
         aria-expanded="${ouv}" title="${ech(t("labo.deplier"))}">
         <div class="p-tete"><span class="p-nom">${ech(court(id))}</span><span class="p-sig">${ech(p.sig)}</span>${CHEVRON}</div>
         <div class="p-sorties">${ech(sortiesTxt(ov))}</div>
+        ${puceGuet(id)}
         <div class="p-fen">
           ${m.sel ? barre(ech(t("labo.selection")), m.sel) : ""}
           ${m.val ? barre(ech(t("labo.validation")), m.val) : ""}

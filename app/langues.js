@@ -294,6 +294,26 @@ const Langues = (() => {
     "tuile.d.wr24":      { fr: "Gagnées sur 24 h", en: "Won in 24h", sq: "Fituar në 24 orë" },
     "tuile.d.wrtotal":   { fr: "Gagnées, tout l’historique", en: "Won, all-time", sq: "Fituar, gjithë historiku" },
 
+    /* ===== le guet : ce que le moteur attend ===== */
+    "guet.explique":     { fr: "Une perle retenue est guettée en continu : toutes les vingt secondes, le moteur relit sa bougie de cinq minutes et ouvre la position à l’instant où le signal se déclenche — si une place et du solde libre le permettent. En attendant, elle est à l’affût ; rien d’autre n’est requis.",
+                           en: "A retained pearl is watched continuously: every twenty seconds the engine re-reads its five-minute candle and opens the position the instant the signal fires — provided a slot and free balance allow it. Until then it lies in wait; nothing else is required.",
+                           sq: "Një perlë e mbajtur vëzhgohet pandërprerë: çdo njëzet sekonda motori rilexon qiririn e saj pesëminutësh dhe hap pozicionin në çastin kur sinjali shkrepet — nëse një vend dhe gjendja e lirë e lejojnë. Deri atëherë ajo rri në pritë; asgjë tjetër s’kërkohet." },
+    "guet.affut":        { fr: "À l’affût", en: "On watch", sq: "Në pritë" },
+    "guet.enposition":   { fr: "En position", en: "In position", sq: "Në pozicion" },
+    "guet.bloquee":      { fr: "bloquée : {v}", en: "blocked: {v}", sq: "e bllokuar: {v}" },
+    "guet.bougie":       { fr: "bougie close il y a {v}", en: "candle closed {v} ago", sq: "qiri i mbyllur para {v}" },
+    "guet.signal":       { fr: "dernier signal il y a {v}", en: "last signal {v} ago", sq: "sinjali i fundit para {v}" },
+    "guet.jamais":       { fr: "aucun signal depuis le guet", en: "no signal since the watch began", sq: "asnjë sinjal që nga fillimi i vëzhgimit" },
+    "guet.moteuroff":    { fr: "Moteur à l’arrêt — aucune position ne s’ouvrira", en: "Engine stopped — no position will open", sq: "Motori i ndalur — asnjë pozicion s’do të hapet" },
+    "garde.moteur":      { fr: "moteur à l’arrêt", en: "engine stopped", sq: "motori i ndalur" },
+    "garde.place":       { fr: "toutes les places sont prises", en: "all slots taken", sq: "të gjitha vendet janë zënë" },
+    "garde.budget":      { fr: "budget de marge plein", en: "margin budget full", sq: "buxheti i marzhit plot" },
+    "garde.solde":       { fr: "solde libre insuffisant", en: "not enough free balance", sq: "gjendje e lirë e pamjaftueshme" },
+    "garde.equite":      { fr: "équité sous le plancher", en: "equity below the floor", sq: "kapitali nën dysheme" },
+    "garde.levier":      { fr: "levier requis indisponible", en: "required leverage unavailable", sq: "leva e kërkuar s’ofrohet" },
+    "garde.flux":        { fr: "flux de prix gelé", en: "price feed frozen", sq: "rrjedha e çmimeve e ngrirë" },
+    "garde.repit":       { fr: "répit après un ordre", en: "cooling down after an order", sq: "pushim pas një urdhri" },
+
     /* ===== durées ===== */
     "t.jours":           { fr: "{j} j {h} h", en: "{j}d {h}h", sq: "{j} d {h} o" },
     "t.j":               { fr: "{j} j", en: "{j}d", sq: "{j} d" },
