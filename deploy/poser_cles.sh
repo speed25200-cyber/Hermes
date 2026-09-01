@@ -16,10 +16,30 @@ set -u
 
 ENV=/root/hermes/.env
 
-IFS= read -r CLE       || CLE=""
-IFS= read -r SECRET    || SECRET=""
-IFS= read -r PASSE     || PASSE=""
-IFS= read -r SIMULE    || SIMULE=""
+# Deux usages, et le script les distingue tout seul.
+#
+# Pousse par un workflow, les valeurs arrivent par lentree standard.
+# Lance a la main sur le serveur, lentree standard EST le terminal : il
+# demande alors les trois valeurs, saisie masquee. Cest la voie qui ne
+# depend de personne — ni dun depot, ni dune conversation, ni dun
+# service tiers — et cest donc celle qui reste quand les autres
+# echouent.
+if [ -t 0 ]; then
+  echo "Saisie des cles OKX. Rien ne saffiche pendant la frappe, cest normal."
+  echo "Coller la valeur puis Entree."
+  echo
+  printf "  cle dAPI          : "; IFS= read -rs CLE;    echo
+  printf "  secret            : "; IFS= read -rs SECRET; echo
+  printf "  phrase de passe   : "; IFS= read -rs PASSE;  echo
+  printf "  compte demo ? 1=oui 0=non [0] : "; IFS= read -r SIMULE
+  SIMULE="${SIMULE:-0}"
+  echo
+else
+  IFS= read -r CLE       || CLE=""
+  IFS= read -r SECRET    || SECRET=""
+  IFS= read -r PASSE     || PASSE=""
+  IFS= read -r SIMULE    || SIMULE=""
+fi
 
 manque=""
 [ -z "$CLE" ]    && manque="$manque OKX_API_KEY"
@@ -102,6 +122,7 @@ journalctl -u hermes --since "-30 seconds" --no-pager 2>/dev/null \
 echo
 echo "fait."
 
-# Le script se supprime : il ne porte aucun secret, mais laisser des
-# outils qui ecrivent dans .env trainer dans /tmp na aucun interet.
-rm -f /tmp/poser_cles.sh
+# Supprime seulement la copie temporaire deposee par un workflow. Celle
+# de /root/hermes/deploy/ reste : lancee a la main, on veut pouvoir la
+# relancer sans redeployer.
+[ "$0" = "/tmp/poser_cles.sh" ] && rm -f /tmp/poser_cles.sh
