@@ -49,6 +49,18 @@ if [ -f "$DIR/.env" ]; then
 fi
 echo
 
+# La question qu'on se pose en premier quand rien ne s'ouvre : la
+# taille calculee permet-elle seulement d'acheter un contrat ? Sans
+# cette ligne, un capital trop petit produit un silence qu'on attribue
+# aux cles, a la strategie, ou au reseau.
+echo "===== taille des positions et ce qu'elle permet (24 h) ====="
+journalctl -u hermes --since "-24 hours" --no-pager 2>/dev/null \
+  | grep -E "\[TAILLE\]" \
+  | sed -E "s/^[A-Za-z]+ [0-9]+ ([0-9]+:[0-9]+):[0-9]+ [^ ]+ [^ ]+: \[[^]]*\] /\1 /" \
+  | tail -6 || true
+echo "  (aucune ligne ci-dessus = le moteur n'a pas encore mesure, ou l'equite est nulle)"
+echo
+
 echo "===== univers : quels instruments, et sa rotation (24 h) ====="
 journalctl -u hermes --since "-24 hours" --no-pager 2>/dev/null \
   | grep -E "\[UNI\]" \
