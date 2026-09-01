@@ -306,6 +306,7 @@ const Langues = (() => {
     "guet.bougie":       { fr: "bougie close il y a {v}", en: "candle closed {v} ago", sq: "qiri i mbyllur para {v}" },
     "guet.signal":       { fr: "dernier signal il y a {v}", en: "last signal {v} ago", sq: "sinjali i fundit para {v}" },
     "guet.jamais":       { fr: "aucun signal depuis le guet", en: "no signal since the watch began", sq: "asnjë sinjal që nga fillimi i vëzhgimit" },
+    "labo.capital":      { fr: "{o}/{p} places · {m} $ par trade", en: "{o}/{p} slots · ${m} per trade", sq: "{o}/{p} vende · {m} $ për tregti" },
     "guet.moteuroff":    { fr: "Moteur à l’arrêt — aucune position ne s’ouvrira", en: "Engine stopped — no position will open", sq: "Motori i ndalur — asnjë pozicion s’do të hapet" },
     "garde.moteur":      { fr: "moteur à l’arrêt", en: "engine stopped", sq: "motori i ndalur" },
     "garde.place":       { fr: "toutes les places sont prises", en: "all slots taken", sq: "të gjitha vendet janë zënë" },

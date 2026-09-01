@@ -119,6 +119,10 @@ const Labo = (() => {
       const repli = donnees.joue.source !== "chercheur";
       meta.push(`<span class="g-niv" style="--c:${repli ? "var(--short)" : "var(--bon)"}"><i></i>${ech(t("labo.joue"))} <b>${ech(repli ? t("labo.repli") : t("labo.verdict"))}</b></span>`);
     }
+    if (donnees?.capital && donnees.capital.places > 0) {
+      const c = donnees.capital;
+      meta.push(`<span class="g-niv" style="--c:var(--accent)"><i></i>${ech(t("labo.capital", { o: c.ouvertes, p: c.places, m: nf(c.parTrade) }))}</span>`);
+    }
     if (donnees?.moteur === false) {
       meta.push(`<span class="g-niv" style="--c:var(--perte)"><i></i><b>${ech(t("guet.moteuroff"))}</b></span>`);
     }

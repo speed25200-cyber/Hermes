@@ -254,23 +254,38 @@ function tierBreach() {
    dire déplace la décision vers la garde budgétaire, où elle devient
    illisible. Le nombre de places est désormais celui que le budget
    finance vraiment. */
+/* LE CAPITAL, EN PLACES.
+
+   Le budget (90 % de l'equite) se partage en PLACES egales — trois
+   par defaut. Deux places a 6 $ ou trois a 4 $ engagent le meme
+   argent, mais trois places prennent une fois et demie plus de
+   signaux, et un stop n'emporte plus un tiers du compte : meme
+   risque total, plus de debit, moins de variance. Le winrate est une
+   propriete de chaque perle, pas de la taille : il ne bouge pas.
+
+   Les places suivent le capital : on en vise PLACES, mais jamais au
+   prix d'une marge sous le plancher viable — a 8 $ d'equite on
+   retombe a deux places, a 5 $ a une seule. Avec plus de capital, ce
+   sont les trades qui grossissent, pas leur nombre : la concurrence
+   entre positions reste celle qu'on a choisie. */
 function positionSizing(cap) {
   const usable = Math.max(0, cap * MAX_RISK_PCT);
-  const MIN_M  = Number(process.env.HERMES_MARGIN_MIN || 1);
+  const PLACES = Math.max(1, Number(process.env.HERMES_PLACES || 3));
+  const MIN_M  = Number(process.env.HERMES_MARGIN_MIN || 3);     // marge viable : sous 3 $, les lots minimaux mangent tout
   const MAX_M  = Number(process.env.HERMES_MARGIN_MAX || 200);
 
-  let marginPerTrade = Math.min(usable / 2, MAX_M);
-  /* Le plancher ne s'applique QUE s'il est franchi, et il ne peut pas
-     dépasser ce qui est disponible : sinon il rendrait la marge plus
-     grande que le budget, ce que la suite du calcul devrait défaire. */
-  if (marginPerTrade < MIN_M) marginPerTrade = Math.min(MIN_M, usable);
-
-  const places = marginPerTrade > 0
-    ? Math.max(1, Math.min(Math.floor(usable / marginPerTrade), MAX_POSITIONS_GLOBAL))
-    : 0;
+  let places = Math.min(PLACES, MAX_POSITIONS_GLOBAL);
+  if (usable / places < MIN_M) places = Math.max(1, Math.floor(usable / MIN_M));
+  const marginPerTrade = Math.min(usable / places, MAX_M);
+  if (!(marginPerTrade > 0)) return { perTradeUSDT: 0, maxPositions: 0, riskFrac: MAX_RISK_PCT, step: 5 };
 
   return { perTradeUSDT: marginPerTrade, maxPositions: places, riskFrac: MAX_RISK_PCT, step: 5 };
 }
+globalThis.__hermesCapital = () => {
+  const s = positionSizing(AI.equityUSDT);
+  return { equite: AI.equityUSDT, places: s.maxPositions, parTrade: s.perTradeUSDT,
+           ouvertes: currentOpenCount(), engage: usedMarginNow(), budget: MAX_RISK_PCT * AI.equityUSDT };
+};
 /* Dit tout haut ce que la taille courante permet d'ouvrir.
 
    Sans ça, un capital trop petit produit une panne muette : le moteur
@@ -1681,6 +1696,8 @@ ipcMain.handle("laboratoire", async () => {
     } catch {}
     const joue = (typeof globalThis.__hermes15Roster === "function") ? globalThis.__hermes15Roster() : null;
     const guet = (typeof globalThis.__hermes15Guet === "function") ? globalThis.__hermes15Guet() : null;
+    let capital = null;
+    try { capital = (typeof globalThis.__hermesCapital === "function") ? globalThis.__hermesCapital() : null; } catch {}
     // La progression d'une passe en cours, ecrite par le chercheur
     // lui-meme. Un marqueur plus vieux que trente minutes est un
     // cadavre de passe tuee : on ne le montre pas.
@@ -1689,7 +1706,7 @@ ipcMain.handle("laboratoire", async () => {
       const p = JSON.parse(fs.readFileSync(path.join(DATADIR, "perles-progression.json"), "utf8"));
       if (p && p.debut && Date.now() - new Date(p.debut).getTime() < 45 * 60e3) progression = p;
     } catch {}
-    return { ok: true, roster, historique, joue, guet, moteur: !!(typeof AI !== "undefined" && AI.on), progression, ts: tsISO() };
+    return { ok: true, roster, historique, joue, guet, capital, moteur: !!(typeof AI !== "undefined" && AI.on), progression, ts: tsISO() };
   } catch (e) {
     return { ok: false, error: String(e.message || e) };
   }
@@ -2496,7 +2513,20 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
          est inférieur à une marge pleine. */
       const s  = positionSizing(AI.equityUSDT);
       const restant = Math.max(0, MAX_RISK_PCT * AI.equityUSDT - usedMarginNow());
-      const marge = Math.min(s.perTradeUSDT, restant * 0.98, availableUSDT * 0.95);
+      let marge = Math.min(s.perTradeUSDT, restant * 0.98, availableUSDT * 0.95);
+      /* La garde de correlation. Douze perles, presque toutes des longs
+         sur altcoins : trois longs ouverts ne sont pas trois paris, c'est
+         un seul, trois fois. Au-dela de deux positions dans le meme sens,
+         la suivante ouvre a taille reduite — on prend le signal (le
+         winrate est le sien), mais on ne triple pas l'exposition a la
+         meme chute. */
+      const PLEIN_MEME_SENS = Number(process.env.HERMES_MEME_SENS_PLEIN || 2);
+      const ECHELLE_CORREL  = Number(process.env.HERMES_CORREL_ECHELLE || 0.6);
+      const memeSens = Object.values(AI.openPositions).filter((p) => String(p.side).toLowerCase() === String(side).toLowerCase()).length;
+      if (memeSens >= PLEIN_MEME_SENS) {
+        marge *= ECHELLE_CORREL;
+        log("[CORREL]", instId, side, `${memeSens} deja dans ce sens -> marge reduite a ${marge.toFixed(2)} USDT`);
+      }
       /* Le plancher etait la constante 5 USDT, et il a coute la deuxieme
          place sur un compte de 11,35 : marge calculee 4,97, refusee pour
          trois centimes par un seuil qui n'a aucun rapport avec le
