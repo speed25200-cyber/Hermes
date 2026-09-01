@@ -289,6 +289,10 @@ const Langues = (() => {
     "hist.ilya":         { fr: "il y a {v}", en: "{v} ago", sq: "para {v}" },
     "hist.fermees":      { fr: "{n} clôturée{s}", en: "{n} closed", sq: "{n} të mbyllura" },
     "hist.gagnees":      { fr: "{g} gagnée{s} sur {n}", en: "{g} won out of {n}", sq: "{g} të fituara nga {n}" },
+    "tuile.gain.total":  { fr: "historique : {v} % · {n} trades", en: "all-time: {v}% · {n} trades", sq: "historiku: {v} % · {n} tregti" },
+    "tuile.gain.vide24": { fr: "aucune clôture sur 24 h — total affiché", en: "no closes in 24h — all-time shown", sq: "asnjë mbyllje në 24 orë — totali i shfaqur" },
+    "tuile.d.wr24":      { fr: "Gagnées sur 24 h", en: "Won in 24h", sq: "Fituar në 24 orë" },
+    "tuile.d.wrtotal":   { fr: "Gagnées, tout l’historique", en: "Won, all-time", sq: "Fituar, gjithë historiku" },
 
     /* ===== durées ===== */
     "t.jours":           { fr: "{j} j {h} h", en: "{j}d {h}h", sq: "{j} d {h} o" },

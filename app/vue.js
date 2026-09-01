@@ -638,8 +638,18 @@ const TUILES = [
     s: () => t("tuile.pnl.sous") },
   { cle: "ouvertes", e: () => t("tuile.positions"), v: (d) => Number(d.positions && d.positions.count) || 0, fmt: (v) => String(Math.round(v)),
     s: (d) => t("tuile.dispo", { v: nf(Number(d.futures && d.futures.available) || 0) + " $" }) },
-  { cle: "gain", e: () => t("tuile.gain"), v: (d) => Number(d.performance && d.performance.winrate) || 0, fmt: (v) => nf(v, 1) + " %",
-    s: (d) => t("tuile.trades", { n: Number(d.performance && d.performance.totalTrades) || 0 }) },
+  { cle: "gain", e: () => t("tuile.gain"),
+    v: (d) => {
+      const pe = d.performance || {};
+      return (Number(pe.dailyTrades) > 0 && pe.winrate24 != null) ? Number(pe.winrate24) : (Number(pe.winrate) || 0);
+    },
+    fmt: (v) => nf(v, 1) + " %",
+    s: (d) => {
+      const pe = d.performance || {};
+      return Number(pe.dailyTrades) > 0
+        ? t("tuile.gain.total", { v: nf(Number(pe.winrate) || 0, 1), n: Number(pe.totalTrades) || 0 })
+        : t("tuile.gain.vide24");
+    } },
 ];
 
 /* Le tiroir d'une tuile : le meme chiffre, decompose. La marge et le
@@ -664,12 +674,14 @@ function detailTuile(cle, d) {
       + ligne(t("tuile.d.dispo"), nf(Number(fu.available) || 0) + " $");
   if (cle === "gain") {
     const pj = Number(pe.dailyPnL) || 0;
-    const fermees = d.positionsFermees || [];
-    const gagnees = fermees.filter((p) => Number(p.pnl) > 0).length;
-    // Le total est deja le sous-titre de la tuile : le tiroir n'apporte
-    // que ce qui ne s'y lit pas.
-    return (fermees.length ? ligne(t("hist.gagnees", { g: gagnees, n: fermees.length, s: gagnees > 1 ? "s" : "" }), "") : "")
-      + ligne(t("tuile.d.trades24"), String(Number(pe.dailyTrades) || 0))
+    const n24 = Number(pe.dailyTrades) || 0;
+    const nT  = Number(pe.totalTrades) || 0;
+    const g24 = pe.gagnees24, gT = pe.gagnees;
+    // Les deux comptes cote a cote : la journee, puis toute l'histoire.
+    return ligne(t("tuile.d.wr24"),
+        n24 > 0 ? `${g24 != null ? g24 : "?"}/${n24} · ${nf(Number(pe.winrate24) || 0, 1)} %` : "—")
+      + ligne(t("tuile.d.wrtotal"),
+        nT > 0 ? `${gT != null ? gT : "?"}/${nT} · ${nf(Number(pe.winrate) || 0, 1)} %` : "—")
       + ligne(t("tuile.d.volume"), nf(Number(pe.dailyVolume) || 0) + " $")
       + ligne(t("tuile.d.pnljour"), usd(pj), signe(pj));
   }

@@ -1855,11 +1855,17 @@ ipcMain.handle("fetch-portfolio", async () => {
     // locaux ne servent que de repli tant qu'elle n'est pas arrivee.
     chargerPositionsFermees().catch(() => {});
     const fermees = FERMEES.liste;
-    let winrate, dailyPnL, totalTrades, dailyTrades;
+    // Deux taux, deux questions : « comment s'est passee la journee ? »
+    // (winrate24, sur les cloturees des dernieres 24 h) et « que vaut
+    // la strategie ? » (winrate, sur tout l'historique rendu par OKX).
+    let winrate, winrate24 = null, gagnees = null, gagnees24 = null;
+    let dailyPnL, totalTrades, dailyTrades;
     if (fermees.length) {
-      const f24     = fermees.filter((p) => nowMs - p.closeTime <= 86400000);
-      const gagnees = fermees.filter((p) => p.pnl > 0).length;
+      const f24   = fermees.filter((p) => nowMs - p.closeTime <= 86400000);
+      gagnees     = fermees.filter((p) => p.pnl > 0).length;
+      gagnees24   = f24.filter((p) => p.pnl > 0).length;
       winrate     = gagnees * 100 / fermees.length;
+      winrate24   = f24.length ? gagnees24 * 100 / f24.length : null;
       dailyPnL    = f24.reduce((a, p) => a + p.pnl, 0);
       totalTrades = fermees.length;
       dailyTrades = f24.length;
@@ -1868,6 +1874,8 @@ ipcMain.handle("fetch-portfolio", async () => {
       dailyPnL    = last24.reduce((a, d) => a + num(d.profit || d.pnl || 0), 0);
       const wins  = last24.filter(d => num(d.profit || d.pnl || 0) > 0).length;
       winrate     = dailyTrades ? (wins * 100 / dailyTrades) : 0;
+      winrate24   = winrate;
+      gagnees24   = wins;
       totalTrades = ds.length;
     }
 
@@ -1884,7 +1892,7 @@ ipcMain.handle("fetch-portfolio", async () => {
         totalMargin
       },
       performance: {
-        winrate, dailyPnL, totalTrades, dailyTrades, dailyVolume
+        winrate, winrate24, gagnees, gagnees24, dailyPnL, totalTrades, dailyTrades, dailyVolume
       },
       openPositionsDetails: posDetails,
       positionsFermees: fermees.slice(0, 30),
