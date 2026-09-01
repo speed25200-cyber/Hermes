@@ -3,12 +3,8 @@
   "version": "4.2.5",
   "main": "app/main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "cross-env HERMES_DEVTOOLS=1 electron ."
-  },
-  "devDependencies": {
-    "cross-env": "^10.0.0",
-    "electron": "^28.3.3"
+    "start": "node app/main.js",
+    "dev": "node app/main.js"
   },
   "dependencies": {
     "axios": "^1.12.2",

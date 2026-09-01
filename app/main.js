@@ -25,6 +25,11 @@ try { require("dotenv").config({ path: path.join(ROOT, ".env") }); } catch {}
 const HERE         = __dirname;
 const DEV_URL      = process.env.HERMES_DEV_URL || "http://localhost:8000";
 const INDEX_FILE   = path.join(HERE, "index.html");
+// preload.js etait le pont dElectron entre la fenetre et le processus
+// principal. Il nexiste plus : le pont est app/pont.js, servi au
+// navigateur, et il parle HTTP. La constante reste declaree parce que
+// la doublure de BrowserWindow lit encore ses options — elle pointe
+// simplement vers un fichier absent, ce que le code gere deja.
 const PRELOAD_FILE = path.join(HERE, "preload.js");
 
 const LOGDIR  = process.env.HERMES_LOG_DIR ? path.resolve(process.env.HERMES_LOG_DIR) : path.join(ROOT, "logs");
