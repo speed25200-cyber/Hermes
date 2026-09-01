@@ -568,6 +568,9 @@ tbody tr:hover { background: var(--surface-2); }
   background: color-mix(in oklab, var(--fond) 62%, transparent);
   backdrop-filter: blur(14px) saturate(1.1);
   -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  /* Le geste « remonter la page » de Safari ne doit pas passer sous le
+     panneau pendant quon manipule le graphique. */
+  overscroll-behavior: contain;
   display: flex; align-items: center; justify-content: center;
   opacity: 0; pointer-events: none;
   transition: opacity .3s var(--doux);
@@ -588,7 +591,22 @@ tbody tr:hover { background: var(--surface-2); }
 @media (max-width: 720px) {
   .voile { align-items: stretch; justify-content: stretch; }
   .graphe { width: 100vw; height: 100dvh; border-radius: 0; border: 0; }
+  /* Plein ecran sur iPhone veut dire SOUS lencoche et la barre du bas :
+     la tete et le pied sen ecartent, le dessin, lui, peut aller au bord. */
+  .g-tete { padding-top: calc(12px + env(safe-area-inset-top)); }
+  .g-niveaux { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  /* Un flou plein ecran coute cher a animer sur telephone, et le
+     panneau couvre tout : personne ne le voit. */
+  .voile { backdrop-filter: none; -webkit-backdrop-filter: none; }
 }
+
+/* Sur ecran tactile, un appui long ne doit ni selectionner, ni ouvrir
+   le menu contextuel diOS : cest le geste qui invoque le reticule. */
+.g-zone, .g-zone svg {
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+}
+.pos, .g-cadres button, button, #z-tab tbody tr { -webkit-tap-highlight-color: transparent; }
 
 .g-tete {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap;

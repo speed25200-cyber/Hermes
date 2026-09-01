@@ -30,7 +30,8 @@ const Graphe = (() => {
     a: 0, b: 0,                      // fenêtre visible, indexes fractionnaires
     montre: null,                    // { x, y } du réticule, en px
     minuterie: null,
-    geste: null,                     // panoramique ou pincement en cours
+    geste: null,                     // attente, glisse, pince ou croix
+    presse: null,                    // lecheance de lappui long
   };
 
   const $g = (id) => document.getElementById(id);
@@ -55,6 +56,11 @@ const Graphe = (() => {
         $g("g-zone").innerHTML = `<div class="attente">Les chandelles ne sont pas arrivées${r && r.error ? " — " + ech(r.error) : ""}.</div>`;
         return;
       }
+      // Pendant un geste ou une inertie, on ne touche a rien : la serie
+      // glisse dun cran quand OKX fait tourner sa fenetre de 300, et
+      // rebaser les indexes sous le doigt teleporterait le graphe. La
+      // prochaine echeance appliquera les donnees, main levee.
+      if (G.geste || G.enInertie()) return;
       const colle = G.rows.length && G.b >= G.rows.length - 1.5;   // l'œil était au bord droit
       const memesBornes = G.rows.length && G.rows[0][0] === r.rows[0][0];
       G.rows = r.rows;
@@ -366,6 +372,21 @@ const Graphe = (() => {
     zone.innerHTML = morceaux.join("");
   }
 
+  /* ===== la cadence ===== */
+
+  /* Un seul dessin par image décran. Pendant un glissement, le doigt
+     émet bien plus dévénements que lécran naffiche dimages :
+     reconstruire le SVG à chacun, cest dessiner des cadres que
+     personne ne verra et faire ramer précisément le téléphone quon
+     vise. On note quun dessin est dû, et requestAnimationFrame le
+     paie une fois. */
+  let cadreDu = false;
+  function planifier() {
+    if (cadreDu) return;
+    cadreDu = true;
+    requestAnimationFrame(() => { cadreDu = false; dessiner(); });
+  }
+
   /* ===== gestes : molette, glisser, pincer ===== */
 
   function borner() {
@@ -380,25 +401,83 @@ const Graphe = (() => {
     const pivot = G.a + fx * (G.b - G.a);
     G.a = pivot - (pivot - G.a) * facteur;
     G.b = pivot + (G.b - pivot) * facteur;
-    borner(); dessiner();
+    borner(); planifier();
   }
 
   const doigts = new Map();
 
+  /* Au doigt, trois intentions se partagent le meme contact, et on ne
+     sait laquelle quen le regardant vivre :
+
+       bouger vite         -> panoramique, puis inertie au lacher
+       rester appuye       -> reticule, qui suit le doigt (appui long)
+       toucher et relacher -> reticule pose sur la chandelle touchee
+
+     A la souris cest plus simple : survoler promene le reticule,
+     glisser deplace, la molette zoome. */
+  const SEUIL_GLISSE = 7;        // px avant de trancher pour le panoramique
+  const APPUI_LONG_MS = 240;
+
+  let inertieId = null;
+  function arreterInertie() { if (inertieId) { cancelAnimationFrame(inertieId); inertieId = null; } }
+  G.enInertie = () => !!inertieId;
+
+  /* Linertie : le graphe continue sur la lancee du doigt puis se pose.
+     Cest elle qui fait la difference entre « ca bouge » et « cest
+     fluide » — un arret net au lacher rend chaque geste sec. La
+     vitesse decroit dun facteur constant par image, et on sarrete
+     quand le mouvement passe sous le dixieme de pixel. */
+  function lancerInertie(vitesse) {
+    arreterInertie();
+    if (!Number.isFinite(vitesse) || Math.abs(vitesse * (G._dims?.cw || 1)) < 0.35) return;
+    let v = vitesse, avant = performance.now();
+    const pas = (t) => {
+      const dt = Math.min(48, t - avant); avant = t;
+      G.a -= v * dt; G.b -= v * dt;
+      v *= Math.pow(0.94, dt / 16.7);
+      borner(); planifier();
+      if (Math.abs(v * dt * (G._dims?.cw || 1)) > 0.1) inertieId = requestAnimationFrame(pas);
+      else inertieId = null;
+    };
+    inertieId = requestAnimationFrame(pas);
+  }
+
   function brancherGestes(zone) {
     zone.addEventListener("wheel", (e) => {
       e.preventDefault();
+      arreterInertie();
       const r = zone.getBoundingClientRect();
       zoomer(Math.exp(e.deltaY * 0.0016), (e.clientX - r.left) / Math.max(1, (G._dims?.pw || r.width)));
     }, { passive: false });
 
     zone.addEventListener("pointerdown", (e) => {
-      zone.setPointerCapture(e.pointerId);
+      // La capture peut lever (pointeur deja parti, evenement de
+      // synthese) ; la perdre coute un geste, la laisser lever coute
+      // le gestionnaire entier.
+      try { zone.setPointerCapture(e.pointerId); } catch {}
+      arreterInertie();
       doigts.set(e.pointerId, { x: e.clientX, y: e.clientY });
-      if (doigts.size === 1) G.geste = { type: "glisse", x: e.clientX, a: G.a, b: G.b };
-      else if (doigts.size === 2) {
+      clearTimeout(G.presse);
+
+      if (doigts.size === 2) {
         const [p1, p2] = [...doigts.values()];
         G.geste = { type: "pince", ecart: Math.abs(p1.x - p2.x) || 1, a: G.a, b: G.b };
+        return;
+      }
+
+      G.geste = { type: "attente", x0: e.clientX, y0: e.clientY, t0: performance.now(),
+                  x: e.clientX, a: G.a, b: G.b, vitesse: 0, tactile: e.pointerType !== "mouse" };
+      if (G.geste.tactile) {
+        // Lappui long : si le doigt na pas boug avant lecheance,
+        // cest le reticule quil demande, pas un deplacement.
+        G.presse = setTimeout(() => {
+          if (G.geste && G.geste.type === "attente") {
+            G.geste.type = "croix";
+            const r = zone.getBoundingClientRect();
+            G.montre = { x: e.clientX - r.left, y: e.clientY - r.top };
+            reticule(G.montre.x, G.montre.y);
+          }
+        }, APPUI_LONG_MS);
       }
     });
 
@@ -407,13 +486,6 @@ const Graphe = (() => {
       const px = e.clientX - r.left, py = e.clientY - r.top;
       if (doigts.has(e.pointerId)) doigts.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
-      if (G.geste && G.geste.type === "glisse" && doigts.size === 1) {
-        const dx = e.clientX - G.geste.x;
-        const di = dx / Math.max(1e-9, G._dims?.cw || 1);
-        G.a = G.geste.a - di; G.b = G.geste.b - di;
-        borner(); dessiner();
-        return;
-      }
       if (G.geste && G.geste.type === "pince" && doigts.size === 2) {
         const [p1, p2] = [...doigts.values()];
         const ecart = Math.abs(p1.x - p2.x) || 1;
@@ -421,26 +493,70 @@ const Graphe = (() => {
         const milieu = G.geste.a + 0.5 * (G.geste.b - G.geste.a);
         const larg = (G.geste.b - G.geste.a) * k;
         G.a = milieu - larg / 2; G.b = milieu + larg / 2;
-        borner(); dessiner();
+        borner(); planifier();
         return;
       }
-      // Pas de geste : le pointeur promène le réticule.
-      G.montre = { x: px, y: py };
-      reticule(px, py);
+
+      if (G.geste && G.geste.type === "croix") {
+        G.montre = { x: px, y: py };
+        reticule(px, py);
+        return;
+      }
+
+      if (G.geste && (G.geste.type === "attente" || G.geste.type === "glisse")) {
+        if (G.geste.type === "attente") {
+          if (Math.hypot(e.clientX - G.geste.x0, e.clientY - G.geste.y0) < SEUIL_GLISSE) return;
+          clearTimeout(G.presse);          // le doigt bouge : ce nest pas un appui long
+          G.geste.type = "glisse";
+        }
+        const maintenant = performance.now();
+        const dxTotal = e.clientX - G.geste.x0;
+        const di = dxTotal / Math.max(1e-9, G._dims?.cw || 1);
+        // La vitesse est lissee : un seul echantillon nerveux au moment
+        // du lacher enverrait le graphe a lautre bout de la serie.
+        const dt = Math.max(1, maintenant - (G.geste.t || G.geste.t0));
+        const vInst = (e.clientX - (G.geste.x ?? G.geste.x0)) / dt / Math.max(1e-9, G._dims?.cw || 1);
+        G.geste.vitesse = 0.75 * (G.geste.vitesse || 0) + 0.25 * vInst;
+        G.geste.x = e.clientX; G.geste.t = maintenant;
+        G.a = G.geste.a - di; G.b = G.geste.b - di;
+        borner(); planifier();
+        return;
+      }
+
+      // Souris libre : le reticule suit le survol.
+      if (e.pointerType === "mouse" && !doigts.size) {
+        G.montre = { x: px, y: py };
+        reticule(px, py);
+      }
     });
 
     const finDoigt = (e) => {
+      clearTimeout(G.presse);
+      const geste = G.geste;
       doigts.delete(e.pointerId);
-      if (!doigts.size) G.geste = null;
-      else if (doigts.size === 1) {
+
+      if (!doigts.size) {
+        G.geste = null;
+        if (geste && geste.type === "glisse") lancerInertie(geste.vitesse || 0);
+        else if (geste && geste.type === "attente" && geste.tactile &&
+                 performance.now() - geste.t0 < 260) {
+          // Un toucher bref : le reticule se pose la, et y reste — sur
+          // telephone il ny a pas de survol pour le faire vivre.
+          const r = zone.getBoundingClientRect();
+          G.montre = { x: e.clientX - r.left, y: e.clientY - r.top };
+          reticule(G.montre.x, G.montre.y);
+        }
+      } else if (doigts.size === 1) {
         const [p] = [...doigts.values()];
-        G.geste = { type: "glisse", x: p.x, a: G.a, b: G.b };
+        G.geste = { type: "glisse", x0: p.x, y0: p.y, t0: performance.now(), x: p.x, a: G.a, b: G.b, vitesse: 0, tactile: true };
       }
     };
     zone.addEventListener("pointerup", finDoigt);
     zone.addEventListener("pointercancel", finDoigt);
-    zone.addEventListener("pointerleave", () => { G.montre = null; reticule(null); });
-    zone.addEventListener("dblclick", () => { G.b = G.rows.length; G.a = Math.max(0, G.b - 120); dessiner(); });
+    zone.addEventListener("pointerleave", (e) => {
+      if (e.pointerType === "mouse" && !doigts.size) { G.montre = null; reticule(null); }
+    });
+    zone.addEventListener("dblclick", () => { arreterInertie(); G.b = G.rows.length; G.a = Math.max(0, G.b - 120); planifier(); });
   }
 
   /* ===== ouverture, fermeture, cycle de vie ===== */
@@ -482,6 +598,9 @@ const Graphe = (() => {
   function fermer() {
     G.ouvert = false;
     clearInterval(G.minuterie);
+    clearTimeout(G.presse);
+    arreterInertie();
+    G.geste = null; doigts.clear();
     const voile = $g("g-voile");
     voile.classList.remove("ouvert");
     document.body.style.overflow = "";
@@ -493,7 +612,8 @@ const Graphe = (() => {
      aller-retour chandelles. */
   function battement() {
     if (!G.ouvert || !G.rows.length) return;
-    dessiner();
+    if (G.geste || G.enInertie()) return;   // jamais sous le doigt
+    planifier();
   }
 
   function brancher() {
