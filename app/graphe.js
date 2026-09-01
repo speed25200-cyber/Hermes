@@ -126,9 +126,7 @@ const Graphe = (() => {
     // Le domaine vertical : ce que le marché a fait, PLUS les niveaux
     // de la position — un take-profit hors cadre serait précisément ce
     // que cette vue existe pour montrer. La liquidation, souvent très
-    // loin, n'étire l'échelle que si elle est raisonnablement proche :
-    // écraser 300 chandelles pour un niveau à -20 % rendrait tout le
-    // reste illisible, et son éloignement est dit dans les niveaux.
+    // loin, n'étire l'échelle que si elle est raisonnablement proche.
     let bas = Infinity, hautP = -Infinity;
     for (const k of visibles) { if (k[3] < bas) bas = k[3]; if (k[2] > hautP) hautP = k[2]; }
     const etendue0 = hautP - bas || bas * 0.01 || 1;
@@ -143,7 +141,9 @@ const Graphe = (() => {
     const marge = (hautP - bas) * 0.07 || bas * 0.004 || 1;
     bas -= marge; hautP += marge;
 
-    const volMax = Math.max(...visibles.map((k) => k[5])) || 1;
+    let volMax = 0;
+    for (const k of visibles) if (k[5] > volMax) volMax = k[5];
+    volMax = volMax || 1;
     const cw = pw / Math.max(1e-9, G.b - G.a);
     const corps = Math.max(1, Math.min(13, cw * 0.62));
 
@@ -156,22 +156,27 @@ const Graphe = (() => {
           cT2 = C("--texte-2"), cT3 = C("--texte-3"), cBon = C("--bon"),
           cCrit = C("--critique"), cSurface = C("--surface");
 
-    const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, width: W, height: H });
+    /* Le dessin est assemblé en TEXTE, puis remis au navigateur en un
+       seul morceau — et surtout, tout ce qui se répète par chandelle
+       est FUSIONNÉ : les trois cents mèches vertes ne font qu'un seul
+       path, les corps rouges un autre, les volumes deux de plus. Un
+       cadre passe ainsi d'environ neuf cents nœuds à une vingtaine.
+       C'est la différence entre un pincement qui suit le doigt et un
+       pincement qui rame : le téléphone ne rend pas neuf cents objets
+       en huit millisecondes, il en rend vingt sans y penser. */
+    const morceaux = [];
+    const texte = (tx, ty, contenu, fill, ancre, gras) =>
+      `<text x="${tx}" y="${ty}" fill="${fill}" font-size="10"${gras ? ' font-weight="600"' : ""}` +
+      `${ancre ? ` text-anchor="${ancre}"` : ""} font-family="var(--mono)">${contenu}</text>`;
 
-    /* — la grille, sous tout le reste — */
-    const grille = el("g", { "shape-rendering": "crispEdges" });
+    /* — grille + graduations — */
+    let dGrille = "";
     const gradsY = graduations(bas, hautP, Math.max(3, Math.round(ph / 64)));
     for (const v of gradsY) {
-      grille.appendChild(el("line", { x1: 0, x2: pw, y1: y(v).toFixed(1), y2: y(v).toFixed(1), stroke: cBord, "stroke-opacity": ".5" }));
-      const t = el("text", { x: pw + 8, y: (y(v) + 3.5).toFixed(1), fill: cT3, "font-size": 10, "font-family": "var(--mono)" });
-      t.textContent = prix(v);
-      svg.appendChild(t);
+      const yy = y(v).toFixed(1);
+      dGrille += `M0 ${yy}H${pw}`;
+      morceaux.push(texte(pw + 8, (y(v) + 3.5).toFixed(1), prix(v), cT3));
     }
-    // Une graduation temporelle tous les ~92 px — posée sur une heure
-    // RONDE. Un axe qui dit 03:19, 06:14, 09:09 se lit chandelle par
-    // chandelle ; 04:00, 06:00, 08:00 se lit d'un regard. On choisit le
-    // plus petit pas « rond » qui respecte l'espacement, puis on ne
-    // marque que les chandelles dont l'heure tombe juste.
     const BAR_MS = { "1m": 60e3, "5m": 300e3, "15m": 900e3, "1H": 3600e3, "4H": 14400e3, "1D": 86400e3 };
     const RONDS = [60e3, 300e3, 900e3, 1800e3, 3600e3, 7200e3, 14400e3, 43200e3, 86400e3, 172800e3];
     const besoin = (92 / cw) * (BAR_MS[G.bar] || 300e3);
@@ -179,78 +184,46 @@ const Graphe = (() => {
     const decalage = new Date(G.rows[0][0]).getTimezoneOffset() * 60e3;
     const barMs = BAR_MS[G.bar] || 300e3;
     for (let i = i0; i < i1; i++) {
-      if (!G.rows[i]) continue;
-      // La premiere chandelle A ou APRES chaque frontiere ronde. Exiger
-      // le zero exact suppose des horodatages parfaitement alignes —
-      // vrai chez OKX aujourdhui, mais une graduation ne doit pas
-      // dependre de cette perfection pour exister.
       const r = (((G.rows[i][0] - decalage) % rond) + rond) % rond;
       if (r >= barMs) continue;
-      const px = x(i);
-      grille.appendChild(el("line", { x1: px.toFixed(1), x2: px.toFixed(1), y1: HAUT, y2: HAUT + ph, stroke: cBord, "stroke-opacity": ".3" }));
-      const t = el("text", { x: px.toFixed(1), y: H - 7, fill: cT3, "font-size": 10, "text-anchor": "middle", "font-family": "var(--mono)" });
-      t.textContent = heure(G.rows[i][0]);
-      svg.appendChild(t);
+      const px = x(i).toFixed(1);
+      dGrille += `M${px} ${HAUT}V${HAUT + ph}`;
+      morceaux.push(texte(px, H - 7, heure(G.rows[i][0]), cT3, "middle"));
     }
-    svg.appendChild(grille);
+    morceaux.unshift(`<path data-role="grille" d="${dGrille}" stroke="${cBord}" stroke-opacity=".4" fill="none" shape-rendering="crispEdges"/>`);
 
-    /* — volumes, discrets, sous les chandelles — */
-    const gVol = el("g", {});
-    for (let i = i0; i < i1; i++) {
-      const k = G.rows[i];
-      const h = Math.max(1, (k[5] / volMax) * volH);
-      gVol.appendChild(el("rect", {
-        x: (x(i) - corps / 2).toFixed(1), y: (HAUT + ph - h).toFixed(1),
-        width: corps.toFixed(1), height: h.toFixed(1),
-        fill: k[4] >= k[1] ? cGain : cPerte, "fill-opacity": ".16", rx: 1
-      }));
-    }
-    svg.appendChild(gVol);
-
-    /* — les chandelles — */
-    const gCh = el("g", {});
+    /* — volumes puis chandelles, en quatre chemins par couleur — */
+    let volG = "", volP = "", mecheG = "", mecheP = "", corpsG = "", corpsP = "";
+    const demiC = corps / 2;
     for (let i = i0; i < i1; i++) {
       const k = G.rows[i];
       const monte = k[4] >= k[1];
-      const c = monte ? cGain : cPerte;
       const cx = x(i);
-      gCh.appendChild(el("line", {
-        x1: cx.toFixed(1), x2: cx.toFixed(1),
-        y1: y(k[2]).toFixed(1), y2: y(k[3]).toFixed(1),
-        stroke: c, "stroke-width": Math.max(1, corps * 0.14).toFixed(1)
-      }));
+      const vh = Math.max(1, (k[5] / volMax) * volH);
+      const rectVol = `M${(cx - demiC).toFixed(1)} ${(HAUT + ph - vh).toFixed(1)}h${corps.toFixed(1)}v${vh.toFixed(1)}h${(-corps).toFixed(1)}Z`;
+      const meche = `M${cx.toFixed(1)} ${y(k[2]).toFixed(1)}V${y(k[3]).toFixed(1)}`;
       const yO = y(k[1]), yC = y(k[4]);
-      gCh.appendChild(el("rect", {
-        x: (cx - corps / 2).toFixed(1), y: Math.min(yO, yC).toFixed(1),
-        width: corps.toFixed(1), height: Math.max(1, Math.abs(yO - yC)).toFixed(1),
-        fill: c, rx: corps > 3 ? 1 : 0
-      }));
+      const rectCorps = `M${(cx - demiC).toFixed(1)} ${Math.min(yO, yC).toFixed(1)}h${corps.toFixed(1)}v${Math.max(1, Math.abs(yO - yC)).toFixed(1)}h${(-corps).toFixed(1)}Z`;
+      if (monte) { volG += rectVol; mecheG += meche; corpsG += rectCorps; }
+      else       { volP += rectVol; mecheP += meche; corpsP += rectCorps; }
     }
-    svg.appendChild(gCh);
+    const eMeche = Math.max(1, corps * 0.14).toFixed(1);
+    if (volG) morceaux.push(`<path data-role="vol" d="${volG}" fill="${cGain}" fill-opacity=".16"/>`);
+    if (volP) morceaux.push(`<path data-role="vol" d="${volP}" fill="${cPerte}" fill-opacity=".16"/>`);
+    if (mecheG) morceaux.push(`<path data-role="meche" d="${mecheG}" stroke="${cGain}" stroke-width="${eMeche}" fill="none"/>`);
+    if (mecheP) morceaux.push(`<path data-role="meche" d="${mecheP}" stroke="${cPerte}" stroke-width="${eMeche}" fill="none"/>`);
+    if (corpsG) morceaux.push(`<path data-role="corps" d="${corpsG}" fill="${cGain}"/>`);
+    if (corpsP) morceaux.push(`<path data-role="corps" d="${corpsP}" fill="${cPerte}"/>`);
 
     /* — les niveaux de la position — */
-    const ligne = (v, couleur, texte, pointille) => {
+    const ligne = (v, couleur, etiq, pointille) => {
       if (!(v > 0) || v < bas || v > hautP) return;
-      const py = y(v);
-      svg.appendChild(el("line", {
-        x1: 0, x2: pw, y1: py.toFixed(1), y2: py.toFixed(1),
-        stroke: couleur, "stroke-width": 1.2,
-        ...(pointille ? { "stroke-dasharray": pointille } : {})
-      }));
-      const etiquette = el("g", {});
-      const larg = texte.length * 6.4 + 10;
-      etiquette.appendChild(el("rect", {
-        x: pw + 1, y: (py - 9).toFixed(1), width: Math.min(72, Math.max(58, larg)), height: 18, rx: 4,
-        fill: couleur
-      }));
-      const t = el("text", {
-        x: pw + 1 + Math.min(72, Math.max(58, larg)) / 2, y: (py + 3.6).toFixed(1),
-        fill: cSurface, "font-size": 10, "font-weight": 600,
-        "text-anchor": "middle", "font-family": "var(--mono)"
-      });
-      t.textContent = texte;
-      etiquette.appendChild(t);
-      svg.appendChild(etiquette);
+      const py = y(v).toFixed(1);
+      morceaux.push(`<line x1="0" x2="${pw}" y1="${py}" y2="${py}" stroke="${couleur}" stroke-width="1.2"` +
+        (pointille ? ` stroke-dasharray="${pointille}"` : "") + `/>`);
+      const larg = Math.min(72, Math.max(58, etiq.length * 6.4 + 10));
+      morceaux.push(`<rect x="${pw + 1}" y="${(y(v) - 9).toFixed(1)}" width="${larg}" height="18" rx="4" fill="${couleur}"/>`);
+      morceaux.push(texte(pw + 1 + larg / 2, (y(v) + 3.6).toFixed(1), etiq, cSurface, "middle", true));
     };
 
     if (pos) {
@@ -261,21 +234,27 @@ const Graphe = (() => {
       ligne(pos.stopActuel, verrou ? cBon : cCrit, pos.stopMode === "TRAIL" ? "TRAIL" : verrou ? "SEUIL" : "SL");
       ligne(pos.liqPrice, cPerte, "LIQ", "2 4");
     }
-    // Le prix, toujours : c'est la référence de tous les autres traits.
     const cPrix = dernier[4] >= dernier[1] ? cGain : cPerte;
     ligne(prixCourant, cPrix, prix(prixCourant), "1.5 3");
 
-    /* — le réticule, sur sa propre couche — */
-    const gCroix = el("g", { id: "g-croix", "pointer-events": "none" });
-    svg.appendChild(gCroix);
+    morceaux.push(`<g id="g-croix" pointer-events="none"></g>`);
 
-    zone.innerHTML = "";
-    zone.appendChild(svg);
+    zone.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">${morceaux.join("")}</svg>`;
     G._dims = { W, H, pw, ph, HAUT, AXE_D, y, x, bas, hautP, cw, i0, i1 };
-    lecture(null);
+
+    /* Sous le doigt, SEUL le dessin bouge. La tête, la lecture OHLC et
+       les niveaux du pied ne changent pas pendant un geste — la
+       position est la même — mais les reconstruire à chaque image
+       relançait la mise en page du panneau entier, et c'est elle qui
+       mangeait le budget, pas les chandelles. Ils seront remis à jour
+       au premier dessin posé, main levée. */
+    const enGeste = !!G.geste || G.enInertie();
+    if (!enGeste) {
+      lecture(null);
+      niveauxPied(pos, prixCourant);
+      entete(pos);
+    }
     if (G.montre) reticule(G.montre.x, G.montre.y);
-    niveauxPied(pos, prixCourant);
-    entete(pos);
   }
 
   /* La ligne OHLC au-dessus du dessin. Sans réticule elle décrit la
@@ -437,7 +416,7 @@ const Graphe = (() => {
       v *= Math.pow(0.94, dt / 16.7);
       borner(); planifier();
       if (Math.abs(v * dt * (G._dims?.cw || 1)) > 0.1) inertieId = requestAnimationFrame(pas);
-      else inertieId = null;
+      else { inertieId = null; planifier(); }   // le dessin complet, une fois posee
     };
     inertieId = requestAnimationFrame(pas);
   }
@@ -461,7 +440,31 @@ const Graphe = (() => {
 
       if (doigts.size === 2) {
         const [p1, p2] = [...doigts.values()];
-        G.geste = { type: "pince", ecart: Math.abs(p1.x - p2.x) || 1, a: G.a, b: G.b };
+        const r = zone.getBoundingClientRect();
+        /* Trois choix qui font la difference entre un pincement quon
+           subit et un pincement quon ne remarque pas :
+
+           La distance est EUCLIDIENNE. Mesuree sur le seul axe X, deux
+           doigts un peu verticaux — pouce et index dune main — donnent
+           un ecart proche de zero et des facteurs de zoom erratiques.
+           Un plancher borne ce que la division peut produire.
+
+           Lancre est le MILIEU DES DOIGTS, pas le centre de la
+           fenetre : on zoome sur ce quon pince, sinon le contenu fuit
+           lendroit meme quon designe.
+
+           Et le milieu est relu A CHAQUE mouvement : deplacer les deux
+           doigts pendant le pincement deplace aussi la fenetre. Un
+           vrai geste fait toujours les deux a la fois ; les separer
+           oblige a deux gestes la ou la main nen fait quun. */
+        const ecart0 = Math.max(30, Math.hypot(p1.x - p2.x, p1.y - p2.y));
+        const mid0 = ((p1.x + p2.x) / 2 - r.left) / Math.max(1, G._dims?.pw || r.width);
+        G.geste = {
+          type: "pince", ecart0,
+          pivot: G.a + Math.min(1, Math.max(0, mid0)) * (G.b - G.a),
+          larg0: G.b - G.a,
+        };
+        G.montre = null; reticule(null);   // le reticule na rien a faire sous un pincement
         return;
       }
 
@@ -488,11 +491,13 @@ const Graphe = (() => {
 
       if (G.geste && G.geste.type === "pince" && doigts.size === 2) {
         const [p1, p2] = [...doigts.values()];
-        const ecart = Math.abs(p1.x - p2.x) || 1;
-        const k = G.geste.ecart / ecart;
-        const milieu = G.geste.a + 0.5 * (G.geste.b - G.geste.a);
-        const larg = (G.geste.b - G.geste.a) * k;
-        G.a = milieu - larg / 2; G.b = milieu + larg / 2;
+        const ecart = Math.max(30, Math.hypot(p1.x - p2.x, p1.y - p2.y));
+        const larg = G.geste.larg0 * (G.geste.ecart0 / ecart);
+        const f = Math.min(1, Math.max(0, ((p1.x + p2.x) / 2 - r.left) / Math.max(1, G._dims?.pw || 1)));
+        // La chandelle qui etait sous le milieu des doigts au depart
+        // reste sous le milieu des doigts : cest toute la regle.
+        G.a = G.geste.pivot - f * larg;
+        G.b = G.a + larg;
         borner(); planifier();
         return;
       }
@@ -508,6 +513,7 @@ const Graphe = (() => {
           if (Math.hypot(e.clientX - G.geste.x0, e.clientY - G.geste.y0) < SEUIL_GLISSE) return;
           clearTimeout(G.presse);          // le doigt bouge : ce nest pas un appui long
           G.geste.type = "glisse";
+          G.montre = null; reticule(null);   // un reticule fige sous un panoramique ment
         }
         const maintenant = performance.now();
         const dxTotal = e.clientX - G.geste.x0;
@@ -537,6 +543,7 @@ const Graphe = (() => {
 
       if (!doigts.size) {
         G.geste = null;
+        planifier();                        // le dessin pose, complet, main levee
         if (geste && geste.type === "glisse") lancerInertie(geste.vitesse || 0);
         else if (geste && geste.type === "attente" && geste.tactile &&
                  performance.now() - geste.t0 < 260) {
