@@ -105,9 +105,9 @@ const Langues = (() => {
 
     /* ===== lecture seule ===== */
     "lecture.titre":     { fr: "Lecture seule.", en: "Read-only.", sq: "Vetëm lexim." },
-    "lecture.texte":     { fr: "Cette page montre tout mais ne commande rien. Servi par le réseau, Hermes se met en lecture seule par défaut — l’adresse d’écoute ne dit rien de qui se connecte. Pour piloter : HERMES_UI_MODE=full dans l’environnement du service.",
-                           en: "This page shows everything but commands nothing. Served over the network, Hermes defaults to read-only — the listening address says nothing about who is connecting. To take control: HERMES_UI_MODE=full in the service environment.",
-                           sq: "Kjo faqe tregon gjithçka por s’komandon asgjë. E shërbyer nga rrjeti, Hermes kalon si parazgjedhje në vetëm lexim — adresa e dëgjimit s’thotë asgjë për atë që lidhet. Për të drejtuar: HERMES_UI_MODE=full në mjedisin e shërbimit." },
+    "lecture.texte":     { fr: "Cette page montre tout mais ne commande rien. Servi par le réseau, Hermes se met en lecture seule par défaut — l’adresse d’écoute ne dit rien de qui se connecte. Pour piloter : <code>HERMES_UI_MODE=full</code> dans l’environnement du service.",
+                           en: "This page shows everything but commands nothing. Served over the network, Hermes defaults to read-only — the listening address says nothing about who is connecting. To take control: <code>HERMES_UI_MODE=full</code> in the service environment.",
+                           sq: "Kjo faqe tregon gjithçka por s’komandon asgjë. E shërbyer nga rrjeti, Hermes kalon si parazgjedhje në vetëm lexim — adresa e dëgjimit s’thotë asgjë për atë që lidhet. Për të drejtuar: <code>HERMES_UI_MODE=full</code> në mjedisin e shërbimit." },
 
     /* ===== courbe, santé, journal ===== */
     "courbe.titre":      { fr: "Courbe d’équité", en: "Equity curve", sq: "Kurba e kapitalit" },
