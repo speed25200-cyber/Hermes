@@ -184,8 +184,13 @@ jobs:
           # et un echec de pose se presenterait comme un succes. Ce piege
           # a deja fait passer un workflow en vert sur un echec.
 
+      # Le demarrage ne depend plus de la presence dun paquet : une fois
+      # les cles posees, on veut pouvoir relancer le moteur sans les
+      # reposer. Il reste conditionne a un echec de letape precedente,
+      # que GitHub applique tout seul — demarrer un moteur dont la pose
+      # vient dechouer nouvrirait rien et masquerait la vraie panne.
       - name: Demarrer le moteur
-        if: ${{ inputs.paquet != '' && inputs.demarrer == 'true' }}
+        if: ${{ inputs.demarrer == 'true' }}
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
             TOK=$(grep "^HERMES_DASH_TOKEN=" /root/hermes/.env | tail -1 | cut -d= -f2-)
@@ -223,16 +228,31 @@ jobs:
             fi
           '
 
+      # always() : cest quand une etape a echoue quon a le plus besoin
+      # de letat de la machine. Saute sur echec, ce releve ne servait
+      # qua confirmer les succes.
       - name: Snapshot status
+        if: always()
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
             echo "=== service ==="; systemctl is-active hermes || true
             echo "=== port 8899 ==="
             ss -tln | grep -q ":8899 " && echo LISTENING || echo "NOT listening"
             echo "=== dashboard ==="
-            if [ -f /root/hermes/.env ]; then
-              TOK=$(grep "^HERMES_DASH_TOKEN=" /root/hermes/.env | tail -1 | cut -d= -f2-)
-              [ -n "$TOK" ] && echo "url: http://178.104.191.79:8899/?key=$TOK"
+            # La cle nest PAS imprimee. Ce depot est public, donc le
+            # journal de ce run lest aussi, et cette cle commande un
+            # moteur regle en pilotage complet : la lire suffit pour
+            # demarrer, arreter, et passer un ordre. Elle la ete dans
+            # les runs precedents, et cest la raison pour laquelle elle
+            # doit etre changee.
+            #
+            # Ce quon imprime a la place repond a la seule question
+            # quon se pose ici — la cle existe-t-elle — sans repondre a
+            # celle quon ne veut pas voir posee.
+            if [ -f /root/hermes/.env ] && grep -q "^HERMES_DASH_TOKEN=.\+" /root/hermes/.env; then
+              echo "  cle presente. Ladresse est http://178.104.191.79:8899/?key=<votre cle>"
+            else
+              echo "  !! aucune cle de tableau de bord dans le .env"
             fi
             echo "=== journal ==="; journalctl -u hermes -n 30 --no-pager || true
           '

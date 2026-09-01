@@ -165,15 +165,41 @@ echo "  ecrit, droits 600 (lisible par root seul)"
 
 echo
 echo "===== 3. relance et verification ====="
+# On note lheure AVANT de relancer, et on ne lira que ce qui suit.
+#
+# « depuis 30 secondes » ramassait aussi le demarrage precedent — celui
+# davant la pose, ou le moteur navait pas encore de cles. Son 401
+# saffichait alors a cote dune connexion privee reussie, et le rapport
+# se contredisait lui-meme sans quon puisse dire laquelle des deux
+# lignes decrivait letat present.
+# « @secondes » plutot quune date formatee : journalctl lit une date
+# nue dans le fuseau LOCAL de la machine, et une heure ecrite en UTC y
+# designerait alors un autre instant — assez pour ne rien voir, ou pour
+# tout voir. Lepoque ne souffre pas dinterpretation.
+DEPUIS="@$(date +%s)"
 systemctl restart hermes
-sleep 5
-if journalctl -u hermes --since "-30 seconds" --no-pager 2>/dev/null | grep -q "\[ENV\] OKX key: true"; then
+
+# On attend le moteur au lieu de le supposer parti. Une attente fixe de
+# cinq secondes mesure la vitesse de la machine, pas letat du moteur :
+# elle declare en panne un demarrage simplement lent, et elle attend
+# pour rien quand tout va bien.
+vu=0
+for _ in $(seq 1 12); do
+  if journalctl -u hermes --since "$DEPUIS" --no-pager 2>/dev/null | grep -q "\[ENV\] OKX key: true"; then
+    vu=1; break
+  fi
+  sleep 2
+done
+if [ "$vu" = "1" ]; then
   echo "  le moteur voit ses cles"
 else
-  echo "  !! le moteur ne voit pas les cles :"
-  journalctl -u hermes --since "-30 seconds" --no-pager 2>/dev/null | grep -E "\[ENV\]|OKX" | head -5
+  echo "  !! les cles sont ecrites et OKX les accepte, mais le moteur ne"
+  echo "     les lit pas. Le fichier est peut-etre masque par une autre"
+  echo "     ligne, ou le service tourne depuis un autre repertoire."
+  journalctl -u hermes --since "$DEPUIS" --no-pager 2>/dev/null | grep -E "\[ENV\]|OKX" | head -5
+  exit 1
 fi
-journalctl -u hermes --since "-30 seconds" --no-pager 2>/dev/null \
+journalctl -u hermes --since "$DEPUIS" --no-pager 2>/dev/null \
   | grep -E "ACCOUNT|posMode|\[WS\] private" | head -4 | sed -e "s/^.*: //" -e "s/^/  /"
 echo
 echo "fait."
@@ -181,4 +207,15 @@ echo "fait."
 # Supprime seulement la copie temporaire deposee par un workflow. Celle
 # de /root/hermes/deploy/ reste : lancee a la main, on veut pouvoir la
 # relancer sans redeployer.
-[ "$0" = "/tmp/poser_cles.sh" ] && rm -f /tmp/poser_cles.sh
+#
+# Ecrit « [ test ] && rm », ce menage devenait le code de sortie du
+# script : lance depuis /root/hermes/deploy/, le test est faux, il
+# renvoie 1, et une pose parfaitement reussie se declarait en panne.
+# Cest arrive : les cles etaient posees, OKX les avait acceptees, la
+# WebSocket privee etait connectee — et le workflow a saute le
+# demarrage parce quil croyait avoir echoue.
+#
+# Le if ne renvoie rien quand sa condition est fausse, et le exit 0
+# finit de rendre la sortie explicite plutot que subie.
+if [ "$0" = "/tmp/poser_cles.sh" ]; then rm -f /tmp/poser_cles.sh; fi
+exit 0
