@@ -205,6 +205,14 @@ async function histoire5m(instId) {
 
 /* ---- 3. le juge : deux fenêtres, le winrate tranche les positives ---- */
 
+// Le partage longs/shorts d'une phase, pour le verdict imprime :
+// "| sens sel 12L 75% 11S 73% · val 4L 100% 4S 75%".
+const sensTexte = (sel, val) => {
+  const un = (r) => (r && r.longs && r.shorts)
+    ? `${r.longs.trades}L ${r.longs.winrate.toFixed(0)}% ${r.shorts.trades}S ${r.shorts.winrate.toFixed(0)}%`
+    : "?";
+  return ` | sens sel ${un(sel)} · val ${un(val)}`;
+};
 /* Une mesure compacte, prete a etre ecrite dans le roster : la page du
    laboratoire montre ces nombres au clic, ils doivent donc exister. */
 const mesure = (r) => ({ trades: r.trades, winrate: +r.winrate.toFixed(1), netMarge: +r.netMarge.toFixed(3),
@@ -349,7 +357,8 @@ async function main() {
       };
       rapport.push(`  ${nom.padEnd(10)} ${perle.sig.padEnd(14)} tp ${perle.sortie.tpPctMargin} act ${perle.sortie.trailActPctMargin} ` +
         `hold ${perle.sortie.holdMs / 3600e3}h | sel ${perle.sel.trades}t wr ${perle.sel.winrate.toFixed(0)}% net ${perle.sel.netMarge.toFixed(2)} ` +
-        `| val ${perle.val.trades}t wr ${perle.val.winrate.toFixed(0)}% net ${perle.val.netMarge.toFixed(2)}`);
+        `| val ${perle.val.trades}t wr ${perle.val.winrate.toFixed(0)}% net ${perle.val.netMarge.toFixed(2)}` +
+        sensTexte(perle.sel, perle.val));
     } catch (e) {
       refus[instId] = { raison: "echec de collecte : " + e.message, concourantes: 0 };
       rapport.push(`  ${nom.padEnd(10)} — echec de collecte : ${e.message}`);
