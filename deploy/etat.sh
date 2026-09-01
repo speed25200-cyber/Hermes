@@ -103,19 +103,28 @@ if [ -d /root/astra/Hermes_Astra ]; then
   # « for f in $(find ...) » decoupe sur les espaces, et larchive
   # contient un dossier « app/Archives app/ » : le premier essai a
   # compte des morceaux de noms comme des fichiers manquants.
-  manquants=0; total=0
+  manquants=0; sauvegardes=0; total=0
   while IFS= read -r -d "" f; do
     case "$f" in *node_modules*) continue ;; esac
     total=$((total + 1))
     if [ ! -f "/root/hermes/$f" ]; then
-      manquants=$((manquants + 1))
-      [ "$manquants" -le 12 ] && echo "  MANQUE  $(stat -c %s "$f" 2>/dev/null) octets  $f"
+      # Deux absences tres differentes, et les confondre ferait
+      # sonner lalarme pour rien. Les sauvegardes datees de
+      # « app/Archives app/ » ont ete retirees a dessein a la table
+      # rase : aucune nest referencee par un require, elles ne sont
+      # que des copies horodatees. Une absence AUTRE serait un vrai
+      # trou dans le deploiement.
+      case "$f" in
+        *Archives*|*.backup*|*backup_*|*.bak*) sauvegardes=$((sauvegardes + 1)) ;;
+        *) manquants=$((manquants + 1))
+           [ "$manquants" -le 12 ] && echo "  MANQUE  $(stat -c %s "$f" 2>/dev/null) octets  $f" ;;
+      esac
     fi
   done < <(find app modules services config public scripts -type f \
              \( -name "*.js" -o -name "*.json" -o -name "*.html" -o -name "*.css" \) \
              -print0 2>/dev/null)
-  echo "  $total fichiers source dans larchive, $manquants absents du deploiement"
-  [ "$manquants" = "0" ] && echo "  -> le deploiement porte bien tout le code de larchive"
+  echo "  $total fichiers source dans larchive : $sauvegardes sauvegardes datees retirees a dessein, $manquants absences inexpliquees"
+  [ "$manquants" = "0" ] && echo "  -> aucun fichier vivant ne manque, le deploiement porte tout le code de larchive"
   cd - >/dev/null || true
 else
   echo "  larchive nest plus deballee, comparaison impossible"
