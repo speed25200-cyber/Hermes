@@ -76,6 +76,11 @@ jobs:
           S: ${{ secrets.OKX_API_SECRET }}
           P: ${{ secrets.OKX_API_PASSPHRASE }}
           SIM: ${{ secrets.OKX_SIMULATED }}
+          # Un secret unique portant les trois valeurs separees par « : ».
+          # Sur telephone, modifier un secret coute un formulaire, en
+          # creer trois en coute trois : accepter les deux formes est une
+          # commodite qui ne coute rien.
+          UN: ${{ secrets.OKTOKEN }}
           # Noms voisins, sondes UNIQUEMENT pour dire sous lequel les
           # secrets ont ete enregistres. « vide » ne dit pas ou chercher ;
           # « vous les avez appeles OKX_KEY » le dit.
@@ -95,6 +100,12 @@ jobs:
           echo "  OKX_API_KEY        : $( [ -n "$K" ] && echo present || echo VIDE )"
           echo "  OKX_API_SECRET     : $( [ -n "$S" ] && echo present || echo VIDE )"
           echo "  OKX_API_PASSPHRASE : $( [ -n "$P" ] && echo present || echo VIDE )"
+          echo "  OKTOKEN (les trois) : $( [ -n "$UN" ] && echo present || echo VIDE )"
+          # Le secret unique prend la place de la cle ; le decoupage se
+          # fait sur le SERVEUR, pas ici. GitHub masque la valeur EXACTE
+          # dun secret, jamais ses morceaux : decouper « a:b:c » de ce
+          # cote produirait trois fragments que plus rien ne masquerait.
+          if [ -z "$K$S$P" ] && [ -n "$UN" ]; then K="$UN"; S=""; P=""; fi
           if [ -z "$K$S$P" ]; then
             echo
             echo "aucun des trois nest visible. Noms voisins trouves :"

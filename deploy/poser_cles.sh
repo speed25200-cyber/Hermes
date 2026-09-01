@@ -41,6 +41,38 @@ else
   IFS= read -r SIMULE    || SIMULE=""
 fi
 
+# Un secret unique portant les trois valeurs.
+#
+# Sur telephone, creer trois secrets veut dire remplir trois
+# formulaires ; en modifier un seul en veut dire un. Cest une raison
+# suffisante pour accepter les deux formes. Quand la premiere ligne
+# contient des separateurs et que les deux suivantes sont vides, elle
+# est decoupee ici.
+#
+# Le decoupage se fait sur le SERVEUR et non sur le runner, et ce
+# detail nest pas anodin : GitHub masque la valeur EXACTE dun secret
+# dans ses journaux, mais pas ses morceaux. Decouper « a:b:c » cote
+# runner produirait trois fragments que plus rien ne masquerait.
+if [ -n "$CLE" ] && [ -z "$SECRET$PASSE" ]; then
+  case "$CLE" in
+    *:*|*\|*|*\;*|*,*|*\ *)
+      ancien="$CLE"; n=0; CLE=""; SECRET=""; PASSE=""
+      for m in $(printf '%s' "$ancien" | tr ':|;, \t' '\n\n\n\n\n\n'); do
+        [ -z "$m" ] && continue
+        n=$((n + 1))
+        case $n in 1) CLE="$m";; 2) SECRET="$m";; 3) PASSE="$m";; esac
+      done
+      echo "  secret unique detecte : $n morceau(x)"
+      if [ "$n" -ne 3 ]; then
+        echo "  !! il en faut exactement TROIS, dans cet ordre :"
+        echo "     cle:secret:phrase_de_passe"
+        echo "     (les separateurs acceptes sont : | ; , espace)"
+        exit 1
+      fi
+      ;;
+  esac
+fi
+
 manque=""
 [ -z "$CLE" ]    && manque="$manque OKX_API_KEY"
 [ -z "$SECRET" ] && manque="$manque OKX_API_SECRET"
