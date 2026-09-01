@@ -67,12 +67,17 @@ l'urgence, cela ne l'annule pas — l'historique garde ce qu'on y a
 
 ## Réglages qui décident du comportement
 
-**Correction.** Ce paragraphe renvoyait à `config/strategy.current.json`
-et `config/policy.json`. Vérification faite, le moteur ne lit ni l'un
-ni l'autre : `strategy.current.json` n'est référencé que par
-`modules/engine.js`, qu'`app/main.js` ne charge jamais, et les seuils
-de sortie sont écrits en dur dans `app/main.js`. Régler ces fichiers ne
-change donc rien — et c'est le genre d'erreur qui coûte une soirée.
+**Correction, elle-même corrigée.** Ce paragraphe renvoyait à
+`config/strategy.current.json` et `config/policy.json`. Vérification
+faite : `strategy.current.json` n'est référencé que par
+`modules/engine.js`, qu'`app/main.js` ne charge jamais — le régler ne
+change rien. `config/policy.json`, en revanche, **est lu** : il porte
+les seuils de score du moteur générique (`minLiveScoreAbs`,
+`cooldownLiveSec`…). Ses champs de sortie (`slInitPctOfMargin` −40 %…)
+appartiennent à l'ancien chemin ; les sorties des entrées actuelles
+viennent de la constante `SPEC` d'`app/main.js` (take-profit +80 % de
+la marge, stop −30 %, trail), modulée stratégie par stratégie par les
+`ov` du roster HERMES15.
 
 Ce qui décide réellement :
 
