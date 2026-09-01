@@ -55,17 +55,21 @@
 :root {
   color-scheme: dark;
 
-  --fond:        #08090b;
-  --fond-2:      #0c0e12;
-  --surface:     #101318;
-  --surface-2:   #161a21;
-  --surface-3:   #1d222b;
-  --bord:        #1e232c;
-  --bord-vif:    #2a313d;
+  /* L'obsidienne : un noir qui penche vers l'indigo, jamais un gris.
+     La profondeur vient de trois etages — le fond et ses lueurs
+     fixes, les surfaces de verre translucide posees dessus, et le
+     grain qui unit le tout. */
+  --fond:        #05070d;
+  --fond-2:      #090d16;
+  --surface:     #0d1119;
+  --surface-2:   #141927;
+  --surface-3:   #1c2336;
+  --bord:        rgba(151,168,205,.10);
+  --bord-vif:    rgba(151,168,205,.20);
 
-  --texte:       #f2f4f8;
-  --texte-2:     #9aa3b2;
-  --texte-3:     #626b7a;
+  --texte:       #eef1fa;
+  --texte-2:     #97a1bc;
+  --texte-3:     #5d6780;
 
   --long:        #3987e5;
   --short:       #d95926;
@@ -76,11 +80,18 @@
   --gain:        #22c55e;
   --perte:       #ef4444;
 
-  --lueur:       0 0 0 1px rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.4), 0 8px 32px -8px rgba(0,0,0,.6);
-  --lueur-haute: 0 0 0 1px rgba(255,255,255,.07), 0 2px 4px rgba(0,0,0,.4), 0 16px 48px -12px rgba(0,0,0,.7);
+  /* La paire Astra : glace et violet. C'est la voix de la MARQUE et
+     du chrome — jamais celle des donnees, qui gardent leurs couleurs
+     validees. */
+  --astra-a:     #7fb2ff;
+  --astra-b:     #a78bfa;
+  --astra-encre: #081022;
 
-  --r:  14px;
-  --r2: 10px;
+  --lueur:       0 0 0 1px rgba(160,180,230,.05), 0 1px 2px rgba(2,4,12,.5), 0 12px 40px -12px rgba(2,4,12,.65);
+  --lueur-haute: 0 0 0 1px rgba(160,180,230,.09), 0 2px 6px rgba(2,4,12,.5), 0 26px 70px -18px rgba(2,4,12,.85);
+
+  --r:  18px;
+  --r2: 12px;
   --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
 
@@ -90,23 +101,26 @@
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --fond:      #f6f7f9;
-  --fond-2:    #eef0f4;
+  --fond:      #f2f4fa;
+  --fond-2:    #e8ecf5;
   --surface:   #ffffff;
-  --surface-2: #f4f5f8;
-  --surface-3: #e9ebf0;
-  --bord:      #e2e5eb;
-  --bord-vif:  #cdd2db;
-  --texte:     #0a0c10;
-  --texte-2:   #545c6b;
-  --texte-3:   #8b93a1;
+  --surface-2: #f6f8fc;
+  --surface-3: #ebeff7;
+  --bord:      rgba(24,34,64,.09);
+  --bord-vif:  rgba(24,34,64,.17);
+  --texte:     #0b0e16;
+  --texte-2:   #4e586e;
+  --texte-3:   #8a93a8;
   --long:      #2a78d6;
   --short:     #eb6834;
   --serie:     #2a78d6;
   --gain:      #16a34a;
   --perte:     #dc2626;
-  --lueur:       0 0 0 1px rgba(10,12,16,.05), 0 1px 2px rgba(10,12,16,.04), 0 8px 24px -10px rgba(10,12,16,.12);
-  --lueur-haute: 0 0 0 1px rgba(10,12,16,.07), 0 2px 6px rgba(10,12,16,.06), 0 18px 40px -14px rgba(10,12,16,.18);
+  --astra-a:   #2f6fe4;
+  --astra-b:   #7a5af0;
+  --astra-encre: #ffffff;
+  --lueur:       0 0 0 1px rgba(16,22,44,.05), 0 1px 2px rgba(16,22,44,.05), 0 10px 30px -12px rgba(16,22,44,.14);
+  --lueur-haute: 0 0 0 1px rgba(16,22,44,.08), 0 2px 6px rgba(16,22,44,.07), 0 22px 50px -16px rgba(16,22,44,.22);
 }
 
 /* La preference systeme, quand aucun choix explicite na ete fait.
@@ -117,23 +131,26 @@
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     color-scheme: light;
-    --fond:      #f6f7f9;
-    --fond-2:    #eef0f4;
+    --fond:      #f2f4fa;
+    --fond-2:    #e8ecf5;
     --surface:   #ffffff;
-    --surface-2: #f4f5f8;
-    --surface-3: #e9ebf0;
-    --bord:      #e2e5eb;
-    --bord-vif:  #cdd2db;
-    --texte:     #0a0c10;
-    --texte-2:   #545c6b;
-    --texte-3:   #8b93a1;
+    --surface-2: #f6f8fc;
+    --surface-3: #ebeff7;
+    --bord:      rgba(24,34,64,.09);
+    --bord-vif:  rgba(24,34,64,.17);
+    --texte:     #0b0e16;
+    --texte-2:   #4e586e;
+    --texte-3:   #8a93a8;
     --long:      #2a78d6;
     --short:     #eb6834;
     --serie:     #2a78d6;
     --gain:      #16a34a;
     --perte:     #dc2626;
-    --lueur:       0 0 0 1px rgba(10,12,16,.05), 0 1px 2px rgba(10,12,16,.04), 0 8px 24px -10px rgba(10,12,16,.12);
-    --lueur-haute: 0 0 0 1px rgba(10,12,16,.07), 0 2px 6px rgba(10,12,16,.06), 0 18px 40px -14px rgba(10,12,16,.18);
+    --astra-a:   #2f6fe4;
+    --astra-b:   #7a5af0;
+    --astra-encre: #ffffff;
+    --lueur:       0 0 0 1px rgba(16,22,44,.05), 0 1px 2px rgba(16,22,44,.05), 0 10px 30px -12px rgba(16,22,44,.14);
+    --lueur-haute: 0 0 0 1px rgba(16,22,44,.08), 0 2px 6px rgba(16,22,44,.07), 0 22px 50px -16px rgba(16,22,44,.22);
   }
 }
 
@@ -141,7 +158,15 @@
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
-  background: var(--fond);
+  /* Le fond n'est pas une couleur, c'est un eclairage : une lueur
+     indigo qui tombe du haut, un souffle violet dans le coin bas, et
+     l'obsidienne dessous. Fixe : la lumiere n'accompagne pas le
+     defilement, elle habite la piece. */
+  background:
+    radial-gradient(1100px 540px at 50% -160px, color-mix(in oklab, var(--astra-a) 11%, transparent), transparent 70%),
+    radial-gradient(950px 640px at 90% 115%, color-mix(in oklab, var(--astra-b) 8%, transparent), transparent 70%),
+    var(--fond);
+  background-attachment: fixed;
   color: var(--texte);
   font-family: var(--sans);
   font-size: 14px;
@@ -152,6 +177,18 @@ body {
   overflow-x: hidden;
 }
 [hidden] { display: none !important; }
+
+/* Le grain : un bruit fin et immobile sur toute la page. C'est lui
+   qui fait la difference entre un aplat numerique et une matiere —
+   quatre pour cent d'opacite, personne ne le voit, tout le monde le
+   sent. */
+body::after {
+  content: ""; position: fixed; inset: 0; z-index: 90; pointer-events: none;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  opacity: .042;
+}
+:root[data-theme="light"] body::after { opacity: .028; }
+@media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) body::after { opacity: .028; } }
 h1,h2,h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
 
 /* ============================================================
@@ -176,16 +213,16 @@ h1,h2,h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
   will-change: transform;
 }
 .aurore i:nth-child(1) {
-  background: radial-gradient(circle, rgba(57,135,229,.30), transparent 68%);
-  top: 4%; left: 8%; animation: derive1 34s var(--doux) infinite alternate;
+  background: radial-gradient(circle, rgba(90,140,255,.26), transparent 68%);
+  top: 4%; left: 8%; animation: derive1 38s var(--doux) infinite alternate;
 }
 .aurore i:nth-child(2) {
-  background: radial-gradient(circle, rgba(139,92,246,.24), transparent 68%);
-  top: 28%; right: 6%; animation: derive2 44s var(--doux) infinite alternate;
+  background: radial-gradient(circle, rgba(147,102,255,.22), transparent 68%);
+  top: 28%; right: 6%; animation: derive2 48s var(--doux) infinite alternate;
 }
 .aurore i:nth-child(3) {
-  background: radial-gradient(circle, rgba(34,197,94,.14), transparent 70%);
-  bottom: 6%; left: 34%; animation: derive3 52s var(--doux) infinite alternate;
+  background: radial-gradient(circle, rgba(46,196,242,.11), transparent 70%);
+  bottom: 6%; left: 34%; animation: derive3 56s var(--doux) infinite alternate;
 }
 @keyframes derive1 { to { transform: translate3d(18vmax, 10vmax, 0) scale(1.25); } }
 @keyframes derive2 { to { transform: translate3d(-16vmax, 14vmax, 0) scale(1.15); } }
@@ -201,9 +238,17 @@ h1,h2,h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
 /* ============================================================ EN-TETE */
 .entete {
   position: sticky; top: 0; z-index: 40;
-  backdrop-filter: blur(20px) saturate(1.6);
-  background: color-mix(in oklab, var(--fond) 72%, transparent);
-  border-bottom: 1px solid var(--bord);
+  backdrop-filter: blur(22px) saturate(1.8);
+  -webkit-backdrop-filter: blur(22px) saturate(1.8);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--fond) 82%, transparent),
+    color-mix(in srgb, var(--fond) 62%, transparent));
+}
+/* Le filet du bas : une ligne qui respire au centre et s'efface aux
+   bords — une regle posee, pas un trait de tableur. */
+.entete::after {
+  content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 1px;
+  background: linear-gradient(90deg, transparent 2%, var(--bord-vif) 30%, var(--bord-vif) 70%, transparent 98%);
 }
 .entete-int {
   max-width: 1360px; margin: 0 auto; padding: 12px 20px;
@@ -225,7 +270,7 @@ h1,h2,h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
   font-size: 17px; font-weight: 620; letter-spacing: -0.035em;
 }
 .marque-ha .astra {
-  background: linear-gradient(105deg, color-mix(in oklab, var(--texte) 82%, var(--long)) 20%, var(--long));
+  background: linear-gradient(105deg, var(--astra-a), var(--astra-b) 85%);
   -webkit-background-clip: text; background-clip: text; color: transparent;
   font-weight: 700;
 }
@@ -234,14 +279,14 @@ h1,h2,h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
   background: linear-gradient(150deg,
     color-mix(in oklab, var(--texte) 8%, transparent),
     color-mix(in oklab, var(--texte) 2%, transparent) 55%,
-    color-mix(in oklab, var(--long) 10%, transparent));
+    color-mix(in oklab, var(--astra-b) 12%, transparent));
   border: 1px solid color-mix(in oklab, var(--texte) 15%, transparent);
   box-shadow: inset 0 1px 0 color-mix(in oklab, var(--texte) 12%, transparent),
               0 3px 10px rgb(0 0 0 / .28);
 }
 .tuile-verre svg { display: block; overflow: visible; }
-.ha-s1 { stop-color: color-mix(in oklab, var(--texte) 92%, var(--long)); }
-.ha-s2 { stop-color: var(--long); }
+.ha-s1 { stop-color: color-mix(in oklab, var(--texte) 90%, var(--astra-a)); }
+.ha-s2 { stop-color: var(--astra-a); }
 .marque-ha .ha-astre {
   opacity: 0; transform-box: fill-box; transform-origin: center;
   animation: ha-nait .7s var(--ressort) .25s forwards;
@@ -265,7 +310,9 @@ h1,h2,h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
   display: inline-flex; align-items: center; gap: 7px;
   font-size: 12px; font-weight: 500; color: var(--texte-2);
   padding: 5px 11px 5px 9px; border-radius: 999px;
-  background: var(--surface); border: 1px solid var(--bord);
+  background: color-mix(in srgb, var(--surface) 55%, transparent);
+  border: 1px solid var(--bord);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--texte) 4%, transparent);
   white-space: nowrap; transition: border-color .3s, color .3s;
 }
 .pt { position: relative; width: 7px; height: 7px; border-radius: 50%; background: var(--texte-3); flex: none; }
@@ -292,7 +339,10 @@ h1,h2,h3 { margin: 0; font-weight: 600; letter-spacing: -0.02em; }
 button {
   font: inherit; font-weight: 550; letter-spacing: -0.01em; cursor: pointer;
   border-radius: var(--r2); border: 1px solid var(--bord-vif);
-  background: var(--surface); color: var(--texte);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--surface-3) 55%, transparent),
+    color-mix(in srgb, var(--surface) 65%, transparent));
+  color: var(--texte);
   padding: 8px 15px; position: relative; overflow: hidden;
   transition: background .18s var(--doux), border-color .18s, transform .12s var(--ressort), box-shadow .18s;
 }
@@ -310,10 +360,16 @@ button::before {
 button:hover:not(:disabled)::before { transform: translateX(130%); }
 
 button.primaire {
-  background: linear-gradient(180deg, var(--texte) 0%, color-mix(in oklab, var(--texte) 86%, var(--fond)) 100%);
-  color: var(--fond); border-color: transparent; font-weight: 600;
+  background: linear-gradient(135deg, var(--astra-a), var(--astra-b));
+  color: var(--astra-encre); border-color: transparent; font-weight: 650;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.28),
+              0 10px 26px -12px color-mix(in oklab, var(--astra-b) 65%, transparent);
 }
-button.primaire:hover:not(:disabled) { background: var(--texte); }
+button.primaire:hover:not(:disabled) {
+  background: linear-gradient(135deg, color-mix(in oklab, var(--astra-a) 88%, white), color-mix(in oklab, var(--astra-b) 88%, white));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.32),
+              0 14px 34px -12px color-mix(in oklab, var(--astra-b) 75%, transparent);
+}
 button.stop { border-color: color-mix(in oklab, var(--critique) 55%, transparent); color: var(--critique); background: color-mix(in oklab, var(--critique) 9%, var(--surface)); }
 button.mini { padding: 6px 11px; font-size: 12.5px; }
 button.icone { padding: 8px 10px; }
@@ -351,11 +407,16 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
    tabulaires, sinon la largeur saute a chaque changement de valeur et
    tout le bloc tremble. */
 .hero-val {
-  font-size: clamp(46px, 8.5vw, 76px);
+  font-size: clamp(46px, 8.5vw, 78px);
   font-weight: 270; letter-spacing: -0.045em; line-height: .95;
   font-variation-settings: "opsz" 32;
   font-variant-numeric: tabular-nums;
   display: flex; align-items: baseline; gap: .18em;
+  /* Le chiffre est en lumiere, pas en aplat : blanc qui glisse vers
+     la glace. Les enfants qui portent leur propre couleur (la devise)
+     la gardent. */
+  background: linear-gradient(180deg, var(--texte) 35%, color-mix(in oklab, var(--texte) 60%, var(--astra-a)));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .hero-val .dev { font-size: .34em; font-weight: 400; color: var(--texte-3); letter-spacing: -0.02em; }
 .hero-bas { display: flex; align-items: center; gap: 11px; margin-top: 16px; flex-wrap: wrap; }
@@ -382,16 +443,24 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
 }
 .tuile {
   position: relative; overflow: hidden;
-  background: linear-gradient(160deg, var(--surface) 0%, var(--fond-2) 100%);
+  background: linear-gradient(165deg,
+    color-mix(in srgb, var(--surface-2) 70%, transparent),
+    color-mix(in srgb, var(--surface) 72%, transparent) 62%);
   border: 1px solid var(--bord); border-radius: var(--r);
-  padding: 16px 18px; box-shadow: var(--lueur);
+  padding: 16px 18px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--texte) 5%, transparent), var(--lueur);
   transition: transform .35s var(--ressort), box-shadow .35s var(--doux), border-color .35s;
 }
-.tuile:hover { transform: translateY(-3px); box-shadow: var(--lueur-haute); border-color: var(--bord-vif); }
+.tuile:hover {
+  transform: translateY(-3px); border-color: var(--bord-vif);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--texte) 7%, transparent),
+              0 22px 55px -22px color-mix(in oklab, var(--astra-a) 22%, transparent),
+              var(--lueur-haute);
+}
 /* Un filet lumineux en haut de chaque tuile, revele au survol. */
 .tuile::after {
   content: ""; position: absolute; top: 0; left: 12%; right: 12%; height: 1px;
-  background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--serie) 65%, transparent), transparent);
+  background: linear-gradient(90deg, transparent, var(--astra-a), var(--astra-b), transparent);
   opacity: 0; transition: opacity .35s;
 }
 .tuile:hover::after { opacity: 1; }
@@ -436,13 +505,17 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
 
 /* ============================================================ CARTES */
 .bloc {
-  background: linear-gradient(165deg, var(--surface) 0%, var(--fond-2) 130%);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--surface-2) 62%, transparent),
+    color-mix(in srgb, var(--surface) 78%, transparent) 60%);
   border: 1px solid var(--bord); border-radius: var(--r);
-  box-shadow: var(--lueur); margin-bottom: 20px; overflow: hidden;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--texte) 5%, transparent), var(--lueur);
+  margin-bottom: 20px; overflow: hidden;
 }
 .bloc-tete {
   display: flex; align-items: center; gap: 11px; flex-wrap: wrap;
   padding: 15px 18px; border-bottom: 1px solid var(--bord);
+  background: color-mix(in srgb, var(--texte) 1.5%, transparent);
 }
 .bloc-tete h2 { font-size: 14.5px; font-weight: 600; }
 .bloc-corps { padding: 18px; }
@@ -451,6 +524,13 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
 .vide { padding: 46px 18px; text-align: center; color: var(--texte-3); font-size: 13.5px; }
 .vide strong { display: block; color: var(--texte-2); font-size: 15px; font-weight: 600; margin-bottom: 6px; letter-spacing: -0.02em; }
 .vide svg { display: block; margin: 0 auto 14px; opacity: .3; }
+
+/* Les barres de defilement, dans la matiere de la page. */
+.journal::-webkit-scrollbar, .roule::-webkit-scrollbar, textarea::-webkit-scrollbar { width: 9px; height: 9px; }
+.journal::-webkit-scrollbar-thumb, .roule::-webkit-scrollbar-thumb, textarea::-webkit-scrollbar-thumb {
+  background: var(--bord-vif); border-radius: 5px; border: 2px solid transparent; background-clip: padding-box;
+}
+.journal::-webkit-scrollbar-track, .roule::-webkit-scrollbar-track, textarea::-webkit-scrollbar-track { background: transparent; }
 
 /* Entree en cascade. Le delai est pose par le script, pas ici : il
    depend du rang de la carte, que le CSS ne connait pas. */
@@ -461,16 +541,24 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
 .entre { animation: monter .5s var(--ressort) both; }
 
 /* ============================================================ POSITIONS */
-.positions { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(410px, 1fr)); }
+.positions { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); }
 @media (max-width: 560px) { .positions { grid-template-columns: 1fr; } }
 
 .pos {
   position: relative; overflow: hidden;
-  border: 1px solid var(--bord); border-radius: 13px;
-  background: var(--surface);
+  border: 1px solid var(--bord); border-radius: 15px;
+  background: linear-gradient(175deg,
+    color-mix(in srgb, var(--surface-2) 62%, transparent),
+    color-mix(in srgb, var(--surface) 80%, transparent) 55%);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--texte) 4%, transparent);
   transition: border-color .35s, box-shadow .35s var(--doux), transform .35s var(--ressort);
 }
-.pos:hover { border-color: var(--bord-vif); box-shadow: var(--lueur-haute); transform: translateY(-2px); }
+.pos:hover {
+  border-color: var(--bord-vif); transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--texte) 6%, transparent),
+              0 20px 50px -20px color-mix(in oklab, var(--teinte, var(--astra-a)) 25%, transparent),
+              var(--lueur-haute);
+}
 /* Un liseré vertical teinte par le sens. Il permet de repérer un long
    dun short en balayant la colonne du regard, sans lire. */
 .pos::before {
@@ -480,7 +568,7 @@ button.icone:hover svg { transform: rotate(-20deg) scale(1.1); }
 .pos.long  { --teinte: var(--long); }
 .pos.short { --teinte: var(--short); }
 
-.pos-tete { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 13px 15px 11px; }
+.pos-tete { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; padding: 13px 15px 11px; }
 .sym { font-size: 15.5px; font-weight: 620; letter-spacing: -0.035em; }
 .sens {
   display: inline-flex; align-items: center; gap: 4px;
@@ -642,8 +730,10 @@ tbody tr:hover { background: var(--surface-2); }
    diagonale a promis plus quelle na tenu.
    ============================================================ */
 .nav-pages {
-  display: flex; gap: 2px; background: var(--fond-2);
-  border: 1px solid var(--bord); border-radius: 10px; padding: 3px;
+  display: flex; gap: 2px;
+  background: color-mix(in srgb, var(--fond-2) 62%, transparent);
+  border: 1px solid var(--bord); border-radius: 12px; padding: 3px;
+  box-shadow: inset 0 1px 2px rgba(2,4,12,.25);
 }
 .nav-pages button {
   border: 0; background: transparent; color: var(--texte-2);
@@ -653,8 +743,11 @@ tbody tr:hover { background: var(--surface-2); }
 }
 .nav-pages button:hover { color: var(--texte); }
 .nav-pages button[aria-pressed="true"] {
-  background: var(--surface); color: var(--texte);
-  box-shadow: 0 1px 5px rgb(0 0 0 / .2);
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--surface-3) 85%, transparent),
+    color-mix(in srgb, var(--surface-2) 85%, transparent));
+  color: var(--texte);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--texte) 7%, transparent), 0 1px 6px rgb(0 0 0 / .25);
 }
 /* Le selecteur de langue : la meme piece que la nav des pages, en
    plus etroit — deux lettres suffisent a se reconnaitre. */
@@ -670,7 +763,7 @@ tbody tr:hover { background: var(--surface-2); }
 .labo-compte .grand {
   font-size: 42px; font-weight: 650; letter-spacing: -0.045em; line-height: 1;
   font-variation-settings: "opsz" 32; font-variant-numeric: tabular-nums;
-  background: linear-gradient(120deg, var(--long), var(--bon));
+  background: linear-gradient(120deg, var(--astra-a), var(--astra-b));
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .labo-compte .sur { color: var(--texte-3); font-size: 12px; margin-top: 4px; }
@@ -686,14 +779,23 @@ tbody tr:hover { background: var(--surface-2); }
 }
 .perle {
   position: relative; overflow: hidden;
-  border: 1px solid var(--bord); border-radius: 13px; background: var(--surface);
+  border: 1px solid var(--bord); border-radius: 15px;
+  background: linear-gradient(175deg,
+    color-mix(in srgb, var(--surface-2) 62%, transparent),
+    color-mix(in srgb, var(--surface) 80%, transparent) 55%);
   padding: 13px 15px 14px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--texte) 4%, transparent);
   transition: border-color .3s, transform .35s var(--ressort), box-shadow .35s;
 }
-.perle:hover { border-color: var(--bord-vif); transform: translateY(-2px); box-shadow: var(--lueur-haute); }
+.perle:hover {
+  border-color: var(--bord-vif); transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--texte) 6%, transparent),
+              0 20px 50px -20px color-mix(in oklab, var(--astra-b) 22%, transparent),
+              var(--lueur-haute);
+}
 .perle::before {
   content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
-  background: linear-gradient(90deg, var(--long), var(--bon));
+  background: linear-gradient(90deg, var(--astra-a), var(--astra-b));
 }
 .perle .p-tete { display: flex; align-items: baseline; gap: 8px; }
 .perle .p-nom { font-size: 16.5px; font-weight: 700; letter-spacing: -0.02em; }
@@ -711,7 +813,7 @@ tbody tr:hover { background: var(--surface-2); }
 }
 .fenetre .f-barre i {
   position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 3px;
-  background: linear-gradient(90deg, color-mix(in oklab, var(--long) 70%, var(--bon)), var(--bon));
+  background: linear-gradient(90deg, color-mix(in oklab, var(--long) 45%, transparent), var(--long));
   transition: width 1s var(--doux);
 }
 .fenetre .f-barre s {
@@ -791,7 +893,7 @@ tbody tr:hover { background: var(--surface-2); }
 .meth-pas { border: 1px solid var(--bord); border-radius: 12px; background: var(--surface); padding: 13px 15px; position: relative; overflow: hidden; }
 .meth-pas .num {
   font-family: var(--mono); font-size: 26px; font-weight: 650; line-height: 1;
-  background: linear-gradient(120deg, var(--long), var(--bon));
+  background: linear-gradient(120deg, var(--astra-a), var(--astra-b));
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .meth-pas h3 { margin: 7px 0 5px; font-size: 13px; letter-spacing: -0.01em; }
@@ -848,7 +950,7 @@ tbody tr:hover { background: var(--surface-2); }
   animation: histo-pousse .8s var(--doux) backwards;
 }
 .histo .h-barre.vide { background: var(--fond-2); border: 1px dashed var(--bord-vif); }
-.histo .h-barre.actuelle { background: linear-gradient(180deg, var(--bon), color-mix(in oklab, var(--bon) 30%, transparent)); }
+.histo .h-barre.actuelle { background: linear-gradient(180deg, var(--astra-a), color-mix(in oklab, var(--astra-b) 35%, transparent)); }
 .histo .h-barre:hover { opacity: .75; }
 @keyframes histo-pousse { from { height: 3px; } }
 
@@ -1003,10 +1105,10 @@ tbody tr:hover { background: var(--surface-2); }
           <ellipse class="ha-orbite" cx="12" cy="12" rx="9.6" ry="3.9"
                    transform="rotate(-26 12 12)" stroke="var(--texte-3)" stroke-width="1"/>
           <ellipse class="ha-comete" cx="12" cy="12" rx="9.6" ry="3.9"
-                   transform="rotate(-26 12 12)" stroke="var(--long)" stroke-width="1.5" stroke-linecap="round"/>
+                   transform="rotate(-26 12 12)" stroke="var(--astra-b)" stroke-width="1.5" stroke-linecap="round"/>
           <path class="ha-astre" d="M12 2.8 L13.7 10.3 L21.2 12 L13.7 13.7 L12 21.2 L10.3 13.7 L2.8 12 L10.3 10.3 Z"
                 fill="url(#ha-argent)"/>
-          <circle class="ha-etincelle" cx="18.6" cy="5" r="0.9" fill="var(--long)"/>
+          <circle class="ha-etincelle" cx="18.6" cy="5" r="0.9" fill="var(--astra-a)"/>
         </svg>
       </span>
       <span>Hermes<span class="astra">-Astra</span></span>
