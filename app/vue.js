@@ -621,8 +621,9 @@ function detailTuile(cle, d) {
       + ligne(t("tuile.d.dispo"), nf(Number(fu.available) || 0) + " $");
   if (cle === "gain") {
     const pj = Number(pe.dailyPnL) || 0;
+    // Le total est deja le sous-titre de la tuile : le tiroir n'apporte
+    // que ce qui ne s'y lit pas.
     return ligne(t("tuile.d.trades24"), String(Number(pe.dailyTrades) || 0))
-      + ligne(t("tuile.trades", { n: Number(pe.totalTrades) || 0 }), "")
       + ligne(t("tuile.d.volume"), nf(Number(pe.dailyVolume) || 0) + " $")
       + ligne(t("tuile.d.pnljour"), usd(pj), signe(pj));
   }
