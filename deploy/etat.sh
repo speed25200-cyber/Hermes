@@ -80,6 +80,26 @@ if [ -f "$DIR/.env" ]; then
 fi
 echo
 
+echo "===== ce que limport filtre a pu laisser derriere ====="
+# Limport a ecarte tout fichier de plus de 400 Ko, plus data/ et logs/.
+# La question qui compte est : le moteur a-t-il besoin de quelque chose
+# qui est reste dans larchive ? Il ne lit que trois fichiers de
+# configuration — tous importes — et des fichiers quil ecrit lui-meme.
+# Le seul candidat serieux est un modele deja entraine.
+if [ -f "$DIR/data/models/alpha.json" ]; then
+  echo "  modele en place : $(stat -c %s "$DIR/data/models/alpha.json") octets, ecrit $(stat -c %y "$DIR/data/models/alpha.json" | cut -d. -f1)"
+else
+  echo "  pas de modele dans $DIR/data/models/ (le moteur en construit un en tournant)"
+fi
+if [ -d /root/astra/Hermes_Astra/data ]; then
+  echo "  larchive dorigine contient dans data/ :"
+  find /root/astra/Hermes_Astra/data -maxdepth 2 -type f -printf "    %8s  %P\n" 2>/dev/null | sort -rn | head -8
+  echo "  -> si un modele y figure et pas ci-dessus, il faut le copier."
+else
+  echo "  larchive dorigine nest plus deballee sur la machine"
+fi
+echo
+
 echo "===== journal, les 25 dernieres lignes ====="
 journalctl -u hermes -n 25 --no-pager 2>/dev/null \
   | sed -E "s/^[A-Za-z]+ [0-9]+ ([0-9]+:[0-9]+):[0-9]+ [^ ]+ [^ ]+: /\1 /" || true
