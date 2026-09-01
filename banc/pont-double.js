@@ -74,7 +74,7 @@
       candidats: new Array(20).fill("x"),
       perles: {
         "AXS-USDT-SWAP":  { sig: "run5_5m",       ov: { tpPctMargin: .4, trailActPctMargin: .3, holdMs: 12*3600e3 },
-          mesures: { a: mes(18, 72, 1.90), b: mes(16, 69, 1.52), sel: mes(34, 71, 3.42), val: mes(9, 67, .88) },
+          mesures: { a: mes(18, 72, 1.90), b: mes(16, 69, 1.52), sel: { ...mes(34, 71, 3.42), longs: { trades: 21, winrate: 76 }, shorts: { trades: 13, winrate: 62 } }, val: mes(9, 67, .88) },
           finalistes: [
             { sig: "run5_5m", ov: { tpPctMargin: .4, trailActPctMargin: .3, holdMs: 12*3600e3 }, wr: 71, net: 3.42 },
             { sig: "keltner3", ov: { tpPctMargin: .6, trailActPctMargin: .2, holdMs: 8*3600e3 }, wr: 66, net: 2.10 },

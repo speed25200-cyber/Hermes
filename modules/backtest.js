@@ -130,12 +130,22 @@ function resumer(trades) {
   const n = trades.length;
   const gagnes = trades.filter((t) => t.pnlMarge > 0).length;
   const net = trades.reduce((a, t) => a + t.pnlMarge, 0);
+  // Le partage par SENS : chaque signal est symetrique (long et short),
+  // et « ai-je des strategies short ? » merite une reponse en nombres,
+  // pas en principe.
+  const sens = (d) => {
+    const l = trades.filter((t) => t.dir === d);
+    const g = l.filter((t) => t.pnlMarge > 0).length;
+    return { trades: l.length, winrate: l.length ? (100 * g) / l.length : 0 };
+  };
   return {
     trades: n,
     gagnes,
     winrate: n ? (100 * gagnes) / n : 0,
     netMarge: net,                         // en fraction de marge cumulée
     moyenneMarge: n ? net / n : 0,
+    longs: sens(1),
+    shorts: sens(-1),
   };
 }
 

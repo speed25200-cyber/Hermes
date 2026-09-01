@@ -378,6 +378,7 @@ const Labo = (() => {
         aria-expanded="${ouv}" title="${ech(t("labo.deplier"))}">
         <div class="p-tete"><span class="p-nom">${ech(court(id))}</span><span class="p-sig">${ech(p.sig)}</span>${CHEVRON}</div>
         <div class="p-sorties">${ech(sortiesTxt(ov))}</div>
+        ${m.sel?.longs && m.sel?.shorts ? `<div class="p-sens"><span class="l">↑</span> ${ech(t("labo.sens", { l: m.sel.longs.trades, wl: m.sel.longs.winrate.toFixed(0), s: m.sel.shorts.trades, ws: m.sel.shorts.winrate.toFixed(0) }))}</div>` : ""}
         ${puceGuet(id)}
         <div class="p-fen">
           ${m.sel ? barre(ech(t("labo.selection")), m.sel) : ""}

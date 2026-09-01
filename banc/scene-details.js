@@ -117,6 +117,10 @@ const srv = http.createServer((req, rep) => {
   if (!/bloquée/.test(guet.zec) || !/budget/.test(guet.zec)) dire("guet ZEC : " + guet.zec);
   if (!guet.note) dire("note du guet absente");
 
+  // Le partage par sens d'une perle.
+  const sens = await $(() => document.querySelector('[data-depli="p:AXS-USDT-SWAP"] .p-sens')?.textContent || "");
+  if (!/21 longs/.test(sens) || !/13 shorts/.test(sens)) dire("sens AXS : " + sens);
+
   // Une perle s'ouvre : fenetres A/B et podium.
   await pg.click('[data-depli="p:AXS-USDT-SWAP"]'); await pg.waitForTimeout(400);
   const perle = await $(() => { const c = document.querySelector('[data-depli="p:AXS-USDT-SWAP"]'); return {

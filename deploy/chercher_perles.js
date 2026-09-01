@@ -207,7 +207,9 @@ async function histoire5m(instId) {
 
 /* Une mesure compacte, prete a etre ecrite dans le roster : la page du
    laboratoire montre ces nombres au clic, ils doivent donc exister. */
-const mesure = (r) => ({ trades: r.trades, winrate: +r.winrate.toFixed(1), netMarge: +r.netMarge.toFixed(3) });
+const mesure = (r) => ({ trades: r.trades, winrate: +r.winrate.toFixed(1), netMarge: +r.netMarge.toFixed(3),
+  longs:  r.longs  ? { trades: r.longs.trades,  winrate: +r.longs.winrate.toFixed(1) }  : undefined,
+  shorts: r.shorts ? { trades: r.shorts.trades, winrate: +r.shorts.winrate.toFixed(1) } : undefined });
 const ovDe = (sortie) => ({ tpPctMargin: sortie.tpPctMargin, trailActPctMargin: sortie.trailActPctMargin, holdMs: sortie.holdMs });
 
 function chercherPourInstrument(c5) {
