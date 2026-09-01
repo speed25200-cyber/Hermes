@@ -557,6 +557,112 @@ tbody tr:hover { background: var(--surface-2); }
    La page garde exactement la meme information.
    ============================================================ */
 /* ============================================================
+   Le laboratoire — longlet ou lon consulte ce que le chercheur
+   autonome a trouve. La piece centrale est la carte des perles :
+   chaque strategie retenue posee sur un plan selection x validation,
+   la zone dacceptation dessinee, la diagonale « confirme mieux
+   quannonce ». Le sur-ajustement se VOIT : une perle loin sous la
+   diagonale a promis plus quelle na tenu.
+   ============================================================ */
+.nav-pages {
+  display: flex; gap: 2px; background: var(--fond-2);
+  border: 1px solid var(--bord); border-radius: 10px; padding: 3px;
+}
+.nav-pages button {
+  border: 0; background: transparent; color: var(--texte-2);
+  font: 600 12px/1 var(--sans); letter-spacing: .02em;
+  padding: 7px 13px; border-radius: 8px; cursor: pointer;
+  transition: background .25s, color .25s;
+}
+.nav-pages button:hover { color: var(--texte); }
+.nav-pages button[aria-pressed="true"] {
+  background: var(--surface); color: var(--texte);
+  box-shadow: 0 1px 5px rgb(0 0 0 / .2);
+}
+
+.labo-hero {
+  display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-end;
+  padding: 26px 4px 8px;
+}
+.labo-hero h1 { margin: 0; font-size: 24px; letter-spacing: -0.03em; font-variation-settings: "opsz" 30; }
+.labo-hero .sous { color: var(--texte-2); font-size: 12.5px; max-width: 430px; margin-top: 6px; line-height: 1.55; }
+.labo-compte { margin-left: auto; text-align: right; }
+.labo-compte .grand {
+  font-size: 42px; font-weight: 650; letter-spacing: -0.045em; line-height: 1;
+  font-variation-settings: "opsz" 32; font-variant-numeric: tabular-nums;
+  background: linear-gradient(120deg, var(--long), var(--bon));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.labo-compte .sur { color: var(--texte-3); font-size: 12px; margin-top: 4px; }
+.labo-meta { display: flex; gap: 8px; flex-wrap: wrap; padding: 4px; }
+.labo-meta .g-niv b { font-variant-numeric: tabular-nums; }
+
+.labo-carte { position: relative; }
+.labo-carte svg { display: block; width: 100%; height: auto; }
+
+.labo-perles {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 10px;
+}
+.perle {
+  position: relative; overflow: hidden;
+  border: 1px solid var(--bord); border-radius: 13px; background: var(--surface);
+  padding: 13px 15px 14px;
+  transition: border-color .3s, transform .35s var(--ressort), box-shadow .35s;
+}
+.perle:hover { border-color: var(--bord-vif); transform: translateY(-2px); box-shadow: var(--lueur-haute); }
+.perle::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: linear-gradient(90deg, var(--long), var(--bon));
+}
+.perle .p-tete { display: flex; align-items: baseline; gap: 8px; }
+.perle .p-nom { font-size: 16.5px; font-weight: 700; letter-spacing: -0.02em; }
+.perle .p-sig {
+  margin-left: auto; font-family: var(--mono); font-size: 10.5px;
+  color: var(--texte-2); border: 1px solid var(--bord); border-radius: 6px; padding: 3px 7px;
+}
+.perle .p-sorties { color: var(--texte-3); font-size: 11px; margin-top: 5px; font-variant-numeric: tabular-nums; }
+.perle .p-fen { margin-top: 11px; display: grid; gap: 7px; }
+.fenetre .f-et { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: .07em; color: var(--texte-3); text-transform: uppercase; font-weight: 600; }
+.fenetre .f-et b { color: var(--texte); font-family: var(--mono); font-weight: 500; letter-spacing: 0; text-transform: none; font-size: 11.5px; }
+.fenetre .f-barre {
+  height: 6px; border-radius: 3px; background: var(--fond-2);
+  position: relative; margin-top: 4px; overflow: hidden;
+}
+.fenetre .f-barre i {
+  position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 3px;
+  background: linear-gradient(90deg, color-mix(in oklab, var(--long) 70%, var(--bon)), var(--bon));
+  transition: width 1s var(--doux);
+}
+.fenetre .f-barre s {
+  position: absolute; top: -2px; bottom: -2px; left: 50%; width: 1.5px;
+  background: var(--texte-3); opacity: .6;
+}
+.perle .p-net { margin-top: 10px; font-family: var(--mono); font-size: 11.5px; color: var(--texte-2); }
+.perle .p-net b { color: var(--gain); font-weight: 500; }
+
+.refus-liste { display: grid; gap: 1px; background: var(--bord); border: 1px solid var(--bord); border-radius: 11px; overflow: hidden; }
+.refus {
+  display: flex; gap: 12px; align-items: baseline; background: var(--surface);
+  padding: 9px 13px; font-size: 12px; color: var(--texte-2);
+}
+.refus b { font-size: 12.5px; color: var(--texte); min-width: 52px; font-weight: 600; }
+.refus .r-note { margin-left: auto; color: var(--texte-3); font-family: var(--mono); font-size: 10.5px; white-space: nowrap; }
+
+.labo-vide {
+  border: 1px dashed var(--bord-vif); border-radius: 13px;
+  padding: 26px 20px; text-align: center; color: var(--texte-2); font-size: 13px;
+  line-height: 1.6;
+}
+
+/* Lentree en scene : chaque bloc du laboratoire se pose, en cascade. */
+#page-labo .bloc, #page-labo .labo-hero { animation: labo-pose .6s var(--ressort) backwards; }
+#page-labo .bloc:nth-of-type(2) { animation-delay: .06s; }
+#page-labo .bloc:nth-of-type(3) { animation-delay: .12s; }
+#page-labo .bloc:nth-of-type(4) { animation-delay: .18s; }
+@keyframes labo-pose { from { opacity: 0; transform: translateY(10px); } }
+
+/* ============================================================
    La vue graphique dune position.
 
    Un panneau plein ecran sur telephone, une scene centree sur grand
@@ -700,6 +806,11 @@ tbody tr:hover { background: var(--surface-2); }
     <span class="jeton"><span class="pt" id="pt-moteur"></span><span id="t-moteur">moteur</span></span>
     <span class="jeton" id="j-mode"><span id="t-mode">mode…</span></span>
 
+    <nav class="nav-pages" aria-label="Pages">
+      <button id="nav-marche" aria-pressed="true">Marché</button>
+      <button id="nav-labo" aria-pressed="false">Laboratoire</button>
+    </nav>
+
     <div class="pousse">
       <button class="icone" id="b-theme" title="Clair / sombre" aria-label="Basculer clair ou sombre">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -791,6 +902,38 @@ tbody tr:hover { background: var(--surface-2); }
 
 </div>
 
+<div class="page" id="page-labo" hidden>
+  <div class="labo-hero">
+    <div>
+      <h1>Laboratoire autonome</h1>
+      <div class="sous">Toutes les douze heures, le chercheur rejoue le concours entier&nbsp;:
+        treize signaux, quatre familles de sorties, trois durées — jugés sur deux fenêtres de
+        sélection disjointes, puis validés sur sept jours jamais regardés par le choix.
+        Pas de perle&nbsp;= pas de trade.</div>
+    </div>
+    <div class="labo-compte">
+      <div class="grand" id="lb-n">—</div>
+      <div class="sur" id="lb-sur">perles au roster</div>
+    </div>
+  </div>
+  <div class="labo-meta" id="lb-meta"></div>
+
+  <section class="bloc">
+    <div class="bloc-tete"><h2>La carte des perles</h2><span class="compte" id="lb-carte-n">—</span></div>
+    <div class="bloc-corps labo-carte" id="lb-carte"></div>
+  </section>
+
+  <section class="bloc">
+    <div class="bloc-tete"><h2>Les perles retenues</h2><span class="compte" id="lb-perles-n">—</span></div>
+    <div class="bloc-corps"><div class="labo-perles" id="lb-perles"></div></div>
+  </section>
+
+  <section class="bloc">
+    <div class="bloc-tete"><h2>Écartées — le verdict honnête</h2><span class="compte" id="lb-refus-n">—</span></div>
+    <div class="bloc-corps"><div class="refus-liste" id="lb-refus"></div></div>
+  </section>
+</div>
+
 <div class="voile" id="g-voile" hidden>
   <section class="graphe" role="dialog" aria-modal="true" aria-label="Graphique de la position">
     <header class="g-tete">
@@ -814,5 +957,6 @@ tbody tr:hover { background: var(--surface-2); }
 <script src="/pont.js"></script>
 <script src="/vue.js"></script>
 <script src="/graphe.js"></script>
+<script src="/labo.js"></script>
 </body>
 </html>

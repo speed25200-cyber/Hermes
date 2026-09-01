@@ -1626,6 +1626,33 @@ ipcMain.handle("chandelles", async (_e, p) => {
   }
 });
 
+/* Ce que le laboratoire autonome a trouve : le dernier verdict complet
+   (perles ET refus motives), l'historique des passes, et ce que le
+   moteur joue reellement en ce moment. Lecture de fichiers uniquement —
+   aucune cle requise, la lecture seule y a droit. */
+ipcMain.handle("laboratoire", async () => {
+  try {
+    let roster = null;
+    try { roster = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "roster.json"), "utf8")); }
+    catch {}
+    const historique = [];
+    try {
+      const lignes = fs.readFileSync(path.join(DATADIR, "perles-historique.jsonl"), "utf8")
+        .trim().split("\n").slice(-40);
+      for (const l of lignes) {
+        try {
+          const j = JSON.parse(l);
+          historique.push({ ts: j.ts, dureeS: j.dureeS || 0, perles: Object.keys(j.perles || {}).length });
+        } catch {}
+      }
+    } catch {}
+    const joue = (typeof globalThis.__hermes15Roster === "function") ? globalThis.__hermes15Roster() : null;
+    return { ok: true, roster, historique, joue, ts: tsISO() };
+  } catch (e) {
+    return { ok: false, error: String(e.message || e) };
+  }
+});
+
 ipcMain.handle("fetch-portfolio", async () => {
   try {
     const port = await loadPortfolio();
@@ -2703,6 +2730,14 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
   }
   chargerRoster();
   setInterval(chargerRoster, 60 * 1000);
+  // La page du laboratoire veut savoir ce que le moteur JOUE en ce
+  // moment — qui n'est pas toujours ce que le fichier dit (repli du
+  // 31/08 tant que le chercheur n'a rien ecrit, dernier roster valide
+  // si le fichier devient illisible).
+  globalThis.__hermes15Roster = () => ({
+    source: rosterVu ? "chercheur" : "repli-31/08",
+    strats: Object.fromEntries(Object.entries(STRATS).map(([k, v]) => [k, { sig: v.sig, ov: v.ov }])),
+  });
 
   const lastClosed = {};   // instId -> ts de la dernière bougie 5m traitée
   /* Les évaluateurs vivent dans modules/signaux.js, partagés avec le

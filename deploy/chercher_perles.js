@@ -225,6 +225,7 @@ async function main() {
   console.log(`[PERLES] ${liste.length} candidats : ${liste.map((s) => s.replace("-USDT-SWAP", "")).join(", ")}`);
 
   const perles = {};
+  const refus = {};
   const rapport = [];
   let rang = 0;
   for (const instId of liste) {
@@ -239,7 +240,8 @@ async function main() {
       const c5 = await histoire5m(instId);
       const { perle, candidates, raison } = chercherPourInstrument(c5);
       if (!perle) {
-        rapport.push(`  ${nom.padEnd(10)} — pas de perle (${raison || (candidates + " candidates, aucune positive dans les deux fenetres")})`);
+        refus[instId] = { raison: raison || "aucune concourante positive dans A et B", concourantes: candidates || 0 };
+        rapport.push(`  ${nom.padEnd(10)} — pas de perle (${refus[instId].raison})`);
         continue;
       }
       perles[instId] = {
@@ -254,6 +256,7 @@ async function main() {
         `hold ${perle.sortie.holdMs / 3600e3}h | sel ${perle.sel.trades}t wr ${perle.sel.winrate.toFixed(0)}% net ${perle.sel.netMarge.toFixed(2)} ` +
         `| val ${perle.val.trades}t wr ${perle.val.winrate.toFixed(0)}% net ${perle.val.netMarge.toFixed(2)}`);
     } catch (e) {
+      refus[instId] = { raison: "echec de collecte : " + e.message, concourantes: 0 };
       rapport.push(`  ${nom.padEnd(10)} — echec de collecte : ${e.message}`);
     }
   }
@@ -262,7 +265,10 @@ async function main() {
     genere: new Date().toISOString(),
     fenetres: { jours: JOURS, validationJours: JOURS_VALID, minTradesSel: MIN_TRADES_SEL, minTradesVal: MIN_TRADES_VAL },
     levier: LEVIER,
+    dureeS: Math.round((Date.now() - debut) / 1000),
+    candidats: liste,
     perles,
+    refus,
   };
 
   // Écriture ATOMIQUE : le moteur relit ce fichier à chaud, il ne doit
