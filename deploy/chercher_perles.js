@@ -226,8 +226,15 @@ async function main() {
 
   const perles = {};
   const rapport = [];
+  let rang = 0;
   for (const instId of liste) {
     const nom = instId.replace("-USDT-SWAP", "");
+    // Une ligne AVANT chaque collecte. Elle fait deux metiers : montrer
+    // ou en est une passe de plusieurs minutes, et surtout maintenir en
+    // vie la connexion qui la regarde — un SSH muet quatre minutes se
+    // fait couper par le premier equipement du chemin, et la premiere
+    // passe est morte exactement comme ca.
+    console.log(`[PERLES] ${++rang}/${liste.length} ${nom} : collecte de ${JOURS} j…`);
     try {
       const c5 = await histoire5m(instId);
       const { perle, candidates, raison } = chercherPourInstrument(c5);

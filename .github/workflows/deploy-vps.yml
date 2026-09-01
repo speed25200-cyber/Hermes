@@ -280,7 +280,12 @@ jobs:
         run: |
           # La meme commande que le minuteur systemd, lancee a la main :
           # le verdict complet arrive dans ce journal de run.
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+          # ServerAlive : la recherche a des silences de plusieurs minutes,
+          # et un SSH muet se fait couper en chemin — la premiere passe
+          # est morte d'un Broken pipe a la 5e minute, pas d'une erreur.
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+            "root@$VPS" \
             "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first node deploy/chercher_perles.js"
 
       # Mesure, jamais ecriture. Elle interroge les points PUBLICS dOKX
