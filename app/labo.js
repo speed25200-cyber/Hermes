@@ -131,7 +131,7 @@ const Labo = (() => {
     meta.push(`<button id="lb-chercher" class="primaire" ${prog ? "disabled" : ""}>${ech(prog ? t("labo.enrecherche") : t("labo.lancer"))}</button>`);
     $l("lb-meta").innerHTML = meta.join("");
 
-    rendreCarte(perles);
+    rendreCarte(perles, refus);
     rendrePerles(perles, r);
     rendreRefus(refus);
     rendreMethode();
@@ -140,7 +140,7 @@ const Labo = (() => {
 
   /* — la carte : sélection en x, validation en y — */
 
-  function rendreCarte(perles) {
+  function rendreCarte(perles, refus) {
     const zone = $l("lb-carte");
     const pts = Object.entries(perles).map(([id, p]) => ({
       nom: court(id),
@@ -148,23 +148,32 @@ const Labo = (() => {
       y: p.mesures?.val?.winrate ?? null,
       net: (p.mesures?.sel?.netMarge ?? 0) + (p.mesures?.val?.netMarge ?? 0),
     })).filter((p) => p.x != null && p.y != null);
+    // Les vainqueurs ECARTES aussi ont deux winrates : les poser en
+    // pale repond a « ou est passee ma perle d'hier ? » d'un coup
+    // d'oeil — elle est tombee sous la barre, la voila.
+    const morts = Object.entries(refus || {}).map(([id, r]) => ({
+      nom: court(id),
+      x: r.vainqueur?.mesures?.sel?.winrate ?? null,
+      y: r.vainqueur?.mesures?.val?.winrate ?? null,
+    })).filter((p) => p.x != null && p.y != null);
     $l("lb-carte-n").textContent = pts.length ? t("labo.posees", { n: pts.length }) : "—";
 
-    if (!pts.length) {
+    if (!pts.length && !morts.length) {
       zone.innerHTML = `<div class="labo-vide">${t("labo.carte.vide")}</div>`;
       return;
     }
 
-    const W = Math.max(320, zone.clientWidth || 640), H = Math.min(420, Math.max(300, W * 0.52));
-    const M = { g: 44, d: 16, h: 18, b: 34 };
+    const W = Math.max(340, zone.clientWidth || 640), H = Math.min(620, Math.max(400, W * 0.56));
+    const M = { g: 48, d: 18, h: 20, b: 38 };
     const pw = W - M.g - M.d, ph = H - M.h - M.b;
     let x0 = 40, x1 = 100, y0 = 30, y1 = 100;
     for (const p of pts) { x0 = Math.min(x0, p.x - 5); y0 = Math.min(y0, p.y - 5); }
+    for (const p of morts) { x0 = Math.min(x0, p.x - 5); y0 = Math.min(y0, p.y - 5); }
     const X = (v) => M.g + ((v - x0) / (x1 - x0)) * pw;
     const Y = (v) => M.h + (1 - (v - y0) / (y1 - y0)) * ph;
 
     const netMax = Math.max(0.001, ...pts.map((p) => Math.abs(p.net)));
-    const rayon = (n) => 5 + 9 * Math.sqrt(Math.abs(n) / netMax);
+    const rayon = (n) => 6 + 10 * Math.sqrt(Math.abs(n) / netMax);
 
     let grille = "", grads = "";
     for (let v = Math.ceil(x0 / 10) * 10; v <= x1; v += 10) {
@@ -180,6 +189,13 @@ const Labo = (() => {
        et la diagonale de vérité. */
     const ax = Math.max(x0, 55), ay = Math.max(y0, 50);
     const dx0 = Math.max(x0, y0), dx1 = Math.min(x1, y1);
+
+    const cendres = morts.map((p, i) => `
+      <g class="lc-cendre" style="animation-delay:${i * 40}ms">
+        <circle cx="${X(p.x).toFixed(1)}" cy="${Y(p.y).toFixed(1)}" r="4" fill="var(--perte)" fill-opacity=".38"/>
+        <text x="${(X(p.x) + 8).toFixed(1)}" y="${(Y(p.y) + 3).toFixed(1)}" class="lc-cendre-nom">${ech(p.nom)}</text>
+        <title>${ech(t("labo.point.titre", { nom: p.nom, x: p.x.toFixed(0), y: p.y.toFixed(0), net: "—" }))}</title>
+      </g>`).join("");
 
     const points = pts.map((p, i) => `
       <g class="lc-perle" style="animation-delay:${i * 90}ms">
@@ -200,6 +216,8 @@ const Labo = (() => {
           .lc-axe  { font: 600 9.5px var(--sans); fill: var(--texte-3); letter-spacing: .08em; text-transform: uppercase; }
           .lc-diag { font: 500 9.5px var(--sans); fill: var(--texte-3); }
           .lc-perle { animation: lc-nait .7s var(--ressort) backwards; transform-box: fill-box; transform-origin: center; }
+          .lc-cendre { animation: lc-nait .6s var(--ressort) backwards; transform-box: fill-box; transform-origin: center; }
+          .lc-cendre-nom { font: 500 9px var(--sans); fill: var(--texte-3); paint-order: stroke; stroke: var(--surface); stroke-width: 2.5px; }
           @keyframes lc-nait { from { opacity: 0; transform: scale(.3); } }
         </style>
         <rect x="${X(ax).toFixed(1)}" y="${M.h}" width="${(X(x1) - X(ax)).toFixed(1)}"
@@ -211,10 +229,15 @@ const Labo = (() => {
         <line x1="${X(dx0).toFixed(1)}" y1="${Y(dx0).toFixed(1)}" x2="${X(dx1).toFixed(1)}" y2="${Y(dx1).toFixed(1)}"
               stroke="var(--texte-3)" stroke-opacity=".55" stroke-dasharray="2 5"/>
         <text x="${(X(dx1) - 4).toFixed(1)}" y="${(Y(dx1) + 14).toFixed(1)}" text-anchor="end" class="lc-diag">${ech(t("labo.diagonale"))}</text>
+        ${cendres}
         ${points}
         <text x="${M.g + pw}" y="${H - 2}" text-anchor="end" class="lc-axe">${ech(t("labo.axe.x"))}</text>
         <text x="12" y="${M.h + 10}" class="lc-axe" transform="rotate(-90 12 ${M.h + 10})" text-anchor="end">${ech(t("labo.axe.y"))}</text>
-      </svg>`;
+      </svg>
+      <div class="lc-leg">
+        <span><i style="background:var(--long)"></i>${ech(t("labo.leg.perles"))}</span>
+        ${morts.length ? `<span><i style="background:var(--perte);opacity:.5"></i>${ech(t("labo.leg.ecartes"))}</span>` : ""}
+      </div>`;
   }
 
   /* — les pieces communes des details — */

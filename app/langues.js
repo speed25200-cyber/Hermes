@@ -169,6 +169,8 @@ const Langues = (() => {
                            sq: "Plejada do të vizatohet me verdiktin e parë të kërkuesit.<br>Çdo perlë do të vendoset nga dy përqindjet e saj të fitoreve — përzgjedhja dhe vlerësimi —<br>dhe mbipërshtatja do të duket me sy: larg nën diagonale, një strategji premtoi më shumë se ç’mbajti." },
     "labo.axe.x":        { fr: "winrate de sélection (%)", en: "selection win rate (%)", sq: "fitore në përzgjedhje (%)" },
     "labo.axe.y":        { fr: "winrate de validation (%)", en: "validation win rate (%)", sq: "fitore në vlerësim (%)" },
+    "labo.leg.perles":   { fr: "perles retenues", en: "retained pearls", sq: "perlat e mbajtura" },
+    "labo.leg.ecartes":  { fr: "vainqueurs écartés", en: "rejected winners", sq: "fituesit e skartuar" },
     "labo.diagonale":    { fr: "au-dessus : a confirmé mieux qu’annoncé", en: "above: confirmed better than promised", sq: "sipër: konfirmoi më mirë se ç’premtoi" },
     "labo.point.titre":  { fr: "{nom} — sélection {x} %, validation {y} %, net {net} marges", en: "{nom} — selection {x}%, validation {y}%, net {net} margins", sq: "{nom} — përzgjedhje {x}%, vlerësim {y}%, neto {net} marzhe" },
     "labo.retenues":     { fr: "Les perles retenues", en: "Pearls retained", sq: "Perlat e mbajtura" },

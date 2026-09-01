@@ -1687,7 +1687,7 @@ ipcMain.handle("laboratoire", async () => {
     let progression = null;
     try {
       const p = JSON.parse(fs.readFileSync(path.join(DATADIR, "perles-progression.json"), "utf8"));
-      if (p && p.debut && Date.now() - new Date(p.debut).getTime() < 30 * 60e3) progression = p;
+      if (p && p.debut && Date.now() - new Date(p.debut).getTime() < 45 * 60e3) progression = p;
     } catch {}
     return { ok: true, roster, historique, joue, guet, moteur: !!(typeof AI !== "undefined" && AI.on), progression, ts: tsISO() };
   } catch (e) {
@@ -1705,7 +1705,7 @@ ipcMain.handle("chercher-perles", async () => {
   try {
     try {
       const p = JSON.parse(fs.readFileSync(path.join(DATADIR, "perles-progression.json"), "utf8"));
-      if (p && p.debut && Date.now() - new Date(p.debut).getTime() < 30 * 60e3) {
+      if (p && p.debut && Date.now() - new Date(p.debut).getTime() < 45 * 60e3) {
         return { ok: true, dejaEnCours: true };
       }
     } catch {}

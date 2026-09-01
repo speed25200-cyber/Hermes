@@ -52,7 +52,8 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Une premiere passe froide sur cinquante instruments peut approcher la demi-heure.
+    timeout-minutes: 45
     env:
       VPS: ${{ vars.VPS_HOST || '178.104.191.79' }}
     steps:

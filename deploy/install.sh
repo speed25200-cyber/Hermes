@@ -102,6 +102,7 @@ EnvironmentFile=-$DIR/.env
 Environment=NODE_ENV=production
 Environment=HERMES_PORT=8899
 Environment=HERMES_HOST=0.0.0.0
+Environment=HERMES_UNIVERSE_SIZE=50
 # Le pilotage, demande explicitement par le proprietaire.
 #
 # Le defaut du code est « lecture seule », et ce defaut est le bon :
@@ -150,10 +151,11 @@ Type=oneshot
 WorkingDirectory=$DIR
 EnvironmentFile=-$DIR/.env
 Environment=NODE_OPTIONS=--dns-result-order=ipv4first
+Environment=HERMES_UNIVERSE_SIZE=50
 ExecStart=/usr/bin/env node deploy/chercher_perles.js
 # La recherche pagine trente jours de bougies par instrument : elle
 # prend plusieurs minutes, et cest son rythme normal.
-TimeoutStartSec=1800
+TimeoutStartSec=2700
 UNIT
 
 cat > /etc/systemd/system/hermes-perles.timer <<UNIT
