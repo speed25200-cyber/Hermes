@@ -212,6 +212,10 @@ const Langues = (() => {
                            en: "{n} points recorded, all identical. The curve will appear as soon as equity moves.",
                            sq: "{n} pika të regjistruara, të gjitha njësoj. Kurba do të shfaqet sapo kapitali të lëvizë." },
     "courbe.plats":      { fr: "{n} points, plats", en: "{n} points, flat", sq: "{n} pika, të sheshta" },
+    "courbe.haut":       { fr: "Plus haut", en: "High", sq: "Më e larta" },
+    "courbe.bas":        { fr: "Plus bas", en: "Low", sq: "Më e ulëta" },
+    "courbe.ampli":      { fr: "Amplitude", en: "Range", sq: "Amplituda" },
+    "courbe.depuis":     { fr: "Depuis le début de la fenêtre", en: "Since the window start", sq: "Që nga fillimi i dritares" },
 
     /* ===== le détail dépliable du laboratoire ===== */
     "labo.methode":      { fr: "Comment le juge décide", en: "How the judge decides", sq: "Si vendos gjykatësi" },

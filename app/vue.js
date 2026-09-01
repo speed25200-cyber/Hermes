@@ -118,6 +118,7 @@ const E = {
   // Ce qui est deplie survit aux re-rendus : la page respire toutes
   // les quatre secondes, elle ne doit pas refermer ce qu'on lit.
   tuilesOuvertes: new Set(), jrnOuverts: new Set(), santeOuverts: new Set(),
+  heroOuvert: false, courbeOuverte: false,
 };
 
 const CHEVRON_HTML = `<svg class="chevron" width="13" height="13" viewBox="0 0 14 14" fill="none" aria-hidden="true">
@@ -529,6 +530,24 @@ function courbe(points) {
   cap.addEventListener("touchend", sortie);
 
   $("n-eq").textContent = t("courbe.points", { n: points.length });
+  statsCourbe(points, vs);
+}
+
+/* Les statistiques de la fenetre dessinee : le haut, le bas,
+   l'amplitude, et le chemin parcouru depuis le premier point. */
+function statsCourbe(points, vs) {
+  const z = $("eq-stats");
+  if (!z) return;
+  if (!vs || vs.length < 2) { z.innerHTML = ""; return; }
+  const haut = Math.max(...vs), bas = Math.min(...vs);
+  const depuis = vs[vs.length - 1] - vs[0];
+  const ligne = (etiq, val, teinte) =>
+    `<div class="t-ligne"><span>${ech(etiq)}</span><b class="${teinte || ""}">${ech(val)}</b></div>`;
+  z.innerHTML =
+    ligne(t("courbe.haut"), nf(haut) + " $")
+    + ligne(t("courbe.bas"), nf(bas) + " $")
+    + ligne(t("courbe.ampli"), nf(haut - bas) + " $")
+    + ligne(t("courbe.depuis"), usd(depuis), signe(depuis));
 }
 
 /* ===== hero et tuiles ===== */
@@ -550,6 +569,23 @@ function rendreHero() {
   $("h-note").textContent = t("hero.aujourdhui", { n: Number(pe.dailyTrades) || 0 });
 
   etincelle(d.history ? d.history.spot : [], jour);
+
+  // Le tiroir du heros : le compte entier sous le chiffre — ce que les
+  // tuiles disent une par une, ici d'un seul regard.
+  const ligneH = (etiq, val, teinte) =>
+    `<div class="t-ligne"><span>${ech(etiq)}</span><b class="${teinte || ""}">${ech(val)}</b></div>`;
+  const po = d.positions || {};
+  const pj = Number(pe.dailyPnL) || 0;
+  $("h-detail").innerHTML =
+    ligneH(t("tuile.d.dispo"), nf(Number(f.available) || 0) + " $")
+    + ligneH(t("tuile.marge"), nf(Number(po.totalMargin) || 0) + " $")
+    + ligneH(t("pos.notionnel"), nf(Number(po.totalValue) || 0) + " $")
+    + ligneH(t("tuile.d.pnljour"), usd(pj), signe(pj))
+    + ligneH(t("tuile.d.trades24"), String(Number(pe.dailyTrades) || 0))
+    + ligneH(t("tuile.d.volume"), nf(Number(pe.dailyVolume) || 0) + " $");
+  const hero = $("hero");
+  hero.setAttribute("aria-expanded", String(E.heroOuvert));
+  hero.querySelector(".hero-depli").classList.toggle("ouvert", E.heroOuvert);
 }
 
 const TUILES = [
@@ -819,6 +855,25 @@ $("c-poser").addEventListener("click", async () => {
 
 // Un module de sante ou une ligne de journal se deplie au clic. Les
 // deux zones se re-rendent souvent : l'etat vit dans E, pas dans le DOM.
+$("hero").addEventListener("click", (e) => {
+  // Copier un nombre du tiroir ne doit pas le refermer.
+  if (e.target.closest("#h-detail")) return;
+  E.heroOuvert = !E.heroOuvert;
+  const hero = $("hero");
+  hero.setAttribute("aria-expanded", String(E.heroOuvert));
+  hero.querySelector(".hero-depli").classList.toggle("ouvert", E.heroOuvert);
+});
+$("eq-tete").addEventListener("click", () => {
+  E.courbeOuverte = !E.courbeOuverte;
+  $("eq-tete").setAttribute("aria-expanded", String(E.courbeOuverte));
+  $("eq-tete").nextElementSibling.classList.toggle("ouvert", E.courbeOuverte);
+});
+for (const id of ["hero", "eq-tete"]) {
+  $(id).addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $(id).click(); }
+  });
+}
+
 $("z-sante").addEventListener("click", (e) => {
   const el = e.target.closest("[data-mod]");
   if (!el) return;
