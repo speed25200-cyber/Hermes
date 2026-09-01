@@ -67,13 +67,59 @@ l'urgence, cela ne l'annule pas — l'historique garde ce qu'on y a
 
 ## Réglages qui décident du comportement
 
-`config/strategy.current.json` porte le levier (20), la marge par trade
-(20 USDT), le nombre de positions simultanées (10) et les échelles de
-take-profit, stop-loss, break-even et trail.
+**Correction.** Ce paragraphe renvoyait à `config/strategy.current.json`
+et `config/policy.json`. Vérification faite, le moteur ne lit ni l'un
+ni l'autre : `strategy.current.json` n'est référencé que par
+`modules/engine.js`, qu'`app/main.js` ne charge jamais, et les seuils
+de sortie sont écrits en dur dans `app/main.js`. Régler ces fichiers ne
+change donc rien — et c'est le genre d'erreur qui coûte une soirée.
 
-`config/policy.json` porte les seuils de sortie exprimés en pourcentage
-de la marge : stop initial à −40 %, passage au point mort à +25 %,
-armement du trail à +40 %.
+Ce qui décide réellement :
+
+| réglage | où | défaut |
+|---|---|---|
+| levier | `HERMES_DEFAULT_LEVERAGE` | 15 |
+| positions simultanées | `HERMES_MAX_POSITIONS` | 10, **réduit à ce que le capital finance** |
+| part du capital engageable | `HERMES_MAX_RISK_PCT` | 0,90 (coussin de 10 %) |
+| équité sous laquelle rien n'est tenté | `HERMES_MIN_EQUITY_USDT` | 5 |
+| plancher / plafond de marge par trade | `HERMES_MARGIN_MIN` / `HERMES_MARGIN_MAX` | 1 / 200 |
+
+Les seuils de sortie sont la constante `SPEC` d'`app/main.js` :
+take-profit à +80 % de la marge, stop à −30 %, armement du trail à
++10 %, rappel de 5 %.
+
+### La taille des positions
+
+Elle se recalcule **à chaque décision**, à partir de l'équité que le
+compte affiche sur le moment — jamais d'un montant écrit à l'avance.
+
+    usable        = équité × 0,90
+    marge / trade = min(usable ÷ 2, plafond), plancher si franchi
+    places        = usable ÷ marge, borné par HERMES_MAX_POSITIONS
+
+Ce que cela donne :
+
+| équité | marge / trade | notionnel (×15) | places |
+|---:|---:|---:|---:|
+| 10 USDT | 4,50 | 68 | 2 |
+| 20 USDT | 9,00 | 135 | 2 |
+| 334 USDT | 150,30 | 2 255 | 2 |
+| 1 000 USDT | 200,00 | 3 000 | 4 |
+
+Le nombre de places était auparavant fixé à 10 quel que soit le
+capital. Le plan annonçait donc 1 503 USDT de marge pour 300
+disponibles, et 90 pour 9 — une garde budgétaire séparée rattrapait
+l'affaire sans rien dire, ce qui déplaçait la décision là où elle était
+illisible. Le plancher de marge, lui, valait 50 USDT : sur un compte de
+10, il écrasait la règle de la moitié et faisait partir **tout** le
+capital dans un seul trade.
+
+Un capital petit peut ne financer aucun lot : à 68 USDT de notionnel,
+le pas minimal de BTC (0,1 contrat, soit ~110 USDT) est hors d'atteinte.
+Le moteur imprime alors, et à chaque changement de taille, une ligne
+`[TAILLE]` qui nomme les instruments accessibles et ceux qui ne le sont
+pas. Sans elle, l'échec est muet : le moteur tourne, reçoit les
+signaux, et n'ouvre rien.
 
 ## L'univers
 

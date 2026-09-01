@@ -102,7 +102,17 @@ const BK_MAX          = Number(process.env.HERMES_WS_BACKOFF_MAX_MS || OKX_CFG.r
 const BK_JITTER       = Number(OKX_CFG.reconnectBackoff.jitterMs || 500);
 
 // Risk guardrails (optionnels)
-const MIN_EQUITY_USDT   = Number(process.env.HERMES_MIN_EQUITY_USDT || 50);
+/* Plancher d'équité sous lequel aucun ordre n'est tenté. Il valait 50,
+   ce qui interdisait tout trade à un compte de 10 USDT — le moteur
+   tournait, recevait les signaux, et n'ouvrait jamais rien sans que
+   rien ne le dise. Un refus silencieux ressemble à une panne.
+
+   5 plutôt que 50, parce que c'est là que le refus commence à dire
+   quelque chose : en dessous, la marge par trade tombe sous quelques
+   dollars et l'arrondi au lot minimal écarte déjà presque tous les
+   instruments — qtyFromUSDT le fait, instrument par instrument, ce
+   qu'un seuil global sur l'équité ne peut pas faire. */
+const MIN_EQUITY_USDT   = Number(process.env.HERMES_MIN_EQUITY_USDT || 5);
 const MAX_RISK_PCT      = Number(process.env.HERMES_MAX_RISK_PCT || 0.90); // spec client : 90 % du capital en marge max (coussin 10 %)
 const MIN_BALANCE_AVAIL = Number(process.env.HERMES_MIN_BAL_AVAIL || 5);  // USDT
 
@@ -222,19 +232,82 @@ function tierBreach() {
   const floor = AI.equityPeakTier * (1 - AI.tierStopLossPct);
   return AI.equityUSDT <= floor;
 }
-/* Spécification client (29.08.2026) : (capital − 10 %) ÷ 10 = MARGE par trade,
-   levier ×20, 10 positions simultanées maximum.
-   perTradeUSDT est ici une MARGE — le notionnel envoyé à OKX = marge × levier. */
+/* La taille se déduit du capital, à chaque appel. perTradeUSDT est une
+   MARGE — le notionnel envoyé à OKX vaut marge × levier.
+
+   Règle : coussin de 10 % jamais engagé, puis la moitié du budget par
+   trade, plafonnée. La moitié plutôt que le dixième parce qu'un dixième
+   de petit capital ne produit pas un lot que la place accepte.
+
+   Deux défauts corrigés ici, et ils se voyaient mal parce qu'une garde
+   budgétaire séparée rattrapait le second sans rien dire.
+
+   Le plancher valait 50 USDT. Sur un compte de 10, il écrasait la règle
+   de la moitié — 4,50 devenait 50, puis se faisait rabattre sur les 9
+   disponibles : la totalité du capital partait dans UN trade, l'inverse
+   de ce que la règle demande. Le plancher existe pour éviter les
+   poussières qui n'atteignent aucun lot ; il ne doit jamais dépasser la
+   part qu'il est censé protéger, donc il est borné par elle.
+
+   maxPositions valait 10, écrit en dur, quel que soit le capital. Le
+   plan annonçait ainsi 10 × 150 = 1503 USDT de marge pour 300 USDT
+   disponibles, et 10 × 9 = 90 pour 9. Ce n'était pas seulement faux :
+   canPlaceOrder s'en sert pour décider, et un nombre qui ne veut rien
+   dire déplace la décision vers la garde budgétaire, où elle devient
+   illisible. Le nombre de places est désormais celui que le budget
+   finance vraiment. */
 function positionSizing(cap) {
-  const usable = Math.max(0, cap * 0.90);        // coussin de 10 % jamais engagé
-  /* Ordre client 31/08 (v2) : marge entre 100 et 200 USDT par trade, adaptative —
-     la moitié du budget disponible, bornée [100, 200]. À ~334 d'équité : ~150/trade,
-     2 positions simultanées ; le plafond 200 s'atteint quand le capital grossit. */
-  const MIN_M = Number(process.env.HERMES_MARGIN_MIN || 50);
-  const MAX_M = Number(process.env.HERMES_MARGIN_MAX || 200);
-  const marginPerTrade = Math.min(Math.max(Math.min(usable / 2, MAX_M), MIN_M), usable);
-  return { perTradeUSDT: marginPerTrade, maxPositions: 10, riskFrac: 0.90, step: 5 };
+  const usable = Math.max(0, cap * MAX_RISK_PCT);
+  const MIN_M  = Number(process.env.HERMES_MARGIN_MIN || 1);
+  const MAX_M  = Number(process.env.HERMES_MARGIN_MAX || 200);
+
+  let marginPerTrade = Math.min(usable / 2, MAX_M);
+  /* Le plancher ne s'applique QUE s'il est franchi, et il ne peut pas
+     dépasser ce qui est disponible : sinon il rendrait la marge plus
+     grande que le budget, ce que la suite du calcul devrait défaire. */
+  if (marginPerTrade < MIN_M) marginPerTrade = Math.min(MIN_M, usable);
+
+  const places = marginPerTrade > 0
+    ? Math.max(1, Math.min(Math.floor(usable / marginPerTrade), MAX_POSITIONS_GLOBAL))
+    : 0;
+
+  return { perTradeUSDT: marginPerTrade, maxPositions: places, riskFrac: MAX_RISK_PCT, step: 5 };
 }
+/* Dit tout haut ce que la taille courante permet d'ouvrir.
+
+   Sans ça, un capital trop petit produit une panne muette : le moteur
+   tourne, reçoit les signaux, et qtyFromUSDT rend 0 pour chaque
+   instrument dont le lot minimal dépasse la marge visée. Rien ne
+   s'ouvre, rien ne s'explique, et on cherche du côté des clés ou de la
+   stratégie. C'est la même faute que le plancher d'équité à 50 : un
+   refus qui ne se dit pas ressemble à une panne.
+
+   La ligne n'est réimprimée que lorsqu'elle change — sinon elle
+   reviendrait toutes les quatre secondes et noierait le journal. */
+let __accesEmpreinte = "";
+function rapportAccessibilite() {
+  const univers = MARKET.universe || [];
+  if (!univers.length || !(AI.equityUSDT > 0)) return;
+  const s = positionSizing(AI.equityUSDT);
+  if (!(s.perTradeUSDT > 0)) return;
+
+  const oui = [], non = [];
+  for (const id of univers) {
+    (qtyFromUSDT(id, s.perTradeUSDT) > 0 ? oui : non).push(id.replace("-USDT-SWAP", ""));
+  }
+
+  const empreinte = `${s.perTradeUSDT.toFixed(2)}|${s.maxPositions}|${oui.length}|${non.length}`;
+  if (empreinte === __accesEmpreinte) return;
+  __accesEmpreinte = empreinte;
+
+  log(`[TAILLE] equite ${AI.equityUSDT.toFixed(2)} USDT -> marge ${s.perTradeUSDT.toFixed(2)}`
+    + ` x levier ${DEFAULT_LEVERAGE} = ${(s.perTradeUSDT * DEFAULT_LEVERAGE).toFixed(0)} USDT de notionnel,`
+    + ` ${s.maxPositions} place(s) | ${oui.length}/${univers.length} instruments acceptent ce lot`
+    + (oui.length ? ` : ${oui.join(", ")}` : "")
+    + (non.length ? ` | lot trop gros pour : ${non.join(", ")}` : "")
+    + (oui.length ? "" : " | AUCUN instrument accessible a cette taille : rien ne sera ouvert."));
+}
+
 function currentOpenCount() { return Object.keys(AI.openPositions).length; }
 function perSymbolCooldown(instId) { const t = AI.cooldown[instId] || 0; return now() < t; }
 function setCooldown(instId, sec = SYMBOL_COOLDOWN_SEC) { AI.cooldown[instId] = now() + sec * 1000; }
@@ -853,7 +926,12 @@ function canPlaceOrder(instId, side, availableUSDT = Infinity) {
   if (pos) return false;
 
   if (AI.equityUSDT < MIN_EQUITY_USDT) return false;
-  if (availableUSDT < MIN_BALANCE_AVAIL) return false;
+  /* Assez de solde LIBRE pour financer un trade. Le seuil était fixe à
+     5 USDT : négligeable sur un gros compte, la moitié du capital sur
+     un compte de 10. On le compare donc à ce qu'un trade coûte
+     réellement, sans jamais durcir le seuil existant. */
+  const seuilLibre = Math.min(MIN_BALANCE_AVAIL, sizing.perTradeUSDT);
+  if (availableUSDT < seuilLibre) return false;
 
   /* Fraîcheur : refus si le dernier tick date de plus de 10 s (flux gelé). */
   const tk = MARKET.tick[instId];
@@ -863,7 +941,11 @@ function canPlaceOrder(instId, side, availableUSDT = Infinity) {
      ouvrir un trade minimal — placeMarket dimensionne ensuite sur le reliquat,
      donc les places libérées se re-remplissent dès qu'un signal arrive. */
   const budget = MAX_RISK_PCT * AI.equityUSDT;
-  if (usedMarginNow() + Math.max(MIN_BALANCE_AVAIL, 5) > budget) return false;
+  /* La réserve est ce qu'un trade coûte, pas une constante. À 5 USDT
+     fixes sur un budget de 9, la deuxième place que le calcul de taille
+     vient d'accorder était refusée ici — les deux moitiés du programme
+     ne parlaient pas du même compte. */
+  if (usedMarginNow() + seuilLibre > budget) return false;
   return true;
 }
 
@@ -1136,6 +1218,7 @@ async function portfolioLoop() {
       const port = await loadPortfolio();
       AI.equityUSDT = num(port.balances?.totalEq || AI.equityUSDT);
       refreshTier();
+      try { rapportAccessibilite(); } catch {}
 
       /* Synchro de l'état des positions avec OKX (toutes les 4 s) : garantit que
          canPlaceOrder voit fidèlement les symboles déjà ouverts → empêche la
