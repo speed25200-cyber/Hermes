@@ -144,7 +144,7 @@ jobs:
             --exclude '/.git' --exclude '/state' --exclude '/data' \
             --exclude '/.env' --exclude '/node_modules' \
             --exclude '/logs' --exclude '/runtime' \
-            --exclude '/config/roster.json' --exclude '/banc' \
+            --exclude '/config/roster.json' --exclude '/banc' --exclude '/recherche' \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             ./ "root@$VPS:/root/hermes/"
 
