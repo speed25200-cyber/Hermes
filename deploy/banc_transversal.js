@@ -383,6 +383,7 @@ function main() {
      tout seul de la correlation entre cellules : momentum a 24, 72 et
      168 heures ne sont pas trois essais independants, et une correction
      de Bonferroni les punirait comme s'ils l'etaient. */
+  let famille = null;
   if (matrice.length) {
     const nRep = matrice[0].length;
     const maxParReplique = [];
@@ -400,7 +401,46 @@ function main() {
     console.log(`  la meilleure reelle bat ${pFamille == null ? "—" : (100 * pFamille).toFixed(0) + " %"} des meilleures de repliques`);
     console.log(`  c'est LE chiffre qui decide : il tient compte des ${lignes.length} essais et de leur correlation.`);
     console.log(`  ${pFamille != null && pFamille >= 0.95 ? "AU-DELA DU SEUIL : la famille bat le hasard." : "sous le seuil de 95 % : rien de demontre au niveau de la famille."}`);
+    famille = { meilleure: meilleure ? { signal: meilleure.nom, heures: meilleure.h, net: +meilleure.vrai.net.toFixed(3) } : null,
+                percentile: pFamille == null ? null : +pFamille.toFixed(2),
+                medianDesMaxima: +maxParReplique[nRep >> 1].toFixed(3),
+                tirages: nRep, cellules: lignes.length };
   }
+
+  /* LE VERDICT SUR DISQUE. Jusqu'ici ce banc ne parlait que dans le
+     journal du run, et récupérer ce journal s'est révélé être le maillon
+     le plus fragile de toute la chaîne : l'API le rend indisponible tant
+     que la passe tourne, et son état est retardé de longues minutes.
+     Une mesure qui coûte vingt minutes de calcul ne doit pas dépendre
+     d'un canal pareil pour exister.
+
+     Le verdict est donc écrit à côté du roster, dans le même dossier de
+     données que le moteur relit déjà. La page du laboratoire peut le
+     montrer, la passe suivante peut le comparer au sien, et il survit à
+     un journal perdu. */
+  try {
+    const chemin = path.join(RACINE, "data", "transversal.json");
+    fs.mkdirSync(path.dirname(chemin), { recursive: true });
+    const contenu = {
+      genere: new Date().toISOString(),
+      periode: { du: new Date(t0).toISOString().slice(0, 10), au: new Date(t1).toISOString().slice(0, 10), heures: n },
+      instruments: donnees.length, avecFinancement: avecFin, k: K, levier: LEVIER,
+      cellules: lignes.filter((l) => l.pct != null).map((l) => ({
+        signal: l.nom, heures: l.h, periodes: l.vrai.n,
+        net: +l.vrai.net.toFixed(3), brut: +l.vrai.brut.toFixed(3),
+        tNet: +l.vrai.t.toFixed(2), tBrut: +l.vrai.tBrut.toFixed(2),
+        sharpe: +l.vrai.sharpe.toFixed(3), creux: +l.vrai.creux.toFixed(2),
+        rotation: +(l.vrai.rotation || 0).toFixed(1),
+        percentileNul: l.pct == null ? null : +l.pct.toFixed(2),
+        medianNul: l.medianNul == null ? null : +l.medianNul.toFixed(3),
+      })),
+      famille: famille || null,
+    };
+    const tmp = chemin + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(contenu, null, 1));
+    fs.renameSync(tmp, chemin);
+    console.log(`[TRANSVERSAL] verdict ecrit : ${chemin}`);
+  } catch (e) { console.log(`[TRANSVERSAL] verdict non ecrit : ${e.message}`); }
 
   const forts = lignes.filter((l) => l.pct != null && l.pct >= 0.95 && l.vrai.t > 2 && l.vrai.net > 0);
   console.log(`[TRANSVERSAL] cellules au-dela du 95e percentile du nul ET t > 2 ET net positif : ${forts.length} (attendu par hasard : ${(0.05 * lignes.length).toFixed(1)})`);

@@ -1706,7 +1706,15 @@ ipcMain.handle("laboratoire", async () => {
       const p = JSON.parse(fs.readFileSync(path.join(DATADIR, "perles-progression.json"), "utf8"));
       if (p && p.debut && Date.now() - new Date(p.debut).getTime() < 45 * 60e3) progression = p;
     } catch {}
-    return { ok: true, roster, historique, joue, guet, capital, moteur: !!(typeof AI !== "undefined" && AI.on), progression, ts: tsISO() };
+    /* Le verdict du banc transversal, s'il existe. Ce banc coute vingt
+       minutes de calcul et ne parlait jusqu'ici que dans le journal d'un
+       run — le maillon le plus fragile de la chaine. Il ecrit desormais
+       son resultat a cote du roster, et la page peut le montrer sans
+       dependre de personne. */
+    let transversal = null;
+    try { transversal = JSON.parse(fs.readFileSync(path.join(DATADIR, "transversal.json"), "utf8")); } catch {}
+    return { ok: true, roster, historique, joue, guet, capital, transversal,
+             moteur: !!(typeof AI !== "undefined" && AI.on), progression, ts: tsISO() };
   } catch (e) {
     return { ok: false, error: String(e.message || e) };
   }
