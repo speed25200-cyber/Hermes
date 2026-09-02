@@ -61,9 +61,55 @@ const PAS_JOURS = Number(process.env.BANC_PAS_JOURS || 21);
 const MIN_TRADES_ETAT = Number(process.env.REGIME_MIN_TRADES_ETAT || 5);
 const TIRAGES = Number(process.env.REGIME_TIRAGES || 400);
 const CHAUFFE = 299;                                  // ce que le moteur voit avant de pouvoir signaler
+const ALEATOIRE = process.env.BANC_ALEATOIRE === "1";
 
 const UNIVERS = (process.env.BANC_UNIVERS ||
   "BTC,ETH,SOL,XRP,DOGE,ADA,AVAX,LINK,LTC,BCH,DOT,FIL").split(",").map((s) => s.trim() + "-USDT-SWAP");
+
+/* LE CONTRÔLE PAR MÉLANGE DE BLOCS. C'est la question qui décide de
+   tout : le chercheur trouve-t-il autre chose que du hasard ?
+
+   Le premier essai a utilisé des marches aléatoires gaussiennes, et le
+   chercheur y a trouvé des perles au même rythme que sur le vrai
+   marché, avec la même performance. Mais on peut objecter qu'une
+   gaussienne n'a ni queues épaisses ni grappes de volatilité, et qu'un
+   marché factice trop lisse est un adversaire trop facile.
+
+   Le mélange par blocs répond à l'objection. On prend les VRAIS
+   rendements de cinq minutes, on les découpe en journées, on mélange
+   l'ordre des journées, et on reconstruit le prix. La distribution des
+   rendements est conservée exactement — mêmes queues, mêmes journées
+   agitées, mêmes journées calmes. Seul disparaît ce qui relie une
+   journée à la suivante, c'est-à-dire précisément ce dont un avantage
+   aurait besoin pour exister.
+
+   Si le chercheur gagne autant sur ce faux marché que sur le vrai, ses
+   perles ne sont pas des découvertes : ce sont les meilleures de cent
+   cinquante-six combinaisons tirées au sort. */
+function melangerParBlocs(c5, graine) {
+  const TAILLE = 288;                              // une journée
+  let x = (graine * 2654435761) >>> 0;
+  const suiv = () => { x ^= x << 13; x ^= x >>> 17; x ^= x << 5; x >>>= 0; return x / 4294967296; };
+  const r = [];
+  for (let i = 1; i < c5.length; i++) r.push(Math.log(c5[i][4] / c5[i - 1][4]));
+  const blocs = [];
+  for (let i = 0; i + TAILLE <= r.length; i += TAILLE) blocs.push(r.slice(i, i + TAILLE));
+  for (let i = blocs.length - 1; i > 0; i--) { const j = Math.floor(suiv() * (i + 1)); [blocs[i], blocs[j]] = [blocs[j], blocs[i]]; }
+  const plat = [].concat(...blocs);
+  const out = [];
+  let c = c5[0][4];
+  for (let i = 0; i < plat.length; i++) {
+    const o = c;
+    c = c * Math.exp(plat[i]);
+    // Les mèches sont reconstruites au prorata de celles de la vraie
+    // bougie : un corps sans mèche fausserait les signaux de mèche.
+    const vrai = c5[i + 1];
+    const ampl = vrai[1] > 0 ? Math.max(0, (vrai[2] - vrai[3]) / vrai[1]) : 0;
+    const haut = Math.max(o, c) * (1 + ampl / 4), bas = Math.min(o, c) * (1 - ampl / 4);
+    out.push([c5[i + 1][0], o, haut, bas, c, vrai[5]]);
+  }
+  return out;
+}
 
 function lire(instId) {
   try {
@@ -126,9 +172,14 @@ function main() {
   console.log(`[BANC-CHERCHEUR] deux biais assumes : l'univers est FIXE et choisi aujourd'hui (favorable au systeme),`);
   console.log(`[BANC-CHERCHEUR] et le pas de ${PAS_JOURS} j garde une perle bien plus longtemps que le vivant, qui rejuge toutes les 30 min (defavorable).`);
 
-  const btc = lire("BTC-USDT-SWAP");
+  if (ALEATOIRE) {
+    console.log(`[BANC-CHERCHEUR] MODE CONTROLE : les journees sont melangees. Tout avantage trouve ici est du hasard,`);
+    console.log(`[BANC-CHERCHEUR] et sert d'etalon : le vrai marche doit faire NETTEMENT mieux, sinon il ne fait rien.`);
+  }
+  const brut = (instId, g) => { const c = lire(instId); return c && ALEATOIRE ? melangerParBlocs(c, g) : c; };
+  const btc = brut("BTC-USDT-SWAP", 1);
   if (!btc) { console.error("[BANC-CHERCHEUR] pas d'histoire longue pour BTC"); process.exit(1); }
-  const eth = lire("ETH-USDT-SWAP");
+  const eth = brut("ETH-USDT-SWAP", 2);
   const index = REGIME.indexEtats(btc, REGIME.serieEtats(btc, eth,
     REGIME.lireSeuils(path.join(RACINE, "config", "regime.json"))));
   const listePoints = points(btc[0][0], btc[btc.length - 1][0]);
@@ -141,7 +192,7 @@ function main() {
 
   for (const instId of UNIVERS) {
     const nom = instId.replace("-USDT-SWAP", "");
-    const c5 = lire(instId);
+    const c5 = brut(instId, 3 + UNIVERS.indexOf(instId));
     if (!c5) { console.log(`  ${nom.padEnd(6)} — pas d'histoire, ignore`); continue; }
     const t0 = Date.now();
     const tsCol = c5.map((k) => k[0]);
