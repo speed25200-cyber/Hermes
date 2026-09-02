@@ -55,6 +55,15 @@ verifier("une seule variable d'environnement, et elle ne touche pas l'hypothese"
 verifier("aucune variable du banc transversal n'est relue",
   !/TRANSVERSAL_|BANC_UNIVERS/.test(source));
 
+/* Les frais et le levier viennent de l'environnement du moteur. Ce ne
+   sont pas des reglages de l'hypothese, mais ils changent le net : s'ils
+   bougeaient sans trace, le releve mentirait poliment. Ils doivent donc
+   figurer dans ce qui est ecrit. */
+verifier("les conditions de jeu sont consignees dans le journal",
+  /conditions: \{ frais: T\.FRAIS, levier: T\.LEVIER \}/.test(source));
+verifier("le classement ne se fait que sur PRE.k, jamais sur le K du banc",
+  !/T\.K/.test(source) && /PRE\.k/.test(source));
+
 /* --- 2. Le code et le document disent-ils la même chose ? ---------------- */
 console.log("2. Le code et le document disent-ils la meme chose ?");
 const doc = fs.readFileSync(path.join(RACINE, "docs", "avantage.md"), "utf8");

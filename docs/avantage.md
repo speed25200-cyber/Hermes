@@ -467,6 +467,18 @@ tournait déjà la veille. La période qui enjambe la date n'est comptée
 d'aucun côté — elle a commencé avant que l'hypothèse ne soit écrite et
 s'est finie après.
 
+Il rafraîchit les archives avant de mesurer, et ce détail n'en est pas
+un. Deux défauts du téléchargement le condamnaient à ne jamais voir un
+mois nouveau, et tous deux avaient l'air de fonctionner : le
+financement sautait un instrument dès lors que sa série *commençait*
+assez tôt — juste pour reprendre un téléchargement interrompu, fatal
+pour l'étendre — et les bougies étaient *reconstruites* à partir des
+seuls mois demandés, si bien qu'une passe à douze mois sur un cache de
+vingt-quatre le coupait en deux sans un mot. Les deux fusionnent
+désormais avec ce qui est déjà sur disque. Sans cette correction, le
+relevé aurait affiché zéro période jusqu'à la fin des temps en ayant
+parfaitement l'air de marcher — le pire mode de panne qui soit.
+
 ### Combien de temps il faudra, et pourquoi c'est le vrai résultat
 
 Le relevé calcule aussi la seule chose qu'on puisse savoir avant

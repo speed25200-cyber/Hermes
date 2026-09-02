@@ -147,6 +147,7 @@ function lireHistorique(chemin) {
 function main() {
   console.log(`[HORS] hypothese consignee le ${PRE.date} : ${PRE.signal} a ${PRE.heures} h, ${PRE.k} longs et ${PRE.k} courts sur ${PRE.univers.length} instruments.`);
   console.log(`[HORS] aucun parametre de cette ligne n'est reglable. C'est le seul interet de la manoeuvre.`);
+  console.log(`[HORS] conditions de jeu, consignees mais non figees : frais ${T.FRAIS}, levier ${T.LEVIER}.`);
 
   const brutes = charger();
   if (brutes.length < 2 * PRE.k + 2) {
@@ -240,6 +241,13 @@ function main() {
                    enonce: `Classer ${PRE.univers.length} perpetuels par taux de financement, long les ${PRE.k} plus bas, court les ${PRE.k} plus hauts, rebalancement toutes les ${PRE.heures} h.` },
       fenetre: { du: new Date(t0).toISOString().slice(0, 10), au: new Date(t1).toISOString().slice(0, 10),
                  instruments: donnees.length, avecFinancement: avecFin },
+      /* Les frais et le levier ne sont pas des reglages de l'hypothese —
+         c'est l'environnement dans lequel on la joue — mais ils changent
+         le net, et un reglage qui change un resultat sans laisser de
+         trace est exactement ce que cette manoeuvre existe pour empecher.
+         Ils sont donc consignes a chaque passe : si le net bouge un jour
+         sans que le marche ait bouge, la raison sera lisible ici. */
+      conditions: { frais: T.FRAIS, levier: T.LEVIER },
       apprentissage: { periodes: sAvant.n, net: +sAvant.net.toFixed(3), brut: +sAvant.brut.toFixed(3),
                        t: +sAvant.t.toFixed(2), sharpe: +sAvant.sharpe.toFixed(3) },
       epreuve: { periodes: sApres.n, net: +sApres.net.toFixed(3), brut: +sApres.brut.toFixed(3),
