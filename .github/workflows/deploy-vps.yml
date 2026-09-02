@@ -52,6 +52,10 @@ on:
         description: "Telecharger des mois d'archives publiques pour mesurer sur un vrai retournement"
         required: false
         default: "false"
+      mois:
+        description: "Nombre de mois d'archives a telecharger (12 par defaut, 36 pour un vrai cycle de marche)"
+        required: false
+        default: "12"
       extra:
         description: "Telecharger financement et interet ouvert (donnees que le prix ne contient pas)"
         required: false
@@ -347,7 +351,7 @@ jobs:
           sshpass -e ssh -o StrictHostKeyChecking=accept-new \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "root@$VPS" \
-            "cd /root/hermes && df -h / | tail -1 && NODE_OPTIONS=--dns-result-order=ipv4first HISTOIRE_MOIS=${HISTOIRE_MOIS:-12} node deploy/histoire_longue.js && du -sh data/cache-long && df -h / | tail -1"
+            "cd /root/hermes && df -h / | tail -1 && NODE_OPTIONS=--dns-result-order=ipv4first HISTOIRE_MOIS='${{ inputs.mois }}' node deploy/histoire_longue.js && du -sh data/cache-long && df -h / | tail -1"
 
       # Les series que le prix ne contient pas : taux de financement et
       # interet ouvert. Douze mois de mesures ont montre que les bougies
@@ -361,7 +365,7 @@ jobs:
           sshpass -e ssh -o StrictHostKeyChecking=accept-new \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=40 \
             "root@$VPS" \
-            "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first HISTOIRE_MOIS=${HISTOIRE_MOIS:-12} node deploy/histoire_extra.js && du -sh data/extra"
+            "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first HISTOIRE_MOIS='${{ inputs.mois }}' node deploy/histoire_extra.js && du -sh data/extra"
 
       # Le banc transversal. Douze mois de mesures ont ferme la question
       # « cet instrument va-t-il monter ? ». Celui-ci en pose une autre :

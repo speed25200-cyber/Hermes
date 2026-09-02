@@ -185,6 +185,7 @@ function evaluer(donnees, nomSignal, heures, k) {
   const debut = 15 * 24;                      // de quoi calculer 7 j et 14 j de volatilite
   const periodes = [];
   const tampon = [];
+  let precedent = new Map();                  // instId -> sens tenu au tour d'avant
 
   for (let i = debut; i + heures < n; i += heures) {
     tampon.length = 0;
@@ -193,18 +194,38 @@ function evaluer(donnees, nomSignal, heures, k) {
       if (!(c > 0) || !(f > 0)) continue;
       const s = sig.score(d, i);
       if (!Number.isFinite(s)) continue;
-      tampon.push({ s, r: Math.log(f / c) });
+      tampon.push({ id: d.instId, s, r: Math.log(f / c) });
     }
     if (tampon.length < 2 * k + 2) continue;
     tampon.sort((a, b) => b.s - a.s);
     let rL = 0, rC = 0;
-    for (let j = 0; j < k; j++) { rL += tampon[j].r; rC += tampon[tampon.length - 1 - j].r; }
+    const courant = new Map();
+    for (let j = 0; j < k; j++) {
+      rL += tampon[j].r; courant.set(tampon[j].id, 1);
+      const c2 = tampon[tampon.length - 1 - j];
+      rC += c2.r; courant.set(c2.id, -1);
+    }
     const brut = ((rL - rC) / k) / 2;
-    // Les frais : chaque position ouverte et fermee a chaque
-    // rebalancement. C'est le pire cas — le vivant garderait les
-    // positions inchangees — et c'est volontaire.
-    const cout = 2 * FRAIS;
-    periodes.push({ i, brut: brut * LEVIER, net: (brut - cout) * LEVIER, n: tampon.length });
+
+    /* LES FRAIS, comptes sur la ROTATION reelle. La premiere version
+       facturait un aller-retour complet a chaque rebalancement, comme si
+       tout le livre etait solde puis rouvert. C'est le pire cas, et il
+       etait volontaire tant qu'on ne savait pas si un signal existait ;
+       mais c'est faux, et cette fausseté joue contre les horizons longs
+       precisement la ou ils devraient briller : un instrument qui reste
+       dans les cinq premiers d'une semaine sur l'autre n'est pas
+       retrade, il est simplement conserve.
+
+       Une jambe se paie quand une position s'ouvre et quand elle se
+       ferme. Un changement de sens sur un meme instrument compte pour
+       deux : on solde et on repart de l'autre cote. */
+    let jambes = 0;
+    for (const [id, sens] of courant) { const av = precedent.get(id); if (av === undefined) jambes += 1; else if (av !== sens) jambes += 2; }
+    for (const [id] of precedent) if (!courant.has(id)) jambes += 1;
+    const cout = FRAIS * jambes / (2 * k);
+    precedent = courant;
+
+    periodes.push({ i, brut: brut * LEVIER, net: (brut - cout) * LEVIER, n: tampon.length, jambes });
   }
   return periodes;
 }
@@ -224,8 +245,9 @@ function stats(periodes) {
      « le signal existe-t-il ? » se lit sur le BRUT, « est-il negociable ? »
      sur le net. Un signal reel mange par les frais reste un signal reel,
      et c'est une information qu'un seul t effacerait. */
+  const rot = periodes.reduce((u, p) => u + (p.jambes || 0), 0) / n;
   return { n, moyenne: m, ecartType: sd, t: sd > 0 ? m / (sd / Math.sqrt(n)) : 0,
-           net: cum, sharpe: sd > 0 ? m / sd : 0, creux,
+           net: cum, sharpe: sd > 0 ? m / sd : 0, creux, rotation: rot,
            brut: b.reduce((u, v) => u + v, 0),
            moyenneBrut: mb, tBrut: sdb > 0 ? mb / (sdb / Math.sqrt(n)) : 0 };
 }
@@ -253,7 +275,8 @@ function repliques(brutes, t0, n, graine) {
 /* ---- la passe ---- */
 
 function main() {
-  console.log(`[TRANSVERSAL] classement de ${UNIVERS.length} instruments · K=${K} longs et ${K} courts · levier ${LEVIER} · frais ${(2 * FRAIS * LEVIER).toFixed(4)} de marge par rebalancement`);
+  console.log(`[TRANSVERSAL] classement de ${UNIVERS.length} instruments · K=${K} longs et ${K} courts · levier ${LEVIER}`);
+  console.log(`[TRANSVERSAL] frais comptes sur la ROTATION reelle : ${(FRAIS * LEVIER).toFixed(4)} de marge par jambe rapportee au livre ; un instrument qui reste dans le classement n'est pas retrade`);
 
   const brutes = [];
   for (const instId of UNIVERS) {
@@ -304,12 +327,12 @@ function main() {
   }
 
   console.log(`[TRANSVERSAL] resultats — TOUTES les cellules, y compris les mauvaises :`);
-  console.log(`  ${"signal".padEnd(22)} ${"h".padStart(4)} ${"periodes".padStart(8)} ${"net".padStart(8)} ${"brut".padStart(8)} ${"t net".padStart(6)} ${"t brut".padStart(7)} ${"sharpe".padStart(7)} ${"creux".padStart(7)} ${"nul".padStart(8)} ${"pct".padStart(5)}`);
+  console.log(`  ${"signal".padEnd(22)} ${"h".padStart(4)} ${"periodes".padStart(8)} ${"net".padStart(8)} ${"brut".padStart(8)} ${"t net".padStart(6)} ${"t brut".padStart(7)} ${"sharpe".padStart(7)} ${"creux".padStart(7)} ${"jambes".padStart(7)} ${"nul".padStart(8)} ${"pct".padStart(5)}`);
   for (const l of [...lignes].sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1))) {
     const v = l.vrai;
     console.log(`  ${l.nom.padEnd(22)} ${String(l.h).padStart(4)} ${String(v.n).padStart(8)} ` +
       `${v.net.toFixed(2).padStart(8)} ${v.brut.toFixed(2).padStart(8)} ` +
-      `${v.t.toFixed(2).padStart(6)} ${v.tBrut.toFixed(2).padStart(7)} ${v.sharpe.toFixed(3).padStart(7)} ${v.creux.toFixed(2).padStart(7)} ` +
+      `${v.t.toFixed(2).padStart(6)} ${v.tBrut.toFixed(2).padStart(7)} ${v.sharpe.toFixed(3).padStart(7)} ${v.creux.toFixed(2).padStart(7)} ${(v.rotation || 0).toFixed(1).padStart(7)} ` +
       `${l.medianNul == null ? "      —" : l.medianNul.toFixed(2).padStart(8)} ` +
       `${l.pct == null ? "    —" : ((100 * l.pct).toFixed(0) + "e").padStart(5)}`);
   }
