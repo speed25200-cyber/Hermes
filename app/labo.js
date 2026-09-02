@@ -490,8 +490,11 @@ const Labo = (() => {
     const bloc = $l("lb-tv-bloc");
     if (!bloc) return;
     const tv = donnees?.transversal;
-    if (!tv || !Array.isArray(tv.cellules) || !tv.cellules.length) { bloc.hidden = true; return; }
+    const ho = donnees?.hors;
+    const aTv = tv && Array.isArray(tv.cellules) && tv.cellules.length;
+    if (!aTv && !ho) { bloc.hidden = true; return; }
     bloc.hidden = false;
+    if (!aTv) { $l("lb-tv-n").textContent = "—"; $l("lb-tv-int").innerHTML = blocHors(ho); return; }
 
     const f = tv.famille || {};
     const pct = f.percentile == null ? null : Math.round(100 * f.percentile);
@@ -521,7 +524,57 @@ const Labo = (() => {
         <thead><tr><th>${ech(t("tv.col.signal"))}</th><th>${ech(t("tv.col.net"))}</th><th>${ech(t("tv.col.brut"))}</th>
           <th>${ech(t("tv.col.t"))}</th><th>${ech(t("tv.col.creux"))}</th><th>${ech(t("tv.col.nul"))}</th></tr></thead>
         <tbody>${lignes}</tbody></table></div>
-      <div class="r-note">${ech(t("tv.periode", { n: tv.instruments, a: tv.periode?.du || "?", b: tv.periode?.au || "?" }))}</div>`;
+      <div class="r-note">${ech(t("tv.periode", { n: tv.instruments, a: tv.periode?.du || "?", b: tv.periode?.au || "?" }))}</div>
+      ${blocHors(ho)}`;
+  }
+
+  /* — LE RELEVE HORS ECHANTILLON. Le tableau du dessus a vu ses vingt et
+       une cellules avant de conclure ; celui-ci ne regarde qu'une seule
+       hypothese, ecrite avant les donnees qui la jugent.
+
+       Ce qu'il faut montrer n'est PAS le chiffre du jour. C'est le
+       compte a rebours. Dans trois mois il y aura un t, il sera du
+       bruit, et la tentation de le lire sera d'autant plus forte qu'il
+       aura coute trois mois d'attente. La barre de progression est donc
+       la piece principale, et le t n'apparait qu'une fois la barre
+       pleine. — */
+
+  function blocHors(ho) {
+    if (!ho || !ho.epreuve || !ho.puissance) return "";
+    const e = ho.epreuve, p = ho.puissance, hy = ho.hypothese || {};
+    const requis = p.periodesRequises;
+    const assez = requis != null && e.periodes >= requis;
+    const part = requis ? Math.min(100, Math.max(0, 100 * e.periodes / requis)) : 0;
+
+    /* Quand aucune duree raisonnable ne trancherait, la barre ment en
+       affichant « presque rien » ; on dit la phrase a la place. */
+    if (requis == null) {
+      return `<div class="ho">
+        <div class="ho-titre">${ech(t("ho.titre"))}</div>
+        <div class="ho-jamais">${ech(t("ho.jamais"))}</div></div>`;
+    }
+
+    const tete = assez
+      ? `<div class="ho-verdict ${e.t >= 2 && e.net > 0 ? "tient" : "refute"}">${ech(assezTxt(e))}</div>`
+      : `<div class="ho-attente">
+           <div class="ho-barre"><i style="width:${part.toFixed(1)}%"></i></div>
+           <div class="ho-compte">${ech(t("ho.compte", { n: e.periodes, r: requis }))}</div>
+           <div class="ho-date">${ech(p.lisibleLe ? t("ho.avant", { d: p.lisibleLe }) : t("ho.jamais"))}</div>
+           <div class="ho-bruit">${ech(t("ho.bruit"))}</div>
+         </div>`;
+
+    return `<div class="ho">
+      <div class="ho-titre">${ech(t("ho.titre"))}</div>
+      <div class="ho-quoi">${ech(t("ho.quoi", { n: hy.instruments ?? 30, k: hy.k ?? 5, h: hy.heures ?? 72 }))}</div>
+      ${tete}
+      <div class="r-note">${ech(t("ho.note", { s: (p.sharpeReference ?? 0).toFixed(3), r: requis }))}</div>
+    </div>`;
+  }
+
+  function assezTxt(e) {
+    return e.t >= 2 && e.net > 0
+      ? t("ho.tient", { t: e.t.toFixed(2), n: e.net.toFixed(2) })
+      : t("ho.refute", { t: e.t.toFixed(2), n: e.net.toFixed(2) });
   }
 
   /* — les passes precedentes : une barre par passe, la derniere en

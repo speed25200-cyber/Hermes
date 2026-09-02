@@ -136,6 +136,21 @@
       famille: { meilleure: { signal: "financement", heures: 72, t: 2.11, net: 7.72, brut: 10.11 },
                  maxTReel: 2.11, percentile: .88, medianDesMaxima: 1.46, tirages: 40, cellules: 21 },
     },
+    /* Le releve hors echantillon tel qu'il existe le jour de la
+       pre-inscription : zero periode, et six cent quarante-deux jours a
+       attendre. C'est l'etat le plus difficile a afficher honnetement,
+       parce qu'il n'y a rien a montrer et que la page doit quand meme
+       dire quelque chose d'utile — le compte a rebours, pas un chiffre. */
+    hors: {
+      genere: new Date().toISOString(),
+      hypothese: { signal: "financement", heures: 72, k: 5, instruments: 30, consignee: "2026-09-02",
+                   enonce: "Classer 30 perpetuels par taux de financement, long les 5 plus bas, court les 5 plus hauts, rebalancement toutes les 72 h." },
+      fenetre: { du: "2024-09-01", au: "2026-08-31", instruments: 30, avecFinancement: 30 },
+      apprentissage: { periodes: 238, net: 7.72, brut: 10.11, t: 2.11, sharpe: .137 },
+      epreuve: { periodes: 0, net: 0, brut: 0, t: 0, sharpe: 0, creux: 0, rotation: 0, percentileNul: null, medianNul: null, tirages: 0 },
+      puissance: { sharpeReference: .137, periodesRequises: 214, periodesManquantes: 214, joursRestants: 642, lisibleLe: "2028-06-05" },
+      historique: [{ quand: "2026-09-02", periodes: 0, net: 0, brut: 0, t: 0, sharpe: 0, percentileNul: null }],
+    },
   };
 
   window.api = {
@@ -148,8 +163,19 @@
       if (canal === "ai:live-status") return { ok: true, liveEnabled: true };
       if (canal === "ui-mode")        return { ok: true, mode: "full" };
       if (canal === "laboratoire") {
-        if (window.__passeEnCours) return { ...LABO, progression: { debut: new Date(Date.now() - 83e3).toISOString(), rang: 7, total: 20, instId: "SOL" } };
-        return LABO;
+        /* Le releve hors echantillon a deux etats et le second n'arrive
+           qu'en 2028 : sans un moyen de le jouer maintenant, la moitie
+           de son affichage resterait non testee pendant deux ans, et
+           casserait le jour ou l'on en a besoin. __horsPlein bascule la
+           fixture sur « le compte y est » — la meme forme de donnees,
+           avec assez de periodes pour que le verdict se lise. */
+        const base = window.__horsPlein
+          ? { ...LABO, hors: { ...LABO.hors,
+              epreuve: { ...LABO.hors.epreuve, periodes: 220, net: 6.10, brut: 8.02, t: 2.34, sharpe: .158, percentileNul: .97, medianNul: -1.2, tirages: 40 },
+              puissance: { ...LABO.hors.puissance, periodesManquantes: 0, joursRestants: 0, lisibleLe: null } } }
+          : LABO;
+        if (window.__passeEnCours) return { ...base, progression: { debut: new Date(Date.now() - 83e3).toISOString(), rang: 7, total: 20, instId: "SOL" } };
+        return base;
       }
       if (canal === "chercher-perles") { window.__passeEnCours = true; return { ok: true, lance: true }; }
       if (canal === "chandelles") {

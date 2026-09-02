@@ -1713,7 +1713,14 @@ ipcMain.handle("laboratoire", async () => {
        dependre de personne. */
     let transversal = null;
     try { transversal = JSON.parse(fs.readFileSync(path.join(DATADIR, "transversal.json"), "utf8")); } catch {}
-    return { ok: true, roster, historique, joue, guet, capital, transversal,
+    /* Le releve de l'hypothese pre-inscrite. C'est la seule mesure du
+       depot qui n'a pas ete choisie apres coup, et c'est aussi la seule
+       qui compte un temps d'attente : la page doit montrer ce compte a
+       rebours, sinon quelqu'un — moi compris — lira un verdict dans
+       trois mois de bruit. */
+    let hors = null;
+    try { hors = JSON.parse(fs.readFileSync(path.join(DATADIR, "hors_echantillon.json"), "utf8")); } catch {}
+    return { ok: true, roster, historique, joue, guet, capital, transversal, hors,
              moteur: !!(typeof AI !== "undefined" && AI.on), progression, ts: tsISO() };
   } catch (e) {
     return { ok: false, error: String(e.message || e) };

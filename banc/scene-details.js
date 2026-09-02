@@ -188,6 +188,56 @@ const srv = http.createServer((req, rep) => {
   if (tv.lignes !== 4) dire("lignes du tableau transversal : " + tv.lignes);
   if (!/financement 72/.test(tv.retenue)) dire("ligne retenue : " + tv.retenue);
 
+  /* LE RELEVE HORS ECHANTILLON, et c'est l'affichage le plus delicat de
+     toute la page : il n'y a rien a montrer. Zero periode, aucun
+     chiffre lisible, six cent quarante-deux jours d'attente. Une page
+     honnete doit dire cela SANS afficher de t — parce qu'un t existe
+     deja, qu'il est du bruit, et que le montrer suffirait a ce qu'on le
+     lise. Le banc verifie donc surtout des ABSENCES. */
+  const ho = await $(() => {
+    const z = document.querySelector("#lb-tv-int .ho");
+    if (!z) return null;
+    return { quoi: z.querySelector(".ho-quoi")?.textContent.replace(/\s+/g, " ") || "",
+             compte: z.querySelector(".ho-compte")?.textContent.replace(/\s+/g, " ") || "",
+             date: z.querySelector(".ho-date")?.textContent || "",
+             bruit: z.querySelector(".ho-bruit")?.textContent.replace(/\s+/g, " ") || "",
+             note: z.querySelector(".r-note:last-of-type")?.textContent.replace(/\s+/g, " ") || "",
+             largeur: z.querySelector(".ho-barre i")?.style.width || "",
+             verdict: z.querySelector(".ho-verdict") ? "present" : "absent",
+             or: !!z.querySelector(".tient") };
+  });
+  if (!ho) dire("le releve hors echantillon ne s'affiche pas");
+  else {
+    if (!/financement/.test(ho.quoi) || !/72/.test(ho.quoi)) dire("enonce du releve : " + ho.quoi);
+    if (!/0/.test(ho.compte) || !/214/.test(ho.compte)) dire("compte des periodes : " + ho.compte);
+    if (!/2028-06-05/.test(ho.date)) dire("date de lisibilite : " + ho.date);
+    if (!/bruit/.test(ho.bruit)) dire("l'avertissement sur le bruit manque : " + ho.bruit);
+    if (!/0\.137/.test(ho.note) || !/214/.test(ho.note)) dire("note de puissance : " + ho.note);
+    // La barre est vide, et elle doit l'etre : zero sur deux cent quatorze.
+    if (ho.largeur !== "0%" && ho.largeur !== "0.0%") dire("la barre d'attente n'est pas vide : " + ho.largeur);
+    // Les deux absences qui comptent vraiment.
+    if (ho.verdict !== "absent") dire("un verdict est affiche alors qu'il n'y a aucune periode");
+    if (ho.or) dire("la couleur du succes est employee avant tout resultat");
+  }
+
+  /* L'AUTRE ETAT du meme bloc : le jour ou le compte y est. Il n'arrive
+     qu'en 2028, et c'est precisement pourquoi il se teste aujourd'hui —
+     un affichage qu'on ne joue jamais est un affichage casse qui
+     l'ignore. La bascule ne change que les donnees, jamais le code. */
+  await $(() => { window.__horsPlein = true; return Labo.charger(); });
+  await pg.waitForTimeout(500);
+  const hoP = await $(() => {
+    const z = document.querySelector("#lb-tv-int .ho");
+    return { verdict: z?.querySelector(".ho-verdict")?.textContent.replace(/\s+/g, " ") || "",
+             classe: z?.querySelector(".ho-verdict")?.className || "",
+             attente: z?.querySelector(".ho-attente") ? "present" : "absent" };
+  });
+  if (!/2\.34/.test(hoP.verdict)) dire("le verdict ne montre pas le t : " + hoP.verdict);
+  if (!/tient/.test(hoP.classe)) dire("un t de 2,34 avec net positif doit porter la couleur du succes : " + hoP.classe);
+  if (hoP.attente !== "absent") dire("le compte a rebours reste affiche alors que le compte y est");
+  await $(() => { window.__horsPlein = false; return Labo.charger(); });
+  await pg.waitForTimeout(400);
+
   // Tout survit a un re-rendu.
   await $(() => Labo.charger()); await pg.waitForTimeout(600);
   const encore = await $(() => ({ perle: document.querySelector('[data-depli="p:AXS-USDT-SWAP"]')?.getAttribute("aria-expanded"),
