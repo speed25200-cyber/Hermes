@@ -48,6 +48,10 @@ on:
         description: "Mesurer si le filtre par etat de marche ameliore les perles (aucune ecriture)"
         required: false
         default: "false"
+      histoire:
+        description: "Telecharger des mois d'archives publiques pour mesurer sur un vrai retournement"
+        required: false
+        default: "false"
 
 concurrency:
   group: vps-deploy
@@ -292,6 +296,22 @@ jobs:
             -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             "root@$VPS" \
             "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first HERMES_UNIVERSE_SIZE=50 node deploy/chercher_perles.js"
+
+      # Un mois de bougies ne contient pas de retournement de marche, et
+      # le premier passage du banc l'a montre : 87 % du temps en
+      # fourchette, sept trades ecartes sur trois cent vingt-huit. Cette
+      # etape va chercher des mois d'archives publiques Binance — un zip
+      # par mois et par instrument, sans compte ni cle — pour que la
+      # mesure porte sur une periode qui contient le probleme qu'on
+      # cherche a traiter. Elle n'ecrit que dans data/cache-long, exclu
+      # du rsync.
+      - name: Telecharger l'histoire longue
+        if: ${{ inputs.histoire == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
+            "root@$VPS" \
+            "cd /root/hermes && df -h / | tail -1 && NODE_OPTIONS=--dns-result-order=ipv4first HISTOIRE_MOIS=${HISTOIRE_MOIS:-12} node deploy/histoire_longue.js && du -sh data/cache-long && df -h / | tail -1"
 
       # Le banc du regime. Il rejoue les perles du roster sur le cache du
       # chercheur, avec et sans le filtre par etat de marche, en

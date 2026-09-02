@@ -54,8 +54,15 @@ const REGIME = require(path.join(RACINE, "modules", "regime.js"));
 
 const ROSTER = path.join(RACINE, "config", "roster.json");
 const CACHE_DIR = path.join(RACINE, "data", "cache-5m");
-const BLOCS = Number(process.env.REGIME_BLOCS || 5);
-const JOURS_BLOC = Number(process.env.REGIME_JOURS_BLOC || 3);
+const CACHE_LONG = path.join(RACINE, "data", "cache-long");
+/* La glissade s'adapte à ce qu'on a sous la main. Trente jours de cache
+   ne donnent que cinq blocs de trois jours ; dix-huit mois d'archives en
+   donnent douze de trente. Le second est le seul qui puisse contenir un
+   retournement de marché, et donc le seul qui puisse répondre à la
+   question posée. */
+const LONG = fs.existsSync(CACHE_LONG);
+const BLOCS = Number(process.env.REGIME_BLOCS || (LONG ? 12 : 5));
+const JOURS_BLOC = Number(process.env.REGIME_JOURS_BLOC || (LONG ? 30 : 3));
 const LEVIER = Number(process.env.HERMES_DEFAULT_LEVERAGE || 15);
 const SL = 0.30, CB = 0.05;
 const MIN_TRADES_ETAT = Number(process.env.REGIME_MIN_TRADES_ETAT || 5);
@@ -74,11 +81,17 @@ function get(chemin) {
 }
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
-function lireCache(instId) {
+/* L'histoire longue d'abord, le cache du chercheur ensuite. Les deux ont
+   le même format ; seule la profondeur change, et avec elle la portée de
+   ce que le banc peut conclure. */
+function lireUn(dossier, instId) {
   try {
-    const rows = JSON.parse(fs.readFileSync(path.join(CACHE_DIR, instId + ".json"), "utf8"));
+    const rows = JSON.parse(fs.readFileSync(path.join(dossier, instId + ".json"), "utf8"));
     return Array.isArray(rows) && rows.length > 288 * 3 ? rows : null;
   } catch { return null; }
+}
+function lireCache(instId) {
+  return lireUn(CACHE_LONG, instId) || lireUn(CACHE_DIR, instId);
 }
 
 async function histoire(instId, jours) {
@@ -148,6 +161,8 @@ function partBattue(trades, gardes, tirages) {
 async function main() {
   const seuils = REGIME.lireSeuils(path.join(RACINE, "config", "regime.json"));
   console.log(`[BANC-REGIME] seuils ${seuils.version} : choc ${seuils.choc} · tendance ${seuils.tendance} | levier ${LEVIER} | validation glissante ${BLOCS} blocs de ${JOURS_BLOC} j`);
+  console.log(`[BANC-REGIME] source des bougies : ${LONG ? "archives longues (data/cache-long, Binance)" : "cache du chercheur (data/cache-5m, OKX, 30 j)"}`);
+  if (LONG) console.log(`[BANC-REGIME] avertissement : les archives sont des perpetuels BINANCE. Pour l'ETAT du marche c'est sans consequence ; pour rejouer une perle c'est une approximation, proche mais pas identique a OKX.`);
 
   let roster;
   try { roster = JSON.parse(fs.readFileSync(ROSTER, "utf8")); }
@@ -172,6 +187,9 @@ async function main() {
       .map(([e, n]) => `${e} ${(100 * n / total).toFixed(1)} %`).join(" · "));
 
   const finTs = btc[btc.length - 1][0];
+  console.log(`[BANC-REGIME] histoire de reference : ${btc.length} bougies, du ` +
+    `${new Date(btc[0][0]).toISOString().slice(0, 10)} au ${new Date(finTs).toISOString().slice(0, 10)}`);
+  const parEtatGlobal = {};
 
   console.log(`[BANC-REGIME] verdict par perle (choix sur le passe de chaque bloc, mesure sur le bloc) :`);
   const lignes = [];
@@ -217,6 +235,14 @@ async function main() {
     }
     if (!blocsUtiles) { lignes.push(`  ${nom.padEnd(10)} — pas assez d'histoire pour un seul bloc, ignoree`); continue; }
 
+    // Le tableau descriptif par état, sur TOUS les trades. Il ne décide
+    // rien — il montre où l'argent se gagne et où il se perd, ce qui est
+    // la question que le propriétaire pose depuis le début.
+    for (const t of trades) {
+      const g = parEtatGlobal[t.etat] = parEtatGlobal[t.etat] || { trades: 0, gagnes: 0, net: 0 };
+      g.trades++; g.net += t.pnlMarge; if (t.pnlMarge > 0) g.gagnes++;
+    }
+
     const bSans = bilan(perleSans), bAvec = bilan(perleAvec);
     agregatSans.push(...perleSans); agregatAvec.push(...perleAvec);
     if (!bAvec.trades && bSans.trades) muettes++;
@@ -235,13 +261,21 @@ async function main() {
 
   for (const l of lignes) console.log(l);
 
+  console.log(`[BANC-REGIME] ou l'argent se gagne (tous trades, description seulement) :`);
+  for (const [e, g] of Object.entries(parEtatGlobal).sort((a, b) => b[1].trades - a[1].trades)) {
+    console.log(`  ${e.padEnd(20)} ${String(g.trades).padStart(5)} trades · wr ${(100 * g.gagnes / g.trades).toFixed(1).padStart(5)} % · net ${g.net.toFixed(2).padStart(8)} · par trade ${(g.net / g.trades).toFixed(4).padStart(8)}`);
+  }
+
   const gSans = bilan(agregatSans), gAvec = bilan(agregatAvec);
   const part = partBattue(agregatSans, agregatAvec, TIRAGES_TEMOIN);
   console.log(`[BANC-REGIME] ensemble, tous blocs hors echantillon confondus :`);
   console.log(`  sans filtre : ${gSans.trades} trades, wr ${gSans.winrate.toFixed(1)} %, net ${gSans.net.toFixed(2)}, creux max ${gSans.creux.toFixed(2)}`);
   console.log(`  avec filtre : ${gAvec.trades} trades, wr ${(gAvec.trades ? gAvec.winrate.toFixed(1) : "—")} %, net ${gAvec.net.toFixed(2)}, creux max ${gAvec.creux.toFixed(2)}`);
+  console.log(`  trades gardes : ${gSans.trades ? (100 * gAvec.trades / gSans.trades).toFixed(0) : "—"} %`);
   console.log(`  perles ameliorees ${mieux} · degradees ${pires} · inchangees ${egaux} · reduites au silence ${muettes}`);
   console.log(`  temoin : le filtre bat ${part == null ? "—" : (100 * part).toFixed(1) + " %"} des retraits au hasard de meme taille (${TIRAGES_TEMOIN} tirages)`);
+  console.log(`  le creux d'ensemble suppose une marge egale par trade et pas de limite de places :`);
+  console.log(`  c'est faux du moteur, mais c'est la MEME approximation des deux cotes, donc la comparaison tient.`);
   console.log(`[BANC-REGIME] rappel : ce script ne branche rien. Le cablage attend un verdict qui le merite.`);
 }
 
