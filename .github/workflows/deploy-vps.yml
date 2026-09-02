@@ -56,6 +56,10 @@ on:
         description: "Telecharger financement et interet ouvert (donnees que le prix ne contient pas)"
         required: false
         default: "false"
+      transversal:
+        description: "Essayer le classement transversal entre instruments (momentum, retournement, financement)"
+        required: false
+        default: "false"
       balayage:
         description: "Balayer trente-six reglages de seuils du regime et montrer la sensibilite"
         required: false
@@ -358,6 +362,20 @@ jobs:
             -o ServerAliveInterval=30 -o ServerAliveCountMax=40 \
             "root@$VPS" \
             "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first HISTOIRE_MOIS=${HISTOIRE_MOIS:-12} node deploy/histoire_extra.js && du -sh data/extra"
+
+      # Le banc transversal. Douze mois de mesures ont ferme la question
+      # « cet instrument va-t-il monter ? ». Celui-ci en pose une autre :
+      # « parmi trente instruments, lesquels vont faire mieux que les
+      # autres ? ». Le mouvement commun a toute la crypto s'annule entre
+      # le cote long et le cote court, et il ne reste que l'asymetrie
+      # relative — la seule piste que la litterature soutient encore.
+      - name: Essayer le classement transversal
+        if: ${{ inputs.transversal == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=40 \
+            "root@$VPS" \
+            "cd /root/hermes && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=1400' node deploy/banc_transversal.js"
 
       # Le banc du regime. Il rejoue les perles du roster sur le cache du
       # chercheur, avec et sans le filtre par etat de marche, en
