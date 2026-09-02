@@ -575,6 +575,41 @@ les onze bougies intermédiaires sans les lire. C'est douze fois moins de
 données pour **exactement le même nombre** — ce qui rend cent
 instruments tenables sur une machine de deux gigaoctets.
 
+### Ce que chaque résultat autorisera — écrit avant de le connaître
+
+Cette section est datée du 2 septembre 2026 et rédigée pendant que la
+mesure tourne, avant tout chiffre. Décider après coup de ce qu'un
+résultat autorise, c'est se laisser la liberté de trouver bon ce qui
+arrive — la faute même que le reste du document combat.
+
+**Ce qui n'arrivera dans aucun cas.** L'hypothèse pré-inscrite du 2
+septembre — trente instruments, cinq de chaque côté, 72 heures — n'est
+ni modifiée, ni élargie, ni remplacée. Son verdict se lira en 2028 sur
+ses propres termes. Une pré-inscription qu'on amende au premier
+résultat encourageant n'a jamais rien pré-inscrit.
+
+**Si la loi tient** (le sharpe grandit comme √N, sharpe/√N stable, et le
+réel se détache de son nul à la plus grande largeur), alors une
+**seconde** hypothèse est consignée — pas une correction de la première,
+une autre, avec son propre compteur partant d'aujourd'hui : *même
+signal, même horizon, un sixième de l'univers de chaque côté, sur cent
+instruments*. Son intérêt n'est pas d'être plus belle, c'est d'être
+jugeable en six mois au lieu de deux ans. Les deux courent alors en
+parallèle et se contredisent ou se confirment.
+
+Il faut être net sur un point : le sharpe mesuré à N = 100 est
+**dans l'échantillon**, et ne se trade pas. Ce qui a valeur de preuve
+n'est pas son niveau, c'est la *forme* de la croissance — une structure
+que le bruit ne produit pas.
+
+**Si la loi ne tient pas**, la conclusion est plus dure et plus utile :
+l'avantage à trente instruments ne se comporte pas comme un effet
+transversal réel. Il faudra alors le lire comme ce qu'il est le plus
+probablement — le meilleur de vingt et une cellules — et l'hypothèse de
+2028, quoique maintenue, sera à peu près condamnée d'avance. Aucune
+seconde hypothèse ne sera consignée, et la piste transversale sera
+close.
+
 ## Ce qui reste à essayer, par ordre d'intérêt
 
 L'horizon a été essayé et il ne donne rien (ci-dessus). Restent :
