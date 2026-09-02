@@ -762,11 +762,36 @@ async function okxPOST(pathname, body) {
    taille en la quantifiant au nombre de decimales du pas. Le petit
    epsilon absorbe le cas inverse, ou 28,9 / 0,1 vaut 288,9999999 et
    ferait perdre un lot entier. */
+/* LE CORRECTIF EST SOUS INTERRUPTEUR, ET CE N'EST PAS DE LA TIMIDITE.
+
+   Chaque mise en ligne recopie tout le depot sur la machine. Sans
+   interrupteur, le premier diagnostic lance apres ce commit changerait
+   AUSSI, et sans que personne l'ait demande, la facon dont le moteur
+   dimensionne ses ordres sur un compte reel — en lui faisant passer des
+   trades qui echouaient, sur un systeme dont l'esperance par trade est
+   mesuree negative.
+
+   HERMES_TAILLE_EXACTE=1 active la taille corrigee. Par defaut le
+   moteur garde son comportement d'aujourd'hui, defaut compris, pour que
+   deployer une mesure reste une mesure et rien d'autre. Le jour ou le
+   proprietaire veut le correctif, c'est un mot dans le .env — et le
+   moment sensé est apres avoir mis le moteur en pause, ou le jour ou un
+   avantage brut est demontre. */
+const TAILLE_EXACTE = process.env.HERMES_TAILLE_EXACTE === "1";
+
 function roundQtyToLot(instId, qty) {
   const meta  = MARKET.meta[instId] || { lotSz: 0.001, minSz: 0.001 };
   const step  = num(meta.lotSz || 0.001);
   const minSz = num(meta.minSz || step);
   if (!(step > 0)) return 0;
+  if (!TAILLE_EXACTE) {
+    /* Le comportement historique, conserve tel quel. Sur un lot
+       fractionnaire il produit des chaines comme « 0.6000000000000001 »
+       qu'OKX refuse avec le code 51121 : c'est le defaut mesure le
+       2 septembre, garde ici volontairement et non par oubli. */
+    const rounded = Math.floor(qty / step) * step;
+    return Math.max(rounded, minSz);
+  }
   const dec = (String(step).split(".")[1] || "").length;
   const lots = Math.floor(qty / step + 1e-9);
   const rounded = Number((Math.max(lots, 0) * step).toFixed(dec));

@@ -34,11 +34,18 @@ function verifier(nom, condition, detail) {
    d'en recopier une version : un banc qui teste sa propre copie ne
    teste rien. */
 const src = fs.readFileSync(path.join(RACINE, "app", "main.js"), "utf8");
-const bloc = src.slice(src.indexOf("function roundQtyToLot"));
-const corps = bloc.slice(0, bloc.indexOf("\nfunction "));
+const bloc = src.slice(src.indexOf("const TAILLE_EXACTE"));
+const corps = bloc.slice(0, bloc.indexOf("\nfunction ", bloc.indexOf("function roundQtyToLot")));
 const MARKET = { meta: {} };
 const num = (x) => Number(x) || 0;
-const roundQtyToLot = new Function("MARKET", "num", corps + "\nreturn roundQtyToLot;")(MARKET, num);
+/* Le correctif est sous interrupteur pour que deployer une mesure ne
+   change pas le comportement d'un compte reel. Le banc juge le
+   correctif, donc il l'allume ; une section separee verifie que
+   l'interrupteur existe et que sa position par defaut est bien
+   l'ancien comportement. */
+const faire = (exact) => new Function("MARKET", "num", "TAILLE_EXACTE",
+  corps.replace(/^const TAILLE_EXACTE[^\n]*\n/m, "") + "\nreturn roundQtyToLot;")(MARKET, num, exact);
+const roundQtyToLot = faire(true);
 
 const dec = (v) => (String(v).split(".")[1] || "").length;
 function estMultiple(sz, lot) {
@@ -98,8 +105,32 @@ verifier("un pas nul ne fabrique pas d'infini ni de NaN",
 MARKET.meta.W = { lotSz: 1, minSz: 1, ctVal: 1 };
 verifier("une quantite negative ne devient pas une taille negative",
   roundQtyToLot("W", -3) >= 0, String(roundQtyToLot("W", -3)));
-verifier("plus aucun produit flottant nu dans le code",
-  !/Math\.floor\(qty \/ step\) \* step/.test(src));
+/* L'ancien calcul n'a pas disparu : il est conserve derriere
+   l'interrupteur eteint, pour que deployer ne change rien tant que le
+   proprietaire n'a pas choisi. Ce qu'il faut verifier n'est donc pas son
+   absence mais son CONFINEMENT — il ne doit exister qu'une fois, et
+   seulement sur la branche desactivee. */
+const flottants = (src.match(/Math\.floor\(qty \/ step\) \* step/g) || []).length;
+verifier("l'ancien calcul flottant n'apparait qu'une fois", flottants === 1, String(flottants));
+const brancheOff = corps.slice(corps.indexOf("if (!TAILLE_EXACTE)"), corps.indexOf("const dec ="));
+verifier("et il est confine a la branche desactivee",
+  /Math\.floor\(qty \/ step\) \* step/.test(brancheOff));
+verifier("la branche active ne contient aucun produit flottant nu",
+  !/Math\.floor\(qty \/ step\) \* step/.test(corps.slice(corps.indexOf("const dec ="))));
+
+/* --- 5. L'interrupteur ------------------------------------------------------ */
+console.log("5. L'interrupteur et sa position par defaut");
+verifier("l'interrupteur existe et lit HERMES_TAILLE_EXACTE",
+  /process\.env\.HERMES_TAILLE_EXACTE === "1"/.test(src));
+verifier("eteint, le moteur garde exactement son comportement d'aujourd'hui",
+  String(faire(false)("Y", 0.6061)) === "0.6000000000000001",
+  String(faire(false)("Y", 0.6061)));
+verifier("allume, la meme taille devient valide",
+  String(faire(true)("Y", 0.6061)) === "0.6");
+/* La position par defaut compte autant que le correctif : c'est elle
+   qui decide si deployer une mesure change un compte reel. */
+verifier("par defaut il est eteint (aucune variable posee = ancien comportement)",
+  !("HERMES_TAILLE_EXACTE" in process.env) || process.env.HERMES_TAILLE_EXACTE !== "1");
 
 console.log(echecs === 0 ? "\nEPREUVE DE LA TAILLE : verte." : `\nEPREUVE DE LA TAILLE : ${echecs} echec(s).`);
 process.exit(echecs === 0 ? 0 : 1);

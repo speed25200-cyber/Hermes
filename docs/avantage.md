@@ -732,9 +732,21 @@ le bug, par accident, économisait de l'argent.
 
 Ce n'est pas une raison de garder un bug. C'est une raison de ne pas
 choisir seul l'ordre des opérations. L'ordre sensé est : **mettre le
-moteur en pause, puis déployer le correctif** — ou ne le déployer que le
-jour où un avantage est démontré. Le code est sur la branche ; la
-machine tourne encore sans lui.
+moteur en pause, puis activer le correctif** — ou ne l'activer que le
+jour où un avantage brut est démontré.
+
+Il y avait un piège pratique là-dedans, et il fallait le désamorcer :
+chaque mise en ligne recopie **tout** le dépôt sur la machine. Sans
+précaution, le premier diagnostic lancé après ce commit aurait aussi
+changé, sans que personne l'ait demandé, la façon dont le moteur
+dimensionne ses ordres sur un compte réel.
+
+Le correctif est donc **sous interrupteur, éteint par défaut** :
+`HERMES_TAILLE_EXACTE=1` dans le `.env` de la machine l'active. Éteint,
+le moteur garde exactement son comportement d'aujourd'hui, défaut
+compris — et le banc vérifie les deux positions de l'interrupteur, ainsi
+que le fait que l'ancien calcul flottant ne subsiste que sur la branche
+désactivée. Déployer une mesure redevient une mesure et rien d'autre.
 
 ## Le plafond : ce que Hermes rapporterait avec des frais NULS
 
