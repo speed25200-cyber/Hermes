@@ -393,13 +393,19 @@ jobs:
       # n'a aucun reglage : c'est tout son interet. Il dit aussi combien
       # de temps il faudra encore, ce qui est la seule facon de ne pas
       # lire un verdict dans trois mois de bruit.
+      #
+      # L'etape rafraichit les archives AVANT de mesurer, sinon le releve
+      # relirait eternellement les memes mois en ayant l'air de marcher.
+      # Les deux telechargements ne prennent que ce qui manque : sur un
+      # cache a jour ils ne font rien, et au premier du mois ils prennent
+      # le mois qui vient de se clore.
       - name: Relever l'hypothese pre-inscrite
         if: ${{ inputs.hors_echantillon == 'true' }}
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=40 \
             "root@$VPS" \
-            "cd /root/hermes && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=1400' node deploy/hors_echantillon.js"
+            "cd /root/hermes && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=1400' HISTOIRE_MOIS=24 EXTRA_BUDGET_S=600 node deploy/histoire_longue.js && NODE_OPTIONS='--dns-result-order=ipv4first' HISTOIRE_MOIS=24 EXTRA_BUDGET_S=600 node deploy/histoire_extra.js && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=1400' node deploy/hors_echantillon.js"
 
       # Le banc du regime. Il rejoue les perles du roster sur le cache du
       # chercheur, avec et sans le filtre par etat de marche, en

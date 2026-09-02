@@ -173,5 +173,64 @@ verifier("temoin : financements redistribues, l'avantage disparait",
 verifier("le temoin est bien plus faible que le vrai",
   Math.abs(sT.t) < sB.t / 2, `${sT.t.toFixed(2)} contre ${sB.t.toFixed(2)}`);
 
+/* --- 6. La chaine de donnees peut-elle S'ETENDRE ? ---------------------- */
+console.log("6. Le financement peut-il gagner des mois nouveaux ?");
+
+/* Le suivi hors echantillon ne vit que de mois qui n'existaient pas
+   encore. Si le telechargement ne sait pas prolonger une serie deja
+   presente, le releve affichera zero periode jusqu'a la fin des temps
+   en ayant parfaitement l'air de fonctionner — c'est le pire mode de
+   panne possible, et c'etait l'etat du code. */
+const X = require(path.join(RACINE, "deploy", "histoire_extra.js"));
+const MS = 86400e3;
+const pts = (deb, fin) => {           // un point par jour entre deux mois inclus
+  const out = []; let d = Date.UTC(+deb.slice(0, 4), +deb.slice(5, 7) - 1, 1);
+  const stop = Date.UTC(+fin.slice(0, 4), +fin.slice(5, 7), 1);
+  for (; d < stop; d += MS) out.push([d, 0.0001]);
+  return out;
+};
+
+const acquis = pts("2024-09", "2026-08");
+verifier("les mois presents sont reconnus",
+  X.manquants(["2025-01", "2026-08"], acquis, []).length === 0);
+
+// LA REGRESSION : la serie s'arrete en aout, septembre est demande.
+verifier("un mois NOUVEAU est reclame meme si la serie commence assez tot",
+  X.manquants(["2024-09", "2026-08", "2026-09"], acquis, []).join(",") === "2026-09",
+  X.manquants(["2024-09", "2026-08", "2026-09"], acquis, []).join(","));
+
+verifier("un mois connu absent n'est pas redemande",
+  X.manquants(["2026-09"], acquis, ["2026-09"]).length === 0);
+
+verifier("la fusion n'oublie rien et ne double rien",
+  X.fusionner(acquis, pts("2026-09", "2026-09")).length === acquis.length + 30,
+  String(X.fusionner(acquis, pts("2026-09", "2026-09")).length - acquis.length));
+verifier("la fusion ne raccourcit jamais l'existant",
+  X.fusionner(acquis, []).length === acquis.length);
+verifier("la fusion reste triee",
+  X.fusionner(pts("2026-09", "2026-09"), acquis).every((r, i, a) => !i || a[i - 1][0] < r[0]));
+verifier("un point deja present ne se duplique pas",
+  X.fusionner(acquis, acquis).length === acquis.length);
+
+/* Le delai avant de declarer un mois absent pour de bon. Sans lui, le
+   mois qui vient de finir serait marque absent le 1er — avant meme que
+   Binance l'ait publie — et plus jamais retente. */
+const moisDe = (t) => new Date(t).toISOString().slice(0, 7);
+verifier("le mois qui vient de finir n'est pas declare absent",
+  !X.absentPourDeBon(moisDe(Date.now() - 20 * MS)), moisDe(Date.now() - 20 * MS));
+verifier("un vieux mois l'est",
+  X.absentPourDeBon(moisDe(Date.now() - 200 * MS)), moisDe(Date.now() - 200 * MS));
+
+/* La meme garantie sur les BOUGIES. Le fichier par instrument etait
+   reconstruit a partir des seuls mois demandes : une passe a douze mois
+   sur un cache de vingt-quatre le coupait en deux sans un mot, et avec
+   lui la fenetre d'apprentissage de l'hypothese. On verifie ici que la
+   fusion est bien celle du code, pas celle du commentaire. */
+const srcL = fs.readFileSync(path.join(RACINE, "deploy", "histoire_longue.js"), "utf8");
+verifier("les bougies deja en cache sont relues avant d'ecrire",
+  /let ancien = \[\];[\s\S]{0,400}\[\.\.\.ancien, \.\.\.bougies\]/.test(srcL));
+verifier("plus aucun tri qui ignore l'existant",
+  !/for \(const k of bougies\.sort/.test(srcL));
+
 console.log(echecs === 0 ? "\nEPREUVE DU SUIVI HORS ECHANTILLON : verte." : `\nEPREUVE DU SUIVI HORS ECHANTILLON : ${echecs} echec(s).`);
 process.exit(echecs === 0 ? 0 : 1);

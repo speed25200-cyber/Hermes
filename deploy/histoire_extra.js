@@ -96,32 +96,79 @@ function lire(texte, estValeur) {
 async function serie(sym, mois, chemin, estValeur) {
   const rows = [];
   let absents = 0;
+  const vides = [];                               // les mois qui n'ont rien rendu
   for (const m of mois) {
     let brut = null;
-    try { brut = await telecharger(chemin(sym, m)); } catch { absents++; continue; }
-    if (!brut) { absents++; continue; }
-    try { rows.push(...lire(ouvrirZip(brut).toString("utf8"), estValeur)); }
-    catch { absents++; }
+    try { brut = await telecharger(chemin(sym, m)); } catch { absents++; vides.push(m); continue; }
+    if (!brut) { absents++; vides.push(m); continue; }
+    try {
+      const r = lire(ouvrirZip(brut).toString("utf8"), estValeur);
+      if (r.length) rows.push(...r); else vides.push(m);
+    } catch { absents++; vides.push(m); }
   }
   const vus = new Set(); const propre = [];
   for (const k of rows.sort((a, b) => a[0] - b[0])) if (!vus.has(k[0])) { vus.add(k[0]); propre.push(k); }
-  return { rows: propre, absents };
+  return { rows: propre, absents, vides };
 }
 
-/* Un instrument deja telecharge, et sur une profondeur au moins egale a
-   celle qu'on demande, se saute. Sans cela, chaque reprise recommencait
-   tout depuis le debut et n'arrivait jamais au bout — le meme defaut
-   que celui corrige dans histoire_longue.js, a ceci pres qu'ici il n'y
-   a pas de cache par mois pour amortir. */
-function dejaCouvert(instId, mois) {
+/* CE QUI MANQUE, mois par mois — et non « cet instrument est-il deja
+   fait ? ».
+
+   La premiere version sautait un instrument des lors que sa serie
+   COMMENCAIT assez tot. C'etait juste pour une reprise de
+   telechargement, qui est le probleme qu'elle resolvait : sans elle,
+   chaque relance recommencait tout depuis le debut et n'arrivait jamais
+   au bout. Mais elle rendait la serie incapable de s'etendre vers
+   l'AVANT : un instrument couvert depuis septembre 2024 restait saute
+   pour toujours, et son financement s'arretait au dernier mois
+   telecharge, definitivement.
+
+   Cela ne se voyait pas tant qu'on mesurait du passe. Le releve hors
+   echantillon, lui, ne vit que de mois nouveaux : avec l'ancienne
+   regle, il aurait affiche zero periode jusqu'a la fin des temps en
+   ayant l'air de fonctionner.
+
+   On raisonne donc par mois. Un mois est acquis s'il porte deja des
+   points, ou s'il a ete essaye et n'existe pas chez Binance — ce
+   second cas est memorise, sinon les instruments listes tardivement
+   feraient re-tomber trente 404 a chaque passe. */
+
+function lireExistant(instId) {
   try {
     const j = JSON.parse(fs.readFileSync(path.join(DEST, instId + ".json"), "utf8"));
-    if (!j || !Array.isArray(j.financement) || !j.financement.length) return false;
-    const debutVoulu = new Date(mois[0] + "-01T00:00:00Z").getTime();
-    // On tolere un mois de marge : le premier mois demande peut ne pas
-    // exister pour un instrument liste plus tard.
-    return j.financement[0][0] <= debutVoulu + 32 * 86400e3;
-  } catch { return false; }
+    return (j && typeof j === "object") ? j : null;
+  } catch { return null; }
+}
+
+function moisDe(rows) {
+  const s = new Set();
+  for (const r of rows || []) s.add(new Date(r[0]).toISOString().slice(0, 7));
+  return s;
+}
+
+function manquants(mois, rows, absentsConnus) {
+  const vus = moisDe(rows);
+  const su = new Set(absentsConnus || []);
+  return mois.filter((m) => !vus.has(m) && !su.has(m));
+}
+
+/* Fusion par horodatage : ce qui est deja sur disque reste, ce qui
+   arrive complete. Jamais d'ecrasement — une passe interrompue ne doit
+   pas pouvoir raccourcir une serie deja acquise. */
+function fusionner(ancien, nouveau) {
+  const m = new Map();
+  for (const r of ancien || []) m.set(r[0], r);
+  for (const r of nouveau || []) m.set(r[0], r);
+  return [...m.values()].sort((a, b) => a[0] - b[0]);
+}
+
+/* Un mois n'est declare absent POUR DE BON que s'il est clos depuis
+   assez longtemps pour que Binance ait eu le temps de le publier. Sans
+   ce delai, le mois qui vient de finir serait marque absent le 1er et
+   plus jamais retente. */
+function absentPourDeBon(m) {
+  const finDuMois = Date.UTC(+m.slice(0, 4), +m.slice(5, 7), 1);
+  return Date.now() - finDuMois > 45 * 86400e3;
 }
 
 async function main() {
@@ -131,9 +178,13 @@ async function main() {
   const depart = Date.now();
   console.log(`[EXTRA] ${UNIVERS.length} instruments, ${mois.length} mois (${mois[0]} → ${mois[mois.length - 1]}), budget ${(BUDGET_MS / 60000).toFixed(0)} min`);
 
+  const OI = process.env.EXTRA_OI === "1";
   let faits = 0, sautes = 0;
   for (const instId of UNIVERS) {
-    if (dejaCouvert(instId, mois)) { sautes++; continue; }
+    const deja = lireExistant(instId) || {};
+    const mFin = manquants(mois, deja.financement, deja.moisAbsents);
+    const mOi = OI ? manquants(mois, deja.interetOuvert, deja.moisAbsentsOi) : [];
+    if (!mFin.length && !mOi.length) { sautes++; continue; }
     if (Date.now() - depart > BUDGET_MS) {
       console.log(`[EXTRA] budget epuise : ${faits} telecharges, ${sautes} deja presents, ${UNIVERS.length - faits - sautes} restants.`);
       console.log(`[EXTRA] relancer cette etape reprendra la ou elle s'arrete.`);
@@ -144,7 +195,7 @@ async function main() {
     const nom = instId.replace("-USDT-SWAP", "");
     const t0 = Date.now();
     // Le financement : quelques millièmes, positif ou négatif.
-    const fin = await serie(sym, mois,
+    const fin = await serie(sym, mFin,
       (s, m) => `/data/futures/um/monthly/fundingRate/${s}/${s}-fundingRate-${m}.zip`,
       (v) => Math.abs(v) < 0.05);
     /* L'intérêt ouvert vit dans les « metrics », et ces archives sont
@@ -157,20 +208,27 @@ async function main() {
        deux, l'intérêt ouvert devient optionnel : EXTRA_OI=1 pour le
        demander. Une donnée qu'on n'a pas encore vaut mieux qu'une
        mesure qu'on ne fait jamais. */
-    const oi = process.env.EXTRA_OI === "1"
-      ? await serie(sym, mois, (s, m) => `/data/futures/um/monthly/metrics/${s}/${s}-metrics-${m}.zip`, (v) => v > 1000)
-      : { rows: [], absents: 0 };
-    const paquet = { instId, financement: fin.rows, interetOuvert: oi.rows };
+    const oi = OI
+      ? await serie(sym, mOi, (s, m) => `/data/futures/um/monthly/metrics/${s}/${s}-metrics-${m}.zip`, (v) => v > 1000)
+      : { rows: [], absents: 0, vides: [] };
+
+    const financement = fusionner(deja.financement, fin.rows);
+    const interetOuvert = OI ? fusionner(deja.interetOuvert, oi.rows) : (deja.interetOuvert || []);
+    const garder = (ancien, vides) => [...new Set([...(ancien || []), ...vides.filter(absentPourDeBon)])].sort();
+    const paquet = { instId, financement, interetOuvert,
+                     moisAbsents: garder(deja.moisAbsents, fin.vides),
+                     moisAbsentsOi: OI ? garder(deja.moisAbsentsOi, oi.vides) : (deja.moisAbsentsOi || []) };
     const tmp = path.join(DEST, instId + ".tmp");
     fs.writeFileSync(tmp, JSON.stringify(paquet));
     fs.renameSync(tmp, path.join(DEST, instId + ".json"));
-    console.log(`  ${nom.padEnd(6)} financement ${String(fin.rows.length).padStart(5)} points` +
-      (fin.rows.length ? ` (du ${new Date(fin.rows[0][0]).toISOString().slice(0, 10)})` : " — absent") +
-      ` · interet ouvert ${process.env.EXTRA_OI === "1" ? String(oi.rows.length).padStart(6) + " points" : "non demande"}` +
+    console.log(`  ${nom.padEnd(6)} ${String(mFin.length).padStart(2)} mois demandes · financement ${String(financement.length).padStart(5)} points` +
+      (financement.length ? ` (${new Date(financement[0][0]).toISOString().slice(0, 10)} → ${new Date(financement[financement.length - 1][0]).toISOString().slice(0, 10)})` : " — absent") +
+      ` · +${fin.rows.length} nouveaux` +
+      ` · interet ouvert ${OI ? String(interetOuvert.length).padStart(6) + " points" : "non demande"}` +
       ` · ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   }
   console.log(`[EXTRA] ${faits} telecharge(s), ${sautes} deja present(s) · ecrit dans ${DEST}`);
 }
 
 if (require.main === module) main().catch((e) => { console.error("[EXTRA] echec :", e.message); process.exit(1); });
-module.exports = { reperer, lire };
+module.exports = { reperer, lire, manquants, fusionner, absentPourDeBon, moisDe };

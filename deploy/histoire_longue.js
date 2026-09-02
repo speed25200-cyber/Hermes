@@ -138,9 +138,23 @@ async function unSymbole(instId, mois) {
     bougies.push(...rows);
     telecharges++;
   }
-  if (!bougies.length) return { instId, bougies: 0, telecharges, depuisCache, absents };
+  /* CE QUI EST DEJA SUR DISQUE RESTE.
+
+     Ce fichier etait RECONSTRUIT a partir des seuls mois demandes. Une
+     passe lancee avec HISTOIRE_MOIS=12 sur un cache qui en portait
+     vingt-quatre le raccourcissait donc de moitie, sans un mot — et
+     avec lui la fenetre d'apprentissage sur laquelle repose l'hypothese
+     pre-inscrite. Les fichiers par mois survivaient, si bien que rien
+     n'etait perdu pour de bon ; mais entre-temps les bancs lisaient une
+     histoire deux fois plus courte en la croyant complete.
+
+     On fusionne desormais avec l'existant. Une passe courte complete,
+     elle ne tronque plus. */
+  let ancien = [];
+  try { const v = JSON.parse(fs.readFileSync(path.join(CACHE_LONG, instId + ".json"), "utf8")); if (Array.isArray(v)) ancien = v; } catch {}
+  if (!bougies.length && !ancien.length) return { instId, bougies: 0, telecharges, depuisCache, absents };
   const vus = new Set(); const propre = [];
-  for (const k of bougies.sort((a, b) => a[0] - b[0])) if (!vus.has(k[0])) { vus.add(k[0]); propre.push(k); }
+  for (const k of [...ancien, ...bougies].sort((a, b) => a[0] - b[0])) if (!vus.has(k[0])) { vus.add(k[0]); propre.push(k); }
   fs.mkdirSync(CACHE_LONG, { recursive: true });
   const tmp = path.join(CACHE_LONG, instId + ".tmp");
   fs.writeFileSync(tmp, JSON.stringify(propre));
@@ -206,4 +220,4 @@ async function main() {
 }
 
 if (require.main === module) main().catch((e) => { console.error("[HISTOIRE] echec :", e.message); process.exit(1); });
-module.exports = { ouvrirZip, lireCsv, nomBinance, moisAvant };
+module.exports = { ouvrirZip, lireCsv, nomBinance, moisAvant, CACHE_LONG };
