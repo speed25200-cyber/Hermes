@@ -31,7 +31,16 @@ const fs = require("fs");
 const path = require("path");
 
 const { serieSignaux, simuler, resumer } = require(path.join(__dirname, "..", "modules", "backtest.js"));
-const { SIGNAUX } = require(path.join(__dirname, "..", "modules", "signaux.js"));
+const SIG = require(path.join(__dirname, "..", "modules", "signaux.js"));
+/* La grille des signaux, reglable par l'environnement, defaut INCHANGE.
+   « suite » remplace les treize contre-tendance par les six de suite de
+   tendance ; « tout » donne les dix-neuf. Sans variable, le chercheur
+   voit exactement ce qu'il a toujours vu. */
+const SIGNAUX =
+  process.env.PERLES_SIGNAUX === "suite" ? SIG.SIGNAUX_SUITE :
+  process.env.PERLES_SIGNAUX === "tout"  ? [...SIG.SIGNAUX, ...SIG.SIGNAUX_SUITE] :
+  process.env.PERLES_SIGNAUX ? process.env.PERLES_SIGNAUX.split(",").map((x) => x.trim()) :
+  SIG.SIGNAUX;
 
 const RACINE = path.join(__dirname, "..");
 const ROSTER = path.join(RACINE, "config", "roster.json");

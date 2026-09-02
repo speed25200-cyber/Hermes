@@ -264,7 +264,120 @@ function evalSignal(sig, c5, etat) {
     if (v > 2 * mv && bas > 2 * corps && bas > 0.004 * cl) return 1;
     return 0;
   }
+
+  /* ------------------------------------------------------------------
+     LES SIGNAUX DE SUITE DE TENDANCE.
+
+     Ils ne sont PAS dans la liste SIGNAUX par défaut : le moteur ne les
+     jouera pas et le chercheur ne les testera pas tant que personne ne
+     l'aura demandé explicitement. Ils existent pour une raison précise,
+     et cette raison est une mesure.
+
+     Le banc a rejoué le procédé de sélection sur douze mois, puis sur
+     les mêmes douze mois avec l'ordre des journées mélangé. Mélanger
+     détruit une seule chose : la continuation des tendances. Les treize
+     signaux actuels — qui parient tous CONTRE le mouvement en cours —
+     rapportent +0,0128 de marge par trade sur les données mélangées et
+     −0,0012 sur le vrai marché. Ils réussissent mieux dans un monde
+     sans tendances, ce qui est une façon mesurée de dire que les
+     tendances du vrai marché sont ce qui les tue.
+
+     Si cette lecture est juste, elle fait une prédiction vérifiable :
+     des signaux qui SUIVENT le mouvement doivent se comporter à
+     l'inverse — mieux sur le vrai marché que sur le mélange. La
+     prédiction peut échouer, et c'est tout l'intérêt : ces six signaux
+     sont l'expérience qui la teste.
+
+     Cinq d'entre eux sont l'inversion exacte d'un signal existant, pour
+     que la comparaison ne porte que sur le SENS du pari et sur rien
+     d'autre.
+     ------------------------------------------------------------------ */
+
+  if (sig === "donchian_suit") {        // même compression Donchian, mais on SUIT la cassure
+    const n = c5.length - 1, N_DON = 20;
+    if (n < N_DON + 250) return 0;
+    const width = [];
+    for (let i = N_DON; i <= n; i++) {
+      let mx = -Infinity, mn = Infinity;
+      for (let k = i - N_DON; k < i; k++) { if (c5[k][2] > mx) mx = c5[k][2]; if (c5[k][3] < mn) mn = c5[k][3]; }
+      width.push({ i, w: (mx - mn) / c5[i][4], hi: mx, lo: mn });
+    }
+    const prev = width[width.length - 2];
+    if (!prev) return 0;
+    let below = 0, cnt = 0;
+    for (let k = Math.max(0, width.length - 2 - 288); k < width.length - 2; k++) { cnt++; if (width[k].w <= prev.w) below++; }
+    if (cnt < 200 || (100 * below / cnt) > 15) return 0;
+    if (c5[n][4] > prev.hi) return 1;                // cassure haussière -> on suit
+    if (c5[n][4] < prev.lo) return -1;
+    return 0;
+  }
+
+  if (sig === "keltner_suit") {         // sortie du canal EMA20±3ATR10, dans le sens de la sortie
+    const kc = keltnerLast2(c5, 3);
+    if (!kc || !kc.last || !kc.prev) return 0;
+    const n = c5.length - 1;
+    const cNow = c5[n][4], cPrev = c5[n - 1][4];
+    if (cPrev <= kc.prev.upper && cNow > kc.last.upper) return 1;
+    if (cPrev >= kc.prev.lower && cNow < kc.last.lower) return -1;
+    return 0;
+  }
+
+  if (sig === "roc_suit") {             // ROC12 étiré + volume : on suit au lieu de contrer
+    const n = c5.length - 1;
+    if (n < 288) return 0;
+    const rc = (c5[n][4] / c5[n - 12][4] - 1) * 100;
+    const vols = [];
+    for (let k = n - 287; k <= n; k++) vols.push(c5[k][5]);
+    vols.sort((a, b) => a - b);
+    const med = vols.length % 2 ? vols[vols.length >> 1] : (vols[(vols.length >> 1) - 1] + vols[vols.length >> 1]) / 2;
+    if (!(med > 0) || c5[n][5] / med < 2.5) return 0;
+    const bull = c5[n][4] > c5[n][1];
+    if (rc > 1.5 && bull) return 1;
+    if (rc < -1.5 && !bull) return -1;
+    return 0;
+  }
+
+  if (sig === "run5_suit") {            // cinq bougies dans le même sens : on suit
+    const { run, sgn } = runLen(closes.slice(-12));
+    return (run >= 5 && sgn !== 0) ? sgn : 0;
+  }
+
+  if (sig === "canal24_suit") {         // cassure du plus haut / plus bas de 24 h
+    const n = c5.length - 1;
+    if (n < 289) return 0;
+    let hh = -Infinity, ll = Infinity;
+    for (let k = n - 288; k < n; k++) { if (c5[k][2] > hh) hh = c5[k][2]; if (c5[k][3] < ll) ll = c5[k][3]; }
+    if (!(hh > ll)) return 0;
+    if (c5[n][4] > hh) return 1;
+    if (c5[n][4] < ll) return -1;
+    return 0;
+  }
+
+  if (sig === "ema_croise") {           // EMA20 traverse EMA60 : la tendance sous sa forme la plus simple
+    const n = c5.length - 1;
+    if (n < 200) return 0;
+    const ema = (p) => {
+      const k = 2 / (p + 1);
+      let e = closes[closes.length - 200];
+      const out = [];
+      for (let i = closes.length - 200; i < closes.length; i++) { e = e + k * (closes[i] - e); out.push(e); }
+      return out;
+    };
+    const r = ema(20), l = ema(60);
+    const m = r.length - 1;
+    if (m < 1) return 0;
+    if (r[m - 1] <= l[m - 1] && r[m] > l[m]) return 1;
+    if (r[m - 1] >= l[m - 1] && r[m] < l[m]) return -1;
+    return 0;
+  }
+
   return 0;
 }
 
-module.exports = { rsi14, zScore, runLen, rangePos24h, keltnerLast2, evalSignal, SIGNAUX };
+/* Les signaux de suite de tendance, nommés à part. Le chercheur peut
+   recevoir cette liste par son environnement ; par défaut il ne voit
+   que SIGNAUX, et la production ne change pas d'un iota. */
+const SIGNAUX_SUITE = ["donchian_suit", "keltner_suit", "roc_suit",
+                       "run5_suit", "canal24_suit", "ema_croise"];
+
+module.exports = { rsi14, zScore, runLen, rangePos24h, keltnerLast2, evalSignal, SIGNAUX, SIGNAUX_SUITE };

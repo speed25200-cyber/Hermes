@@ -196,6 +196,7 @@ function points(debutTs, finTs) {
 
 function main() {
   console.log(`[BANC-CHERCHEUR] glissade du PROCEDE : juge sur ${JOURS} j, trade ${PAS_JOURS} j, levier ${LEVIER}`);
+  console.log(`[BANC-CHERCHEUR] grille des signaux : ${process.env.PERLES_SIGNAUX || "les treize actuels (defaut)"}`);
   console.log(`[BANC-CHERCHEUR] grille des sorties : tp ${SORTIES.map((s) => s.tpPctMargin).join("/")} de marge · tenue ${DUREES.map((d) => d / 3600e3).join("/")} h` +
     (process.env.BANC_HORIZON_LONG === "1" ? "  (HORIZON LONG : cibles plus grandes et plus rares)" : ""));
   console.log(`[BANC-CHERCHEUR] univers fixe de ${UNIVERS.length} instruments : ${UNIVERS.map((s) => s.replace("-USDT-SWAP", "")).join(", ")}`);
