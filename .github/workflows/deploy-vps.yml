@@ -44,6 +44,10 @@ on:
         description: "Lancer la recherche de perles maintenant et afficher le verdict"
         required: false
         default: "false"
+      banc_regime:
+        description: "Mesurer si le filtre par etat de marche ameliore les perles (aucune ecriture)"
+        required: false
+        default: "false"
 
 concurrency:
   group: vps-deploy
@@ -288,6 +292,19 @@ jobs:
             -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             "root@$VPS" \
             "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first HERMES_UNIVERSE_SIZE=50 node deploy/chercher_perles.js"
+
+      # Le banc du regime. Il rejoue les perles du roster sur le cache du
+      # chercheur, avec et sans le filtre par etat de marche, en
+      # validation glissante, et compare a un temoin de retraits au
+      # hasard. Il n'ecrit rien et ne touche a aucun ordre : c'est la
+      # mesure qui decide si la couche merite d'etre cablee.
+      - name: Mesurer le filtre par etat de marche
+        if: ${{ inputs.banc_regime == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
+            "root@$VPS" \
+            "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first node deploy/banc_regime.js"
 
       # Mesure, jamais ecriture. Elle interroge les points PUBLICS dOKX
       # depuis le VPS — la seule machine du circuit qui puisse les
