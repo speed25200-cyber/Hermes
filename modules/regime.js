@@ -222,6 +222,31 @@ function serieCaracteristiques(c5) {
   return out;
 }
 
+/* PLUSIEURS JEUX DE SEUILS en une passe. Le banc d'essai a besoin de
+   savoir si sa conclusion tient à un réglage précis ou si elle est
+   robuste : il faut donc classer la même histoire avec vingt jeux de
+   seuils. Recalculer les écarts-types vingt fois serait absurde — ils
+   ne dépendent pas des seuils. On calcule les caractéristiques une
+   fois, on ne rejoue que classer(), qui reste la source unique de la
+   règle. */
+function serieEtatsMulti(c5btc, c5eth, listeSeuils) {
+  const carBtc = serieCaracteristiques(c5btc);
+  const carEthParTs = new Map();
+  if (c5eth && c5eth.length >= N_JOUR + 2) {
+    const carEth = serieCaracteristiques(c5eth);
+    for (let i = 0; i < c5eth.length; i++) if (carEth[i]) carEthParTs.set(c5eth[i][0], carEth[i]);
+  }
+  return listeSeuils.map((seuils) => {
+    const ts = [], etat = [];
+    for (let i = 0; i < c5btc.length; i++) {
+      if (!carBtc[i]) continue;
+      ts.push(c5btc[i][0]);
+      etat.push(classer(carBtc[i], carEthParTs.get(c5btc[i][0]) || null, seuils).etat);
+    }
+    return { ts, etat, seuils };
+  });
+}
+
 /* L'INDEX des états, et la recherche par horodatage. Sans lui, chaque
    consommateur réinventerait la même boucle, et le premier essai a
    montré pourquoi c'est dangereux : chercher l'état à l'horodatage
@@ -273,5 +298,5 @@ function lireSeuils(chemin) {
 
 module.exports = { ETATS, SEUILS_DEFAUT, N_JOUR, N_HEURE,
                    volatilite, caracteristiques, serieCaracteristiques,
-                   classer, etatMaintenant, serieEtats,
+                   classer, etatMaintenant, serieEtats, serieEtatsMulti,
                    indexEtats, etatA, lireSeuils };

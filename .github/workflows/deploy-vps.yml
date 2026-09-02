@@ -52,6 +52,10 @@ on:
         description: "Telecharger des mois d'archives publiques pour mesurer sur un vrai retournement"
         required: false
         default: "false"
+      balayage:
+        description: "Balayer trente-six reglages de seuils du regime et montrer la sensibilite"
+        required: false
+        default: "false"
 
 concurrency:
   group: vps-deploy
@@ -324,7 +328,7 @@ jobs:
           sshpass -e ssh -o StrictHostKeyChecking=accept-new \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             "root@$VPS" \
-            "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first node deploy/banc_regime.js"
+            "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first REGIME_BALAYAGE=${{ inputs.balayage == 'true' && '1' || '0' }} node deploy/banc_regime.js"
 
       # Mesure, jamais ecriture. Elle interroge les points PUBLICS dOKX
       # depuis le VPS — la seule machine du circuit qui puisse les
