@@ -42,15 +42,17 @@ avant que la réponse soit lisible : environ deux ans.
 | `banc/epreuve_langues.js` | la parité FR/EN/SQ et les clés demandées par le code | `node banc/epreuve_langues.js` |
 | `banc/scene-details.js` | la console rejouée sur fixtures, avec Chromium | `node banc/scene-details.js` |
 | `banc/epreuve_hors_echantillon.js` | l'hypothèse pré-inscrite : gelée, conforme au document, correctement coupée | `node banc/epreuve_hors_echantillon.js` |
+| `banc/epreuve_ampleur.js` | la mesure de largeur retrouve-t-elle la loi en √N là où l'effet existe, et pas ailleurs | `node banc/epreuve_ampleur.js` |
 | `deploy/banc_regime.js` | le filtre par état sur le roster en place | entrée `banc_regime` du workflow |
 | `deploy/banc_chercheur.js` | le procédé de sélection, en glissade sur un an | entrée `banc_chercheur` |
 | `deploy/banc_transversal.js` | le classement entre instruments | entrée `transversal` |
 | `deploy/hors_echantillon.js` | l'hypothèse du 2 septembre, sur les seules données postérieures | entrée `hors_echantillon` |
+| `deploy/ampleur.js` | la loi en √N sur cent instruments : l'avantage grandit-il comme la largeur l'exige | entrée `ampleur` |
 
-Les cinq premiers tournent hors ligne, sans réseau et sans clé. Les
-quatre derniers tournent sur le VPS et ne lisent que des archives
-publiques ; seul le relevé hors échantillon écrit quelque chose, et
-c'est son propre journal.
+Les six premiers tournent hors ligne, sans réseau et sans clé. Les cinq
+derniers tournent sur le VPS et ne lisent que des archives publiques ;
+seuls le relevé hors échantillon et l'épreuve de largeur écrivent
+quelque chose, et c'est leur propre verdict.
 
 ## La règle qui n'a pas bougé
 

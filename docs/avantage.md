@@ -510,6 +510,71 @@ choisis après coup, cellule la plus brillante d'une grille, fenêtre
 raccourcie jusqu'à ce que le chiffre plaise) ont été mesurées et
 réfutées.
 
+## La largeur : la seule chose apprenable sans attendre 2028
+
+Le relevé hors échantillon a fait apparaître le vrai obstacle, et ce
+n'est pas le calcul. Un sharpe de 0,137 par période demande 214 périodes
+pour atteindre t = 2. La durée varie comme l'**inverse du carré** du
+sharpe — c'est une propriété de l'estimateur, pas une lenteur qu'on
+rattrape. Il n'existe donc que deux issues : attendre, ou trouver un
+avantage plus grand.
+
+Un seul levier augmente l'avantage sans toucher à l'hypothèse
+elle-même : la **largeur** de l'univers. La loi fondamentale de la
+gestion active dit que le ratio d'information vaut à peu près
+IC × √N — la qualité du signal, multipliée par la racine du nombre de
+paris. Passer de trente à cent instruments devrait multiplier le sharpe
+par √(100/30) ≈ 1,8, et faire tomber l'attente de deux ans à six mois.
+
+### Pourquoi ce n'est pas une recherche de plus
+
+C'est la question qu'il faut se poser, parce que tout ce dépôt a passé
+une journée à se défendre d'un seul piège : essayer beaucoup de choses,
+garder la plus belle, et confondre la chance avec un avantage.
+
+`deploy/ampleur.js` ne cherche rien. Le signal reste le financement,
+l'horizon reste 72 heures, la fraction prise de chaque côté reste un
+sixième de l'univers. **Une seule chose varie, et la prédiction est
+quantitative**, donc réfutable : le sharpe divisé par √N doit rester
+constant quand N change.
+
+C'est là toute la différence. Une cellule qui brille parce qu'on en a
+regardé vingt et une n'a aucune raison de grandir en √N quand on
+élargit l'univers — le bruit ne connaît pas cette loi. Un effet
+transversal réel la suit. Un sharpe qui grandirait *plus vite* que √N
+serait d'ailleurs aussi suspect qu'un sharpe qui ne grandirait pas : la
+loi ne dit pas « plus c'est large, mieux c'est », elle dit combien.
+
+### L'instrument a été validé avant de servir
+
+L'ordre compte, et l'ordre inverse est la meilleure façon de croire un
+chiffre faux. `banc/epreuve_ampleur.js` fabrique un monde où l'effet
+transversal existe pour de bon — financements lents et indépendants,
+rendement à 72 h valant −10 × financement plus du bruit — et vérifie que
+la mesure y retrouve la loi :
+
+| N | 12 | 25 | 50 | 100 |
+|---|---|---|---|---|
+| sharpe | 0,99 | 1,43 | 2,25 | 2,89 |
+
+Soit ×2,93 de N = 12 à N = 100, là où la loi en attendait ×2,89, avec
+sharpe/√N stable à mieux que 35 %.
+
+Et le pendant, sans lequel le premier ne prouve rien : sur le **même
+monde avec le lien cassé** — chaque instrument porte le financement d'un
+autre — la loi n'apparaît pas. Sharpes de 0,020, 0,089, 0,069 et −0,039 ;
+t entre −0,45 et 1,03 ; aucune croissance. Une mesure qui verrait la loi
+dans du bruit serait pire qu'inutile : elle serait convaincante.
+
+### Le pas horaire n'est pas une approximation
+
+Le cache large est en pas d'une heure et non de cinq minutes. Ce n'est
+pas une concession au disque : le banc transversal projette déjà tout le
+monde sur une grille horaire avant de calculer quoi que ce soit, et jette
+les onze bougies intermédiaires sans les lire. C'est douze fois moins de
+données pour **exactement le même nombre** — ce qui rend cent
+instruments tenables sur une machine de deux gigaoctets.
+
 ## Ce qui reste à essayer, par ordre d'intérêt
 
 L'horizon a été essayé et il ne donne rien (ci-dessus). Restent :
