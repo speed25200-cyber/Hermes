@@ -96,6 +96,7 @@ const MIN_MOYENNE = Number(process.env.PERLES_MIN_MOYENNE || 0.02);   // gain mo
 const NULL_TIRAGES = Number(process.env.PERLES_NULL_TIRAGES ?? 12);
 const NULL_PERCENTILE = Number(process.env.PERLES_NULL_PERCENTILE ?? 0.90);
 const NULL_AGE_H = Number(process.env.PERLES_NULL_AGE_H ?? 20);
+
 const TAILLE_UNIVERS = Number(process.env.HERMES_UNIVERSE_SIZE || 20);
 const WEEKEND_MIN = Number(process.env.HERMES_WEEKEND_MIN || 0.34);
 const LEVIER = Number(process.env.HERMES_DEFAULT_LEVERAGE || 15);
@@ -120,6 +121,14 @@ const SORTIES = process.env.PERLES_SORTIES
     ];
 const DUREES = (process.env.PERLES_DUREES || "8,12,24").split(",").map((h) => Number(h) * 3600e3);
 const SL = 0.30, CB = 0.05;
+/* La signature de la procedure. Une distribution nulle mesure ce que
+   CETTE recherche fabrique sur du bruit ; changer la liste des signaux
+   ou la grille des sorties change ce nombre. Sans signature, le cache
+   d'hier servirait a juger la recherche d'aujourd'hui — l'erreur
+   silencieuse par excellence. */
+const SIGNATURE = [SIGNAUX.length, SIGNAUX.join("."), JSON.stringify(SORTIES), DUREES.join("."),
+                   JOURS, JOURS_VALID, MIN_TRADES_SEL, MIN_TRADES_VAL, MIN_WR_SEL, MIN_WR_VAL, MIN_MOYENNE, LEVIER]
+                   .join("|");
 
 function get(chemin) {
   return new Promise((ok, ko) => {
@@ -402,7 +411,7 @@ async function main() {
         // et le journal le dit pour que ca ne passe pas inapercu.
         try {
           nul = JUGE.nulPourInstrument(instId, c5, chercherPourInstrument,
-            { tirages: NULL_TIRAGES, ageMaxMs: NULL_AGE_H * 3600e3 });
+            { tirages: NULL_TIRAGES, ageMaxMs: NULL_AGE_H * 3600e3, signature: SIGNATURE });
           percentile = JUGE.percentileDe(nul.scores, perle.val.moyenneMarge);
         } catch (e) {
           console.log(`  ${nom.padEnd(10)} — calcul du nul en echec : ${e.message}`);

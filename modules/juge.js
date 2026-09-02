@@ -159,11 +159,16 @@ function percentileDe(scores, valeur) {
    demi-heure à l'autre. */
 function cheminCache(instId) { return path.join(DOSSIER_NUL, instId.replace(/[^\w.-]/g, "_") + ".json"); }
 
-function lireCache(instId, ageMaxMs) {
+function lireCache(instId, ageMaxMs, signature) {
   try {
     const j = JSON.parse(fs.readFileSync(cheminCache(instId), "utf8"));
     if (!j || !Array.isArray(j.scores)) return null;
     if (Date.now() - (j.ts || 0) > ageMaxMs) return null;
+    // Une distribution nulle n'a de sens que pour LA procedure qui l'a
+    // produite. Changer la liste des signaux ou la grille des sorties
+    // change ce que le hasard rapporte ; reutiliser l'ancien nul
+    // reviendrait a juger une nouvelle recherche a l'aune d'une autre.
+    if (signature && j.signature && j.signature !== signature) return null;
     return j;
   } catch { return null; }
 }
@@ -182,10 +187,11 @@ function ecrireCache(instId, d) {
 function nulPourInstrument(instId, c5, juger, options) {
   const o = options || {};
   const ageMax = o.ageMaxMs || 20 * 3600e3;
-  const cache = lireCache(instId, ageMax);
+  const sig = o.signature || null;
+  const cache = lireCache(instId, ageMax, sig);
   if (cache && cache.tirages >= (o.tirages || 12)) return { ...cache, duCache: true };
   const d = distributionNulle(c5, juger, o);
-  ecrireCache(instId, d);
+  ecrireCache(instId, { ...d, signature: sig });
   return { ...d, duCache: false };
 }
 
