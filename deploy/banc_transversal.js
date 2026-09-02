@@ -317,12 +317,15 @@ function main() {
   console.log(`[TRANSVERSAL] repliques pretes en ${((Date.now() - tR) / 1000).toFixed(0)} s`);
 
   const lignes = [];
+  const matrice = [];      // [cellule][replique] : le net de chaque cellule sur chaque replique
   for (const nom of noms) {
     for (const h of HEURES) {
       const vrai = stats(evaluer(donnees, nom, h, K));
       if (vrai.n < 10) { lignes.push({ nom, h, vrai, pct: null }); continue; }
-      const nuls = rep.map((r) => stats(evaluer(r, nom, h, K)).net).sort((a, b) => a - b);
-      lignes.push({ nom, h, vrai, pct: JUGE.percentileDe(nuls, vrai.net), medianNul: nuls[nuls.length >> 1] });
+      const parReplique = rep.map((r) => stats(evaluer(r, nom, h, K)).net);
+      matrice.push(parReplique);
+      const tri = [...parReplique].sort((a, b) => a - b);
+      lignes.push({ nom, h, vrai, pct: JUGE.percentileDe(tri, vrai.net), medianNul: tri[tri.length >> 1] });
     }
   }
 
@@ -335,6 +338,41 @@ function main() {
       `${v.t.toFixed(2).padStart(6)} ${v.tBrut.toFixed(2).padStart(7)} ${v.sharpe.toFixed(3).padStart(7)} ${v.creux.toFixed(2).padStart(7)} ${(v.rotation || 0).toFixed(1).padStart(7)} ` +
       `${l.medianNul == null ? "      —" : l.medianNul.toFixed(2).padStart(8)} ` +
       `${l.pct == null ? "    —" : ((100 * l.pct).toFixed(0) + "e").padStart(5)}`);
+  }
+
+  /* LA CORRECTION POUR COMPARAISONS MULTIPLES, et c'est elle qui decide.
+
+     Vingt et une cellules, c'est vingt et une chances de bien paraitre.
+     Dire « une cellule est au 97e percentile de SON nul » ne veut alors
+     presque rien dire : sur du bruit pur, la MEILLEURE des vingt et une
+     est presque toujours haute dans son propre nul.
+
+     La question juste porte sur la famille entiere : la meilleure
+     cellule du vrai marche bat-elle la meilleure cellule des repliques ?
+     Pour chaque replique, on prend le maximum sur toutes les cellules —
+     ce que le hasard produit quand on le laisse chercher aussi
+     librement que nous — et l'on compare le maximum reel a cette
+     distribution. C'est le test de Westfall-Young, et il tient compte
+     tout seul de la correlation entre cellules : momentum a 24, 72 et
+     168 heures ne sont pas trois essais independants, et une correction
+     de Bonferroni les punirait comme s'ils l'etaient. */
+  if (matrice.length) {
+    const nRep = matrice[0].length;
+    const maxParReplique = [];
+    for (let g = 0; g < nRep; g++) {
+      let m = -Infinity;
+      for (const cell of matrice) if (cell[g] > m) m = cell[g];
+      maxParReplique.push(m);
+    }
+    maxParReplique.sort((a, b) => a - b);
+    const meilleure = lignes.filter((l) => l.pct != null).reduce((a, b) => (a && a.vrai.net >= b.vrai.net ? a : b), null);
+    const pFamille = meilleure ? JUGE.percentileDe(maxParReplique, meilleure.vrai.net) : null;
+    console.log(`[TRANSVERSAL] epreuve de la FAMILLE ENTIERE (Westfall-Young) :`);
+    console.log(`  meilleure cellule reelle : ${meilleure ? `${meilleure.nom} a ${meilleure.h} h, net ${meilleure.vrai.net.toFixed(2)}` : "aucune"}`);
+    console.log(`  meilleure cellule des repliques : median ${maxParReplique[nRep >> 1].toFixed(2)}, max ${maxParReplique[nRep - 1].toFixed(2)}`);
+    console.log(`  la meilleure reelle bat ${pFamille == null ? "—" : (100 * pFamille).toFixed(0) + " %"} des meilleures de repliques`);
+    console.log(`  c'est LE chiffre qui decide : il tient compte des ${lignes.length} essais et de leur correlation.`);
+    console.log(`  ${pFamille != null && pFamille >= 0.95 ? "AU-DELA DU SEUIL : la famille bat le hasard." : "sous le seuil de 95 % : rien de demontre au niveau de la famille."}`);
   }
 
   const forts = lignes.filter((l) => l.pct != null && l.pct >= 0.95 && l.vrai.t > 2 && l.vrai.net > 0);
