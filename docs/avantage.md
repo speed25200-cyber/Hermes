@@ -112,14 +112,39 @@ sont pas concentrées dans les tendances, elles sont **partout**
 −0,0025 en tendance haussière). Il n'y a pas d'état où le système gagne
 et dont il faudrait le protéger.
 
-### Le contrôle par le hasard
+### Le contrôle par le hasard, et ce qu'il révèle
 
-Sur des marches aléatoires, le chercheur trouve des perles au même
-rythme que sur le vrai marché, et elles y produisent la même performance
-— indistinguable de zéro dans les deux cas. Les perles ne sont pas des
-découvertes : ce sont les meilleures de cent cinquante-six combinaisons,
-et le meilleur de cent cinquante-six tirages a toujours l'air bon sur
-les données qui l'ont désigné.
+Le même procédé a été rejoué sur les mêmes instruments, après avoir
+mélangé l'ordre des journées. La distribution des rendements est
+identique — mêmes queues, mêmes journées agitées — et il ne reste rien
+qui relie une journée à la suivante. Par construction, il n'y a **rien à
+trouver** dans ces données.
+
+| | vrai marché | journées mélangées |
+|---|---|---|
+| perles trouvées | 53 sur 15 points | 53 sur 15 points |
+| trades | 1 642 | 1 890 |
+| avantage brut par trade | −0,0012 | **+0,0128** |
+| t de Student, brut | −0,22 | **+2,39** |
+
+Le chercheur réussit **mieux sur des données sans structure que sur le
+vrai marché**, et l'écart n'est pas dans le bruit. C'est le résultat le
+plus instructif de toute l'étude, et il a deux lectures qui se
+complètent.
+
+La première : le procédé fabrique de l'avantage apparent à partir de
+rien. Le bon étalon pour juger le vrai marché n'est donc pas zéro mais
++0,0128 ; mesuré contre son propre étalon de hasard, le système fait
+nettement **moins bien** que le hasard.
+
+La seconde explique le symptôme du propriétaire mieux que n'importe
+quelle couche de régime. Mélanger les journées détruit une chose
+précise : la **continuation des tendances**. Les stratégies de retour à
+la moyenne prospèrent dans un monde sans tendances, et c'est exactement
+le monde qu'on obtient en mélangeant. Le vrai marché, lui, en a. « Ça
+marche, puis au retournement ça ne marche plus » est la façon dont on
+ressent, de l'intérieur, une famille de stratégies construite pour un
+monde qui n'existe pas.
 
 ### L'horizon long, cibles plus grandes et plus rares
 
@@ -167,7 +192,8 @@ tirages a toujours l'air bonne sur les données qui l'ont désignée, et
 elle redevient moyenne ensuite. Le « retournement » n'est pas la cause,
 c'est le moment où l'illusion cesse.
 
-Les trois gardes du juge — positif dans deux sous-fenêtres, winrate
+Et le contrôle par mélange va plus loin que « le juge laisse passer du
+bruit » : il montre que le juge préfère le bruit. Les trois gardes du juge — positif dans deux sous-fenêtres, winrate
 minimum, gain moyen minimum — ont été réglées pour que des marches
 aléatoires ne passent presque jamais. Le contrôle montre qu'elles n'y
 suffisent pas : le taux de découverte et la performance ultérieure sont
