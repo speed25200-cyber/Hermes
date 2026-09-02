@@ -282,6 +282,53 @@ Kronos affiné, un plongement JEPA, un méta-modèle de confiance — n'a pas
 de sens tant que la base n'a pas d'avantage : aucune couche ne crée un
 avantage qui n'existe pas en dessous d'elle.
 
+## La question suivante, et pourquoi ce n'est plus la même
+
+Trois portes fermées — contre la tendance, avec la tendance, à horizon
+long — disent toutes la même chose : **la question « cet instrument
+va-t-il monter ? » n'a pas de réponse exploitable** sur des bougies de
+cinq minutes. Ce n'est pas une surprise, c'est ce qu'un marché liquide
+doit produire : tout ce que la série de prix contient est arbitré en
+secondes par des acteurs mieux placés.
+
+`deploy/banc_transversal.js` pose une question différente :
+
+> Parmi trente instruments, lesquels vont faire **mieux que les
+> autres** cette semaine ?
+
+La différence n'est pas cosmétique. Prédire un niveau absolu demande de
+battre le marché sur sa propre information. Prédire un CLASSEMENT ne
+demande que de repérer une asymétrie relative — et le mouvement commun à
+toute la crypto, qui est l'essentiel de la variance et l'essentiel du
+risque, s'annule entre le côté long et le côté court.
+
+Deux familles seulement sont essayées, chacune avec une raison d'exister
+avant d'avoir un chiffre :
+
+**Le prix relatif.** Momentum transversal et son inverse, documentés sur
+actions depuis quarante ans et sur crypto depuis 2018.
+
+**Le positionnement.** Le taux de financement dit qui paie qui pour
+tenir sa position. Un financement très positif dit que les longs sont
+encombrés et paient pour le rester. Ce n'est PAS dans le prix : deux
+instruments au même graphique peuvent avoir des financements opposés.
+C'est la seule donnée de ce banc que le marché n'a pas déjà entièrement
+digérée dans la série des prix.
+
+La discipline est plus stricte que partout ailleurs, parce que la
+tentation l'est aussi : la grille est déclarée avant de voir un chiffre,
+toutes les cellules sont imprimées y compris les mauvaises, le nombre de
+cellules brillantes attendues par pur hasard est écrit d'avance, et
+chaque cellule est comparée à sa propre distribution nulle — obtenue en
+mélangeant les journées de chaque instrument avec une permutation
+DIFFÉRENTE, ce qui casse le lien entre le classement et le rendement
+futur sans toucher aux distributions marginales.
+
+Le banc rend deux verdicts distincts, et la distinction compte : « le
+signal existe-t-il ? » se lit sur le gain brut, « est-il négociable ? »
+sur le gain net. Un signal réel mangé par les frais reste un signal réel,
+et c'est une information qu'un seul chiffre effacerait.
+
 ## Ce qui reste à essayer, par ordre d'intérêt
 
 L'horizon a été essayé et il ne donne rien (ci-dessus). Restent :
