@@ -738,12 +738,39 @@ async function okxPOST(pathname, body) {
 /* ===== Prefill bars 5m ===== */
 
 /* ===== Helpers qty from USDT (contracts) ===== */
+/* L'arrondi au lot, et pourquoi il envoyait des tailles qu'OKX refuse.
+
+   Math.floor(qty / pas) * pas se fait en virgule flottante binaire, ou
+   0,1 n'existe pas exactement. Six lots de 0,1 y valent
+   0.6000000000000001, et String() envoie cette chaine telle quelle. OKX
+   repond alors 51121, « Order quantity must be a multiple of the lot
+   size », et REFUSE l'ordre — la limite maker comme le marche de repli,
+   puisque les deux portent la meme taille.
+
+   Ce n'etait pas theorique. Les trois seuls refus du journal — STX,
+   SHIB, AVAX — ont tous un lot de 0,1. Mesure faite sur le catalogue
+   OKX reel : quatre tailles malformees sur vingt cas a marge realiste,
+   toutes sur des lots fractionnaires ; aucune sur les lots entiers, ou
+   Math.floor(q/1)*1 tombe juste par construction.
+
+   La panne etait donc SILENCIEUSE et SELECTIVE : elle supprimait des
+   trades sur certains instruments seulement. C'est le pire cas, parce
+   qu'il rompt la correspondance entre ce que les bancs mesurent — ou
+   tout signal est trade — et ce que le moteur fait vraiment.
+
+   On compte donc en NOMBRE DE LOTS, entier, puis on reconstruit la
+   taille en la quantifiant au nombre de decimales du pas. Le petit
+   epsilon absorbe le cas inverse, ou 28,9 / 0,1 vaut 288,9999999 et
+   ferait perdre un lot entier. */
 function roundQtyToLot(instId, qty) {
   const meta  = MARKET.meta[instId] || { lotSz: 0.001, minSz: 0.001 };
   const step  = num(meta.lotSz || 0.001);
   const minSz = num(meta.minSz || step);
-  const rounded = Math.floor(qty / step) * step;
-  return Math.max(rounded, minSz);
+  if (!(step > 0)) return 0;
+  const dec = (String(step).split(".")[1] || "").length;
+  const lots = Math.floor(qty / step + 1e-9);
+  const rounded = Number((Math.max(lots, 0) * step).toFixed(dec));
+  return Number(Math.max(rounded, minSz).toFixed(dec));
 }
 function qtyFromUSDT(instId, marginUSDT) {
   const px = MARKET.tick[instId]?.lastPrice || 0;

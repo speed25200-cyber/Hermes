@@ -43,11 +43,13 @@ avant que la réponse soit lisible : environ deux ans.
 | `banc/scene-details.js` | la console rejouée sur fixtures, avec Chromium | `node banc/scene-details.js` |
 | `banc/epreuve_hors_echantillon.js` | l'hypothèse pré-inscrite : gelée, conforme au document, correctement coupée | `node banc/epreuve_hors_echantillon.js` |
 | `banc/epreuve_ampleur.js` | la mesure de largeur retrouve-t-elle la loi en √N là où l'effet existe, et pas ailleurs | `node banc/epreuve_ampleur.js` |
+| `banc/epreuve_taille.js` | la taille envoyée à OKX est-elle un multiple exact du lot, sur tous les pas | `node banc/epreuve_taille.js` |
 | `deploy/banc_regime.js` | le filtre par état sur le roster en place | entrée `banc_regime` du workflow |
 | `deploy/banc_chercheur.js` | le procédé de sélection, en glissade sur un an | entrée `banc_chercheur` |
 | `deploy/banc_transversal.js` | le classement entre instruments | entrée `transversal` |
 | `deploy/hors_echantillon.js` | l'hypothèse du 2 septembre, sur les seules données postérieures | entrée `hors_echantillon` |
 | `deploy/ampleur.js` | la loi en √N sur cent instruments : l'avantage grandit-il comme la largeur l'exige | entrée `ampleur` |
+| `deploy/diagnostic_taille.js` | refait le calcul de taille sur les vrais lots OKX (aucun ordre placé) | entrée `taille` |
 
 Les six premiers tournent hors ligne, sans réseau et sans clé. Les cinq
 derniers tournent sur le VPS et ne lisent que des archives publiques ;
