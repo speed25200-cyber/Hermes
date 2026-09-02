@@ -121,6 +121,41 @@ découvertes : ce sont les meilleures de cent cinquante-six combinaisons,
 et le meilleur de cent cinquante-six tirages a toujours l'air bon sur
 les données qui l'ont désigné.
 
+### L'horizon long, cibles plus grandes et plus rares
+
+Même procédé, mais la grille des sorties vise 1,2 à 2,5 de marge sur 48
+à 168 heures au lieu de 0,3 à 0,8 sur 8 à 24 heures. Le nombre de trades
+tombe de 1 642 à 275, et la facture de frais de 24,63 à 4,13.
+
+| | horizon court | horizon long |
+|---|---|---|
+| trades | 1 642 | 275 |
+| net | −21,57 | −4,36 |
+| frais payés | 24,63 | 4,13 |
+| **net brut de frais** | +3,06 | −0,24 |
+| **par trade brut** | +0,0019 | −0,0009 |
+| **t de Student, brut** | ≈ +0,4 | **−0,04** |
+
+Encore zéro. Réduire les frais d'un facteur six ne révèle aucun avantage
+caché, parce qu'il n'y en a pas à révéler. Cette expérience ferme la
+dernière porte à l'intérieur de la famille de signaux actuelle.
+
+### Le filtre par état de l'instrument
+
+Une objection légitime au filtre par état du marché : une perle sur un
+altcoin se moque peut-être de ce que fait BTC, et ne casse que lorsque
+cet altcoin part en tendance. Le bras C applique donc la même formule à
+la série de l'instrument lui-même.
+
+| bras | net | par trade | témoin |
+|---|---|---|---|
+| A, chercheur seul | −4,36 | −0,0159 | — |
+| B, état du marché | −4,87 | −0,0181 | 26,5 % |
+| C, état de l'instrument | −5,64 | −0,0208 | 4,3 % |
+
+Les deux variantes dégradent le résultat et perdent contre leur témoin.
+L'objection était bonne, la réponse est non.
+
 ## Ce que cela veut dire
 
 Le symptôme décrit par le propriétaire — « ça marche, puis au
@@ -152,22 +187,18 @@ avantage qui n'existe pas en dessous d'elle.
 
 ## Ce qui reste à essayer, par ordre d'intérêt
 
-1. **L'horizon.** Les frais coûtent 0,015 de marge par trade quelle que
-   soit la cible. Viser 0,30 de marge fait payer cinq pour cent du gain
-   visé rien qu'en frais. Viser 2,00 sur plusieurs jours en fait payer
-   moins d'un. Si un petit avantage existe mais est noyé sous le coût,
-   il doit ressortir là. (Mesuré séparément ; voir le journal du run
-   correspondant.)
-2. **Un juge qui se compare au hasard.** Plutôt que des seuils fixes, le
+L'horizon a été essayé et il ne donne rien (ci-dessus). Restent :
+
+1. **Un juge qui se compare au hasard.** Plutôt que des seuils fixes, le
    chercheur devrait mesurer la performance de sa candidate contre la
    distribution obtenue sur des versions mélangées du MÊME instrument,
    et n'accepter qu'un percentile élevé. C'est la correction la plus
    utile à l'architecture existante, et elle est implémentable dans le
    juge actuel.
-3. **L'exécution maker sur les deux jambes.** Elle divise les frais par
+2. **L'exécution maker sur les deux jambes.** Elle divise les frais par
    deux au mieux. Elle ne rend pas rentable un système sans avantage,
    mais elle réduit la perte, et elle est sans risque de modèle.
-4. **Une autre famille de stratégies.** Classement transversal entre
+3. **Une autre famille de stratégies.** Classement transversal entre
    instruments plutôt que signal par instrument ; données que le prix ne
    contient pas déjà (financement, intérêt ouvert, liquidations) ;
    horizons de quelques heures à quelques jours.
