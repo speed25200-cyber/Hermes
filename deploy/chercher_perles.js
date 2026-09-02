@@ -31,6 +31,7 @@ const fs = require("fs");
 const path = require("path");
 
 const { serieSignaux, simuler, resumer } = require(path.join(__dirname, "..", "modules", "backtest.js"));
+const JUGE = require(path.join(__dirname, "..", "modules", "juge.js"));
 const SIG = require(path.join(__dirname, "..", "modules", "signaux.js"));
 /* La grille des signaux, reglable par l'environnement, defaut INCHANGE.
    « suite » remplace les treize contre-tendance par les six de suite de
@@ -74,6 +75,27 @@ const MIN_TRADES_VAL = Number(process.env.PERLES_MIN_TRADES_VAL || 5);
 const MIN_WR_SEL = Number(process.env.PERLES_MIN_WR_SEL || 55);
 const MIN_WR_VAL = Number(process.env.PERLES_MIN_WR_VAL || 50);
 const MIN_MOYENNE = Number(process.env.PERLES_MIN_MOYENNE || 0.02);   // gain moyen/trade, en fraction de marge
+
+/* LA PORTE DU HASARD, ajoutee le 2 septembre 2026, et la raison pour
+   laquelle les trois seuils ci-dessus ne suffisaient pas.
+
+   La procedure a ete rejouee sur douze mois d'archives, puis sur les
+   memes douze mois avec l'ordre des journees melange — meme
+   distribution, memes queues, mais plus rien a trouver. Elle y a
+   trouve AUTANT de perles, et elles y rapportaient DAVANTAGE : +0,0128
+   de marge par trade brut de frais contre -0,0012 sur le vrai marche.
+
+   Un seuil fixe ne peut pas savoir ce que vaut « 0,02 de gain moyen » :
+   cela depend de la volatilite de l'instrument, du nombre de
+   combinaisons essayees et de la longueur de la fenetre. La seule
+   reference qui sache tout cela est la meme recherche sur les memes
+   donnees privees de leur memoire. Une perle doit desormais battre
+   cette reference, pas une constante devinee.
+
+   PERLES_NULL_TIRAGES=0 revient a l'ancien comportement. */
+const NULL_TIRAGES = Number(process.env.PERLES_NULL_TIRAGES ?? 12);
+const NULL_PERCENTILE = Number(process.env.PERLES_NULL_PERCENTILE ?? 0.90);
+const NULL_AGE_H = Number(process.env.PERLES_NULL_AGE_H ?? 20);
 const TAILLE_UNIVERS = Number(process.env.HERMES_UNIVERSE_SIZE || 20);
 const WEEKEND_MIN = Number(process.env.HERMES_WEEKEND_MIN || 0.34);
 const LEVIER = Number(process.env.HERMES_DEFAULT_LEVERAGE || 15);
@@ -337,6 +359,9 @@ async function main() {
   const debut = Date.now();
   console.log(`[PERLES] recherche — ${JOURS} j de 5 m, validation ${JOURS_VALID} j, ` +
     `seuils ${MIN_TRADES_SEL}/${MIN_TRADES_VAL} trades, wr ${MIN_WR_SEL}/${MIN_WR_VAL} %, moyenne ${MIN_MOYENNE}, levier ${LEVIER}`);
+  console.log(NULL_TIRAGES > 0
+    ? `[PERLES] porte du hasard ACTIVE : ${NULL_TIRAGES} repliques melangees par instrument, ${(100 * NULL_PERCENTILE).toFixed(0)}e percentile exige, cache ${NULL_AGE_H} h`
+    : `[PERLES] porte du hasard DESACTIVEE (PERLES_NULL_TIRAGES=0) — les seuils fixes seuls decident, comme avant le 2 septembre`);
 
   direProgression({ debut: new Date(debut).toISOString(), phase: "candidats" });
   const liste = await candidats();
@@ -364,6 +389,45 @@ async function main() {
         rapport.push(`  ${nom.padEnd(10)} — pas de perle (${refus[instId].raison})`);
         continue;
       }
+      /* LA PORTE DU HASARD. On ne la paie que pour les instruments qui
+         ont deja une perle — dix sur cinquante en general — et le
+         resultat vit vingt heures en cache : ce qu'il mesure, c'est
+         combien d'avantage apparent cette procedure fabrique sur un
+         instrument de cette volatilite, et cela ne bouge pas d'une
+         demi-heure a l'autre. */
+      let nul = null, percentile = null;
+      if (NULL_TIRAGES > 0) {
+        // Une panne du calcul du nul ne doit pas faire tomber la passe
+        // entiere : elle recale la perle, ce qui est le choix prudent,
+        // et le journal le dit pour que ca ne passe pas inapercu.
+        try {
+          nul = JUGE.nulPourInstrument(instId, c5, chercherPourInstrument,
+            { tirages: NULL_TIRAGES, ageMaxMs: NULL_AGE_H * 3600e3 });
+          percentile = JUGE.percentileDe(nul.scores, perle.val.moyenneMarge);
+        } catch (e) {
+          console.log(`  ${nom.padEnd(10)} — calcul du nul en echec : ${e.message}`);
+          nul = { tirages: 0, trouvees: 0, taux: 0, scores: [] };
+          percentile = null;
+        }
+        if (percentile == null || percentile < NULL_PERCENTILE) {
+          refus[instId] = {
+            raison: `battue par le hasard (${percentile == null ? "nul indisponible" :
+                     (100 * percentile).toFixed(0) + "e percentile, il en faut " + (100 * NULL_PERCENTILE).toFixed(0)})`,
+            concourantes: candidates || 0,
+            vainqueur: { sig: perle.sig, ov: { tpPctMargin: perle.sortie.tpPctMargin, trailActPctMargin: perle.sortie.trailActPctMargin, holdMs: perle.sortie.holdMs },
+                         mesures: { a: mesure(perle.a), b: mesure(perle.b), sel: mesure(perle.sel), val: mesure(perle.val) },
+                         porte: "hasard" },
+            nul: { tirages: nul.tirages, taux: +nul.taux.toFixed(2), percentile: percentile == null ? null : +percentile.toFixed(2),
+                   median: nul.scores.length ? +nul.scores[nul.scores.length >> 1].toFixed(4) : null },
+            finalistes: perle.finalistes,
+          };
+          rapport.push(`  ${nom.padEnd(10)} — battue par le hasard (${perle.sig}, val ${perle.val.moyenneMarge.toFixed(4)}/trade, ` +
+            `${percentile == null ? "nul indisponible" : (100 * percentile).toFixed(0) + "e percentile"}, ` +
+            `${(100 * nul.taux).toFixed(0)} % des repliques trouvent aussi une perle)`);
+          continue;
+        }
+      }
+
       perles[instId] = {
         sig: perle.sig,
         ov: { tpPctMargin: perle.sortie.tpPctMargin, trailActPctMargin: perle.sortie.trailActPctMargin, holdMs: perle.sortie.holdMs },
@@ -372,11 +436,14 @@ async function main() {
           sel: mesure(perle.sel), val: mesure(perle.val),
         },
         finalistes: perle.finalistes,
+        ...(nul ? { nul: { tirages: nul.tirages, taux: +nul.taux.toFixed(2), percentile: +percentile.toFixed(2),
+                           median: nul.scores.length ? +nul.scores[nul.scores.length >> 1].toFixed(4) : null } } : {}),
       };
       rapport.push(`  ${nom.padEnd(10)} ${perle.sig.padEnd(14)} tp ${perle.sortie.tpPctMargin} act ${perle.sortie.trailActPctMargin} ` +
         `hold ${perle.sortie.holdMs / 3600e3}h | sel ${perle.sel.trades}t wr ${perle.sel.winrate.toFixed(0)}% net ${perle.sel.netMarge.toFixed(2)} ` +
         `| val ${perle.val.trades}t wr ${perle.val.winrate.toFixed(0)}% net ${perle.val.netMarge.toFixed(2)}` +
-        sensTexte(perle.sel, perle.val));
+        sensTexte(perle.sel, perle.val) +
+        (nul ? ` | hasard ${(100 * percentile).toFixed(0)}e pct` : ""));
     } catch (e) {
       refus[instId] = { raison: "echec de collecte : " + e.message, concourantes: 0 };
       rapport.push(`  ${nom.padEnd(10)} — echec de collecte : ${e.message}`);
@@ -386,6 +453,7 @@ async function main() {
   const sortie = {
     genere: new Date().toISOString(),
     fenetres: { jours: JOURS, validationJours: JOURS_VALID, minTradesSel: MIN_TRADES_SEL, minTradesVal: MIN_TRADES_VAL },
+    hasard: NULL_TIRAGES > 0 ? { tirages: NULL_TIRAGES, percentile: NULL_PERCENTILE } : null,
     levier: LEVIER,
     dureeS: Math.round((Date.now() - debut) / 1000),
     candidats: liste,
