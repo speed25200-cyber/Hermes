@@ -145,3 +145,26 @@ La suite ne consiste pas à régler les seuils du régime jusqu'à ce qu'un
 chiffre passe. Un filtre qui n'aide que sous un réglage sur trente-six
 n'a pas été mesuré, il a été trouvé. La suite consiste à traiter ce que
 les chiffres désignent : le coût de transaction.
+
+---
+
+## Addendum du 2 septembre 2026 : ce que le régime est devenu
+
+La couche de régime **n'a pas été câblée dans le moteur**, et elle ne le
+sera pas sous cette forme. Les mesures ont montré que sur les treize
+signaux de retour à la moyenne, le filtre par état fait exactement ce
+que ferait un retrait au hasard (témoin entre 14 et 46 %). Sur les six
+signaux de suite de tendance, en revanche, il bat 99,8 % des retraits au
+hasard — le module fonctionne, il détecte bien ce pour quoi il a été
+écrit, mais il était appliqué à la mauvaise famille de stratégies.
+
+`modules/regime.js` et son épreuve restent dans le dépôt pour deux
+raisons : ils sont corrects et vérifiés, et le jour où une famille de
+stratégies sensible au régime passera la porte du hasard, la couche sera
+prête sans un jour de travail supplémentaire.
+
+Le travail utile qui en est sorti n'est pas le filtre, c'est la
+**méthode** : le mélange par blocs, le témoin de retrait au hasard, la
+validation glissante. Ces trois outils ont servi à établir que le juge
+du chercheur ne mesurait pas un avantage, et ils vivent maintenant dans
+`modules/juge.js`, où ils gardent la porte d'entrée du moteur.
