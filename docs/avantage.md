@@ -329,6 +329,62 @@ signal existe-t-il ? » se lit sur le gain brut, « est-il négociable ? »
 sur le gain net. Un signal réel mangé par les frais reste un signal réel,
 et c'est une information qu'un seul chiffre effacerait.
 
+### Ce que le classement transversal a donné, sur douze mois
+
+Vingt et une cellules — sept signaux, trois horizons — sur trente
+instruments, du 1er septembre 2025 au 31 août 2026. Aucune ne franchit
+la barre complète (95e percentile du nul **et** t > 2 **et** net
+positif), et aucune n'atteint t > 2 sur le gain brut. La conclusion
+formelle est donc : **rien de démontré**.
+
+Mais la forme du tableau est la première chose encourageante de toute
+l'étude, et il serait malhonnête de la taire :
+
+| Cellule | brut | t brut | net | percentile du nul |
+|---|---|---|---|---|
+| financement 168 h | +4,68 | 1,88 | **+3,95** | 85e |
+| financement 72 h | +4,56 | 1,45 | +2,82 | 90e |
+| momentum court 72 h | +4,46 | 1,49 | +2,72 | 90e |
+| momentum normalisé 24 h | +5,02 | 1,55 | −0,21 | 95e |
+| retournement 24 h | −4,33 | −1,33 | −9,56 | **5e** |
+| retournement court 24 h | −6,25 | −1,87 | −11,48 | **5e** |
+
+Trois choses méritent d'être lues ensemble.
+
+**Le signe est cohérent.** Les cellules de momentum et de financement
+sont positives et hautes dans leur nul ; les cellules de retournement
+sont négatives et basses. Or le retournement est l'exact opposé du
+momentum : si l'un était du bruit, l'autre le serait aussi et les deux
+flotteraient au milieu. Cette symétrie en miroir est la signature d'un
+effet réel, faible.
+
+**Le sens est celui de la littérature.** Le momentum transversal est
+documenté sur actions depuis quarante ans et sur crypto depuis 2018 ; le
+financement mesure l'encombrement des positions, et prendre le côté que
+personne ne paie pour tenir est l'archétype de la prime de risque. Ce
+n'est pas une découverte : c'est la retrouvaille d'un résultat connu, ce
+qui est bien plus rassurant qu'une trouvaille inédite.
+
+**L'ampleur est trop faible pour douze mois.** Quarante-neuf périodes
+hebdomadaires ne suffisent pas à distinguer un t de 1,88 d'un t de zéro.
+Il faut plus de données — pas de meilleurs paramètres.
+
+Deux corrections ont donc été faites, et une seule est un vrai
+changement de méthode :
+
+1. **Les frais sont désormais comptés sur la rotation réelle.** La
+   première version facturait un aller-retour complet du livre à chaque
+   rebalancement, comme si tout était soldé puis rouvert. C'était le
+   pire cas, volontaire tant qu'on ignorait si un signal existait, mais
+   c'est faux — et cette fausseté pénalisait les horizons longs
+   précisément là où ils devraient briller.
+2. **L'histoire passe de douze à trente-six mois**, ce qui triple le
+   nombre de périodes hebdomadaires.
+
+Ni l'une ni l'autre ne change le gain brut. Si l'effet est réel, le t
+doit monter avec la racine du nombre de périodes ; s'il ne monte pas, il
+n'était pas là.
+
 ## Ce qui reste à essayer, par ordre d'intérêt
 
 L'horizon a été essayé et il ne donne rien (ci-dessus). Restent :
