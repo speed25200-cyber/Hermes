@@ -150,9 +150,17 @@ async function unSymbole(instId, mois) {
            au: new Date(propre[propre.length - 1][0]).toISOString().slice(0, 10) };
 }
 
+/* L'univers du banc du chercheur : douze instruments majeurs, tous
+   cotés depuis plus d'un an. Il est FIXE et choisi aujourd'hui — c'est
+   un biais de survie, il est assumé et signalé partout où il compte.
+   Le roster du jour s'y ajoute pour que le banc du régime, qui rejoue
+   les perles en place, trouve aussi son histoire. */
+const UNIVERS_BANC = (process.env.BANC_UNIVERS ||
+  "BTC,ETH,SOL,XRP,DOGE,ADA,AVAX,LINK,LTC,BCH,DOT,FIL").split(",").map((s) => s.trim() + "-USDT-SWAP");
+
 async function main() {
   const mois = moisAvant(MOIS_MAX);
-  let liste = ["BTC-USDT-SWAP", "ETH-USDT-SWAP"];
+  let liste = [...UNIVERS_BANC];
   try {
     const r = JSON.parse(fs.readFileSync(ROSTER, "utf8"));
     for (const id of Object.keys(r.perles || {})) if (!liste.includes(id)) liste.push(id);

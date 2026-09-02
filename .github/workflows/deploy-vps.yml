@@ -56,6 +56,10 @@ on:
         description: "Balayer trente-six reglages de seuils du regime et montrer la sensibilite"
         required: false
         default: "false"
+      banc_chercheur:
+        description: "Rejouer le PROCEDE de selection en glissade sur un an (la mesure decisive)"
+        required: false
+        default: "false"
 
 concurrency:
   group: vps-deploy
@@ -329,6 +333,19 @@ jobs:
             -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             "root@$VPS" \
             "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first REGIME_BALAYAGE=${{ inputs.balayage == 'true' && '1' || '0' }} node deploy/banc_regime.js"
+
+      # La mesure decisive. Le banc du regime juge un roster FIGE ; celui-ci
+      # juge le PROCEDE : a chaque point de la glissade, on relance le vrai
+      # juge du chercheur sur les trente jours qui precedent, on trade ses
+      # perles sur les trois semaines qui suivent, on recommence. Si ce
+      # bras-la est negatif, aucune couche posee par-dessus n'a de sens.
+      - name: Rejouer le procede de selection sur un an
+        if: ${{ inputs.banc_chercheur == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=40 \
+            "root@$VPS" \
+            "cd /root/hermes && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=1400' node deploy/banc_chercheur.js"
 
       # Mesure, jamais ecriture. Elle interroge les points PUBLICS dOKX
       # depuis le VPS — la seule machine du circuit qui puisse les
