@@ -142,6 +142,7 @@ const Labo = (() => {
     rendrePerles(perles, r);
     rendreRefus(refus);
     rendreMethode();
+    rendreTransversal();
     rendreHisto();
   }
 
@@ -475,6 +476,52 @@ const Labo = (() => {
         ${[1, 2, 3].map((n) => `<div class="meth-pas"><div class="num">${n}</div>
           <h3>${ech(t("labo.m" + n + ".titre"))}</h3><p>${ech(t("labo.m" + n + ".texte"))}</p></div>`).join("")}
       </div>`;
+  }
+
+  /* — LA PISTE TRANSVERSALE. Le moteur juge chaque crypto seule ; ce
+       banc en juge trente ensemble. Son verdict vit dans un fichier a
+       cote du roster, parce qu'une mesure de vingt minutes ne doit pas
+       dependre d'un journal de deploiement pour exister.
+
+       Le bloc reste cache tant qu'aucune mesure n'a tourne : une section
+       vide qui promet quelque chose est pire que pas de section. — */
+
+  function rendreTransversal() {
+    const bloc = $l("lb-tv-bloc");
+    if (!bloc) return;
+    const tv = donnees?.transversal;
+    if (!tv || !Array.isArray(tv.cellules) || !tv.cellules.length) { bloc.hidden = true; return; }
+    bloc.hidden = false;
+
+    const f = tv.famille || {};
+    const pct = f.percentile == null ? null : Math.round(100 * f.percentile);
+    const atteint = pct != null && pct >= 95;
+    $l("lb-tv-n").textContent = pct == null ? "—" : pct + "e";
+
+    const tri = [...tv.cellules].sort((a, b) => (b.tNet ?? -9) - (a.tNet ?? -9));
+    const nom = (c) => c.signal + " " + c.heures + " h";
+    const lignes = tri.map((c) => {
+      const retenue = f.meilleure && c.signal === f.meilleure.signal && c.heures === f.meilleure.heures;
+      return `<tr class="${retenue ? "retenue" : ""}">
+        <td>${ech(nom(c))}</td>
+        <td>${netTxt(c.net)}</td><td>${netTxt(c.brut)}</td>
+        <td>${c.tNet.toFixed(2)}</td><td>${c.creux.toFixed(2)}</td>
+        <td>${c.percentileNul == null ? "—" : Math.round(100 * c.percentileNul) + "e"}</td></tr>`;
+    }).join("");
+
+    $l("lb-tv-int").innerHTML = `
+      <div class="r-explique">${ech(t("tv.explique"))}</div>
+      ${f.meilleure ? `<div class="tv-preenr">${t("tv.preenr", { s: ech(f.meilleure.signal), h: f.meilleure.heures })}</div>` : ""}
+      <div class="tv-verdict">
+        <div class="v-pct ${atteint ? "atteint" : "presque"}">${pct == null ? "—" : pct + " %"}</div>
+        <div class="v-txt">${ech(t("tv.famille", { p: pct == null ? "—" : pct }))}
+          <br>${ech(atteint ? t("tv.famille.ok") : t("tv.famille.non"))}</div>
+      </div>
+      <div style="overflow-x:auto"><table class="tv-table">
+        <thead><tr><th>${ech(t("tv.col.signal"))}</th><th>${ech(t("tv.col.net"))}</th><th>${ech(t("tv.col.brut"))}</th>
+          <th>${ech(t("tv.col.t"))}</th><th>${ech(t("tv.col.creux"))}</th><th>${ech(t("tv.col.nul"))}</th></tr></thead>
+        <tbody>${lignes}</tbody></table></div>
+      <div class="r-note">${ech(t("tv.periode", { n: tv.instruments, a: tv.periode?.du || "?", b: tv.periode?.au || "?" }))}</div>`;
   }
 
   /* — les passes precedentes : une barre par passe, la derniere en

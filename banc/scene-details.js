@@ -163,6 +163,31 @@ const srv = http.createServer((req, rep) => {
   if (!/58 %/.test(inj.lignes) || !/90/.test(inj.lignes)) dire("lignes du hasard sur INJ : " + inj.lignes);
   if (!/mélange|privé de sa mémoire/.test(inj.explique)) dire("explication du hasard absente : " + inj.explique.slice(0, 80));
 
+  /* LA PISTE TRANSVERSALE. Elle montre une mesure qui n'a PAS conclu —
+     le cas le plus frequent et le plus facile a mal presenter. La page
+     doit dire « 88 %, il en faut 95 » sans laisser croire que c'est
+     gagne, et nommer l'hypothese pre-enregistree. */
+  const tvCache = await $(() => document.getElementById("lb-tv-bloc")?.hidden);
+  if (tvCache !== false) dire("le bloc transversal est cache alors qu'un verdict existe");
+
+  await pg.click('#lb-tv-tete'); await pg.waitForTimeout(400);
+  const tv = await $(() => {
+    const z = document.getElementById("lb-tv-int");
+    return { compte: document.getElementById("lb-tv-n")?.textContent || "",
+             pct: z.querySelector(".v-pct")?.textContent.trim() || "",
+             classe: z.querySelector(".v-pct")?.className || "",
+             verdict: z.querySelector(".v-txt")?.textContent.replace(/\s+/g, " ") || "",
+             preenr: z.querySelector(".tv-preenr")?.textContent.replace(/\s+/g, " ") || "",
+             lignes: z.querySelectorAll(".tv-table tbody tr").length,
+             retenue: z.querySelector(".tv-table tr.retenue td")?.textContent || "" };
+  });
+  if (!/88/.test(tv.pct)) dire("percentile de famille : " + tv.pct);
+  if (!/presque/.test(tv.classe)) dire("le percentile sous le seuil ne doit pas porter la couleur du succes : " + tv.classe);
+  if (!/95/.test(tv.verdict) || !/rien n’est démontré|rien n'est démontré/.test(tv.verdict)) dire("verdict de famille : " + tv.verdict);
+  if (!/financement/.test(tv.preenr) || !/72/.test(tv.preenr)) dire("hypothese pre-enregistree : " + tv.preenr);
+  if (tv.lignes !== 4) dire("lignes du tableau transversal : " + tv.lignes);
+  if (!/financement 72/.test(tv.retenue)) dire("ligne retenue : " + tv.retenue);
+
   // Tout survit a un re-rendu.
   await $(() => Labo.charger()); await pg.waitForTimeout(600);
   const encore = await $(() => ({ perle: document.querySelector('[data-depli="p:AXS-USDT-SWAP"]')?.getAttribute("aria-expanded"),

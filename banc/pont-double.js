@@ -120,6 +120,22 @@
           ] },
       },
     },
+    /* Le verdict du banc transversal, tel que le serveur l'ecrit. La
+       page doit savoir montrer une piste qui n'a PAS conclu : c'est le
+       cas le plus frequent et le plus facile a mal presenter. */
+    transversal: {
+      genere: new Date().toISOString(),
+      periode: { du: "2024-09-01", au: "2026-08-31", heures: 17544 },
+      instruments: 30, avecFinancement: 30, k: 5, levier: 15,
+      cellules: [
+        { signal: "financement", heures: 72, periodes: 238, net: 7.72, brut: 10.11, tNet: 2.11, tBrut: 2.77, sharpe: .137, creux: 2.14, rotation: 13.4, percentileNul: .95, medianNul: -3.47 },
+        { signal: "financement", heures: 168, periodes: 102, net: 8.58, brut: 9.60, tNet: 2.01, tBrut: 2.25, sharpe: .199, creux: 1.68, rotation: 13.3, percentileNul: .90, medianNul: .42 },
+        { signal: "momentum", heures: 72, periodes: 238, net: -2.46, brut: -.55, tNet: -.46, tBrut: -.10, sharpe: -.030, creux: 6.65, rotation: 10.7, percentileNul: .43, medianNul: -.97 },
+        { signal: "retournement_court", heures: 24, periodes: 714, net: -13.34, brut: -4.83, tNet: -2.40, tBrut: -.87, sharpe: -.090, creux: 14.64, rotation: 15.9, percentileNul: .18, medianNul: -7.51 },
+      ],
+      famille: { meilleure: { signal: "financement", heures: 72, t: 2.11, net: 7.72, brut: 10.11 },
+                 maxTReel: 2.11, percentile: .88, medianDesMaxima: 1.46, tirages: 40, cellules: 21 },
+    },
   };
 
   window.api = {
