@@ -50,6 +50,13 @@ const CACHE_LONG = path.join(RACINE, "data", "cache-long");
 const JOURS = Number(process.env.PERLES_JOURS || 30);
 const LEVIER = Number(process.env.HERMES_DEFAULT_LEVERAGE || 15);
 const SL = 0.30, CB = 0.05;
+/* Le pas de la glissade. Il porte une approximation qu'il faut dire :
+   le vrai chercheur reprend la main toutes les TRENTE MINUTES, et une
+   perle qui se degrade sort du roster dans l'heure. Rejouer le procede
+   au pas de trois semaines fait donc trader une perle bien plus
+   longtemps que le vivant ne le ferait — ce banc est PESSIMISTE, et il
+   l'est d'autant plus que le pas est grand. Sept jours coute trois fois
+   plus de calcul et serre la realite de bien plus pres. */
 const PAS_JOURS = Number(process.env.BANC_PAS_JOURS || 21);
 const MIN_TRADES_ETAT = Number(process.env.REGIME_MIN_TRADES_ETAT || 5);
 const TIRAGES = Number(process.env.REGIME_TIRAGES || 400);
@@ -101,7 +108,8 @@ function points(debutTs, finTs) {
 function main() {
   console.log(`[BANC-CHERCHEUR] glissade du PROCEDE : juge sur ${JOURS} j, trade ${PAS_JOURS} j, levier ${LEVIER}`);
   console.log(`[BANC-CHERCHEUR] univers fixe de ${UNIVERS.length} instruments : ${UNIVERS.map((s) => s.replace("-USDT-SWAP", "")).join(", ")}`);
-  console.log(`[BANC-CHERCHEUR] l'univers est FIXE et choisi aujourd'hui : c'est un biais de survie assume et signale.`);
+  console.log(`[BANC-CHERCHEUR] deux biais assumes : l'univers est FIXE et choisi aujourd'hui (favorable au systeme),`);
+  console.log(`[BANC-CHERCHEUR] et le pas de ${PAS_JOURS} j garde une perle bien plus longtemps que le vivant, qui rejuge toutes les 30 min (defavorable).`);
 
   const btc = lire("BTC-USDT-SWAP");
   if (!btc) { console.error("[BANC-CHERCHEUR] pas d'histoire longue pour BTC"); process.exit(1); }

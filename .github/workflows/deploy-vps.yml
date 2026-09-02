@@ -64,6 +64,10 @@ on:
         description: "Compter la part reelle d'entrees maker dans le journal du moteur"
         required: false
         default: "false"
+      pas_jours:
+        description: "Jours entre deux reselections dans le banc du procede (21 par defaut, 7 = plus proche du vivant)"
+        required: false
+        default: "21"
 
 concurrency:
   group: vps-deploy
@@ -369,7 +373,7 @@ jobs:
           sshpass -e ssh -o StrictHostKeyChecking=accept-new \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=40 \
             "root@$VPS" \
-            "cd /root/hermes && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=1400' node deploy/banc_chercheur.js"
+            "cd /root/hermes && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=1400' BANC_PAS_JOURS='${{ inputs.pas_jours }}' node deploy/banc_chercheur.js"
 
       # Mesure, jamais ecriture. Elle interroge les points PUBLICS dOKX
       # depuis le VPS — la seule machine du circuit qui puisse les
