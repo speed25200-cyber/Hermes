@@ -74,6 +74,9 @@ const Labo = (() => {
     if (m) return t("refus.validation", { v: m[1] });
     if (/aucune (?:positive|concourante positive) dans A/i.test(c)) return t("refus.aucune");
     if (/histoire trop courte/.test(c)) return t("refus.courte");
+    m = c.match(/^battue par le hasard \((\d+)e percentile/);
+    if (m) return t("refus.hasard") + " · " + t("labo.hasard.pct", { p: m[1] });
+    if (/^battue par le hasard/.test(c)) return t("refus.hasard");
     m = c.match(/^echec de collecte\s*:?\s*(.*)$/);
     if (m) return t("refus.collecte") + (m[1] ? " : " + m[1] : "");
     return c;
@@ -278,13 +281,30 @@ const Labo = (() => {
 
   /* Le detail d'un refus : l'explication d'abord — c'est elle qu'on
      vient chercher — puis les nombres qui la portent. */
+  /* L'epreuve du hasard, montree en clair. C'est la porte la plus
+     recente et la plus severe : elle a retire huit perles sur onze au
+     premier passage. Une porte qui coupe autant doit se justifier a
+     l'ecran, sinon elle passe pour une panne. */
+  function blocHasard(nul, exige) {
+    if (!nul) return "";
+    const l = [];
+    if (nul.taux != null) l.push(ech(t("labo.hasard.taux", { t: (100 * nul.taux).toFixed(0) })));
+    if (nul.median != null) l.push(ech(t("labo.hasard.median", { m: netTxt(nul.median) })));
+    if (exige != null) l.push(ech(t("labo.hasard.exige", { p: (100 * exige).toFixed(0) })));
+    return `<div class="r-hasard">
+      <div class="r-titre">${ech(t("labo.hasard.titre"))}</div>
+      ${nul.percentile != null ? `<div class="h-pct"><b>${(100 * nul.percentile).toFixed(0)}</b><span>${ech(t("labo.hasard.pct", { p: "" })).replace(/^\s*e?\s*/, "")}</span></div>` : ""}
+      <div class="h-lignes">${l.map((x) => `<div>${x}</div>`).join("")}</div>
+    </div>`;
+  }
+
   function detailRefus(r, roster) {
     const vj = roster?.fenetres?.validationJours ?? 7;
     const raison = String(r.raison || "");
     const parts = [];
     if (r.vainqueur) {
       const v = r.vainqueur, m = v.mesures || {};
-      parts.push(`<div class="r-explique">${ech(t("refus.exp.valid", { v: vj }))}</div>`);
+      parts.push(`<div class="r-explique">${ech(r.nul ? t("refus.exp.hasard") : t("refus.exp.valid", { v: vj }))}</div>`);
       parts.push(`<div><div class="r-titre">${ech(t("labo.vainqueur"))}</div>
         ${strate(v.sig, v.ov, v.porte || "negatif")}
         <div class="r-fens" style="margin-top:9px">
@@ -293,6 +313,7 @@ const Labo = (() => {
           ${barreFen(ech(t("labo.selection")), m.sel)}
           ${barreFen(ech(t("labo.validation")), m.val, true)}
         </div></div>`);
+      if (r.nul) parts.push(blocHasard(r.nul, roster?.hasard?.percentile));
       parts.push(podiumHtml(r.finalistes));
     } else if (/aucune (?:positive|concourante positive) dans A/i.test(raison)) {
       parts.push(`<div class="r-explique">${ech(t("refus.exp.aucune"))}</div>`);
@@ -372,6 +393,7 @@ const Labo = (() => {
             ${barreFen(ech(t("labo.fen.a")), m.a)}
             ${barreFen(ech(t("labo.fen.b")), m.b)}
           </div>` : ""}
+          ${p.nul ? blocHasard(p.nul, donnees?.roster?.hasard?.percentile) : ""}
           ${podiumHtml(p.finalistes)}
         </div>`;
       return `<article class="perle" data-depli="${ech(cle)}" role="button" tabindex="0"
@@ -379,6 +401,7 @@ const Labo = (() => {
         <div class="p-tete"><span class="p-nom">${ech(court(id))}</span><span class="p-sig">${ech(p.sig)}</span>${CHEVRON}</div>
         <div class="p-sorties">${ech(sortiesTxt(ov))}</div>
         ${m.sel?.longs && m.sel?.shorts ? `<div class="p-sens"><span class="l">↑</span> ${ech(t("labo.sens", { l: m.sel.longs.trades, wl: m.sel.longs.winrate.toFixed(0), s: m.sel.shorts.trades, ws: m.sel.shorts.winrate.toFixed(0) }))}</div>` : ""}
+        ${p.nul && p.nul.percentile != null ? `<div class="p-hasard" title="${ech(t("labo.hasard.titre"))}">${ech(t("labo.hasard.pct", { p: (100 * p.nul.percentile).toFixed(0) }))}</div>` : ""}
         ${puceGuet(id)}
         <div class="p-fen">
           ${m.sel ? barre(ech(t("labo.selection")), m.sel) : ""}

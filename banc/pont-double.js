@@ -71,17 +71,20 @@
     roster: {
       genere: il_y_a(3), dureeS: 505,
       fenetres: { jours: 30, validationJours: 7 },
+      hasard: { tirages: 12, percentile: 0.90 },
       candidats: new Array(20).fill("x"),
       perles: {
         "AXS-USDT-SWAP":  { sig: "run5_5m",       ov: { tpPctMargin: .4, trailActPctMargin: .3, holdMs: 12*3600e3 },
           mesures: { a: mes(18, 72, 1.90), b: mes(16, 69, 1.52), sel: { ...mes(34, 71, 3.42), longs: { trades: 21, winrate: 76 }, shorts: { trades: 13, winrate: 62 } }, val: mes(9, 67, .88) },
+          nul: { tirages: 12, taux: 0.25, percentile: 1, median: 0.0181 },
           finalistes: [
             { sig: "run5_5m", ov: { tpPctMargin: .4, trailActPctMargin: .3, holdMs: 12*3600e3 }, wr: 71, net: 3.42 },
             { sig: "keltner3", ov: { tpPctMargin: .6, trailActPctMargin: .2, holdMs: 8*3600e3 }, wr: 66, net: 2.10 },
             { sig: "z48_5m", ov: { tpPctMargin: .3, trailActPctMargin: .15, holdMs: 24*3600e3 }, wr: 61, net: 1.40 },
           ] },
         "MEGA-USDT-SWAP": { sig: "run5_5m",       ov: { tpPctMargin: .4, trailActPctMargin: .3, holdMs: 24*3600e3 },
-          mesures: { a: mes(15, 66, 1.10), b: mes(13, 62, 1.00), sel: mes(28, 64, 2.10), val: mes(7, 71, 1.05) } },
+          mesures: { a: mes(15, 66, 1.10), b: mes(13, 62, 1.00), sel: mes(28, 64, 2.10), val: mes(7, 71, 1.05) },
+          nul: { tirages: 12, taux: 0.42, percentile: 0.92, median: 0.0244 } },
         "DOGE-USDT-SWAP": { sig: "z48_5m",        ov: { tpPctMargin: .6, trailActPctMargin: .2, holdMs: 8*3600e3 },
           mesures: { a: mes(10, 80, 2.20), b: mes(9, 78, 1.85), sel: mes(19, 79, 4.05), val: mes(6, 50, .31) } },
         "ZEC-USDT-SWAP":  { sig: "keltner3",      ov: { tpPctMargin: .8, trailActPctMargin: .3, holdMs: 12*3600e3 },
@@ -108,6 +111,13 @@
             mesures: { a: mes(9, 66, .70), b: mes(9, 60, .55), sel: mes(18, 63, 1.25), val: mes(6, 33, -.20) } } },
         "HYPE-USDT-SWAP":  { raison: "aucune concourante positive dans A et B", concourantes: 1 },
         "SUI-USDT-SWAP":   { raison: "histoire trop courte", concourantes: 0 },
+        "INJ-USDT-SWAP":   { raison: "battue par le hasard (58e percentile, il en faut 90)", concourantes: 6,
+          vainqueur: { sig: "meche15m", ov: { tpPctMargin: .3, trailActPctMargin: .15, holdMs: 8*3600e3 }, porte: "hasard",
+            mesures: { a: mes(12, 74, 1.20), b: mes(11, 70, .95), sel: mes(23, 72, 2.15), val: mes(8, 75, .72) } },
+          nul: { tirages: 12, taux: 0.58, percentile: 0.58, median: 0.0904 },
+          finalistes: [
+            { sig: "meche15m", ov: { tpPctMargin: .3, trailActPctMargin: .15, holdMs: 8*3600e3 }, wr: 72, net: 2.15 },
+          ] },
       },
     },
   };

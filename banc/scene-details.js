@@ -131,7 +131,37 @@ const srv = http.createServer((req, rep) => {
   const carte = await $(() => { const svg = document.querySelector("#lb-carte svg"); const vb = svg.getAttribute("viewBox").split(" ").map(Number); return {
     hauteur: vb[3], perles: document.querySelectorAll("#lb-carte .lc-perle").length, cendres: document.querySelectorAll("#lb-carte .lc-cendre").length,
     legende: document.querySelector(".lc-leg")?.textContent || "" }; });
-  if (carte.hauteur < 600 || carte.perles !== 6 || carte.cendres !== 2 || !/écartés/.test(carte.legende)) dire("carte : " + JSON.stringify(carte));
+  if (carte.hauteur < 600 || carte.perles !== 6 || carte.cendres !== 3 || !/écartés/.test(carte.legende)) dire("carte : " + JSON.stringify(carte));
+
+  /* L'EPREUVE DU HASARD. C'est la porte la plus severe du juge — huit
+     perles sur onze retirees au premier passage — et une porte qui
+     coupe autant doit se voir a l'ecran, sinon elle passe pour une
+     panne. On verifie donc la pastille sur une perle retenue, et le
+     detail chiffre sur une perle que le hasard a battue. */
+  const pastille = await $(() => document.querySelector('[data-depli="p:AXS-USDT-SWAP"] .p-hasard')?.textContent || "");
+  if (!/100/.test(pastille) || !/percentile/i.test(pastille)) dire("pastille du hasard sur AXS : " + pastille);
+
+  const detailPerle = await $(() => {
+    const c = document.querySelector('[data-depli="p:AXS-USDT-SWAP"]');
+    const h = c.querySelector(".r-hasard");
+    return { present: !!h, pct: h?.querySelector(".h-pct b")?.textContent || "", lignes: h?.querySelector(".h-lignes")?.textContent || "" };
+  });
+  if (!detailPerle.present || detailPerle.pct !== "100" || !/25 %/.test(detailPerle.lignes)) dire("detail du hasard sur AXS : " + JSON.stringify(detailPerle));
+
+  const rejet = await $(() => document.querySelector('[data-depli="r:INJ-USDT-SWAP"]')?.textContent.replace(/\s+/g, " ") || "");
+  if (!/hasard/i.test(rejet)) dire("refus INJ ne dit pas le hasard : " + rejet);
+
+  await pg.click('[data-depli="r:INJ-USDT-SWAP"]'); await pg.waitForTimeout(400);
+  const inj = await $(() => {
+    const it = document.querySelector('[data-depli="r:INJ-USDT-SWAP"]').parentElement;
+    const h = it.querySelector(".r-hasard");
+    return { present: !!h, pct: h?.querySelector(".h-pct b")?.textContent || "",
+             lignes: h?.querySelector(".h-lignes")?.textContent.replace(/\s+/g, " ") || "",
+             explique: it.querySelector(".r-explique")?.textContent || "" };
+  });
+  if (!inj.present || inj.pct !== "58") dire("detail du hasard sur INJ : " + JSON.stringify(inj));
+  if (!/58 %/.test(inj.lignes) || !/90/.test(inj.lignes)) dire("lignes du hasard sur INJ : " + inj.lignes);
+  if (!/mélange|privé de sa mémoire/.test(inj.explique)) dire("explication du hasard absente : " + inj.explique.slice(0, 80));
 
   // Tout survit a un re-rendu.
   await $(() => Labo.charger()); await pg.waitForTimeout(600);

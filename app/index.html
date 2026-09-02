@@ -770,6 +770,24 @@ tbody tr:hover { background: var(--surface-2); }
 }
 .perle .p-sorties { color: var(--texte-3); font-size: 11px; margin-top: 5px; font-variant-numeric: tabular-nums; }
 .perle .p-sens { color: var(--texte-2); font-size: 11px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+/* L'epreuve du hasard. Une porte qui a retire huit perles sur onze doit
+   se voir : la pastille sur la carte, le detail au clic. L'or dit « ceci
+   a ete gagne contre le hasard », et rien d'autre dans la page ne porte
+   cette couleur pour cette raison. */
+.perle .p-hasard { display: inline-flex; align-items: center; gap: 5px; margin-top: 6px;
+  padding: 2px 8px; border-radius: 999px; font-size: 10.5px; letter-spacing: .02em;
+  color: var(--astra-a); background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  font-variant-numeric: tabular-nums; }
+.r-hasard { margin-top: 11px; padding: 11px 12px; border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 14px; align-items: center; }
+.r-hasard .r-titre { grid-column: 1 / -1; }
+.r-hasard .h-pct { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+.r-hasard .h-pct b { font: 700 26px/1 var(--titre); color: var(--astra-a); font-variant-numeric: tabular-nums; }
+.r-hasard .h-pct span { color: var(--texte-3); font-size: 10.5px; }
+.r-hasard .h-lignes { color: var(--texte-2); font-size: 11.5px; line-height: 1.5; min-width: 0; }
 .perle .p-sens .l { color: var(--long); font-weight: 700; }
 .perle .p-fen { margin-top: 11px; display: grid; gap: 7px; }
 .fenetre .f-et { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: .07em; color: var(--texte-3); text-transform: uppercase; font-weight: 600; }
