@@ -78,6 +78,21 @@ function creuxMax(trades) {
   for (const t of o) { c += t.pnlMarge; if (c > s) s = c; if (s - c > p) p = s - c; }
   return p;
 }
+/* L'erreur standard sur le gain moyen, et le t de Student qui va avec.
+   Sans eux, « +0,0019 de marge par trade » se lit comme un avantage
+   alors que c'est peut-etre zero : sur des trades dont l'ecart-type
+   depasse 0,2, il faut des milliers d'observations pour distinguer un
+   petit avantage du bruit. Un banc qui ne dit pas cela invite a
+   construire sur du vide. */
+function significativite(tr) {
+  const n = tr.length;
+  if (n < 2) return { n, moyenne: 0, ecartType: 0, erreur: 0, t: 0 };
+  const m = tr.reduce((a, t) => a + t.pnlMarge, 0) / n;
+  const v = tr.reduce((a, t) => a + (t.pnlMarge - m) * (t.pnlMarge - m), 0) / (n - 1);
+  const sd = Math.sqrt(v), se = sd / Math.sqrt(n);
+  return { n, moyenne: m, ecartType: sd, erreur: se, t: se > 0 ? m / se : 0 };
+}
+
 function bilan(tr) {
   const r = resumer(tr);
   return { trades: r.trades, winrate: r.winrate, net: r.netMarge, moyenne: r.moyenneMarge, creux: creuxMax(tr) };
@@ -201,6 +216,16 @@ function main() {
   const fraisParTrade = 2 * 0.0005 * LEVIER;
   console.log(`  pour memoire : les frais coutent ${fraisParTrade.toFixed(4)} de marge par trade, soit ${(A.trades * fraisParTrade).toFixed(2)} sur ${A.trades} trades.`);
   console.log(`  sans frais, le bras A ferait net ${(A.net + A.trades * fraisParTrade).toFixed(2)}.`);
+
+  /* La question qui decide de tout : cet avantage existe-t-il ? */
+  const sigNet = significativite(tousA);
+  const sigBrut = significativite(tousA.map((t) => ({ pnlMarge: t.pnlMarge + fraisParTrade })));
+  console.log(`[BANC-CHERCHEUR] l'avantage est-il distinguable de zero ?`);
+  console.log(`  net de frais  : moyenne ${sigNet.moyenne.toFixed(4)} · ecart-type ${sigNet.ecartType.toFixed(4)} · erreur standard ${sigNet.erreur.toFixed(4)} · t = ${sigNet.t.toFixed(2)}`);
+  console.log(`  brut de frais : moyenne ${sigBrut.moyenne.toFixed(4)} · ecart-type ${sigBrut.ecartType.toFixed(4)} · erreur standard ${sigBrut.erreur.toFixed(4)} · t = ${sigBrut.t.toFixed(2)}`);
+  console.log(`  lecture : |t| sous 2 veut dire « indistinguable de zero avec ces donnees ». Un t brut proche de zero`);
+  console.log(`  signifie que le procede n'a pas d'avantage demontre AVANT meme de payer les frais, et qu'aucune`);
+  console.log(`  couche posee par-dessus ne peut en creer un.`);
 
   console.log(`[BANC-CHERCHEUR] par point de la glissade (perles trouvees · trades · net) :`);
   for (let k = 0; k < listePoints.length; k++) {
