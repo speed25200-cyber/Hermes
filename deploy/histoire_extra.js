@@ -108,12 +108,38 @@ async function serie(sym, mois, chemin, estValeur) {
   return { rows: propre, absents };
 }
 
+/* Un instrument deja telecharge, et sur une profondeur au moins egale a
+   celle qu'on demande, se saute. Sans cela, chaque reprise recommencait
+   tout depuis le debut et n'arrivait jamais au bout — le meme defaut
+   que celui corrige dans histoire_longue.js, a ceci pres qu'ici il n'y
+   a pas de cache par mois pour amortir. */
+function dejaCouvert(instId, mois) {
+  try {
+    const j = JSON.parse(fs.readFileSync(path.join(DEST, instId + ".json"), "utf8"));
+    if (!j || !Array.isArray(j.financement) || !j.financement.length) return false;
+    const debutVoulu = new Date(mois[0] + "-01T00:00:00Z").getTime();
+    // On tolere un mois de marge : le premier mois demande peut ne pas
+    // exister pour un instrument liste plus tard.
+    return j.financement[0][0] <= debutVoulu + 32 * 86400e3;
+  } catch { return false; }
+}
+
 async function main() {
   const mois = moisAvant(MOIS_MAX);
   fs.mkdirSync(DEST, { recursive: true });
-  console.log(`[EXTRA] ${UNIVERS.length} instruments, ${mois.length} mois (${mois[0]} → ${mois[mois.length - 1]})`);
+  const BUDGET_MS = Number(process.env.EXTRA_BUDGET_S || 900) * 1000;
+  const depart = Date.now();
+  console.log(`[EXTRA] ${UNIVERS.length} instruments, ${mois.length} mois (${mois[0]} → ${mois[mois.length - 1]}), budget ${(BUDGET_MS / 60000).toFixed(0)} min`);
 
+  let faits = 0, sautes = 0;
   for (const instId of UNIVERS) {
+    if (dejaCouvert(instId, mois)) { sautes++; continue; }
+    if (Date.now() - depart > BUDGET_MS) {
+      console.log(`[EXTRA] budget epuise : ${faits} telecharges, ${sautes} deja presents, ${UNIVERS.length - faits - sautes} restants.`);
+      console.log(`[EXTRA] relancer cette etape reprendra la ou elle s'arrete.`);
+      break;
+    }
+    faits++;
     const sym = nomBinance(instId);
     const nom = instId.replace("-USDT-SWAP", "");
     const t0 = Date.now();
@@ -143,7 +169,7 @@ async function main() {
       ` · interet ouvert ${process.env.EXTRA_OI === "1" ? String(oi.rows.length).padStart(6) + " points" : "non demande"}` +
       ` · ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   }
-  console.log(`[EXTRA] ecrit dans ${DEST}`);
+  console.log(`[EXTRA] ${faits} telecharge(s), ${sautes} deja present(s) · ecrit dans ${DEST}`);
 }
 
 if (require.main === module) main().catch((e) => { console.error("[EXTRA] echec :", e.message); process.exit(1); });
