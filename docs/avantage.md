@@ -681,6 +681,61 @@ L'horizon a été essayé et il ne donne rien (ci-dessus). Restent :
    intérêt ouvert, liquidations) ; horizons de quelques heures à
    quelques jours.
 
+## Le moteur ne faisait pas ce que les bancs mesuraient
+
+Découvert le 2 septembre 2026 en comptant les frais, et c'est le défaut
+le plus grave de la journée parce qu'il touche l'interprétation de tout
+le reste.
+
+Le journal du moteur donne **douze entrées, dont zéro en maker**. Trois
+tentatives d'entrée en limite post-only ont été refusées par OKX avec le
+même code — `51121, Order quantity must be a multiple of the lot size` —
+sur STX, SHIB et AVAX.
+
+La cause n'est pas celle qu'on suppose d'abord. Ce n'est pas une
+métadonnée manquante : avec les vraies caractéristiques OKX, quatre
+tailles sur vingt restent malformées à marge réaliste. C'est la
+**virgule flottante**. `Math.floor(qty / pas) * pas` se calcule en
+binaire, où 0,1 n'existe pas exactement :
+
+    LTC   0,6061 contrats, lot 0,1  →  "0.6000000000000001"  refusé
+    STX  28,9799 contrats, lot 0,1  →  "28.900000000000002"  refusé
+
+Le défaut ne frappe **que** les instruments dont le lot est
+fractionnaire ; sur un lot entier, `Math.floor(q/1)*1` tombe juste par
+construction. Les trois refus du journal ont tous un lot de 0,1.
+
+### Pourquoi c'est pire qu'un plantage
+
+Une panne franche s'aperçoit. Celle-ci était **silencieuse et
+sélective** : elle supprimait des trades sur certains instruments
+seulement, et laissait passer les autres. Elle rompait donc la
+correspondance entre ce que les bancs mesurent — un monde où *tout*
+signal est tradé — et ce que le moteur fait réellement. Toutes les
+comparaisons entre performance mesurée et performance réelle reposaient
+sur cette correspondance.
+
+Le correctif compte en nombre de lots entier puis quantifie aux
+décimales du pas, avec un epsilon pour l'erreur inverse (28,9 / 0,1 vaut
+288,99999999999994 en binaire, et sans lui on perdrait un lot entier,
+tout aussi silencieusement). `banc/epreuve_taille.js` vérifie la
+**chaîne** envoyée et non le nombre — c'est elle qu'OKX lit — sur les
+quatre refus réels puis mille tailles pour chacun des six pas employés
+par OKX. Repassé sur l'ancien code, il rend dix échecs.
+
+### Le correctif est écrit mais n'est pas déployé, et c'est délibéré
+
+Il ne crée aucun avantage. Il fera simplement **passer des trades qui
+échouaient** — sur un système dont l'espérance par trade est mesurée
+négative. Le déployer tel quel augmenterait donc la perte attendue, et
+le bug, par accident, économisait de l'argent.
+
+Ce n'est pas une raison de garder un bug. C'est une raison de ne pas
+choisir seul l'ordre des opérations. L'ordre sensé est : **mettre le
+moteur en pause, puis déployer le correctif** — ou ne le déployer que le
+jour où un avantage est démontré. Le code est sur la branche ; la
+machine tourne encore sans lui.
+
 ## Ce que le propriétaire doit décider
 
 Le compte est réel et le moteur tourne. La mesure dit qu'il perd environ
