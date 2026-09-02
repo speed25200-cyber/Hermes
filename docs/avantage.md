@@ -444,6 +444,60 @@ jugeront :**
 Toute autre cellule essayée par la suite rouvre la pénalité de famille
 et devra la payer.
 
+### L'hypothèse se relève toute seule
+
+Une pré-inscription que personne ne relit est un vœu pieux, et une
+pré-inscription qu'on relit à la main est pire : on la relit le jour où
+l'on espère qu'elle dira oui. `deploy/hors_echantillon.js` la mesure
+sans qu'on ait à choisir le moment.
+
+Il ne mesure que cette cellule-là. Ses constantes sont gelées et le
+banc `banc/epreuve_hors_echantillon.js` vérifie à chaque passe qu'elles
+le sont encore, qu'aucune variable d'environnement ne permet d'essayer
+96 heures « pour voir », et que l'énoncé du présent document et les
+constantes du code disent toujours la même chose — les deux dérivent
+séparément, et le jour où ils divergeraient, c'est le document qu'on
+croirait.
+
+Il partage une seule passe de calcul avec la fenêtre d'apprentissage,
+au lieu de recouper les bougies au 2 septembre. Recouper donnerait à
+l'épreuve deux semaines de chauffe perdues et un livre vide à ouvrir :
+deux artefacts qui n'existent pas dans la vraie vie, où la stratégie
+tournait déjà la veille. La période qui enjambe la date n'est comptée
+d'aucun côté — elle a commencé avant que l'hypothèse ne soit écrite et
+s'est finie après.
+
+### Combien de temps il faudra, et pourquoi c'est le vrai résultat
+
+Le relevé calcule aussi la seule chose qu'on puisse savoir avant
+d'avoir les données : dans combien de temps la question pourra être
+tranchée. Un t vaut sharpe × √n. Avec le sharpe par période mesuré en
+apprentissage — 0,137 — atteindre un t de 2 demande
+
+    (2 / 0,137)² ≈ 214 périodes de 72 heures ≈ 642 jours
+
+soit **le milieu de 2028**. Ce n'est pas une lenteur d'implémentation
+qu'on pourrait rattraper avec plus de calcul : c'est la taille de
+l'effet qui l'impose. Un avantage petit devant son bruit ne devient pas
+plus lisible parce qu'on le regarde plus fort.
+
+Ce chiffre est écrit ici pour une raison précise. Dans trois mois, il y
+aura une trentaine de périodes, un net, et un t. Ce t sera du bruit,
+qu'il soit beau ou laid, et la tentation de le lire sera d'autant plus
+forte qu'il aura coûté trois mois d'attente. Le relevé refuse donc de
+conclure tant que le compte n'y est pas, et le dit à chaque passe.
+
+Il y a une conséquence plus dure, et elle vaut au-delà de cette
+hypothèse : **une stratégie dont l'avantage demande deux ans pour se
+prouver ne peut pas être validée à la vitesse où l'on voudrait la
+déployer.** Soit on trouve un effet nettement plus gros — un sharpe par
+période deux fois plus grand demanderait quatre fois moins de données,
+donc six mois — soit on accepte d'attendre. Il n'y a pas de troisième
+voie, et toutes les tentatives d'en fabriquer une dans ce dépôt (seuils
+choisis après coup, cellule la plus brillante d'une grille, fenêtre
+raccourcie jusqu'à ce que le chiffre plaise) ont été mesurées et
+réfutées.
+
 ## Ce qui reste à essayer, par ordre d'intérêt
 
 L'horizon a été essayé et il ne donne rien (ci-dessus). Restent :

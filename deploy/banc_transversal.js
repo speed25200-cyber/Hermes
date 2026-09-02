@@ -478,4 +478,12 @@ function main() {
 }
 
 if (require.main === module) main();
-module.exports = { SIGNAUX, evaluer, stats, derniereAvant };
+/* Exporte tout ce dont la mesure hors echantillon a besoin. Ce n'est pas
+   de la commodite : si le suivi hors echantillon reimplementait la
+   grille horaire, les caracteristiques ou l'evaluation, il testerait une
+   AUTRE hypothese que celle qui a ete consignee, et la pre-inscription
+   ne vaudrait plus rien. Une seule implementation, deux fenetres. */
+module.exports = { SIGNAUX, evaluer, stats, derniereAvant,
+                   grilleHoraire, caracteristiques, repliques,
+                   UNIVERS, H5, J5, LEVIER, FRAIS, K,
+                   lireCandles, lireExtra };
