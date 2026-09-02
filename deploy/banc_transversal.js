@@ -287,11 +287,38 @@ function main() {
   }
   if (brutes.length < 2 * K + 2) { console.error("[TRANSVERSAL] pas assez d'instruments avec histoire"); process.exit(1); }
 
-  // La grille horaire commune : du plus tardif des débuts au plus
-  // précoce des fins, pour que tous les instruments soient comparables
-  // à chaque instant du classement.
-  const t0 = Math.max(...brutes.map((d) => d.px[0][0]));
+  /* LA FENÊTRE COMMUNE, et la façon dont elle traite un instrument moins
+     profond que les autres.
+
+     La première version prenait le plus tardif des débuts : un seul
+     instrument à douze mois ramenait les vingt-neuf autres à douze mois.
+     Comme les archives se téléchargent par tranches et qu'une passe peut
+     s'arrêter en chemin, cela revenait à laisser le retardataire décider
+     de la profondeur de toute l'étude.
+
+     On prend maintenant l'inverse : on vise la profondeur demandée, et
+     l'on ÉCARTE les instruments qui ne l'ont pas. Un classement sur
+     vingt-cinq instruments profonds vaut mieux qu'un classement sur
+     trente instruments courts — la statistique vient du nombre de
+     périodes, pas du nombre de colonnes. */
+  const MOIS_MIN = Number(process.env.TRANSVERSAL_MOIS_MIN || 0);
   const t1 = Math.min(...brutes.map((d) => d.px[d.px.length - 1][0]));
+  let t0;
+  if (MOIS_MIN > 0) {
+    const vise = t1 - MOIS_MIN * 30.44 * J5;
+    const assez = brutes.filter((d) => d.px[0][0] <= vise);
+    if (assez.length >= 2 * K + 2) {
+      const ecartes = brutes.length - assez.length;
+      brutes.length = 0; brutes.push(...assez);
+      t0 = Math.max(...brutes.map((d) => d.px[0][0]));
+      if (ecartes) console.log(`[TRANSVERSAL] ${ecartes} instrument(s) ecarte(s) : histoire plus courte que ${MOIS_MIN} mois`);
+    } else {
+      console.log(`[TRANSVERSAL] seulement ${assez.length} instrument(s) ont ${MOIS_MIN} mois : on garde tout le monde et la fenetre commune`);
+      t0 = Math.max(...brutes.map((d) => d.px[0][0]));
+    }
+  } else {
+    t0 = Math.max(...brutes.map((d) => d.px[0][0]));
+  }
   const n = Math.floor((t1 - t0) / H5) + 1;
   console.log(`[TRANSVERSAL] periode commune : ${new Date(t0).toISOString().slice(0, 10)} → ${new Date(t1).toISOString().slice(0, 10)} (${n} heures)`);
 

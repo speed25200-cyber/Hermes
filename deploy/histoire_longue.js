@@ -172,8 +172,26 @@ async function main() {
   } catch {}
   if (process.argv[2]) liste = process.argv.slice(2);
 
-  console.log(`[HISTOIRE] ${liste.length} instrument(s), ${mois.length} mois (${mois[0]} → ${mois[mois.length - 1]}), source ${HOTE}`);
+  /* UN BUDGET DE TEMPS. Trente instruments sur trente-six mois font
+     plus de mille fichiers, et une passe de workflow n'a que
+     quarante-cinq minutes. Deux tentatives ont ete tuees en cours de
+     route, sans que rien d'utile ne sorte du run.
+
+     Les mois sont mis en cache un par un : une passe interrompue n'est
+     donc pas perdue, elle avance. Le budget rend cette progression
+     explicite plutot que subie — on s'arrete proprement, on dit ou l'on
+     en est, et le run garde du temps pour la mesure qui suit. */
+  const BUDGET_MS = Number(process.env.HISTOIRE_BUDGET_S || 1080) * 1000;
+  const debut = Date.now();
+  console.log(`[HISTOIRE] ${liste.length} instrument(s), ${mois.length} mois (${mois[0]} → ${mois[mois.length - 1]}), source ${HOTE}, budget ${(BUDGET_MS / 60000).toFixed(0)} min`);
+  let faits = 0;
   for (const instId of liste) {
+    if (Date.now() - debut > BUDGET_MS) {
+      console.log(`[HISTOIRE] budget epuise apres ${faits}/${liste.length} instruments. Les mois deja pris sont en cache :`);
+      console.log(`[HISTOIRE] relancer cette etape reprendra ou elle s'arrete, sans retelecharger.`);
+      break;
+    }
+    faits++;
     const t0 = Date.now();
     try {
       const r = await unSymbole(instId, mois);
