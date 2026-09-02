@@ -181,6 +181,39 @@ la série de l'instrument lui-même.
 Les deux variantes dégradent le résultat et perdent contre leur témoin.
 L'objection était bonne, la réponse est non.
 
+### Le pari inverse : suivre la tendance au lieu de la contrer
+
+Le contrôle par mélange faisait une prédiction vérifiable : si les
+tendances du vrai marché sont ce qui tue les treize signaux, alors des
+signaux qui SUIVENT le mouvement doivent se comporter à l'inverse. Six
+signaux de suite ont donc été ajoutés — cinq sont l'inversion exacte
+d'un signal existant, pour que la comparaison ne porte que sur le sens
+du pari — et le même procédé a été rejoué.
+
+| | contre la tendance | avec la tendance |
+|---|---|---|
+| trades | 1 642 | 1 651 |
+| winrate | 61,0 % | 59,1 % |
+| net | −21,57 | −29,40 |
+| **par trade brut de frais** | **−0,0012** | **−0,0028** |
+| **t de Student, brut** | **−0,22** | **−0,49** |
+
+**La prédiction échoue.** Suivre la tendance ne rapporte pas davantage
+que la contrer : zéro dans les deux cas. Le mouvement des tendances
+explique pourquoi les signaux de retour à la moyenne perdent, mais il ne
+se laisse pas monnayer pour autant — ce qui est la définition d'un
+marché efficace à cette échelle de temps.
+
+Un détail mérite d'être noté, parce qu'il réhabilite en partie le
+travail sur le régime. Sur les signaux de suite, le filtre par état
+devient enfin utile : il bat **99,8 %** des retraits au hasard par état
+du marché, et 97,3 % par état de l'instrument, là où il ne battait que
+14 à 46 % sur les signaux de retour à la moyenne. Le module d'état
+fonctionne, et il détecte bien ce pour quoi il a été écrit. Il était
+simplement appliqué à la mauvaise famille de stratégies. Cela ne suffit
+pas : il fait passer un système perdant de −29,40 à −24,82, ce qui reste
+perdant.
+
 ## Ce que cela veut dire
 
 Le symptôme décrit par le propriétaire — « ça marche, puis au
@@ -224,10 +257,14 @@ L'horizon a été essayé et il ne donne rien (ci-dessus). Restent :
 2. **L'exécution maker sur les deux jambes.** Elle divise les frais par
    deux au mieux. Elle ne rend pas rentable un système sans avantage,
    mais elle réduit la perte, et elle est sans risque de modèle.
-3. **Une autre famille de stratégies.** Classement transversal entre
-   instruments plutôt que signal par instrument ; données que le prix ne
-   contient pas déjà (financement, intérêt ouvert, liquidations) ;
-   horizons de quelques heures à quelques jours.
+3. **Une autre famille de stratégies.** Le pari inverse a été essayé et
+   il ne donne rien non plus : ni contre la tendance, ni avec elle, les
+   bougies de cinq minutes seules ne portent d'avantage exploitable
+   après frais. Ce qui reste à essayer sort du cadre actuel :
+   classement transversal entre instruments plutôt que signal par
+   instrument ; données que le prix ne contient pas déjà (financement,
+   intérêt ouvert, liquidations) ; horizons de quelques heures à
+   quelques jours.
 
 ## Ce que le propriétaire doit décider
 
