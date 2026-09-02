@@ -60,6 +60,10 @@ on:
         description: "Rejouer le PROCEDE de selection en glissade sur un an (la mesure decisive)"
         required: false
         default: "false"
+      frais:
+        description: "Compter la part reelle d'entrees maker dans le journal du moteur"
+        required: false
+        default: "false"
 
 concurrency:
   group: vps-deploy
@@ -333,6 +337,26 @@ jobs:
             -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             "root@$VPS" \
             "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first REGIME_BALAYAGE=${{ inputs.balayage == 'true' && '1' || '0' }} node deploy/banc_regime.js"
+
+      # Les frais sont le premier suspect : a levier 15, deux jambes taker
+      # a 0,05 % coutent 1,5 % de marge par trade, et le banc sur douze
+      # mois montre une perte du meme ordre. Le moteur tente deja une
+      # entree MAKER (limite post-only, cinq secondes, repli marche) —
+      # cette etape compte ce que cette tentative rapporte VRAIMENT, en
+      # lisant le journal. Aucune cle, aucune ecriture.
+      - name: Compter les entrees maker
+        if: ${{ inputs.frais == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            echo "=== entrees par voie, depuis le debut du journal ==="
+            journalctl -u hermes --no-pager -o cat | grep -o "entree:\"[a-zé]*\"" | sort | uniq -c || true
+            echo "=== refus de la limite post-only (MAKER_MISS) ==="
+            journalctl -u hermes --no-pager -o cat | grep -c "MAKER_MISS" || true
+            echo "=== dernieres raisons de refus ==="
+            journalctl -u hermes --no-pager -o cat | grep "MAKER_MISS" | tail -5 || true
+            echo "=== taux de frais du compte vus par le moteur ==="
+            journalctl -u hermes --no-pager -o cat | grep -o "makerFee[^,]*" | tail -3 || true
+          '
 
       # La mesure decisive. Le banc du regime juge un roster FIGE ; celui-ci
       # juge le PROCEDE : a chaque point de la glissade, on relance le vrai
