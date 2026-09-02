@@ -76,6 +76,10 @@ on:
         description: "Pourquoi l'entree maker est refusee : refaire le calcul de taille sur les vrais lots OKX (aucun ordre)"
         required: false
         default: "false"
+      roster_porte:
+        description: "Verifier que ce qui trade a bien passe la porte du hasard (lecture seule)"
+        required: false
+        default: "false"
       balayage:
         description: "Balayer trente-six reglages de seuils du regime et montrer la sensibilite"
         required: false
@@ -467,6 +471,18 @@ jobs:
       # Cette etape refait le calcul du moteur sur les vraies
       # caracteristiques OKX, point public et sans cle, et imprime la
       # chaine exacte qui partirait. Elle ne place aucun ordre.
+      # Une regle ne vaut que si elle s'applique a ce qui tourne. Le
+      # journal de demarrage annonce quatre perles au roster « repli du
+      # 31/08 » — anterieur a la porte du hasard, qui n'en avait garde
+      # que trois. Si le moteur trade un roster ecrit avant la porte,
+      # tous les refus de la journee sont decoratifs. Lecture seule.
+      - name: Verifier que ce qui trade a passe la porte
+        if: ${{ inputs.roster_porte == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new \
+            "root@$VPS" \
+            "cd /root/hermes && node deploy/diagnostic_roster.js"
+
       - name: Diagnostiquer la taille des ordres
         if: ${{ inputs.taille == 'true' }}
         run: |
