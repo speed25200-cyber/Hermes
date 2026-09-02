@@ -72,6 +72,10 @@ on:
         description: "Elargir a cent instruments et tester la loi en racine(N) : le sharpe grandit-il comme la largeur l'exige ?"
         required: false
         default: "false"
+      taille:
+        description: "Pourquoi l'entree maker est refusee : refaire le calcul de taille sur les vrais lots OKX (aucun ordre)"
+        required: false
+        default: "false"
       balayage:
         description: "Balayer trente-six reglages de seuils du regime et montrer la sensibilite"
         required: false
@@ -453,12 +457,32 @@ jobs:
       # entree MAKER (limite post-only, cinq secondes, repli marche) —
       # cette etape compte ce que cette tentative rapporte VRAIMENT, en
       # lisant le journal. Aucune cle, aucune ecriture.
+      # Le journal montre trois entrees maker refusees par OKX avec le code
+      # 51121 « Order quantity must be a multiple of the lot size », sur
+      # trois instruments differents. Ce n'est pas un refus legitime : une
+      # limite post-only qui croiserait le carnet serait rejetee autrement.
+      # 51121 dit que la TAILLE est malformee — et c'est la meme taille
+      # qui part dans l'ordre marche de repli.
+      #
+      # Cette etape refait le calcul du moteur sur les vraies
+      # caracteristiques OKX, point public et sans cle, et imprime la
+      # chaine exacte qui partirait. Elle ne place aucun ordre.
+      - name: Diagnostiquer la taille des ordres
+        if: ${{ inputs.taille == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=40 \
+            "root@$VPS" \
+            "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first node deploy/diagnostic_taille.js"
+
       - name: Compter les entrees maker
         if: ${{ inputs.frais == 'true' }}
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
             echo "=== entrees par voie, depuis le debut du journal ==="
-            journalctl -u hermes --no-pager -o cat | grep -o "entree:\"[a-zé]*\"" | sort | uniq -c || true
+            echo "-- entrees maker :"; journalctl -u hermes --no-pager -o cat | grep -c "entree:\"maker\"" || true
+            echo "-- entrees marche (classe de caracteres evitee : l accent ne se grepe pas comme une lettre) :"
+            journalctl -u hermes --no-pager -o cat | grep -c "TRADE_ENTER" || true
             echo "=== refus de la limite post-only (MAKER_MISS) ==="
             journalctl -u hermes --no-pager -o cat | grep -c "MAKER_MISS" || true
             echo "=== dernieres raisons de refus ==="
