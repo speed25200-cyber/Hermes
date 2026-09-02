@@ -220,4 +220,4 @@ async function main() {
 }
 
 if (require.main === module) main().catch((e) => { console.error("[HISTOIRE] echec :", e.message); process.exit(1); });
-module.exports = { ouvrirZip, lireCsv, nomBinance, moisAvant, CACHE_LONG };
+module.exports = { ouvrirZip, lireCsv, nomBinance, moisAvant, CACHE_LONG, telecharger, HOTE };

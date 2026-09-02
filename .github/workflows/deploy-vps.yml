@@ -68,6 +68,10 @@ on:
         description: "Relever l'hypothese pre-inscrite du 2 septembre sur les seules donnees posterieures"
         required: false
         default: "false"
+      ampleur:
+        description: "Elargir a cent instruments et tester la loi en racine(N) : le sharpe grandit-il comme la largeur l'exige ?"
+        required: false
+        default: "false"
       balayage:
         description: "Balayer trente-six reglages de seuils du regime et montrer la sensibilite"
         required: false
@@ -412,6 +416,29 @@ jobs:
       # validation glissante, et compare a un temoin de retraits au
       # hasard. Il n'ecrit rien et ne touche a aucun ordre : c'est la
       # mesure qui decide si la couche merite d'etre cablee.
+      # L'epreuve de la largeur. Le releve hors echantillon a etabli que
+      # l'hypothese pre-inscrite ne sera pas jugeable avant 2028, parce
+      # qu'un sharpe de 0,137 par periode demande 214 periodes. La duree
+      # varie comme l'inverse du CARRE du sharpe : le seul moyen de la
+      # raccourcir est un avantage plus grand, et le seul levier connu
+      # qui ne touche pas a l'hypothese est la LARGEUR de l'univers.
+      #
+      # La loi fondamentale de la gestion active predit sharpe ∝ √N. Ce
+      # n'est pas une recherche de plus : le signal, l'horizon et la
+      # fraction prise de chaque cote sont fixes, une seule chose varie,
+      # et la prediction est quantitative donc refutable. Le bruit ne
+      # connait pas cette loi ; un effet transversal reel la suit.
+      #
+      # Le pas horaire n'est pas une approximation : le banc projette
+      # deja tout sur une grille horaire avant de calculer.
+      - name: Elargir et eprouver la loi en racine de N
+        if: ${{ inputs.ampleur == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=60 \
+            "root@$VPS" \
+            "cd /root/hermes && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=1400' HISTOIRE_MOIS=24 LARGE_BUDGET_S=1400 node deploy/histoire_1h.js && NODE_OPTIONS='--dns-result-order=ipv4first' HISTOIRE_MOIS=24 EXTRA_LARGE=1 EXTRA_BUDGET_S=700 node deploy/histoire_extra.js && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=1400' node deploy/ampleur.js"
+
       - name: Mesurer le filtre par etat de marche
         if: ${{ inputs.banc_regime == 'true' }}
         run: |

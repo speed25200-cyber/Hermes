@@ -45,9 +45,17 @@ const DEST = path.join(RACINE, "data", "extra");
 const MOIS_MAX = Number(process.env.HISTOIRE_MOIS || 12);
 const HOTE = "data.binance.vision";
 
-const UNIVERS = (process.env.BANC_UNIVERS ||
+/* EXTRA_LARGE=1 prend l'univers large de histoire_1h.js plutot que les
+   trente du banc. On ne recopie pas la liste : deux listes de cent noms
+   qui doivent rester identiques finissent toujours par diverger, et
+   c'est le genre de divergence qui ne se voit pas. */
+const TRENTE = (process.env.BANC_UNIVERS ||
   "BTC,ETH,SOL,XRP,DOGE,ADA,AVAX,LINK,LTC,BCH,DOT,FIL,NEAR,ATOM,UNI,APT,ARB,OP,TRX,ETC,XLM,ICP,INJ,SUI,SEI,TIA,AAVE,ALGO,SAND,MANA")
   .split(",").map((s) => s.trim() + "-USDT-SWAP");
+
+const UNIVERS = process.env.EXTRA_LARGE === "1"
+  ? require(path.join(__dirname, "histoire_1h.js")).UNIVERS
+  : TRENTE;
 
 function telecharger(chemin) {
   return new Promise((ok, ko) => {
