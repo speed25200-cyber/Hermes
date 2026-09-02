@@ -63,7 +63,11 @@ const EXTRA = path.join(RACINE, "data", "extra");
 
 const LEVIER = Number(process.env.HERMES_DEFAULT_LEVERAGE || 15);
 const FRAIS = Number(process.env.HERMES_FRAIS || 0.0005);
-const TIRAGES = Number(process.env.TRANSVERSAL_TIRAGES || 20);
+/* Quarante repliques plutot que vingt. Un percentile lu sur vingt
+   points ne distingue pas 0,92 de 1,00, et c'est precisement pres du
+   seuil de 95 % que la decision se joue. Le banc tient en quelques
+   minutes : la resolution ne coute presque rien. */
+const TIRAGES = Number(process.env.TRANSVERSAL_TIRAGES || 40);
 const K = Number(process.env.TRANSVERSAL_K || 5);           // longs en haut, courts en bas
 const HEURES = (process.env.TRANSVERSAL_HEURES || "24,72,168").split(",").map(Number);
 const H5 = 3600e3, J5 = 86400e3;
@@ -349,10 +353,10 @@ function main() {
     for (const h of HEURES) {
       const vrai = stats(evaluer(donnees, nom, h, K));
       if (vrai.n < 10) { lignes.push({ nom, h, vrai, pct: null }); continue; }
-      const parReplique = rep.map((r) => stats(evaluer(r, nom, h, K)).net);
+      const parReplique = rep.map((r) => stats(evaluer(r, nom, h, K)));
       matrice.push(parReplique);
-      const tri = [...parReplique].sort((a, b) => a - b);
-      lignes.push({ nom, h, vrai, pct: JUGE.percentileDe(tri, vrai.net), medianNul: tri[tri.length >> 1] });
+      const triNet = parReplique.map((x) => x.net).sort((a, b) => a - b);
+      lignes.push({ nom, h, vrai, pct: JUGE.percentileDe(triNet, vrai.net), medianNul: triNet[triNet.length >> 1] });
     }
   }
 
@@ -386,25 +390,44 @@ function main() {
   let famille = null;
   if (matrice.length) {
     const nRep = matrice[0].length;
-    const maxParReplique = [];
+    const cellules = lignes.filter((l) => l.pct != null);
+
+    /* LE MAXIMUM SE PREND SUR LES t, PAS SUR LES NETS.
+
+       La première version comparait le net de la meilleure cellule au
+       maximum des nets des répliques. C'était faux, et d'une façon qui
+       ne saute pas aux yeux : une cellule à 714 périodes et une cellule
+       à 102 périodes n'ont pas la même échelle de net. Le maximum était
+       donc dominé par les cellules à horizon court, simplement parce
+       qu'elles cumulent plus de périodes — et une cellule hebdomadaire
+       se retrouvait jugée contre le bruit d'une cellule journalière.
+
+       Le t de Student est sans échelle : c'est exactement pour cela
+       qu'on le compare. C'est aussi la forme classique de la procédure
+       de Westfall-Young, dite maxT. */
+    const tReel = cellules.map((l) => l.vrai.t);
+    const maxTReel = Math.max(...tReel);
+    const maxTNul = [];
     for (let g = 0; g < nRep; g++) {
       let m = -Infinity;
-      for (const cell of matrice) if (cell[g] > m) m = cell[g];
-      maxParReplique.push(m);
+      for (const cell of matrice) { const t = cell[g].t; if (Number.isFinite(t) && t > m) m = t; }
+      maxTNul.push(m);
     }
-    maxParReplique.sort((a, b) => a - b);
-    const meilleure = lignes.filter((l) => l.pct != null).reduce((a, b) => (a && a.vrai.net >= b.vrai.net ? a : b), null);
-    const pFamille = meilleure ? JUGE.percentileDe(maxParReplique, meilleure.vrai.net) : null;
-    console.log(`[TRANSVERSAL] epreuve de la FAMILLE ENTIERE (Westfall-Young) :`);
-    console.log(`  meilleure cellule reelle : ${meilleure ? `${meilleure.nom} a ${meilleure.h} h, net ${meilleure.vrai.net.toFixed(2)}` : "aucune"}`);
-    console.log(`  meilleure cellule des repliques : median ${maxParReplique[nRep >> 1].toFixed(2)}, max ${maxParReplique[nRep - 1].toFixed(2)}`);
-    console.log(`  la meilleure reelle bat ${pFamille == null ? "—" : (100 * pFamille).toFixed(0) + " %"} des meilleures de repliques`);
-    console.log(`  c'est LE chiffre qui decide : il tient compte des ${lignes.length} essais et de leur correlation.`);
+    maxTNul.sort((a, b) => a - b);
+    const meilleure = cellules.reduce((a, b) => (a && a.vrai.t >= b.vrai.t ? a : b), null);
+    const pFamille = JUGE.percentileDe(maxTNul, maxTReel);
+
+    console.log(`[TRANSVERSAL] epreuve de la FAMILLE ENTIERE (Westfall-Young, maxT) :`);
+    console.log(`  meilleure cellule reelle : ${meilleure.nom} a ${meilleure.h} h · t ${meilleure.vrai.t.toFixed(2)} · net ${meilleure.vrai.net.toFixed(2)} · brut ${meilleure.vrai.brut.toFixed(2)}`);
+    console.log(`  maximum des t sur repliques : median ${maxTNul[nRep >> 1].toFixed(2)}, max ${maxTNul[nRep - 1].toFixed(2)}, sur ${nRep} tirages`);
+    console.log(`  le meilleur t reel (${maxTReel.toFixed(2)}) bat ${pFamille == null ? "—" : (100 * pFamille).toFixed(0) + " %"} des maxima de repliques`);
+    console.log(`  c'est LE chiffre qui decide : il tient compte des ${cellules.length} essais ET de leur correlation.`);
     console.log(`  ${pFamille != null && pFamille >= 0.95 ? "AU-DELA DU SEUIL : la famille bat le hasard." : "sous le seuil de 95 % : rien de demontre au niveau de la famille."}`);
-    famille = { meilleure: meilleure ? { signal: meilleure.nom, heures: meilleure.h, net: +meilleure.vrai.net.toFixed(3) } : null,
-                percentile: pFamille == null ? null : +pFamille.toFixed(2),
-                medianDesMaxima: +maxParReplique[nRep >> 1].toFixed(3),
-                tirages: nRep, cellules: lignes.length };
+
+    famille = { meilleure: { signal: meilleure.nom, heures: meilleure.h, t: +meilleure.vrai.t.toFixed(2),
+                             net: +meilleure.vrai.net.toFixed(3), brut: +meilleure.vrai.brut.toFixed(3) },
+                maxTReel: +maxTReel.toFixed(2), percentile: pFamille == null ? null : +pFamille.toFixed(2),
+                medianDesMaxima: +maxTNul[nRep >> 1].toFixed(2), tirages: nRep, cellules: cellules.length };
   }
 
   /* LE VERDICT SUR DISQUE. Jusqu'ici ce banc ne parlait que dans le
