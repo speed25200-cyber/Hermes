@@ -56,6 +56,15 @@ derniers tournent sur le VPS et ne lisent que des archives publiques ;
 seuls le relevé hors échantillon et l'épreuve de largeur écrivent
 quelque chose, et c'est leur propre verdict.
 
+## Le plafond, en une phrase
+
+L'avantage BRUT de frais est mesuré à zéro — −0,0012 ± 0,0056 de marge
+par trade, t = −0,22, sur le procédé rejoué en glissade. Les frais étant
+un terme soustractif, un système dont le brut vaut zéro rapporte zéro
+même sans frais. Aucun travail sur l'exécution, la taille ou le levier
+ne peut donc rendre Hermes rentable ; seul un avantage brut positif et
+démontré le pourrait, et il n'en existe aucun à ce jour dans ce dépôt.
+
 ## La règle qui n'a pas bougé
 
 Pas de perle, pas de trade. Aucun des travaux de cette journée n'a

@@ -736,6 +736,51 @@ moteur en pause, puis déployer le correctif** — ou ne le déployer que le
 jour où un avantage est démontré. Le code est sur la branche ; la
 machine tourne encore sans lui.
 
+## Le plafond : ce que Hermes rapporterait avec des frais NULS
+
+Cette section clôt une avenue que j'avais moi-même laissée ouverte, et
+qui ne mérite pas le travail qu'elle demanderait.
+
+Toute la journée a montré que les frais dominent le résultat : sur douze
+mois, roster figé, **brut +26, frais −77, net −51**. La conclusion
+tentante est qu'il suffirait de payer moins — exécution maker sur les
+deux jambes, rotation plus faible — pour redresser le système. Cette
+conclusion est fausse, et le chiffre qui la réfute est déjà mesuré.
+
+Le brut de +26 vient d'un **roster figé** : des perles choisies sur
+l'histoire puis rejouées sur cette même période. C'est un chiffre
+d'apprentissage, pas une performance. La bonne mesure est la glissade du
+procédé, qui re-choisit ses perles à chaque pas comme le moteur le fait
+vraiment. Elle donne :
+
+| | brut de frais, par trade |
+|---|---|
+| procédé en glissade, pas de 7 j | **−0,0012 ± 0,0056** (t = −0,22) |
+| horizon long, TP 1,2–2,5 sur 48–168 h | −0,0009 (t = −0,04) |
+| suivi de tendance | −0,0028 (t = −0,49) |
+
+**L'avantage brut est zéro.** Pas « petit » : indistinguable de zéro,
+sur trois familles, avec des t compris entre −0,04 et −0,49.
+
+Or les frais sont un terme **soustractif**. Un système dont le brut vaut
+zéro rapporte, avec des frais nuls, exactement zéro. Diviser les frais
+par deux ne transforme pas −51 en profit : cela transforme une perte
+certaine en une perte plus petite, autour d'un espoir de gain qui vaut
+zéro. Aucune amélioration d'exécution, si parfaite soit-elle, ne peut
+produire un profit à partir d'un brut nul — c'est de l'arithmétique, pas
+une opinion sur l'exécution.
+
+**Conséquence pratique : l'exécution maker sur les deux jambes sort de
+la liste des choses à faire pour rendre Hermes rentable.** Elle y
+figurait ; elle n'y a pas sa place. Elle reste un correctif d'hygiène
+— on ne paie pas plus cher que nécessaire — mais elle ne doit être
+présentée à personne comme un chemin vers la rentabilité.
+
+Ce qu'il faudrait, et il n'y a pas de raccourci : **un avantage brut
+positif et démontré**. Tant qu'il n'existe pas, tout travail sur les
+frais, la taille, le levier ou le nombre de positions ne fait que
+choisir la vitesse à laquelle le capital décroît.
+
 ## Ce que le propriétaire doit décider
 
 Le compte est réel et le moteur tourne. La mesure dit qu'il perd environ
