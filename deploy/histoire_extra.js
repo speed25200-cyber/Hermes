@@ -121,18 +121,26 @@ async function main() {
     const fin = await serie(sym, mois,
       (s, m) => `/data/futures/um/monthly/fundingRate/${s}/${s}-fundingRate-${m}.zip`,
       (v) => Math.abs(v) < 0.05);
-    // L'intérêt ouvert vit dans les « metrics ». Le format et la
-    // cadence ont changé plusieurs fois ; s'il manque, on continue sans.
-    const oi = await serie(sym, mois,
-      (s, m) => `/data/futures/um/monthly/metrics/${s}/${s}-metrics-${m}.zip`,
-      (v) => v > 1000);
+    /* L'intérêt ouvert vit dans les « metrics », et ces archives sont
+       d'un tout autre poids : la première passe y a consommé plus de
+       vingt minutes pour trente instruments, au point de manger le
+       budget du run avant que la mesure ait pu commencer. Le
+       financement, lui, tient en quelques secondes par instrument.
+
+       Comme le financement est de loin la série la plus documentée des
+       deux, l'intérêt ouvert devient optionnel : EXTRA_OI=1 pour le
+       demander. Une donnée qu'on n'a pas encore vaut mieux qu'une
+       mesure qu'on ne fait jamais. */
+    const oi = process.env.EXTRA_OI === "1"
+      ? await serie(sym, mois, (s, m) => `/data/futures/um/monthly/metrics/${s}/${s}-metrics-${m}.zip`, (v) => v > 1000)
+      : { rows: [], absents: 0 };
     const paquet = { instId, financement: fin.rows, interetOuvert: oi.rows };
     const tmp = path.join(DEST, instId + ".tmp");
     fs.writeFileSync(tmp, JSON.stringify(paquet));
     fs.renameSync(tmp, path.join(DEST, instId + ".json"));
     console.log(`  ${nom.padEnd(6)} financement ${String(fin.rows.length).padStart(5)} points` +
       (fin.rows.length ? ` (du ${new Date(fin.rows[0][0]).toISOString().slice(0, 10)})` : " — absent") +
-      ` · interet ouvert ${String(oi.rows.length).padStart(6)} points` +
+      ` · interet ouvert ${process.env.EXTRA_OI === "1" ? String(oi.rows.length).padStart(6) + " points" : "non demande"}` +
       ` · ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   }
   console.log(`[EXTRA] ecrit dans ${DEST}`);
