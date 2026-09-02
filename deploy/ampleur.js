@@ -123,6 +123,32 @@ function main() {
              fin: T.grilleHoraire(d.finBrut, t0, n, 1), px: d.px };
   });
 
+  /* LE TEMOIN QUI REND TOUT LE RESTE LISIBLE.
+
+     Si les largeurs tirees au sort donnent un resultat different de
+     celui du banc transversal, il y a deux explications possibles et
+     elles n'ont pas du tout le meme sens : soit l'avantage ne tient
+     qu'aux trente instruments particuliers que ce banc-la utilisait,
+     soit ce banc-ci a un defaut de tuyauterie — cache horaire mal
+     aligne, financement mal apparie, fenetre decalee.
+
+     On ne peut pas trancher en raisonnant. On rejoue donc EXACTEMENT
+     les trente du banc transversal, dans CE pipeline-ci, avec k=5. Si
+     l'on retrouve son chiffre, la tuyauterie est bonne et l'ecart est
+     un fait sur les instruments. Sinon, c'est le pipeline qu'il faut
+     reparer avant de conclure quoi que ce soit. */
+  const TRENTE = T.UNIVERS;
+  const parId = new Map(prepares.map((d) => [d.instId, d]));
+  const temoin = TRENTE.map((id) => parId.get(id)).filter(Boolean);
+  console.log(`[AMPLEUR] temoin : les ${temoin.length}/${TRENTE.length} instruments du banc transversal, rejoues dans ce pipeline-ci, k=5`);
+  if (temoin.length >= 12) {
+    const st = T.stats(T.evaluer(temoin, "financement", HEURES, 5));
+    console.log(`  temoin : ${st.n} periodes · sharpe ${st.sharpe.toFixed(4)} · t ${st.t.toFixed(2)} · net ${st.net.toFixed(2)}`);
+    console.log(`  le banc transversal donnait sharpe 0.137, t 2.11, net 7.72 sur ces memes trente.`);
+    console.log(`  ${Math.abs(st.sharpe - 0.137) < 0.05 ? "CONCORDE : la tuyauterie est bonne, l'ecart avec les tirages au sort est un fait sur les instruments."
+                                                        : "DISCORDE : ce pipeline ne reproduit pas le banc transversal. Rien d'autre ici n'est interpretable tant que ce n'est pas explique."}`);
+  }
+
   const LARGEURS = [12, 20, 30, 45, 60, 80, prepares.length].filter((N, i, a) => N <= prepares.length && a.indexOf(N) === i);
   console.log(`[AMPLEUR] largeurs essayees : ${LARGEURS.join(", ")}`);
 
