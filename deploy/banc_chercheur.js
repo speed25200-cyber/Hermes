@@ -26,10 +26,18 @@
      semaines qui suivent T ; on recommence. Aucun choix ne voit
      jamais ce qu'il sera jugé sur.
 
-   Trois bras sont comparés sur exactement les mêmes trades :
+   Quatre bras sont comparés sur exactement les mêmes trades :
      A  le chercheur seul, tel qu'il tourne aujourd'hui
-     B  le chercheur plus le filtre par état de marché
-     T  un témoin qui retire au hasard autant de trades que B
+     B  le chercheur plus le filtre par état du MARCHÉ (BTC et ETH)
+     C  le chercheur plus le filtre par état de L'INSTRUMENT lui-même
+     T  un témoin qui retire au hasard autant de trades que B ou C
+
+   Le bras C répond à une objection que le bras B invite : une perle sur
+   KITE se moque peut-être de ce que fait BTC, et ne casse que lorsque
+   KITE part en tendance. Le calcul est le même, la série d'entrée
+   change. La parité vivant/banc reste garantie : le moteur tire déjà
+   trois cents bougies de chaque perle à chaque tour, il a donc de quoi
+   calculer l'état de l'instrument sans un seul appel de plus.
 
    Si A est négatif, aucune couche posée par-dessus n'a de sens, et il
    faut le dire avant d'en construire une. Si A est positif et B mieux
@@ -186,7 +194,7 @@ function main() {
   console.log(`[BANC-CHERCHEUR] ${listePoints.length} points, du ${new Date(listePoints[0]).toISOString().slice(0, 10)} ` +
     `au ${new Date(listePoints[listePoints.length - 1]).toISOString().slice(0, 10)}`);
 
-  const tousA = [], tousB = [];
+  const tousA = [], tousB = [], tousC = [];
   const parPoint = listePoints.map(() => ({ perles: 0, trades: 0, net: 0 }));
   const parInstrument = [];
 
@@ -201,8 +209,13 @@ function main() {
       return [cherche(a), cherche(b)];
     };
 
+    /* L'état de l'instrument lui-même, calculé une fois pour toute son
+       histoire — même formule, même module, autre série d'entrée. */
+    const indexPropre = REGIME.indexEtats(c5, REGIME.serieEtats(c5, null,
+      REGIME.lireSeuils(path.join(RACINE, "config", "regime.json"))));
+
     let perlesIci = 0;
-    const aInst = [], bInst = [];
+    const aInst = [], bInst = [], cInst = [];
     for (let k = 0; k < listePoints.length; k++) {
       const T = listePoints[k];
       const [iDeb, iFin] = bornes(T - JOURS * 86400e3, T);
@@ -223,14 +236,15 @@ function main() {
       // choix. Les trades de la fenetre sont recalcules — un seul signal,
       // une seule sortie, c'est bon marche.
       const tradesPasse = simuler({ c5: passe, signaux: serieSignaux(p.sig, passe), sortie, lev: LEVIER });
-      const parEtat = {};
-      for (const t of tradesPasse) {
-        const e = REGIME.etatA(index, t.tsIn);
-        (parEtat[e] = parEtat[e] || []).push(t);
-      }
-      const ecartes = Object.entries(parEtat)
-        .filter(([e, l]) => e !== "inconnu" && l.length >= MIN_TRADES_ETAT && l.reduce((a, t) => a + t.pnlMarge, 0) < 0)
-        .map(([e]) => e);
+      const perdants = (idx) => {
+        const parEtat = {};
+        for (const t of tradesPasse) (parEtat[REGIME.etatA(idx, t.tsIn)] = parEtat[REGIME.etatA(idx, t.tsIn)] || []).push(t);
+        return Object.entries(parEtat)
+          .filter(([e, l]) => e !== "inconnu" && l.length >= MIN_TRADES_ETAT && l.reduce((a, t) => a + t.pnlMarge, 0) < 0)
+          .map(([e]) => e);
+      };
+      const ecartes = perdants(index);            // etat du marche
+      const ecartesP = perdants(indexPropre);     // etat de l'instrument
 
       // Le futur : de T a T + PAS. La chauffe precede T pour que le
       // premier signal du bloc soit evalue comme le moteur l'evaluerait.
@@ -239,15 +253,16 @@ function main() {
       if (avenir.length < CHAUFFE + 2) continue;
       const trAvenir = simuler({ c5: avenir, signaux: serieSignaux(p.sig, avenir), sortie, lev: LEVIER })
         .filter((t) => t.tsIn >= T)
-        .map((t) => ({ ...t, instId, etat: REGIME.etatA(index, t.tsIn) }));
+        .map((t) => ({ ...t, instId, etat: REGIME.etatA(index, t.tsIn), etatP: REGIME.etatA(indexPropre, t.tsIn) }));
 
       for (const t of trAvenir) {
         aInst.push(t);
         if (!ecartes.includes(t.etat)) bInst.push(t);
+        if (!ecartesP.includes(t.etatP)) cInst.push(t);
         parPoint[k].trades++; parPoint[k].net += t.pnlMarge;
       }
     }
-    tousA.push(...aInst); tousB.push(...bInst);
+    tousA.push(...aInst); tousB.push(...bInst); tousC.push(...cInst);
     const bA = bilan(aInst);
     parInstrument.push({ nom, perles: perlesIci, ...bA });
     console.log(`  ${nom.padEnd(6)} ${String(perlesIci).padStart(2)}/${listePoints.length} points avec perle · ` +
@@ -255,13 +270,18 @@ function main() {
       `net ${bA.net.toFixed(2).padStart(8)} · par trade ${(bA.trades ? bA.moyenne.toFixed(4) : "—").padStart(8)} · ${((Date.now() - t0) / 1000).toFixed(0)} s`);
   }
 
-  const A = bilan(tousA), B = bilan(tousB);
+  const A = bilan(tousA), B = bilan(tousB), C = bilan(tousC);
   const temoin = partBattue(tousA, tousB, TIRAGES);
+  const temoinC = partBattue(tousA, tousC, TIRAGES);
 
   console.log(`[BANC-CHERCHEUR] resultat, tout hors echantillon :`);
   console.log(`  A  chercheur seul          : ${A.trades} trades · wr ${A.winrate.toFixed(1)} % · net ${A.net.toFixed(2)} · par trade ${A.moyenne.toFixed(4)} · creux ${A.creux.toFixed(2)}`);
   console.log(`  B  chercheur + regime      : ${B.trades} trades · wr ${(B.trades ? B.winrate.toFixed(1) : "—")} % · net ${B.net.toFixed(2)} · par trade ${(B.trades ? B.moyenne.toFixed(4) : "—")} · creux ${B.creux.toFixed(2)}`);
+  console.log(`  C  chercheur + regime prop.: ${C.trades} trades · wr ${(C.trades ? C.winrate.toFixed(1) : "—")} % · net ${C.net.toFixed(2)} · par trade ${(C.trades ? C.moyenne.toFixed(4) : "—")} · creux ${C.creux.toFixed(2)}`);
   console.log(`  temoin : B bat ${temoin == null ? "—" : (100 * temoin).toFixed(1) + " %"} des retraits au hasard de meme taille`);
+  console.log(`  temoin : C bat ${temoinC == null ? "—" : (100 * temoinC).toFixed(1) + " %"} des retraits au hasard de meme taille`);
+  console.log(`  un temoin autour de 50 % veut dire que le filtre fait exactement ce que ferait le hasard :`);
+  console.log(`  il retire des trades d'un ensemble qui perd, et retirer au hasard aurait fait aussi bien.`);
 
   // Les frais, seuls, pour situer l'ordre de grandeur du probleme.
   const fraisParTrade = 2 * 0.0005 * LEVIER;
