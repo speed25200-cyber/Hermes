@@ -52,6 +52,10 @@ on:
         description: "Telecharger des mois d'archives publiques pour mesurer sur un vrai retournement"
         required: false
         default: "false"
+      extra:
+        description: "Telecharger financement et interet ouvert (donnees que le prix ne contient pas)"
+        required: false
+        default: "false"
       balayage:
         description: "Balayer trente-six reglages de seuils du regime et montrer la sensibilite"
         required: false
@@ -340,6 +344,20 @@ jobs:
             -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "root@$VPS" \
             "cd /root/hermes && df -h / | tail -1 && NODE_OPTIONS=--dns-result-order=ipv4first HISTOIRE_MOIS=${HISTOIRE_MOIS:-12} node deploy/histoire_longue.js && du -sh data/cache-long && df -h / | tail -1"
+
+      # Les series que le prix ne contient pas : taux de financement et
+      # interet ouvert. Douze mois de mesures ont montre que les bougies
+      # seules ne portent aucun avantage exploitable ; ces deux series
+      # mesurent le POSITIONNEMENT, pas le prix, et c'est la seule piste
+      # que la litterature soutient encore. Archives publiques, aucune
+      # cle, ecriture dans data/extra seulement.
+      - name: Telecharger financement et interet ouvert
+        if: ${{ inputs.extra == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=40 \
+            "root@$VPS" \
+            "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first HISTOIRE_MOIS=${HISTOIRE_MOIS:-12} node deploy/histoire_extra.js && du -sh data/extra"
 
       # Le banc du regime. Il rejoue les perles du roster sur le cache du
       # chercheur, avec et sans le filtre par etat de marche, en

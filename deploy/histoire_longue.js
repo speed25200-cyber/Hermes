@@ -155,8 +155,13 @@ async function unSymbole(instId, mois) {
    un biais de survie, il est assumé et signalé partout où il compte.
    Le roster du jour s'y ajoute pour que le banc du régime, qui rejoue
    les perles en place, trouve aussi son histoire. */
+/* Trente instruments plutot que douze. Le classement transversal a
+   besoin de largeur : etre long des cinq meilleurs et court des cinq
+   pires n'a de sens que si le classement porte sur assez de monde pour
+   que « meilleur » veuille dire quelque chose. */
 const UNIVERS_BANC = (process.env.BANC_UNIVERS ||
-  "BTC,ETH,SOL,XRP,DOGE,ADA,AVAX,LINK,LTC,BCH,DOT,FIL").split(",").map((s) => s.trim() + "-USDT-SWAP");
+  "BTC,ETH,SOL,XRP,DOGE,ADA,AVAX,LINK,LTC,BCH,DOT,FIL,NEAR,ATOM,UNI,APT,ARB,OP,TRX,ETC,XLM,ICP,INJ,SUI,SEI,TIA,AAVE,ALGO,SAND,MANA")
+  .split(",").map((s) => s.trim() + "-USDT-SWAP");
 
 async function main() {
   const mois = moisAvant(MOIS_MAX);
