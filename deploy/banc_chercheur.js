@@ -50,8 +50,28 @@ const fs = require("fs");
 const path = require("path");
 
 const RACINE = path.join(__dirname, "..");
+
+/* L'EXPÉRIENCE DE L'HORIZON LONG. Les frais coûtent 0,015 de marge par
+   trade, quelle que soit la cible visée. Viser 0,30 de marge fait donc
+   payer cinq pour cent du gain visé rien qu'en frais ; viser 2,00 en
+   fait payer moins d'un. Si le petit avantage brut mesuré est réel mais
+   noyé sous le coût de transaction, il doit ressortir en visant plus
+   grand et plus rarement. Si rien ne ressort là non plus, l'avantage
+   n'existe pas, et c'est une réponse aussi.
+
+   Ce réglage doit être posé AVANT de charger le chercheur, qui lit sa
+   grille au chargement. */
+if (process.env.BANC_HORIZON_LONG === "1") {
+  process.env.PERLES_SORTIES = JSON.stringify([
+    { tpPctMargin: 2.5, trailActPctMargin: 1.0 },
+    { tpPctMargin: 1.8, trailActPctMargin: 0.7 },
+    { tpPctMargin: 1.2, trailActPctMargin: 0.5 },
+  ]);
+  process.env.PERLES_DUREES = "48,96,168";
+}
+
 const { serieSignaux, simuler, resumer } = require(path.join(RACINE, "modules", "backtest.js"));
-const { chercherPourInstrument } = require(path.join(RACINE, "deploy", "chercher_perles.js"));
+const { chercherPourInstrument, SORTIES, DUREES } = require(path.join(RACINE, "deploy", "chercher_perles.js"));
 const REGIME = require(path.join(RACINE, "modules", "regime.js"));
 
 const CACHE_LONG = path.join(RACINE, "data", "cache-long");
@@ -176,6 +196,8 @@ function points(debutTs, finTs) {
 
 function main() {
   console.log(`[BANC-CHERCHEUR] glissade du PROCEDE : juge sur ${JOURS} j, trade ${PAS_JOURS} j, levier ${LEVIER}`);
+  console.log(`[BANC-CHERCHEUR] grille des sorties : tp ${SORTIES.map((s) => s.tpPctMargin).join("/")} de marge · tenue ${DUREES.map((d) => d / 3600e3).join("/")} h` +
+    (process.env.BANC_HORIZON_LONG === "1" ? "  (HORIZON LONG : cibles plus grandes et plus rares)" : ""));
   console.log(`[BANC-CHERCHEUR] univers fixe de ${UNIVERS.length} instruments : ${UNIVERS.map((s) => s.replace("-USDT-SWAP", "")).join(", ")}`);
   console.log(`[BANC-CHERCHEUR] deux biais assumes : l'univers est FIXE et choisi aujourd'hui (favorable au systeme),`);
   console.log(`[BANC-CHERCHEUR] et le pas de ${PAS_JOURS} j garde une perle bien plus longtemps que le vivant, qui rejuge toutes les 30 min (defavorable).`);

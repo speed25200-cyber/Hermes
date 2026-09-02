@@ -72,13 +72,22 @@ const LEVIER = Number(process.env.HERMES_DEFAULT_LEVERAGE || 15);
 /* Les familles de sorties sont celles que le roster actuel emploie déjà :
    la grille explore ce que le moteur sait faire, rien de plus. SL −30 %
    et rappel de trail 5 % sont la constante SPEC du moteur. */
-const SORTIES = [
-  { tpPctMargin: 0.80, trailActPctMargin: 0.30 },
-  { tpPctMargin: 0.60, trailActPctMargin: 0.20 },
-  { tpPctMargin: 0.40, trailActPctMargin: 0.30 },
-  { tpPctMargin: 0.30, trailActPctMargin: 0.15 },
-];
-const DUREES = [8, 12, 24].map((h) => h * 3600e3);
+/* La grille est reglable par l'environnement, defauts INCHANGES. Le
+   banc a besoin d'essayer des cibles plus grandes et plus rares : les
+   frais coutent 0,015 de marge par trade quelle que soit la cible, donc
+   viser 0,30 de marge fait payer cinq pour cent du gain vise en frais,
+   et viser 2,00 en fait payer moins d'un. Sans ce reglage, il aurait
+   fallu recopier le chercheur pour l'essayer — et une copie du juge est
+   exactement ce que cette architecture refuse. */
+const SORTIES = process.env.PERLES_SORTIES
+  ? JSON.parse(process.env.PERLES_SORTIES)
+  : [
+      { tpPctMargin: 0.80, trailActPctMargin: 0.30 },
+      { tpPctMargin: 0.60, trailActPctMargin: 0.20 },
+      { tpPctMargin: 0.40, trailActPctMargin: 0.30 },
+      { tpPctMargin: 0.30, trailActPctMargin: 0.15 },
+    ];
+const DUREES = (process.env.PERLES_DUREES || "8,12,24").split(",").map((h) => Number(h) * 3600e3);
 const SL = 0.30, CB = 0.05;
 
 function get(chemin) {
