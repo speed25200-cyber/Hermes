@@ -232,6 +232,44 @@ aléatoires ne passent presque jamais. Le contrôle montre qu'elles n'y
 suffisent pas : le taux de découverte et la performance ultérieure sont
 les mêmes sur du bruit que sur le vrai marché.
 
+## La correction, et ce qu'elle a retiré du moteur
+
+Le 2 septembre, la porte du hasard a été ajoutée au juge et déployée.
+Une perle ne suffit plus à passer les trois seuils fixes : elle doit
+battre ce que la MÊME recherche produit sur le MÊME instrument privé de
+sa mémoire, au 90e percentile d'au moins douze répliques.
+
+Première passe sur les cinquante candidats habituels :
+
+| | avant | après |
+|---|---|---|
+| perles au roster | 11 | **3** |
+
+Les trois survivantes — SHIB, STX, FIL — sont au 100e percentile de leur
+distribution nulle : elles battent les douze répliques. Les huit autres
+ont été écartées, et le détail de leur rejet est le résultat le plus
+parlant de toute l'étude :
+
+| Perle écartée | Percentile atteint | Part des répliques qui trouvent aussi une perle |
+|---|---|---|
+| XPL | 0e | 8 % |
+| WLD | 33e | 50 % |
+| LIT | 40e | 42 % |
+| KITE | 50e | 17 % |
+| ETHFI | 50e | 17 % |
+| AVAX | 75e | 33 % |
+| PEPE | 80e | 42 % |
+| INJ | 86e | 58 % |
+
+La colonne de droite est celle qu'il faut lire. Sur des données où il
+n'y a **rien** à trouver, la procédure trouvait quand même une perle
+jusqu'à 58 % du temps. Ces huit stratégies n'étaient pas de mauvaises
+stratégies : elles n'étaient pas des stratégies du tout.
+
+Le moteur trade désormais trois perles au lieu de onze, et chacune a
+démontré qu'elle fait mieux que le hasard sur son propre instrument.
+C'est la première fois que cette phrase peut être écrite.
+
 ## Ce qui n'a pas été câblé, et pourquoi
 
 Rien n'a été branché dans le moteur ni dans le chercheur. La couche de
