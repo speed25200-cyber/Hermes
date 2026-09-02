@@ -227,7 +227,17 @@ function main() {
 
     console.log(`[AMPLEUR] la prediction, confrontee :`);
     console.log(`  sharpe contre racine(N) : pente ${pente.toFixed(5)}, R² ${r2.toFixed(3)}`);
-    console.log(`  de N=${petit.N} a N=${grand.N} : sharpe x${gain.toFixed(2)} · la loi en attendait x${attendu.toFixed(2)}`);
+    /* Le rapport de deux sharpes NEGATIFS vaut un nombre positif, et
+       la ligne se lirait alors « x2,70 la ou la loi en attendait
+       x2,89 » — une confirmation eclatante de la loi, sur un avantage
+       qui n'existe pas et qui empire. C'est exactement le genre de
+       ligne qu'on cite hors de son tableau. On refuse donc de la
+       calculer quand elle n'a pas de sens. */
+    if (petit.sharpe > 0 && grand.sharpe > 0) {
+      console.log(`  de N=${petit.N} a N=${grand.N} : sharpe x${gain.toFixed(2)} · la loi en attendait x${attendu.toFixed(2)}`);
+    } else {
+      console.log(`  de N=${petit.N} a N=${grand.N} : sharpe ${petit.sharpe.toFixed(4)} → ${grand.sharpe.toFixed(4)}. Un rapport n'a pas de sens sur des sharpes negatifs : il n'y a pas d'avantage a multiplier.`);
+    }
     console.log(`  sharpe/racine(N) : moyenne ${mn.toFixed(5)}, variation relative ${(100 * stabilite).toFixed(0)} %`);
     console.log(`  le nul, lui, reste plat : ${lignes.map((l) => l.normaliseNul.toFixed(4)).join(" ")}`);
 
@@ -248,6 +258,7 @@ function main() {
     console.log(`  a N=${grand.N} (sharpe ${grand.sharpe.toFixed(3)}) : ${requis(grand.sharpe)} periodes, ${Math.round(requis(grand.sharpe) * HEURES / 24)} jours`);
 
     verdict = { pente: +pente.toFixed(5), r2: +r2.toFixed(3), gain: +gain.toFixed(2), attendu: +attendu.toFixed(2),
+                gainValide: petit.sharpe > 0 && grand.sharpe > 0,
                 normaliseMoyen: +mn.toFixed(5), stabilite: +stabilite.toFixed(3),
                 monte, stable, battuNul, tenue,
                 periodesRequises: { petit: requis(petit.sharpe), grand: requis(grand.sharpe) } };

@@ -119,5 +119,18 @@ verifier("une journee vaut 24 points, pas 288",
 verifier("le signal, l'horizon et la fraction ne sont pas reglables",
   !/process\.env\.[A-Z_]*(?:HEURES|SIGNAL|FRACTION)/.test(src));
 
+/* --- 4. Le rapport de deux sharpes negatifs ------------------------------ */
+console.log("4. Une croissance en trompe-l'oeil est-elle refusee ?");
+/* Deux sharpes negatifs dont le second est plus negatif donnent un
+   rapport POSITIF. Sur les vraies donnees, -0,0198 a N=12 et -0,0534 a
+   N=100 donnent x2,70 quand la loi en attendait x2,89 : la ligne se lit
+   comme une confirmation eclatante, sur un avantage qui n'existe pas et
+   qui empire. C'est le genre de ligne qu'on cite hors de son tableau. */
+verifier("le rapport n'est calcule que sur des sharpes positifs",
+  /if \(petit\.sharpe > 0 && grand\.sharpe > 0\)/.test(src));
+verifier("sinon la ligne dit qu'il n'y a pas d'avantage a multiplier",
+  /n'a pas de sens sur des sharpes negatifs/.test(src));
+verifier("le journal note si le rapport etait valide", /gainValide:/.test(src));
+
 console.log(echecs === 0 ? "\nEPREUVE DE LA LARGEUR : verte." : `\nEPREUVE DE LA LARGEUR : ${echecs} echec(s).`);
 process.exit(echecs === 0 ? 0 : 1);

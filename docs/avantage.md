@@ -610,6 +610,55 @@ probablement — le meilleur de vingt et une cellules — et l'hypothèse de
 seconde hypothèse ne sera consignée, et la piste transversale sera
 close.
 
+### Le résultat : la loi ne tient pas, et l'avantage ne survit pas au changement d'univers
+
+Mesuré le 2 septembre 2026 sur 100 perpétuels et 24 mois. Le contrôle
+d'abord, parce que rien d'autre n'est lisible sans lui : **les trente
+majeurs du banc transversal, rejoués dans le pipeline horaire avec
+k = 5, donnent sharpe 0,1331 · t 2,05 · net 7,65**, contre 0,137 · 2,11 ·
+7,72 au banc d'origine. La tuyauterie est bonne. Ce qui suit est donc un
+fait sur les instruments, pas un défaut de mesure.
+
+| N | 12 | 20 | 30 | 45 | 60 | 80 | 100 |
+|---|---|---|---|---|---|---|---|
+| sharpe | −0,020 | −0,019 | −0,027 | −0,036 | −0,017 | −0,077 | −0,053 |
+| t | −0,31 | −0,29 | −0,42 | −0,56 | −0,26 | −1,18 | −0,82 |
+
+Toutes les largeurs sont négatives. La pente contre √N est **négative**
+(−0,0068). À la plus grande largeur, le réel ne se détache pas de son
+nul. La prédiction est réfutée sur les trois critères à la fois.
+
+Et le chiffre qui compte vraiment est ailleurs, dans l'écart entre deux
+cases : **+0,133 sur les trente majeurs choisis, −0,027 sur trente noms
+tirés au sort dans le même univers**. Même signal, même horizon, même
+fenêtre, même k, même code. Seule change l'identité des instruments.
+
+Un vrai prime de financement transversal ne se comporte pas ainsi. Il
+n'a aucune raison de ne vivre que sur une liste particulière de trente
+noms et de disparaître dès qu'on en tire trente autres. C'est la
+signature d'un artefact de sélection — et l'univers de trente, écrit
+lui-même après coup, en faisait partie sans que personne l'ait compté
+comme un essai.
+
+### Ce que cela règle, en application de la règle écrite d'avance
+
+La règle était consignée avant les chiffres, et elle s'applique telle
+quelle.
+
+**La piste transversale est close.** Aucune seconde hypothèse n'est
+consignée.
+
+**L'hypothèse pré-inscrite du 2 septembre est maintenue sans
+modification**, parce qu'une pré-inscription qu'on retire quand elle
+déplaît ne vaut pas mieux qu'une qu'on amende quand elle plaît. Mais
+elle est désormais **condamnée d'avance selon toute vraisemblance**, et
+il faut le lire ici plutôt que de le découvrir en 2028. Le relevé
+continue de tourner ; il enregistrera sa réfutation.
+
+**Il n'existe donc, à ce jour, aucune stratégie mesurée dans ce dépôt
+qui batte le hasard après frais.** Ce n'est pas une conclusion agréable,
+c'est la seule que les mesures soutiennent.
+
 ## Ce qui reste à essayer, par ordre d'intérêt
 
 L'horizon a été essayé et il ne donne rien (ci-dessus). Restent :
