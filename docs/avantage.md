@@ -748,6 +748,35 @@ compris — et le banc vérifie les deux positions de l'interrupteur, ainsi
 que le fait que l'ancien calcul flottant ne subsiste que sur la branche
 désactivée. Déployer une mesure redevient une mesure et rien d'autre.
 
+## « Cinq perles au 100e percentile » ne veut pas dire rentable
+
+Vérifié le 2 septembre 2026 : le roster en place porte cinq perles, et
+**les cinq ont passé la porte du hasard au 100e percentile**. Rien ne
+trade sans avoir été jugé. La règle s'applique bien à ce qui tourne — un
+doute que j'avais soulevé, testé, et qui s'est révélé infondé.
+
+Il faut résister à la lecture naturelle de ce tableau. Cinq sur cinq au
+maximum du percentile ressemble à une excellente nouvelle ; ce n'en est
+pas une, et confondre les deux serait refaire l'erreur que tout ce
+document combat.
+
+La porte juge **un instantané** : elle demande à une candidate de battre
+ce que la même recherche produit sur le même instrument privé de sa
+mémoire, ici et maintenant. C'est une barrière utile — elle a écarté
+huit candidates sur onze au premier passage — mais elle ne dit rien de
+ce que la candidate fera ensuite.
+
+La question « ce procédé gagne-t-il de l'argent ? » se mesure autrement,
+en rejouant le procédé complet — **porte comprise** — en glissade sur un
+an : on re-cherche à chaque pas, on trade ce qui sort, on recommence.
+Cette mesure-là donne **−0,0012 ± 0,0056 de marge par trade brut de
+frais, t = −0,22**.
+
+Autrement dit : une perle au 100e percentile aujourd'hui n'a pas montré
+qu'elle gagnera demain, et la mesure qui pose vraiment la question
+répond zéro. Les deux chiffres ne se contredisent pas — ils répondent à
+deux questions différentes, et c'est le second qui décide.
+
 ## Le plafond : ce que Hermes rapporterait avec des frais NULS
 
 Cette section clôt une avenue que j'avais moi-même laissée ouverte, et
