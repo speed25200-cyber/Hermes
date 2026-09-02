@@ -385,6 +385,35 @@ Ni l'une ni l'autre ne change le gain brut. Si l'effet est réel, le t
 doit monter avec la racine du nombre de périodes ; s'il ne monte pas, il
 n'était pas là.
 
+### Sur vingt-quatre mois : le premier signal à dépasser t = 2
+
+Trente instruments, du 1er septembre 2024 au 31 août 2026, frais comptés
+sur la rotation réelle. Deux cellules franchissent la barre du t :
+
+| Cellule | brut | t brut | net | t net | Sharpe/période | creux |
+|---|---|---|---|---|---|---|
+| financement 72 h | +10,11 | **2,77** | +7,72 | **2,11** | 0,137 | 2,14 |
+| financement 168 h | +9,60 | **2,25** | +8,58 | **2,01** | 0,199 | 1,68 |
+
+C'est la première fois dans ce projet qu'un signal dépasse t = 2 hors
+échantillon **et** survit aux frais. Le sens est celui qu'on attendait :
+être long les instruments que personne ne paie pour tenir, court ceux
+dont les longs sont encombrés.
+
+**Et pourtant l'épreuve de la famille dit non.** Avec vingt et une
+cellules essayées, la meilleure paraît toujours bonne. Le test qui
+décide compare le meilleur t réel au maximum des t obtenus sur des
+répliques mélangées — ce que le hasard produit quand on le laisse
+chercher aussi librement que nous. Sous cette épreuve, rien n'est
+démontré.
+
+Ce n'est pas une déception, c'est la mesure faisant exactement son
+travail. Deux cellules sur vingt et une au-dessus de t = 2, c'est à peu
+près ce qu'on attend du hasard seul (1,05 attendues). La cohérence du
+signe et l'accord avec la littérature restent des raisons de continuer à
+regarder de ce côté — mais elles ne sont pas une preuve, et ce document
+ne les traitera pas comme telle.
+
 ## Ce qui reste à essayer, par ordre d'intérêt
 
 L'horizon a été essayé et il ne donne rien (ci-dessus). Restent :
