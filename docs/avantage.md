@@ -400,19 +400,49 @@ C'est la première fois dans ce projet qu'un signal dépasse t = 2 hors
 être long les instruments que personne ne paie pour tenir, court ceux
 dont les longs sont encombrés.
 
-**Et pourtant l'épreuve de la famille dit non.** Avec vingt et une
-cellules essayées, la meilleure paraît toujours bonne. Le test qui
-décide compare le meilleur t réel au maximum des t obtenus sur des
-répliques mélangées — ce que le hasard produit quand on le laisse
-chercher aussi librement que nous. Sous cette épreuve, rien n'est
-démontré.
+**L'épreuve de la famille, elle, dit « presque ».** Avec vingt et une
+cellules essayées, la meilleure paraît toujours bonne : il faut comparer
+le meilleur t réel au maximum des t obtenus sur des répliques
+mélangées — ce que le hasard produit quand on le laisse chercher aussi
+librement que nous. Sur quarante répliques :
 
-Ce n'est pas une déception, c'est la mesure faisant exactement son
-travail. Deux cellules sur vingt et une au-dessus de t = 2, c'est à peu
-près ce qu'on attend du hasard seul (1,05 attendues). La cohérence du
-signe et l'accord avec la littérature restent des raisons de continuer à
-regarder de ce côté — mais elles ne sont pas une preuve, et ce document
-ne les traitera pas comme telle.
+| | |
+|---|---|
+| meilleur t réel | 2,11 (financement 72 h) |
+| maximum des t sur répliques | médiane 1,46 · maximum 3,43 |
+| **le réel bat** | **88 % des maxima de répliques** |
+
+Quatre-vingt-huit pour cent, quand il en faut quatre-vingt-quinze. Ce
+résultat-là arrive par pur hasard environ une fois sur huit. C'est
+nettement mieux que le bruit et nettement moins qu'une preuve, et il
+n'y a pas de troisième lecture.
+
+### Ce que ce « presque » autorise, et ce qu'il interdit
+
+Il interdit de trader ce signal aujourd'hui. Une fois sur huit est très
+loin du seuil qu'on exige d'un système qui engage de l'argent réel, et
+la tentation de descendre le seuil parce que le chiffre est proche est
+exactement ce que toute cette journée a servi à rendre impossible.
+
+Il autorise, en revanche, quelque chose de précis et de précieux : le
+financement transversal devient une **hypothèse pré-enregistrée**. Le
+prix payé au test de famille vient du fait qu'on a essayé vingt et une
+choses. Testée seule, sur des données à venir qui n'ont servi à rien,
+elle ne paie plus cette pénalité — et un t de 2,11 vaudrait alors ce
+qu'il dit.
+
+**L'hypothèse est donc consignée ici, avant les données qui la
+jugeront :**
+
+> Sur un univers de trente perpétuels majeurs, classer chaque instrument
+> par son taux de financement, être long les cinq plus bas et court les
+> cinq plus hauts, rebalancer toutes les 72 heures. Aucun autre signal,
+> aucun autre horizon, aucun autre nombre de positions. Le verdict se
+> lira sur les mois qui suivent le 2 septembre 2026, qu'ils soient bons
+> ou mauvais.
+
+Toute autre cellule essayée par la suite rouvre la pénalité de famille
+et devra la payer.
 
 ## Ce qui reste à essayer, par ordre d'intérêt
 
