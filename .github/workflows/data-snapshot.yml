@@ -1,0 +1,129 @@
+# Pull a full OKX market-data snapshot on a GitHub runner (public endpoints,
+# no keys) and publish it as gzipped CSV on the orphan branch
+# `okx-data-snapshot`, so research can be reproduced anywhere — including
+# sandboxes that cannot reach the exchange directly.
+
+name: OKX data snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "history depth in days"
+        required: false
+        default: "730"
+      bars:
+        description: "comma-separated bars"
+        required: false
+        default: "1H,15m"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: okx-data-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Backfill candles + funding + microstructure
+        env:
+          DAYS: ${{ inputs.days }}
+          BARS: ${{ inputs.bars }}
+        run: |
+          python - <<'PY'
+          import os, time
+          from hermes.config import Config
+          from hermes.data.store import DataStore
+          from hermes.data.fetcher import (fetch_candles, fetch_funding,
+                                           fetch_microstructure)
+          from hermes.exchange.okx_client import OKXClient
+          cfg = Config.load()
+          days = int(os.environ.get("DAYS") or 730)
+          bars = [b.strip() for b in (os.environ.get("BARS") or "1H").split(",") if b.strip()]
+          store = DataStore("data")
+          client = OKXClient(cfg.credentials)
+          t0 = time.time()
+          for inst in cfg["instruments"]:
+              for bar in bars:
+                  try:
+                      fetch_candles(client, store, inst, bar, days, log=print)
+                  except Exception as exc:
+                      print(f"{inst} {bar}: FAILED {type(exc).__name__}: {exc}")
+              try:
+                  fetch_funding(client, store, inst, days, log=print)
+              except Exception as exc:
+                  print(f"{inst} funding: FAILED {type(exc).__name__}: {exc}")
+              try:
+                  fetch_microstructure(client, store, inst, "15m",
+                                       days=min(days, 180), log=print)
+              except Exception as exc:
+                  print(f"{inst} micro: FAILED {type(exc).__name__}: {exc}")
+              print(f"--- {inst} done ({time.time() - t0:.0f}s)")
+          PY
+
+      - name: Export tables to gzipped CSV
+        run: |
+          python - <<'PY'
+          import csv, gzip, os, sqlite3, time
+          con = sqlite3.connect("data/market.db")
+          os.makedirs("snapshot", exist_ok=True)
+          tables = {
+              "candles": "SELECT inst, bar, ts, o, h, l, c, v FROM candles ORDER BY inst, bar, ts",
+              "funding": "SELECT inst, ts, rate FROM funding ORDER BY inst, ts",
+              "oi": "SELECT inst, ts, oi FROM oi ORDER BY inst, ts",
+              "flow": "SELECT inst, ts, buy, sell FROM flow ORDER BY inst, ts",
+              "mark_px": "SELECT inst, bar, ts, px FROM mark_px ORDER BY inst, bar, ts",
+              "index_px": "SELECT inst, bar, ts, px FROM index_px ORDER BY inst, bar, ts",
+          }
+          for name, sql in tables.items():
+              cur = con.execute(sql)
+              cols = [d[0] for d in cur.description]
+              n = 0
+              with gzip.open(f"snapshot/{name}.csv.gz", "wt", newline="") as f:
+                  w = csv.writer(f)
+                  w.writerow(cols)
+                  for row in cur:
+                      w.writerow(row)
+                      n += 1
+              print(f"{name}: {n} rows")
+          with open("snapshot/README.md", "w") as f:
+              f.write("OKX market snapshot exported "
+                      + time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+                      + "\n\nImport with `python -m hermes import-snapshot <dir>`.\n")
+          PY
+          ls -la snapshot
+
+      - name: Publish to orphan branch okx-data-snapshot
+        run: |
+          set -e
+          git config user.name "hermes-bot"
+          git config user.email "hermes-bot@users.noreply.github.com"
+          rm -rf /tmp/snap && mkdir -p /tmp/snap
+          cp -r snapshot/. /tmp/snap/
+          git checkout --orphan okx-data-snapshot
+          git rm -rf --quiet . || true
+          git clean -fdxq || true
+          cp -r /tmp/snap/. .
+          git add -A
+          git commit -m "OKX data snapshot $(date -u +%FT%TZ)"
+          git push -f origin okx-data-snapshot
+
+      - name: Upload artifact (backup)
+        uses: actions/upload-artifact@v4
+        with:
+          name: okx-snapshot
+          path: snapshot
+          retention-days: 7
