@@ -8,6 +8,16 @@ export DEBIAN_FRONTEND=noninteractive
 HERMES_DIR=/root/hermes
 VENV=/root/venv
 
+# --- retire units from earlier engines --------------------------------------
+# The Node "perles" desk and any other hermes-* unit that is not part of this
+# engine must not keep running beside it (two engines, one exchange account).
+for u in hermes-perles.timer hermes-perles.service hermes-scalp.service; do
+    systemctl disable --now "$u" >/dev/null 2>&1 || true
+    rm -f "/etc/systemd/system/$u"
+done
+systemctl stop hermes >/dev/null 2>&1 || true
+rm -rf "$HERMES_DIR/app" "$HERMES_DIR/node_modules" "$HERMES_DIR/runtime" 2>/dev/null || true
+
 # --- base system -----------------------------------------------------------
 apt-get update
 apt-get -y install python3-pip python3-venv ufw
@@ -60,10 +70,11 @@ OnFailure=hermes.service
 Type=oneshot
 WorkingDirectory=$HERMES_DIR
 EnvironmentFile=-$HERMES_DIR/.env
+Nice=10
 ExecStart=$VENV/bin/python -m hermes fetch
 ExecStart=$VENV/bin/python -m hermes research
 ExecStartPost=/bin/systemctl restart hermes
-TimeoutStartSec=4h
+TimeoutStartSec=6h
 EOF
 
 # OS-level backstop: even if the engine process (which normally schedules

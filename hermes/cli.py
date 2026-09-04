@@ -399,7 +399,12 @@ def cmd_dashboard(args) -> None:
           open_browser=not args.no_browser, token=args.token or "",
           instruments=instruments, ticker_fn=ticker_fn,
           meta={"refresh_hours": cfg["research"]["refresh_hours"],
-                "paper_equity": float(cfg["live"].get("paper_equity", 10000))})
+                "paper_equity": float(cfg["live"].get("paper_equity", 10000)),
+                "bar": cfg["bar"],
+                "risk": {k: cfg["risk"][k] for k in (
+                    "max_gross_leverage", "max_instrument_leverage",
+                    "daily_loss_limit_pct", "max_drawdown_pct",
+                    "portfolio_vol_target")}})
 
 
 def cmd_cycle(args) -> None:

@@ -799,7 +799,7 @@ function colorFor(inst){
   return instColors[inst];
 }
 function shortInst(inst){
-  return inst==="XS-PORTFOLIO"? "XS" : inst.replace(/-USDT-SWAP$/,"");
+  return inst==="XS-PORTFOLIO"? "XS" : inst==="PANEL"? "PANEL" : inst.replace(/-USDT-SWAP$/,"");
 }
 
 /* ================= panel entrance + cursor spotlight ================= */
@@ -1114,9 +1114,14 @@ function renderResearch(registry, meta){
   $("r_next").textContent = at? (next>0? "in "+rel(next) : "due now") : "—";
   const boost = empty>0 ? " Search budget escalated ×"+(1+0.5*Math.min(empty,2)).toFixed(1)
     +" after "+empty+" empty pass"+(empty>1?"es":"")+" — daily hunts until an edge survives." : "";
-  $("r_verdict").textContent = n===0 && at
+  const rep = registry.last_report || {};
+  const pbo = rep.pbo || null;
+  const pboTxt = pbo ? "CSCV over "+pbo.n_trials+" rules × "+pbo.n_combos+" splits: PBO "
+    +(pbo.pbo*100).toFixed(0)+"% · IS-winner OOS Sharpe median "+(+pbo.oos_sharpe_median).toFixed(2)
+    +" · P(loss) "+(pbo.p_oos_loss*100).toFixed(0)+"%. " : "";
+  $("r_verdict").textContent = (n===0 && at
     ? "No edge passed out-of-sample validation — the engine stays flat rather than trade noise."+boost
-    : "";
+    : "") + (at ? pboTxt : "");
 }
 function renderFreshness(journal){
   const pill = $("freshpill");
@@ -1143,6 +1148,9 @@ function renderLog(lines){
 function renderScalp(s, dataNow){
   const box = $("scalpbox");
   if(!box) return;
+  const deskOn = !!(s && (s.preds || s.horizons || s.desk));
+  box.style.display = deskOn ? "" : "none";
+  if(!deskOn) return;
   const preds = ((s && s.preds) || []).slice();
   const empty = $("scanempty"), head = $("scanhead"), liveEl = $("scanlive"), board = $("scanboard");
   const n = preds.length;
@@ -1810,17 +1818,18 @@ async function refresh(){
     const usedLev = (typeof lev.used === "number")
       ? lev.used
       : Object.values(tgt).reduce((a,b)=>a+Math.abs(b),0);
-    const capLev = Number(lev.gross_cap || 0.55);
-    const nameLev = Number(lev.name_cap || 0.22);
+    const rk = (data.meta && data.meta.risk) || {};
+    const capLev = Number(lev.gross_cap || rk.max_gross_leverage || 3);
+    const nameLev = Number(lev.name_cap || rk.max_instrument_leverage || 1);
     tweenNum($("k_gross"), usedLev, v=>v.toFixed(2)+"×");
     const mgn = Number(lev.margin);
     $("k_gross_d").textContent = (isFinite(mgn)? ("margin "+(mgn*100).toFixed(0)+"% of equity · ") : "")
-      + "OKX ≤"+capLev.toFixed(0)+"× · max "+nameLev.toFixed(0)+"×";
+      + "gross ≤"+capLev.toFixed(1)+"× · per name ≤"+nameLev.toFixed(1)+"×";
     drawChart();
     $("chartrange").textContent = series.length+" ticks";
     const lim = (data.scalp && data.scalp.risk_limits) || {};
-    const cap = (Number(lim.dd_pct) || 25) / 100;
-    const dayLim = (Number(lim.daily_pct) || 8) / 100;
+    const cap = (Number(lim.dd_pct) || Number(rk.max_drawdown_pct) || 20) / 100;
+    const dayLim = (Number(lim.daily_pct) || Number(rk.daily_loss_limit_pct) || 4) / 100;
     let dayStart = risk.day_start_equity;
     if(!dayStart && fullSeries.length){
       const lastDay = new Date(fullSeries[fullSeries.length-1].ts*1000).toISOString().slice(0,10);

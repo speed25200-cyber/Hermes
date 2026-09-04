@@ -33,6 +33,18 @@ jobs:
   snapshot:
     runs-on: ubuntu-latest
     timeout-minutes: 170
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: 2y-1H-15m
+            days: "730"
+            bars: "1H,15m"
+            branch: okx-data-snapshot
+          - name: 5y-1H
+            days: "1825"
+            bars: "1H"
+            branch: okx-data-snapshot-1h-5y
     steps:
       - uses: actions/checkout@v4
 
@@ -45,8 +57,8 @@ jobs:
 
       - name: Backfill candles + funding + microstructure
         env:
-          DAYS: ${{ inputs.days || '730' }}
-          BARS: ${{ inputs.bars || '1H,15m' }}
+          DAYS: ${{ inputs.days || matrix.days }}
+          BARS: ${{ inputs.bars || matrix.bars }}
         run: |
           python - <<'PY'
           import os, time
@@ -111,24 +123,26 @@ jobs:
           PY
           ls -la snapshot
 
-      - name: Publish to orphan branch okx-data-snapshot
+      - name: Publish to orphan branch
+        env:
+          SNAP_BRANCH: ${{ matrix.branch }}
         run: |
           set -e
           git config user.name "hermes-bot"
           git config user.email "hermes-bot@users.noreply.github.com"
           rm -rf /tmp/snap && mkdir -p /tmp/snap
           cp -r snapshot/. /tmp/snap/
-          git checkout --orphan okx-data-snapshot
+          git checkout --orphan "$SNAP_BRANCH"
           git rm -rf --quiet . || true
           git clean -fdxq || true
           cp -r /tmp/snap/. .
           git add -A
           git commit -m "OKX data snapshot $(date -u +%FT%TZ)"
-          git push -f origin okx-data-snapshot
+          git push -f origin "$SNAP_BRANCH"
 
       - name: Upload artifact (backup)
         uses: actions/upload-artifact@v4
         with:
-          name: okx-snapshot
+          name: okx-snapshot-${{ matrix.name }}
           path: snapshot
           retention-days: 7

@@ -149,8 +149,15 @@ class StateReader:
             "scalp": scalp,
         }
 
-    # timeframe -> number of base 15m bars per bucket
-    TFS = {"15m": 1, "1h": 4, "4h": 16, "1d": 96}
+    # timeframe -> bucket size in ms; only buckets >= the store's base bar
+    # are servable (aggregated from the base bar, calendar-aligned)
+    TF_MS = {"15m": 900_000, "1h": 3_600_000, "4h": 14_400_000, "1d": 86_400_000}
+
+    @property
+    def TFS(self) -> dict:
+        from ..data.store import BAR_MS
+        base = BAR_MS.get(getattr(self, "_bar", "15m"), 900_000)
+        return {tf: ms // base for tf, ms in self.TF_MS.items() if ms >= base}
 
     def _base_rows(self, inst: str) -> list:
         """15m OHLCV rows from the local store, cached ~45s."""
@@ -177,14 +184,16 @@ class StateReader:
         """OHLCV window for the trade inspector: any supported timeframe
         (aggregated from the 15m store, calendar-aligned buckets) with
         backwards pagination via `before` (exclusive, ms)."""
-        if (self.instruments and inst not in self.instruments) \
-                or tf not in self.TFS:
+        if self.instruments and inst not in self.instruments:
             return {"inst": inst, "tf": tf, "candles": [], "has_more": False}
         try:
             rows = self._base_rows(inst)
-            step = self.TFS[tf]
+            tfs = self.TFS
+            if tf not in tfs:
+                tf = min(tfs, key=lambda k: self.TF_MS[k]) if tfs else tf
+            step = tfs.get(tf, 1)
             if step > 1:
-                bucket_ms = step * 15 * 60 * 1000
+                bucket_ms = self.TF_MS[tf]
                 agg, cur, key = [], None, None
                 for r in rows:
                     k = r[0] // bucket_ms
