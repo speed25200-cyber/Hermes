@@ -20,8 +20,11 @@ calcul en cours).
 ## La boucle autonome (moteur v2)
 
 ```
-chasse : une RÈGLE appliquée à tout l'univers (14 perpétuels, bougies 1 h,
-         5 ans), évaluée comme un livre — jamais une courbe ajustée à une pièce
+chasse : une RÈGLE appliquée à tout l'univers (majeurs + top-40 perpétuels
+         par volume, bougies 1 h, jusqu'à 5 ans), évaluée comme un livre —
+         jamais une courbe ajustée à une pièce. Un nom n'est investissable à
+         l'instant t que s'il était dans le top-30 par volume glissant 30 j
+         à cet instant (biais du survivant contrôlé, en recherche comme en réel)
   → audit de sur-apprentissage (CSCV / PBO sur toutes les règles évaluées :
      si le vainqueur in-sample ne tient pas hors échantillon dans les 252
      découpages, la passe entière est disqualifiée)

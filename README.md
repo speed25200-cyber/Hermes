@@ -22,13 +22,19 @@ that would kill noise. Everything below is implemented from scratch in
 numpy and runs identically in research, paper and live trading.
 
 1. **Panel research** (`hermes/research/panel.py`) — every candidate rule
-   is applied to the *whole universe* (14 liquid USDT perpetuals, hourly
-   bars, five years) and scored as one equal-split, vol-targeted book. This
-   is how systematic managers test signals: the sample is universe × time,
-   cross-instrument diversification lifts the achievable Sharpe, and a rule
-   that only "works" on one lucky coin is exposed for what it is. Newer
-   listings contribute the history they have; missing bars are absent, not
-   zero.
+   is applied to the *whole universe* (the configured majors plus the
+   top-40 liquid USDT perpetuals by volume, hourly bars, up to five years)
+   and scored as one equal-split, vol-targeted book. This is how systematic
+   managers test signals: the sample is universe × time, cross-instrument
+   diversification lifts the achievable Sharpe, and a rule that only
+   "works" on one lucky coin is exposed for what it is. Newer listings
+   contribute the history they have; missing bars are absent, not zero.
+
+   **Survivorship is controlled, not assumed away** (`hermes/universe.py`):
+   a universe chosen by today's volume and back-tested over history would
+   flatter every momentum rule with the names that rallied into it. So a
+   name is investable at bar *t* only if it ranked in the top-30 by
+   *trailing* 30-day quote volume at *t* — in research and live alike.
 
 2. **Rule space** (`hermes/strategy/`) — time-series momentum with a
    deadband, z-score mean reversion, funding carry, basis / taker-flow /
