@@ -56,6 +56,12 @@ jobs:
             micro: "0"
             universe: "60"
             branch: okx-data-snapshot-top60-1h-3y
+          - name: top60-3y-1H-qv      # same, with quote volume (causal membership)
+            days: "1095"
+            bars: "1H"
+            micro: "0"
+            universe: "60"
+            branch: okx-data-snapshot-top60-1h-3y-qv
     steps:
       - uses: actions/checkout@v4
 
@@ -140,7 +146,7 @@ jobs:
           con = sqlite3.connect("data/market.db")
           os.makedirs("snapshot", exist_ok=True)
           tables = {
-              "candles": "SELECT inst, bar, ts, o, h, l, c, v FROM candles ORDER BY inst, bar, ts",
+              "candles": "SELECT inst, bar, ts, o, h, l, c, v, qv FROM candles ORDER BY inst, bar, ts",
               "funding": "SELECT inst, ts, rate FROM funding ORDER BY inst, ts",
               "oi": "SELECT inst, ts, oi FROM oi ORDER BY inst, ts",
               "flow": "SELECT inst, ts, buy, sell FROM flow ORDER BY inst, ts",

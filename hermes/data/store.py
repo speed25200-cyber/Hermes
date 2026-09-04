@@ -32,10 +32,11 @@ class Candles:
     """Column-oriented candle series (numpy arrays, oldest first)."""
 
     __slots__ = ("inst", "bar", "ts", "o", "h", "l", "c", "v", "funding",
-                 "oi", "taker_buy", "taker_sell", "mark", "index")
+                 "oi", "taker_buy", "taker_sell", "mark", "index", "qv")
 
     def __init__(self, inst, bar, ts, o, h, l, c, v, funding=None,
-                 oi=None, taker_buy=None, taker_sell=None, mark=None, index=None):
+                 oi=None, taker_buy=None, taker_sell=None, mark=None, index=None,
+                 qv=None):
         self.inst = inst
         self.bar = bar
         self.ts = np.asarray(ts, dtype=np.int64)
@@ -61,6 +62,9 @@ class Candles:
         self.taker_sell = _col(taker_sell)
         self.mark = _col(mark, fallback=self.c)
         self.index = _col(index, fallback=self.c)
+        # quote (USDT) volume per bar: comparable across instruments, which
+        # contract counts are not. Zero when the source did not provide it.
+        self.qv = _col(qv)
 
     def __len__(self) -> int:
         return len(self.ts)
@@ -73,7 +77,7 @@ class Candles:
             self.funding[start:stop],
             oi=self.oi[start:stop], taker_buy=self.taker_buy[start:stop],
             taker_sell=self.taker_sell[start:stop], mark=self.mark[start:stop],
-            index=self.index[start:stop],
+            index=self.index[start:stop], qv=self.qv[start:stop],
         )
 
     @property
@@ -135,14 +139,24 @@ class DataStore:
             );
             """
         )
+        cols = {row[1] for row in self.conn.execute("PRAGMA table_info(candles)")}
+        if "qv" not in cols:
+            self.conn.execute("ALTER TABLE candles ADD COLUMN qv REAL")
         self.conn.commit()
 
     def upsert_candles(self, inst: str, bar: str, rows: list[tuple]) -> int:
-        """rows: iterable of (ts, o, h, l, c, v)."""
+        """rows: iterable of (ts, o, h, l, c, v[, qv]) — qv = quote volume."""
+        def qv_of(r):
+            if len(r) > 6 and r[6] not in (None, ""):
+                try:
+                    return float(r[6])
+                except (TypeError, ValueError):
+                    return None
+            return None
         self.conn.executemany(
-            "INSERT OR REPLACE INTO candles (inst, bar, ts, o, h, l, c, v) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            [(inst, bar, int(r[0]), *map(float, r[1:6])) for r in rows],
+            "INSERT OR REPLACE INTO candles (inst, bar, ts, o, h, l, c, v, qv) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [(inst, bar, int(r[0]), *map(float, r[1:6]), qv_of(r)) for r in rows],
         )
         self.conn.commit()
         return len(rows)
@@ -198,14 +212,16 @@ class DataStore:
 
     def load(self, inst: str, bar: str, with_funding: bool = True) -> Candles:
         cur = self.conn.execute(
-            "SELECT ts, o, h, l, c, v FROM candles WHERE inst=? AND bar=? ORDER BY ts",
+            "SELECT ts, o, h, l, c, v, COALESCE(qv, 0.0) FROM candles "
+            "WHERE inst=? AND bar=? ORDER BY ts",
             (inst, bar),
         )
         rows = cur.fetchall()
         if not rows:
             return Candles(inst, bar, [], [], [], [], [], [])
         arr = np.array(rows, dtype=np.float64)
-        candles = Candles(inst, bar, arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3], arr[:, 4], arr[:, 5])
+        candles = Candles(inst, bar, arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3],
+                          arr[:, 4], arr[:, 5], qv=arr[:, 6])
         if with_funding:
             fr = self.conn.execute(
                 "SELECT ts, rate FROM funding WHERE inst=? ORDER BY ts", (inst,)

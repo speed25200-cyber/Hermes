@@ -9,6 +9,11 @@ from ..exchange.okx_client import OKXClient
 from .store import BAR_MS, DataStore
 
 
+def _row(r: list) -> tuple:
+    qv = r[7] if len(r) > 7 else None
+    return (int(r[0]), r[1], r[2], r[3], r[4], r[5], qv)
+
+
 def fetch_candles(
     client: OKXClient,
     store: DataStore,
@@ -31,9 +36,9 @@ def fetch_candles(
     total = 0
 
     def save(rows: list[list]) -> int:
-        # OKX rows: [ts, o, h, l, c, vol, ...] newest first; keep confirmed only
-        keep = [(int(r[0]), r[1], r[2], r[3], r[4], r[5])
-                for r in rows if len(r) < 9 or r[8] == "1"]
+        # OKX rows: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
+        # newest first; keep confirmed only; volCcyQuote = USDT volume
+        keep = [_row(r) for r in rows if len(r) < 9 or r[8] == "1"]
         return store.upsert_candles(inst, bar, keep) if keep else 0
 
     # 1) newest chunk (regular endpoint covers the most recent bars)
@@ -223,8 +228,7 @@ def update_latest(client: OKXClient, store: DataStore, inst: str, bar: str,
                   limit: int = 300, micro: bool = False) -> int:
     """Light refresh for the live loop: latest confirmed candles + funding."""
     rows = client.candles(inst, bar, limit=limit)
-    keep = [(int(r[0]), r[1], r[2], r[3], r[4], r[5])
-            for r in rows if len(r) < 9 or r[8] == "1"]
+    keep = [_row(r) for r in rows if len(r) < 9 or r[8] == "1"]
     n = store.upsert_candles(inst, bar, keep) if keep else 0
     try:
         fr = client.funding_rate_history(inst, limit=20)

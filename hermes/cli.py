@@ -255,11 +255,14 @@ def cmd_fetch(args) -> None:
     from .data.fetcher import fetch_candles, fetch_funding, fetch_microstructure
     from .exchange.okx_client import OKXClient
 
+    from .universe import resolve_universe
+
     cfg = Config.load(args.config)
     store = DataStore(cfg["data_dir"])
     client = OKXClient(cfg.credentials)
+    instruments = resolve_universe(cfg, cfg["state_dir"], client, log=print)
     failed = []
-    for inst in cfg["instruments"]:
+    for inst in instruments:
         # one bad/unlisted instrument must never sink the whole backfill —
         # research simply skips instruments without enough bars
         try:
@@ -285,8 +288,13 @@ def cmd_research(args) -> None:
         v = getattr(args, k, None)
         if v is not None:
             cfg.raw["research"][k] = v
+    from .universe import resolve_universe
+
     store = DataStore(cfg["data_dir"])
-    candles = {inst: store.load(inst, cfg["bar"]) for inst in cfg["instruments"]}
+    instruments = resolve_universe(cfg, cfg["state_dir"], client=None, log=print)
+    candles = {inst: store.load(inst, cfg["bar"]) for inst in instruments}
+    candles = {i: c for i, c in candles.items() if len(c)}
+    print(f"research: {len(candles)} instruments with data")
     ensure_state_version(cfg["state_dir"], log=print)
     registry = Registry(cfg["state_dir"])
     report: dict = {"started_at": time.time()}
@@ -335,8 +343,10 @@ def cmd_import_snapshot(args) -> None:
 
     n = 0
     batch: dict[tuple, list] = {}
-    for inst, bar, ts, o, h, l, c, v in rows("candles"):
-        batch.setdefault((inst, bar), []).append((int(ts), o, h, l, c, v))
+    for row in rows("candles"):
+        inst, bar, ts, o, h, l, c, v = row[:8]
+        qv = row[8] if len(row) > 8 else None
+        batch.setdefault((inst, bar), []).append((int(ts), o, h, l, c, v, qv))
     for (inst, bar), rs in batch.items():
         n += store.upsert_candles(inst, bar, rs)
         print(f"{inst} {bar}: {len(rs)} candles")

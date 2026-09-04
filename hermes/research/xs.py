@@ -99,6 +99,8 @@ def _validate_family(
     log,
     leader: str | None = None,
     n_trials: int = XS_TOTAL_TRIALS,
+    top_n: int | None = None,
+    membership_bars: int = 720,
 ) -> ValidatedStrategy | None:
     insts = sorted(candles_map)
     bar = candles_map[insts[0]].bar
@@ -115,7 +117,8 @@ def _validate_family(
     is_map = slice_map(0.0, is_fraction)
     best = None
     for params in grid:
-        common, _, pos = xs_positions(is_map, params, kind=kind, leader=leader)
+        common, _, pos = xs_positions(is_map, params, kind=kind, leader=leader,
+                                      top_n=top_n, membership_bars=membership_bars)
         if not pos:
             continue
         rets = portfolio_backtest(is_map, pos, common, fee_bps, slip_bps)
@@ -133,7 +136,8 @@ def _validate_family(
     # ---- out-of-sample validation (embargoed, warm-started) -----------
     _, params = best
     common_full, _, pos_full = xs_positions(candles_map, params, kind=kind,
-                                            leader=leader)
+                                            leader=leader, top_n=top_n,
+                                            membership_bars=membership_bars)
     if not pos_full:
         return None
     n = len(common_full)
@@ -170,6 +174,7 @@ def _validate_family(
 
     genome = Genome(signal=name, params=dict(params),
                     vol_target=0.15, max_lev=1.0)
+    st["top_n"] = top_n
     return ValidatedStrategy(genome=genome, inst=XS_INST, bar=bar,
                              is_stats={"sharpe": best[0]}, oos_stats=st,
                              oos_rets=oos)
@@ -188,6 +193,8 @@ def research_xs(
     log=None,
     leader: str | None = None,
     families=DEFAULT_XS_FAMILIES,
+    top_n: int | None = None,
+    membership_bars: int = 720,
 ) -> list[ValidatedStrategy]:
     """Run the selected XS families through the gate; return the survivors.
     The Deflated Sharpe is charged for every config of every family run."""
@@ -213,7 +220,8 @@ def research_xs(
         s = _validate_family(name, kind, grid, data, fee_bps, slip_bps,
                              is_fraction, embargo_bars, min_oos_sharpe,
                              min_dsr, max_oos_drawdown, n_folds, log,
-                             leader=leader, n_trials=n_trials)
+                             leader=leader, n_trials=n_trials, top_n=top_n,
+                             membership_bars=membership_bars)
         if s is not None:
             out.append(s)
     return out

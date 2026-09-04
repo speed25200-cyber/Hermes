@@ -33,6 +33,8 @@ from ..research.validate import (ValidatedStrategy, select_book, split_is_oos,
                                  validate_candidates, validate_panel)
 from ..risk import LeverageGovernor, RiskEngine
 from ..strategy.signals import compute_position
+from ..strategy.xs import hours_to_bars
+from ..universe import resolve_universe
 from ..exchange.broker import Broker, PaperBroker
 
 
@@ -139,19 +141,23 @@ class Registry:
         return f"{s.inst}:{s.genome.gid}"
 
 
+def _membership_cfg(cfg: Config) -> tuple[int | None, int]:
+    u = cfg.get("universe") or {}
+    top_n = u.get("top_n") if u.get("auto", False) else None
+    bars = hours_to_bars(float(u.get("membership_hours", 720)), cfg["bar"])
+    return (int(top_n) if top_n else None), bars
+
+
 def panel_live_book(candles_by_inst: dict[str, Candles], genome,
-                    leader_inst: str | None) -> dict[str, float]:
-    """Latest exposure of a panel rule on every instrument, equal-split —
-    the same construction the research scored (see Panel.book)."""
-    raw: dict[str, float] = {}
-    for inst, c in candles_by_inst.items():
-        ctx = make_ctx(candles_by_inst, inst, leader_inst)
-        pos = compute_position(c, genome, ctx)
-        raw[inst] = float(pos[-1])
-    if not raw:
+                    leader_inst: str | None, top_n: int | None = None,
+                    membership_bars: int = 720) -> dict[str, float]:
+    """Latest exposure of a panel rule on every investable instrument,
+    equal-split — the same construction the research scored."""
+    if not candles_by_inst:
         return {}
-    n = len(raw)
-    return {inst: v / n for inst, v in raw.items()}
+    panel = Panel(candles_by_inst, leader=leader_inst, min_bars=1,
+                  top_n=top_n, membership_bars=membership_bars)
+    return panel.live_book(genome, min_bars=600)
 
 
 def make_ctx(candles_by_inst: dict[str, Candles], inst: str,
@@ -237,8 +243,18 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
     bpy = BARS_PER_YEAR[bar]
     mode = r.get("mode", "panel")
 
+    top_n, memb_bars = _membership_cfg(cfg)
     if mode == "panel":
-        panel = Panel(eligible, leader=leader_inst)
+        panel = Panel(eligible, leader=leader_inst, top_n=top_n,
+                      membership_bars=memb_bars)
+        if top_n is not None:
+            have_qv = all(np.any(c.qv > 0) for c in eligible.values())
+            log(f"research: membership = top {top_n} by trailing "
+                f"{memb_bars}-bar quote volume"
+                + ("" if have_qv else " — quote volume missing for some names, "
+                   "membership falls back to presence (weaker survivorship control)"))
+            log(f"research: {int(panel.n_present[-1])} names investable now: "
+                + ",".join(i.split("-")[0] for i in panel.members_now()))
         cut = panel.cut_index(r["is_fraction"])
         panel_is = panel.slice_to(cut)
         log(f"research: panel of {panel.k} instruments, {panel.n} bars of {bar} "
@@ -322,7 +338,8 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
                 is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
                 min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
                 max_oos_drawdown=float(r.get("max_oos_drawdown", 0.35)),
-                log=log, leader=leader_inst, families=fams)
+                log=log, leader=leader_inst, families=fams,
+                top_n=top_n, membership_bars=memb_bars)
             all_survivors.extend(xs_survivors)
             total_trials += xs_total_trials(fams, bar)
             log(f"research XS: {len(xs_survivors)} portfolio strategies deployed")
@@ -449,7 +466,9 @@ class Trader:
             if s.inst == PANEL_INST:
                 eligible = {i: c for i, c in candles_by_inst.items()
                             if len(c) >= 600}
-                book = panel_live_book(eligible, s.genome, leader_inst)
+                top_n, memb_bars = _membership_cfg(self.cfg)
+                book = panel_live_book(eligible, s.genome, leader_inst,
+                                       top_n=top_n, membership_bars=memb_bars)
                 if book:
                     per_strategy[sid] = book
                     self.last_positions[sid] = book
@@ -457,9 +476,11 @@ class Trader:
             if s.genome.signal in XS_KINDS:
                 eligible = {i: c for i, c in candles_by_inst.items()
                             if len(c) >= 600}
+                top_n, memb_bars = _membership_cfg(self.cfg)
                 _, _, pos_map = xs_positions(eligible, s.genome.params,
                                              kind=XS_KINDS[s.genome.signal],
-                                             leader=leader_inst)
+                                             leader=leader_inst, top_n=top_n,
+                                             membership_bars=memb_bars)
                 if pos_map:
                     book = {inst: float(arr[-1]) for inst, arr in pos_map.items()
                             if len(arr)}
@@ -691,6 +712,8 @@ class LiveRunner:
         from ..exchange.okx_client import OKXClient
         creds = cfg.credentials
         self.client = OKXClient(creds)
+        self.instruments: list[str] = resolve_universe(cfg, state_dir, self.client,
+                                                       log=self.log)
         mode = cfg["live"]["mode"]
         if mode == "live":
             if not creds.present:
@@ -773,7 +796,7 @@ class LiveRunner:
             self.log(f"account: position mode ({type(exc).__name__}: {exc})")
         lever = max(1, int(math.ceil(float(self.cfg["risk"]["max_gross_leverage"]))))
         td = self.cfg["live"]["td_mode"]
-        for inst in self.cfg["instruments"]:
+        for inst in self.instruments:
             try:
                 self.client.set_leverage(inst, lever, td)
             except Exception as exc:
@@ -783,11 +806,13 @@ class LiveRunner:
 
     def _load_candles(self) -> dict[str, Candles]:
         return {inst: self.store.load(inst, self.cfg["bar"])
-                for inst in self.cfg["instruments"]}
+                for inst in self.instruments}
 
     def ensure_data(self) -> None:
         from ..data.fetcher import fetch_candles, fetch_funding, fetch_microstructure
-        for inst in self.cfg["instruments"]:
+        self.instruments = resolve_universe(self.cfg, self.cfg["state_dir"],
+                                            self.client, log=self.log)
+        for inst in self.instruments:
             try:
                 self.log(f"syncing {inst} ({self.cfg['history_days']}d "
                          f"{self.cfg['bar']})...")
@@ -879,7 +904,7 @@ class LiveRunner:
                      "(or the research workflow) first; nothing to trade")
             return None
         from ..data.fetcher import update_latest
-        for inst in self.cfg["instruments"]:
+        for inst in self.instruments:
             try:
                 update_latest(self.client, self.store, inst, self.cfg["bar"])
             except Exception as exc:
@@ -901,7 +926,7 @@ class LiveRunner:
 
     def run_forever(self) -> None:
         self.log(f"Hermes v{ENGINE_VERSION} starting: mode={self.cfg['live']['mode']} "
-                 f"bar={self.cfg['bar']} instruments={len(self.cfg['instruments'])} "
+                 f"bar={self.cfg['bar']} instruments={len(self.instruments)} "
                  f"deployed={len(self.registry.strategies)}"
                  + (" +scalp-desk" if self.scalp else ""))
         if self.risk.state.killed:
@@ -963,7 +988,7 @@ class LiveRunner:
                     self._scalp_step()
                 else:
                     try:
-                        ticks = self.client.tickers(self.cfg["instruments"])
+                        ticks = self.client.tickers(self.instruments)
                         if ticks:
                             self.trader.heartbeat(ticks, time.time())
                             self.trader.save_state(self.cfg["state_dir"])
@@ -982,7 +1007,7 @@ class LiveRunner:
 
     def _refresh_latest(self) -> None:
         from ..data.fetcher import update_latest
-        for inst in self.cfg["instruments"]:
+        for inst in self.instruments:
             try:
                 update_latest(self.client, self.store, inst, self.cfg["bar"])
             except Exception as exc:

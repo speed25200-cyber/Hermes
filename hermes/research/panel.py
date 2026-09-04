@@ -21,13 +21,15 @@ import numpy as np
 from ..data.store import BARS_PER_YEAR, Candles
 from ..strategy.genome import Genome
 from ..strategy.signals import compute_position
+from ..universe import membership_mask
 
 PANEL_INST = "PANEL"
 
 
 class Panel:
     def __init__(self, candles_map: dict[str, Candles], leader: str | None = None,
-                 min_bars: int = 600):
+                 min_bars: int = 600, top_n: int | None = None,
+                 membership_bars: int = 720):
         self.candles: dict[str, Candles] = {
             i: c for i, c in candles_map.items() if len(c) >= min_bars}
         if not self.candles:
@@ -49,8 +51,16 @@ class Panel:
             self.idx[inst] = ix
             self.ret[j, ix] = c.returns
             self.fund[j, ix] = c.funding
+        self.top_n = top_n
+        self.membership_bars = membership_bars
+        # investable[j, t]: present AND (when a volume rank is requested)
+        # among the top_n names by trailing quote volume at bar t
+        self.investable = membership_mask(self.candles, self.insts, self.idx,
+                                          self.n, top_n, membership_bars,
+                                          min_bars=0)
         self.present = ~np.isnan(self.ret)
-        self.n_present = self.present.sum(axis=0)
+        self.investable &= self.present
+        self.n_present = self.investable.sum(axis=0)
 
     # ------------------------------------------------------------------ #
 
@@ -71,7 +81,8 @@ class Panel:
             m = int(np.searchsorted(c.ts, cut_ts, side="left"))
             if m > 0:
                 out[inst] = c.slice(0, m)
-        return Panel(out, leader=self.leader, min_bars=1)
+        return Panel(out, leader=self.leader, min_bars=1, top_n=self.top_n,
+                     membership_bars=self.membership_bars)
 
     def positions(self, g: Genome) -> np.ndarray:
         """(k, n) exposure matrix on the master grid, NaN where absent."""
@@ -79,6 +90,8 @@ class Panel:
         for j, inst in enumerate(self.insts):
             c = self.candles[inst]
             P[j, self.idx[inst]] = compute_position(c, g, self.ctx(inst))
+        # outside the investable set a name holds nothing
+        P[self.present & ~self.investable] = 0.0
         return P
 
     def book(self, P: np.ndarray) -> np.ndarray:
@@ -114,12 +127,13 @@ class Panel:
         return rets, turnover, gross
 
     def live_book(self, g: Genome, min_bars: int = 600) -> dict[str, float]:
-        """Latest per-instrument exposure of the rule, equal-split — the
-        target book the trader reconciles. Instruments are only counted
-        while they have enough history for the rule to be computed."""
+        """Latest per-instrument exposure of the rule, equal-split among the
+        names investable at the last bar — the target book the trader
+        reconciles."""
         raw: dict[str, float] = {}
-        for inst, c in self.candles.items():
-            if len(c) < min_bars:
+        for j, inst in enumerate(self.insts):
+            c = self.candles[inst]
+            if len(c) < min_bars or not self.investable[j, -1]:
                 continue
             pos = compute_position(c, g, self.ctx(inst))
             raw[inst] = float(pos[-1])
@@ -127,3 +141,6 @@ class Panel:
             return {}
         n = len(raw)
         return {inst: v / n for inst, v in raw.items()}
+
+    def members_now(self) -> list[str]:
+        return [inst for j, inst in enumerate(self.insts) if self.investable[j, -1]]

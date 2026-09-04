@@ -195,6 +195,8 @@ def xs_positions(
     kind: str = "carry",
     vol_target: float = 0.15,
     leader: str | None = None,
+    top_n: int | None = None,
+    membership_bars: int = 720,
 ) -> tuple[np.ndarray, list[str], dict[str, np.ndarray]]:
     """Returns (common_ts, insts, {inst: pos array on the common grid}).
 
@@ -225,6 +227,10 @@ def xs_positions(
         present[k, idx[inst]] = True
         # a name needs its own warm-up before it can be ranked
         present[k, idx[inst][:min(len(idx[inst]), max(lb, 200))]] = False
+    if top_n is not None:
+        from ..universe import membership_mask
+        present &= membership_mask(candles_map, insts, idx, n, top_n,
+                                   membership_bars, min_bars=0)
     if kind == "lead":
         smat = _lead_scores(candles_map, insts, idx, n, lb, leader, bar)
         if smat is None:

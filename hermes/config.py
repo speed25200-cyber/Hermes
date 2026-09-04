@@ -32,6 +32,19 @@ DEFAULTS: dict[str, Any] = {
     # bars quadruple the sample but the extra observations are bid-ask
     # bounce, not signal — and costs eat them alive.
     "bar": "1H",
+    # dynamic universe: the configured names plus the top-n liquid USDT
+    # perpetuals by 24h quote volume, re-resolved at every research pass.
+    # Back-tests only let a name into the book while it was among the
+    # `top_n` most-traded names of its own day (trailing quote volume) —
+    # survivorship bias is controlled, not assumed away.
+    "universe": {
+        "auto": True,
+        "n": 40,                     # names fetched by volume
+        "top_n": 30,                 # names investable at any bar
+        "membership_hours": 720,     # trailing window for the volume rank
+        "min_vol_usd": 20_000_000.0,
+        "max_spread_bps": 8.0,
+    },
     "data_dir": "data",
     "state_dir": "state",
     # five years of hourly bars (~44k/instrument): the validation holdout is

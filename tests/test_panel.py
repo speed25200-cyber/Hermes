@@ -224,3 +224,45 @@ def test_trader_executes_panel_strategy(tmp_path):
     sid = registry.sid(strat)
     assert isinstance(trader.last_positions[sid], dict)
     assert allocator.tracks[sid].n_obs > 100
+
+
+def test_membership_mask_is_causal_and_ranks_by_trailing_volume():
+    from hermes.universe import membership_mask
+    n = 3000
+    ts = np.arange(n, dtype=np.int64) * 3_600_000
+    rng = np.random.default_rng(5)
+    data = {}
+    for k in range(6):
+        c = 100 * np.cumprod(1 + rng.normal(0, 0.01, n))
+        qv = np.full(n, 1e6 * (k + 1))
+        if k == 0:   # the biggest name at the end, tiny at the start
+            qv[: n // 2] = 1.0
+            qv[n // 2:] = 1e9
+        data[f"M{k}-USDT-SWAP"] = Candles(f"M{k}-USDT-SWAP", "1H", ts, c, c, c, c,
+                                         np.ones(n), qv=qv)
+    insts = sorted(data)
+    idx = {i: np.arange(n) for i in insts}
+    m = membership_mask(data, insts, idx, n, top_n=3, window_bars=240, min_bars=100)
+    j0 = insts.index("M0-USDT-SWAP")
+    assert not m[j0, 1000]            # small volume then: out
+    assert m[j0, -1]                  # dominant volume now: in
+    assert m[:, 1000].sum() == 3      # exactly top_n investable
+    assert not m[:, 50].any()         # warm-up
+    # tampering with the future cannot change past membership
+    data["M0-USDT-SWAP"].qv[2500:] = 0.0
+    m2 = membership_mask(data, insts, idx, n, top_n=3, window_bars=240, min_bars=100)
+    assert np.array_equal(m[:, :2400], m2[:, :2400])
+
+
+def test_panel_zeroes_positions_outside_membership():
+    data = _universe(n=3000, seed=9)
+    for k, (inst, c) in enumerate(sorted(data.items())):
+        c.qv = np.full(len(c), 1e6 * (k + 1))
+    p = Panel(data, leader="SYNA-USDT-SWAP", top_n=2, membership_bars=100)
+    g = Genome(signal="tsmom", params={"lookback": 100, "deadband": 0.0},
+               vol_target=0.4, max_lev=1.0)
+    P = p.positions(g)
+    out = p.present & ~p.investable
+    assert out.any()
+    assert np.all(P[out] == 0.0)
+    assert p.n_present.max() <= 2
