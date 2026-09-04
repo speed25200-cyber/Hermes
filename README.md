@@ -16,97 +16,92 @@ data  ->  features  ->  evolutionary alpha search  ->  OOS validation gate
 
 ## How it "finds the edge alone"
 
-1. **Prediction engine** (`hermes/ml/`) — a genuine forecasting layer, all
-   implemented from scratch in numpy:
-   - a causal **feature matrix** per instrument: multi-horizon vol-scaled
-     momentum, volatility structure, oscillators, channel position, candle
-     shape, volume pressure, funding carry, intraday/weekly seasonality, and
-     **cross-asset lead-lag features** from the universe leader (BTC leads
-     alts);
-   - two learners fit under a strict **walk-forward protocol** (train only on
-     the past, horizon-length embargo before every refit, periodic
-     re-training): closed-form **ridge regression** and **gradient-boosted
-     stumps** whose split search is vectorised into BLAS matrix products;
-   - predictions carry a causal **confidence score** (rolling hit rate) and a
-     **conformal prediction interval** — the rolling quantile of realised
-     |target − prediction| nonconformity, using only outcomes already
-     observable. A position opens only when the prediction exceeds a multiple
-     of its own typical error and its size scales with that ratio:
-     distribution-free uncertainty quantification (empirical coverage is
-     tested), not a Gaussian assumption;
-   - an incremental cache extends the walk-forward state bar by bar in live
-     trading with bit-identical results to the batch computation (tested).
+Hermes is built around one principle: **a strategy is a rule, not a curve
+fitted to one coin**, and a rule earns capital only by surviving evidence
+that would kill noise. Everything below is implemented from scratch in
+numpy and runs identically in research, paper and live trading.
 
-2. **Cross-sectional stat-arb books** (`hermes/strategy/xs.py`) — three
-   hedge-fund-style market-neutral portfolios spanning the whole universe,
-   sharing one construction (rank → z-score → inverse-vol → dollar-neutral
-   → portfolio-vol target):
-   - **funding carry** (`funding_xs`): short the richest funding, long the
-     cheapest — harvests the structural funding spread (researched only on
-     the window where funding history actually exists);
-   - **momentum** (`xs_mom`): long the strongest multi-week vol-adjusted
-     winners, short the losers, with a one-day skip against reversal;
-   - **reversal** (`xs_rev`): long the short-horizon losers, short the
-     winners — classic stat-arb mean reversion.
-   Each family searches its own small grid, but the Deflated Sharpe is
-   charged with the total number of configs searched across all families —
-   selection bias is paid for the whole sweep. Survivors are executed as
-   multi-asset books beside the per-instrument strategies.
+1. **Panel research** (`hermes/research/panel.py`) — every candidate rule
+   is applied to the *whole universe* (14 liquid USDT perpetuals, hourly
+   bars, five years) and scored as one equal-split, vol-targeted book. This
+   is how systematic managers test signals: the sample is universe × time,
+   cross-instrument diversification lifts the achievable Sharpe, and a rule
+   that only "works" on one lucky coin is exposed for what it is. Newer
+   listings contribute the history they have; missing bars are absent, not
+   zero.
 
-3. **Maker-first execution** (`hermes/exchange/broker.py`) — live orders try
-   a post-only limit at the touch first (OKX maker ~0.02%) with a timed
-   fallback to market, handling partial fills exactly. Backtests use the
-   matching expected-cost model (`effective_costs`): a ~40% cost reduction
-   per trade that compounds into a real, mechanical edge.
+2. **Rule space** (`hermes/strategy/`) — time-series momentum with a
+   deadband, z-score mean reversion, funding carry, basis / taker-flow /
+   open-interest fades, and two walk-forward ML predictors (closed-form
+   ridge, gradient-boosted stumps) over a causal feature matrix with
+   cross-asset lead-lag from BTC. Each rule can be gated by a volatility
+   percentile or by a **Gaussian-mixture regime** label (`hermes/ml/`), is
+   vol-targeted per instrument, and passes through a fixed **no-trade band**
+   so continuously re-scaled positions do not churn fees. ML predictions
+   carry a causal hit-rate confidence and a **split-conformal interval**:
+   a position opens only when the prediction exceeds a multiple of its own
+   realised error and is sized by that ratio.
 
-4. **Regime detection** (`hermes/ml/regime.py`) — a Gaussian-mixture EM
-   (hand-written) classifies every bar as quiet / normal / turbulent from
-   vol-normalised returns and volatility structure, refit on a trailing
-   window and applied strictly causally. Strategies can gate themselves to
-   the regimes where their edge exists.
+3. **Evolutionary search** (`hermes/research/evolve.py`) — a genetic
+   algorithm explores the rule space **in-sample only** (the first 65% of
+   history). Fitness is the mean Sharpe across sub-windows plus the worst
+   sub-window, minus drawdown and turnover: a rule must work in every
+   sub-period. Evaluation is parallel across CPU cores; every rule ever
+   evaluated keeps its in-sample return series for the audit below.
 
-5. **Alpha search** (`hermes/research/evolve.py`) — an evolutionary algorithm
-   explores a parameterised space of strategy genomes: the two ML predictor
-   families (horizon, threshold, regularisation, cross-asset on/off) plus
-   time-series momentum, moving-average cross, z-score mean reversion,
-   Donchian breakout, RSI reversal and funding-rate carry — each optionally
-   gated by a volatility- or regime-filter and scaled by per-strategy
-   volatility targeting. Fitness is measured **only on in-sample data**,
-   averaged across sub-windows so a strategy must work in every sub-period.
+4. **Backtest-overfitting audit** (`hermes/research/pbo.py`) —
+   Combinatorially Symmetric Cross-Validation (Bailey, Borwein, López de
+   Prado & Zhu): the in-sample history is cut into 10 blocks; for each of
+   the 252 ways of picking 5 as "train", the best rule by train Sharpe is
+   selected and ranked on the other 5. **PBO** is how often that winner
+   lands in the worse half out-of-sample. A search whose winners are noise
+   gives PBO ≳ 0.5 and **nothing from that search is eligible**, whatever
+   the holdout says next.
 
-6. **Validation gate** (`hermes/research/validate.py`) — survivors are scored
-   once on out-of-sample data separated by an embargo gap. A strategy deploys
-   only if it clears the OOS Sharpe floor, the **Deflated Sharpe Ratio**
-   (Bailey & López de Prado — the bar rises with every genome the search
-   evaluated, killing selection-bias artifacts), the OOS drawdown cap, AND
-   **purged multi-fold consistency**: the OOS window is cut into embargoed
-   sub-folds and the majority must be individually profitable (CPCV spirit).
+5. **Holdout gate** (`hermes/research/validate.py`) — the best ten rules
+   face the last 35% of history, separated by a 3-day embargo, exactly
+   once. A rule deploys only if it clears the OOS Sharpe floor, the
+   **Deflated Sharpe Ratio** (charged for the ten rules that actually
+   competed on the holdout — the multiple-testing that matters), the
+   drawdown cap, and **purged fold consistency** (four embargoed sub-folds,
+   majority individually profitable).
 
-7. **Online adaptation** (`hermes/portfolio/allocator.py`) — deployed
-   strategies are tracked bar by bar. Capital flows multiplicatively toward
-   what is working *now*, an EWMA **correlation matrix downweights crowded
-   strategies** so the book spreads across genuinely independent edges, and
-   a portfolio-level volatility target scales the whole book.
+6. **Cross-sectional books** (`hermes/strategy/xs.py`) — market-neutral
+   portfolios spanning the universe (rank → z-score → inverse-vol →
+   dollar-neutral → vol target): **funding carry**, multi-week **momentum**,
+   short-horizon **reversal**, and **BTC lead-lag** continuation. Each
+   family searches a six-config grid in-sample and its single best config
+   faces the holdout with the DSR charged for every config of every family.
 
-8. **The adaptive hunt** — the live loop re-runs the whole research pass on
-   fresh data when the deployed set goes stale (weekly by default). While
-   the book is **empty**, the hunt does not sleep: it re-runs **daily**, and
-   every consecutive empty pass widens the evolutionary search budget
-   (population and generations ×1.5, then ×2). Validation thresholds never
-   move — the system digs deeper, it does not lower the bar. Conversely, a
-   deployed strategy whose **live** shadow returns turn clearly negative
-   (annualised Sharpe below −0.5 over 1000+ live bars) is **retired
-   autonomously** and the hunt resumes. The full loop — hunt → validate →
-   trade → monitor → retire → hunt again — closes with no human in it.
+7. **Book check** — the survivors are a portfolio, so their equal-weight
+   holdout return must itself clear the Sharpe floor; the weakest members
+   are dropped until it does.
 
-9. **Risk engine** (`hermes/risk.py`) — hard caps on per-instrument and gross
-   leverage, a daily loss limit (flatten + halt until next UTC day), and a max
-   drawdown **kill switch** (flatten + halt until manual reset; survives
-   restarts). This is the last line of defence and cannot be overridden by
-   any strategy.
+8. **Online adaptation** (`hermes/portfolio/allocator.py`) — deployed rules
+   are tracked bar by bar. Capital flows multiplicatively toward what is
+   working *now*, an EWMA correlation matrix down-weights crowded rules,
+   and a portfolio vol target scales the whole book. A **leverage
+   governor** de-risks fast in drawdown and lets exposure above 1× be
+   earned only by live results.
 
-Identical genome → signal → position code runs in backtest, paper and live
-trading, eliminating backtest/live drift.
+9. **The hunt never sleeps** — the research pass re-runs weekly on fresh
+   data, daily while the book is empty (with an escalating search budget —
+   thresholds never move), and a deployed rule whose *live* shadow Sharpe
+   collapses is retired autonomously. Hunt → audit → validate → trade →
+   monitor → retire → hunt again, with no human in the loop.
+
+10. **Risk engine** (`hermes/risk.py`) — hard caps on per-instrument (1×)
+    and gross (3×) leverage, a daily loss limit (4%: flatten + halt until
+    next UTC day), and a max-drawdown **kill switch** (20%: flatten + halt
+    until manual reset; survives restarts). Nothing overrides it.
+
+11. **Maker-first execution** (`hermes/exchange/broker.py`) — live orders
+    rest post-only at the touch with a timed taker fallback; backtests and
+    the paper broker charge the same blended cost, with the same miss rate.
+
+State written by an earlier engine version (rules validated under another
+protocol, paper books from another risk regime) is archived automatically
+on start-up, never reused.
 
 ## Quickstart
 
@@ -124,8 +119,11 @@ python -m hermes realtest
 
 # 2. Real data: backfill OKX candles + funding history (public API, no keys)
 python -m hermes fetch
+#    ...or, where the exchange is unreachable, import a snapshot produced by
+#    .github/workflows/data-snapshot.yml (orphan branch okx-data-snapshot)
+python -m hermes import-snapshot path/to/snapshot
 
-# 3. Research on real data
+# 3. Research on real data (--dry-run leaves the registry untouched)
 python -m hermes research
 
 # 4. Paper-trade the deployed strategies against live OKX prices
@@ -238,8 +236,11 @@ hermes/
            signals.py    genome -> target exposure series
   backtest/engine.py     vectorized backtester (fees, slippage, funding)
            metrics.py    Sharpe, Sortino, PSR, Deflated Sharpe, drawdown
-  research/evolve.py     evolutionary alpha search (in-sample only)
-           validate.py   OOS validation gate (DSR threshold)
+  research/panel.py      universe-wide rule evaluation (aligned book returns)
+           evolve.py     evolutionary alpha search (in-sample only, parallel)
+           pbo.py        CSCV probability of backtest overfitting
+           validate.py   holdout gate (Sharpe, DSR, drawdown, purged folds) + book check
+           xs.py         cross-sectional family research gate
   portfolio/allocator.py multiplicative-weights capital allocation
   exchange/okx_client.py OKX v5 REST (signed), retries, demo-trading support
            broker.py     Broker interface: PaperBroker + OKXBroker
@@ -247,7 +248,7 @@ hermes/
   dashboard/server.py    zero-dependency local web console (stdlib http)
            index.html    single-file UI: SVG charts, animated console
   cli.py                 demo / fetch / research / run / status / dashboard
-tests/                   54 tests: no-lookahead, ML causality, regimes, e2e
+tests/                   130+ tests: no-lookahead, ML causality, regimes, PBO, panel, e2e
 ```
 
 ## Tests

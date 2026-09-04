@@ -8,7 +8,7 @@ l'accès sécurisé.
 
 | Service systemd | Rôle |
 |---|---|
-| `hermes` | moteur de trading (paper) : décision à chaque bougie 15 m, battement ~20 s |
+| `hermes` | moteur de trading (paper) : décision à chaque bougie 1 h, battement 20 s, recherche en tâche de fond |
 | `hermes-research` | one-shot : rattrapage des données + recherche d'alpha, relancé par le moteur (hebdo si le livre est garni, **quotidien s'il est vide**, budget croissant) |
 | `hermes-dashboard` | console web (port 8899, protégée par jeton) — l'app sur votre iPhone |
 
@@ -17,20 +17,36 @@ Tout est piloté à distance par les workflows GitHub Actions du dépôt :
 (état complet), `update-dashboard.yml` (interface seule, sans toucher au
 calcul en cours).
 
-## La boucle autonome
+## La boucle autonome (moteur v2)
 
 ```
-chasse (30 perpétuels × familles directionnelles + 3 livres market-neutral)
-  → validation (Sharpe OOS ≥ 0,5 · Deflated Sharpe ≥ 0,05 sur TOUS les
-     essais · 3 plis purgés majoritairement positifs · drawdown borné)
-    → trading (exécution maker d'abord, risque à 3 étages)
-      → surveillance (retours réels par stratégie, EWMA)
-        → retrait autonome (Sharpe réel < −0,5 sur 1000+ barres)
-          → re-chasse
+chasse : une RÈGLE appliquée à tout l'univers (14 perpétuels, bougies 1 h,
+         5 ans), évaluée comme un livre — jamais une courbe ajustée à une pièce
+  → audit de sur-apprentissage (CSCV / PBO sur toutes les règles évaluées :
+     si le vainqueur in-sample ne tient pas hors échantillon dans les 252
+     découpages, la passe entière est disqualifiée)
+    → épreuve hors échantillon (35 % finaux, embargo 3 jours, une seule fois :
+       Sharpe ≥ 0,7 · Deflated Sharpe ≥ 0,5 facturé pour les 10 règles testées ·
+       drawdown ≤ 30 % · 4 plis purgés majoritairement positifs)
+      → livres market-neutral (carry de financement, momentum, réversion,
+         suiveurs de BTC) soumis à la même épreuve
+        → contrôle du livre : les survivants doivent passer le seuil ENSEMBLE
+          → trading (maker d'abord, bande de non-échange, risque à 3 étages)
+            → surveillance (retours réels par règle, EWMA, pénalité de foule)
+              → retrait autonome (Sharpe réel < −0,5 après 30 jours)
+                → re-chasse (hebdo ; quotidienne si le livre est vide)
 ```
 
 Les seuils de validation ne se règlent pas à la baisse. Jamais. Un passage
 de recherche qui ne déploie rien est un verdict, pas une panne.
+
+Le bureau intraday (horloges 1 m–15 m, flux L2) est **désactivé** : son
+« holdout » unique n'a aucun contrôle de tests multiples et son économie
+après frais n'est pas prouvée. Il reste dans le code pour la recherche.
+
+Au premier démarrage d'une nouvelle version du moteur, l'état écrit par
+l'ancienne (registre, livre papier, kill switch) est archivé dans
+`state/archive-v*/` et ne pilote plus rien.
 
 ## Ce qu'il faut regarder sur l'app
 
@@ -40,7 +56,9 @@ de recherche qui ne déploie rien est un verdict, pas une panne.
   confirmer par le réel.
 - **Alpha research** : date de la dernière passe, génomes évalués,
   intensité de la traque (escalade si passes vides).
-- **Risk envelope** : drawdown vs kill switch 15 %, perte du jour vs −3 %.
+- **Risk envelope** : drawdown vs kill switch 20 %, perte du jour vs −4 %.
+- **Alpha research** affiche aussi le PBO de la dernière passe : > 50 % =
+  la recherche classait du bruit, rien n'a pu être déployé de l'évolution.
 - **Bandeau rouge** = halte de risque. Le moteur s'est mis à plat seul.
 
 ## Quand envisager le réel — et comment
@@ -72,7 +90,7 @@ de recherche qui ne déploie rien est un verdict, pas une panne.
 | App « OFFLINE » | dashboard arrêté | `vps-status.yml`, puis `update-dashboard.yml` |
 | Prix figés | moteur arrêté (recherche en cours ?) | `vps-status.yml` : si `hermes-research` est actif, c'est normal — le moteur revient seul |
 | 0 stratégie après une passe | verdict honnête | rien : la traque quotidienne escalade seule |
-| Bandeau rouge kill switch | drawdown 15 % atteint | décision humaine : analyser avant tout redémarrage |
+| Bandeau rouge kill switch | drawdown 20 % atteint | décision humaine : analyser avant tout redémarrage |
 
 ## Limites assumées
 
