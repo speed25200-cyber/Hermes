@@ -93,9 +93,13 @@ def _regime_features(candles: Candles) -> np.ndarray:
 def _fill_range(out: np.ndarray, feats: np.ndarray, state: dict, t0: int,
                 t1: int, k: int, refit_every: int, train_window: int,
                 min_train: int) -> None:
-    """Label out[t0:t1] causally; `state` carries the current EM model."""
-    for t in range(max(t0, min_train), t1):
+    """Label out[t0:t1] causally; `state` carries the current EM model.
+    Bars are classified one refit block at a time (same labels as a
+    per-bar loop: the model is constant within a block)."""
+    t = max(t0, min_train)
+    while t < t1:
         boundary = min_train + ((t - min_train) // refit_every) * refit_every
+        block_end = min(boundary + refit_every, t1)
         if state.get("trained_at") != boundary:
             a = max(0, boundary - train_window)
             Xtr = feats[a + 50:boundary]  # skip warm-up rows of the window
@@ -109,7 +113,8 @@ def _fill_range(out: np.ndarray, feats: np.ndarray, state: dict, t0: int,
         model = state.get("model")
         if model is not None:
             means, var, w, remap = model
-            out[t] = remap[_classify(feats[t:t + 1], means, var, w)[0]]
+            out[t:block_end] = remap[_classify(feats[t:block_end], means, var, w)]
+        t = block_end
 
 
 def regime_series(candles: Candles, k: int = 3, refit_every: int = 500,

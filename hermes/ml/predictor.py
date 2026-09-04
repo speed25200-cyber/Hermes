@@ -112,12 +112,41 @@ def _conformal_width(pred: np.ndarray, y: np.ndarray, horizon: int,
         idx = np.arange(valid_end) + horizon
         f[idx[active]] = e[active]
     w, q = CONFORMAL_WINDOW, CONFORMAL_Q
-    for t in range(max(t0, horizon), n):
-        lo = max(0, t - w + 1)
-        window = f[lo:t + 1]
-        vals = window[~np.isnan(window)]
-        if len(vals) >= 30:
-            out[t] = float(np.quantile(vals, q))
+    start = max(t0, horizon)
+    if start >= n:
+        return out
+    # trailing-window quantile, vectorised: sort each window (NaN -> +inf so
+    # missing residuals fall to the end), then read numpy's "linear" quantile
+    # off the sorted row using the number of valid residuals in that row —
+    # bit-identical to np.quantile on the valid values.
+    lo0 = max(0, start - w + 1)
+    padded = np.concatenate([np.full(max(0, w - 1 - start), np.nan), f[lo0:n]])
+    view = np.lib.stride_tricks.sliding_window_view(padded, w)   # row i <-> t = start + i
+    chunk = 8192
+    for a in range(0, n - start, chunk):
+        b = min(a + chunk, n - start)
+        blk = view[a:b]
+        counts = np.count_nonzero(~np.isnan(blk), axis=1)
+        srt = np.sort(np.where(np.isnan(blk), np.inf, blk), axis=1)
+        ok = counts >= 30
+        if not ok.any():
+            continue
+        cnt = counts[ok]
+        virt = (cnt - 1) * q
+        lo_i = np.floor(virt).astype(np.int64)
+        hi_i = np.minimum(lo_i + 1, cnt - 1)
+        rows = srt[ok]
+        r = np.arange(len(rows))
+        a_v = rows[r, lo_i]
+        b_v = rows[r, hi_i]
+        tfrac = virt - lo_i
+        # numpy's _lerp: a + (b-a)*t, with the t >= 0.5 branch b - (b-a)*(1-t)
+        diff = b_v - a_v
+        lerp = a_v + diff * tfrac
+        lerp = np.where(tfrac >= 0.5, b_v - diff * (1.0 - tfrac), lerp)
+        seg = out[start + a:start + b]
+        seg[ok] = lerp
+        out[start + a:start + b] = seg
     return out
 
 
@@ -148,10 +177,14 @@ def _walk_forward_range(pred: np.ndarray, X: np.ndarray, y: np.ndarray,
                         cfg: dict, state: dict, t0: int, t1: int,
                         min_train: int, refit_every: int) -> None:
     """Fill pred[t0:t1] using walk-forward refits; mutates `state` (holds the
-    current model and the refit point it was trained at)."""
+    current model and the refit point it was trained at). Predictions are
+    produced one refit block at a time (identical results, no per-bar
+    Python loop)."""
     horizon = int(cfg["horizon"])
-    for t in range(max(t0, min_train), t1):
+    t = max(t0, min_train)
+    while t < t1:
         boundary = min_train + ((t - min_train) // refit_every) * refit_every
+        block_end = min(boundary + refit_every, t1)
         if state.get("trained_at") != boundary:
             train_end = boundary - horizon
             if train_end >= 200:
@@ -162,7 +195,8 @@ def _walk_forward_range(pred: np.ndarray, X: np.ndarray, y: np.ndarray,
             state["trained_at"] = boundary
         model = state.get("model")
         if model is not None:
-            pred[t] = float(np.clip(model.predict(X[t:t + 1])[0], -5, 5))
+            pred[t:block_end] = np.clip(model.predict(X[t:block_end]), -5, 5)
+        t = block_end
 
 
 def predict_series(

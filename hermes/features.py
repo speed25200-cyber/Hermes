@@ -33,10 +33,29 @@ def ema(x: np.ndarray, w: int) -> np.ndarray:
 
 
 def rolling_std(x: np.ndarray, w: int) -> np.ndarray:
-    out = np.full(len(x), np.nan)
-    if len(x) >= w:
+    """Sample std (ddof=1) over trailing windows, O(n) via cumulative sums
+    of the globally-centred series (centring keeps the cancellation error
+    far below anything a strategy can see)."""
+    x = np.asarray(x, dtype=np.float64)
+    n = len(x)
+    out = np.full(n, np.nan)
+    if n < w or w < 2:
+        return out
+    if not np.all(np.isfinite(x)):
         v = _rolling_view(x, w)
         out[w - 1:] = v.std(axis=1, ddof=1)
+        return out
+    xc = x - x.mean()
+    c1 = np.concatenate(([0.0], np.cumsum(xc)))
+    c2 = np.concatenate(([0.0], np.cumsum(xc * xc)))
+    s1 = c1[w:] - c1[:-w]
+    s2 = c2[w:] - c2[:-w]
+    var = (s2 - s1 * s1 / w) / (w - 1)
+    # round-off can leave a hair of negative / spurious variance on constant
+    # windows: anything below 1e-12 of the series' own scale is zero
+    scale = float(np.mean(xc * xc)) + 1e-300
+    var = np.where(var > 1e-12 * scale, var, 0.0)
+    out[w - 1:] = np.sqrt(var)
     return out
 
 
