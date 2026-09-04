@@ -97,6 +97,7 @@ DEFAULTS: dict[str, Any] = {
         "td_mode": "cross",
         "paper_equity": 10000.0,
         "maker_wait_s": 20,          # post-only resting time before fallback
+        "rebalance_band": 0.02,      # ignore re-sizes below 2% of equity
     },
     # Experimental intraday desk (1m–15m clocks, L2 order flow). OFF by
     # default: its single-split "holdout" has no multiple-testing control

@@ -355,8 +355,12 @@ class Trader:
             g = (self.cfg["risk"].get("governor", {})
                  if isinstance(self.cfg.get("risk"), dict) else {})
             if g.get("enabled", True):
+                bpy = BARS_PER_YEAR.get(self.cfg.get("bar", "1H"), 8760)
+                per_day = max(1, bpy // 365)
                 self.governor = LeverageGovernor(
-                    max_boost=float(g.get("max_boost", 1.5)))
+                    max_boost=float(g.get("max_boost", 1.5)),
+                    window=14 * per_day, min_track=2 * per_day,
+                    bars_per_year=bpy)
 
     def _journal(self, entry: dict) -> None:
         """Append one cycle record to the JSONL journal (dashboard feed)."""
@@ -574,6 +578,10 @@ class Trader:
         all_insts = set(targets) | set(current)
         max_n = float(self.risk.max_order_notional)
         min_n = float(self.risk.min_trade_notional)
+        # rebalance band: allocator weights and the portfolio vol scale drift
+        # a little every bar; re-sizing a position for a drift smaller than
+        # this fraction of equity only pays fees. Closing to zero is exempt.
+        band = float(self.cfg["live"].get("rebalance_band", 0.02)) * equity
         for inst in sorted(all_insts):
             px = prices.get(inst, 0.0)
             if px <= 0:
@@ -581,6 +589,8 @@ class Trader:
             tgt_qty = targets.get(inst, 0.0) * equity / px
             cur_qty = current.get(inst, 0.0)
             delta = tgt_qty - cur_qty
+            if abs(tgt_qty) > 1e-12 and abs(delta) * px < band:
+                continue
             reducing = abs(tgt_qty) <= abs(cur_qty) + 1e-12
             while abs(delta) * px >= min_n:
                 cap_qty = max_n / px if px > 0 else abs(delta)

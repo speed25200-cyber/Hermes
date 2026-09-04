@@ -42,7 +42,7 @@ from .feature_matrix import build_features, build_target
 from .models import GradientBoostedStumps, RidgeRegressor
 
 _BATCH_CACHE: dict[tuple, tuple[np.ndarray, np.ndarray]] = {}
-_BATCH_MAX = 256
+_BATCH_MAX = 96
 _FEAT_CACHE: dict[tuple, np.ndarray] = {}
 _FEAT_MAX = 16
 _INCR_CACHE: dict[tuple, dict] = {}
