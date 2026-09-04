@@ -843,19 +843,20 @@ class LiveRunner:
                 except Exception as exc:
                     self.log(f"desk backfill {inst} {bar}: {type(exc).__name__}: {exc}")
 
-    def ensure_research(self, force: bool = False) -> bool:
-        """Re-run the hunt when the deployed set is stale (weekly), daily
-        while the book is empty, or when it never ran. Returns True when a
-        pass ran. Serialised: two passes never overlap."""
+    def research_due(self) -> tuple[bool, bool]:
+        """(stale, never_ran): the hunt re-runs weekly while something is
+        deployed, daily while the book is empty (on fresh data, with an
+        escalating search budget), and once if it never ran."""
         age_h = (time.time() - self.registry.researched_at) / 3600.0
         r = self.cfg["research"]
-        # adaptive cadence: while the book is empty the hunt re-runs daily
-        # (on fresh data, with an escalating search budget) instead of
-        # sleeping the full weekly interval
         refresh_h = (r.get("refresh_hours_empty", 24)
                      if not self.registry.strategies else r["refresh_hours"])
-        stale = age_h > refresh_h
-        never_ran = self.registry.researched_at == 0
+        return age_h > refresh_h, self.registry.researched_at == 0
+
+    def ensure_research(self, force: bool = False) -> bool:
+        """Re-run the hunt when due. Returns True when a pass ran.
+        Serialised: two passes never overlap."""
+        stale, never_ran = self.research_due()
         # NB: an empty deployed set after a completed research is a legitimate
         # outcome (no robust edge) — it must NOT trigger an immediate re-run
         if not (force or stale or never_ran):
@@ -1020,7 +1021,12 @@ class LiveRunner:
         time.sleep(5)
         while True:
             try:
-                self.ensure_research()
+                stale, never = self.research_due()
+                if stale or never:
+                    # fresh universe + history before the pass: names that
+                    # became liquid since the last resolution join here
+                    self.ensure_data()
+                    self.ensure_research()
             except Exception as exc:
                 self.log(f"research thread: {type(exc).__name__}: {exc}")
             time.sleep(3600)
