@@ -50,21 +50,42 @@ jobs:
             bars: "1H"
             micro: "0"
             branch: okx-data-snapshot-1h-5y-lite
+          - name: top60-3y-1H         # broad universe: top-60 USDT perps by 24h volume
+            days: "1095"
+            bars: "1H"
+            micro: "0"
+            universe: "60"
+            branch: okx-data-snapshot-top60-1h-3y
     steps:
       - uses: actions/checkout@v4
+
+      - name: Skip targets that are already published (push runs only rebuild new ones)
+        id: chk
+        env:
+          SNAP_BRANCH: ${{ matrix.branch }}
+        run: |
+          if [ "${{ github.event_name }}" = "push" ] && git ls-remote --exit-code --heads origin "$SNAP_BRANCH" >/dev/null 2>&1; then
+            echo "skip=1" >> "$GITHUB_OUTPUT"; echo "$SNAP_BRANCH already published — skipping"
+          else
+            echo "skip=0" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+        if: steps.chk.outputs.skip != '1'
 
       - name: Install dependencies
+        if: steps.chk.outputs.skip != '1'
         run: pip install -r requirements.txt
 
       - name: Backfill candles + funding + microstructure
+        if: steps.chk.outputs.skip != '1'
         env:
           DAYS: ${{ inputs.days || matrix.days }}
           BARS: ${{ inputs.bars || matrix.bars }}
           MICRO: ${{ matrix.micro || '1' }}
+          UNIVERSE: ${{ matrix.universe || '' }}
         run: |
           python - <<'PY'
           import os, time
@@ -79,7 +100,20 @@ jobs:
           store = DataStore("data")
           client = OKXClient(cfg.credentials)
           t0 = time.time()
-          for inst in cfg["instruments"]:
+          insts = list(cfg["instruments"])
+          uni = os.environ.get("UNIVERSE") or ""
+          if uni:
+              from hermes.scalp.universe import select_universe
+              ticks = client.swap_tickers()
+              insts = select_universe(ticks, n=int(uni), max_spread_bps=10.0,
+                                      min_vol_usd=10e6)
+              print(f"universe: top {len(insts)} by 24h volume: {insts}")
+              import json
+              os.makedirs("snapshot", exist_ok=True)
+              with open("snapshot/universe.json", "w") as f:
+                  json.dump({"instruments": insts, "selected_at": time.time(),
+                             "vol_usd": {i: ticks[i]["vol_usd"] for i in insts}}, f, indent=1)
+          for inst in insts:
               for bar in bars:
                   try:
                       fetch_candles(client, store, inst, bar, days, log=print)
@@ -99,6 +133,7 @@ jobs:
           PY
 
       - name: Export tables to gzipped CSV
+        if: steps.chk.outputs.skip != '1'
         run: |
           python - <<'PY'
           import csv, gzip, os, sqlite3, time
@@ -131,6 +166,7 @@ jobs:
           ls -la snapshot
 
       - name: Publish to orphan branch
+        if: steps.chk.outputs.skip != '1'
         env:
           SNAP_BRANCH: ${{ matrix.branch }}
         run: |
@@ -148,6 +184,7 @@ jobs:
           git push -f origin "$SNAP_BRANCH"
 
       - name: Upload artifact (backup)
+        if: steps.chk.outputs.skip != '1'
         uses: actions/upload-artifact@v4
         with:
           name: okx-snapshot-${{ matrix.name }}

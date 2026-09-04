@@ -32,7 +32,7 @@ from ..data.store import BARS_PER_YEAR, Candles
 # so the same economic horizons are searched whatever the data frequency.
 _GRID_HOURS = {
     "carry": (24, 72, 168),        # funding EWMA: 1d / 3d / 1w
-    "mom":   (504, 1008, 2016),    # 3 / 6 / 12 weeks
+    "mom":   (168, 336, 672, 1344, 2016),   # 1 / 2 / 4 / 8 / 12 weeks
     "rev":   (4, 12, 24),          # 4h / 12h / 1d
     "lead":  (2, 4, 8),            # leader-move window
     "basis": (12, 24, 48),
@@ -89,18 +89,21 @@ XS_KINDS = {"funding_xs": "carry", "xs_mom": "mom", "xs_rev": "rev",
 
 
 def align_universe(candles_map: dict[str, Candles]) -> tuple[np.ndarray, dict[str, np.ndarray]]:
-    """Common timestamp grid (intersection) and per-instrument row indices."""
+    """Master timestamp grid (UNION of every instrument's bars) and, per
+    instrument, the master-grid index of each of its own bars. A name that
+    listed late is simply absent before its first bar — the book is built
+    from whoever is present, instead of throwing away every bar before the
+    newest listing."""
     insts = list(candles_map)
-    common = None
-    for inst in insts:
-        ts = candles_map[inst].ts
-        common = ts if common is None else np.intersect1d(common, ts)
-    idx = {}
-    for inst in insts:
-        ts = candles_map[inst].ts
-        pos = np.searchsorted(ts, common)
-        idx[inst] = pos
+    common = np.unique(np.concatenate([candles_map[i].ts for i in insts]))
+    idx = {inst: np.searchsorted(common, candles_map[inst].ts) for inst in insts}
     return common, idx
+
+
+def _place(series: np.ndarray, ix: np.ndarray, n: int, fill: float = np.nan) -> np.ndarray:
+    out = np.full(n, fill)
+    out[ix] = series
+    return out
 
 
 def _scores(kind: str, candles: Candles, rv: np.ndarray, lb: int) -> np.ndarray:
@@ -154,7 +157,8 @@ def _lead_scores(candles_map: dict[str, Candles], insts: list[str],
     demeaning cannot wash this out because the betas differ per name."""
     if not leader or leader not in candles_map:
         return None
-    lc = candles_map[leader].c[idx[leader]]
+    lc = _place(candles_map[leader].c, idx[leader], n, np.nan)
+    lc = np.where(np.isnan(lc), np.nanmean(lc), lc)   # leader is the longest history anyway
     lret = np.zeros(n)
     lret[1:] = lc[1:] / lc[:-1] - 1.0
     # leader's recent move over lb bars, scaled by its own typical move
@@ -172,9 +176,7 @@ def _lead_scores(candles_map: dict[str, Candles], insts: list[str],
     cs_xx = np.cumsum(x * x)
     smat = np.zeros((len(insts), n))
     for k, inst in enumerate(insts):
-        c = candles_map[inst].c[idx[inst]]
-        y = np.zeros(n)
-        y[1:] = c[1:] / c[:-1] - 1.0
+        y = _place(candles_map[inst].returns, idx[inst], n, 0.0)
         cs_xy = np.cumsum(x * y)
         sxy = cs_xy.copy()
         sxx = cs_xx.copy()
@@ -215,10 +217,14 @@ def xs_positions(
 
     vw = hours_to_bars(VOL_WINDOW_HOURS, bar)
     vmat = np.zeros((len(insts), n))
+    present = np.zeros((len(insts), n), dtype=bool)
     for k, inst in enumerate(insts):
         c = candles_map[inst]
         rv = F.realized_vol(c.c, w=vw, bars_per_year=bpy)
-        vmat[k] = np.nan_to_num(rv, nan=0.0)[idx[inst]]
+        vmat[k] = _place(np.nan_to_num(rv, nan=0.0), idx[inst], n, 0.0)
+        present[k, idx[inst]] = True
+        # a name needs its own warm-up before it can be ranked
+        present[k, idx[inst][:min(len(idx[inst]), max(lb, 200))]] = False
     if kind == "lead":
         smat = _lead_scores(candles_map, insts, idx, n, lb, leader, bar)
         if smat is None:
@@ -229,28 +235,36 @@ def xs_positions(
             c = candles_map[inst]
             rv = F.realized_vol(c.c, w=vw, bars_per_year=bpy)
             rv = np.nan_to_num(rv, nan=0.0)
-            smat[k] = _scores(kind, c, rv, lb)[idx[inst]]
+            smat[k] = _place(_scores(kind, c, rv, lb), idx[inst], n, 0.0)
+    smat = np.where(present, smat, np.nan)
 
-    # cross-sectional z-score of the raw score at each bar (causal)
-    mu = smat.mean(axis=0, keepdims=True)
-    sd = smat.std(axis=0, keepdims=True)
+    # cross-sectional z-score of the raw score at each bar (causal), over
+    # the names present at that bar only; fewer than 4 names -> no book
+    n_here = present.sum(axis=0)
     with np.errstate(invalid="ignore", divide="ignore"):
+        mu = np.nanmean(smat, axis=0, keepdims=True)
+        sd = np.nanstd(smat, axis=0, keepdims=True)
         z = (smat - mu) / np.where(sd > 1e-12, sd, np.nan)
     z = np.nan_to_num(z, nan=0.0)
+    z[:, n_here < 4] = 0.0
 
     # sign per family: carry & reversal fade the score, momentum and
     # lead-lag continuation follow it
     signed = z if kind in ("mom", "lead") else -z
 
-    # inverse-vol tilt; demean so the book stays dollar-neutral after clipping
+    # inverse-vol tilt; demean over present names so the book stays
+    # dollar-neutral after clipping
     with np.errstate(invalid="ignore", divide="ignore"):
         iv = 1.0 / np.where(vmat > 0.05, vmat, np.nan)
-    iv = np.nan_to_num(iv, nan=0.0)
-    iv_mean = iv.mean(axis=0, keepdims=True)
+    iv = np.where(present, np.nan_to_num(iv, nan=0.0), 0.0)
+    iv_sum = iv.sum(axis=0, keepdims=True)
+    iv_mean = np.where(n_here > 0, iv_sum / np.maximum(n_here, 1), 0.0)
     iv = np.where(iv_mean > 0, iv / np.where(iv_mean > 0, iv_mean, 1.0), 0.0)
 
     raw = signed * iv
-    raw = raw - raw.mean(axis=0, keepdims=True)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        raw_mean = np.where(n_here > 0, raw.sum(axis=0, keepdims=True) / np.maximum(n_here, 1), 0.0)
+    raw = np.where(present, raw - raw_mean, 0.0)
     gross = np.abs(raw).sum(axis=0, keepdims=True)
     with np.errstate(invalid="ignore", divide="ignore"):
         w = np.where(gross > 1e-9, raw / gross, 0.0)      # gross exposure 1
@@ -260,8 +274,7 @@ def xs_positions(
     port_ret = np.zeros(n)
     rets = np.zeros((len(insts), n))
     for k, inst in enumerate(insts):
-        c = candles_map[inst].c[idx[inst]]
-        rets[k, 1:] = c[1:] / c[:-1] - 1.0
+        rets[k] = _place(candles_map[inst].returns, idx[inst], n, 0.0)
     port_ret[1:] = np.sum(w[:, :-1] * rets[:, 1:], axis=0)
     pvol = F.rolling_std(port_ret, vw) * np.sqrt(bpy)
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -313,10 +326,8 @@ def portfolio_backtest(
         pos = pos_map.get(inst)
         if pos is None or not len(pos):
             continue
-        c = candles_map[inst].c[idx[inst]]
-        fnd = candles_map[inst].funding[idx[inst]]
-        ret = np.zeros(n)
-        ret[1:] = c[1:] / c[:-1] - 1.0
+        ret = _place(candles_map[inst].returns, idx[inst], n, 0.0)
+        fnd = _place(candles_map[inst].funding, idx[inst], n, 0.0)
         prev = np.concatenate(([0.0], pos[:-1]))
         total += prev * ret - np.abs(pos - prev) * cost_rate - prev * fnd
     return np.clip(total, -0.95, 10.0)
