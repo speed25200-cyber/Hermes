@@ -6,6 +6,11 @@
 name: OKX data snapshot
 
 on:
+  # push-triggered so it can run from a feature branch before the file
+  # exists on the default branch (workflow_dispatch needs that)
+  push:
+    branches: ["claude/**"]
+    paths: [".github/workflows/data-snapshot.yml"]
   workflow_dispatch:
     inputs:
       days:
@@ -40,8 +45,8 @@ jobs:
 
       - name: Backfill candles + funding + microstructure
         env:
-          DAYS: ${{ inputs.days }}
-          BARS: ${{ inputs.bars }}
+          DAYS: ${{ inputs.days || '730' }}
+          BARS: ${{ inputs.bars || '1H,15m' }}
         run: |
           python - <<'PY'
           import os, time
