@@ -16,25 +16,34 @@ import numpy as np
 from ..backtest import metrics
 from ..data.store import BARS_PER_YEAR, Candles
 from ..strategy.genome import Genome
-from ..strategy.xs import (XS_GRID, XS_LEAD_GRID, XS_MOM_GRID, XS_REV_GRID,
-                           XS_BASIS_GRID, XS_FLOW_GRID, XS_CROWD_GRID,
-                           portfolio_backtest, xs_positions)
+from ..strategy.xs import portfolio_backtest, xs_grid, xs_positions
 from .validate import ValidatedStrategy
 
 XS_INST = "XS-PORTFOLIO"
 
-# (genome signal name, scoring kind, grid, required extra series or None)
+# (genome signal name, scoring kind, required extra series or None)
 XS_FAMILIES = [
-    ("funding_xs", "carry", XS_GRID, "funding"),
-    ("xs_mom", "mom", XS_MOM_GRID, None),
-    ("xs_rev", "rev", XS_REV_GRID, None),
-    ("xs_lead", "lead", XS_LEAD_GRID, None),
-    ("xs_basis", "basis", XS_BASIS_GRID, "basis"),
-    ("xs_flow", "flow", XS_FLOW_GRID, "flow"),
-    ("xs_crowd", "crowd", XS_CROWD_GRID, "oi"),
+    ("funding_xs", "carry", "funding"),
+    ("xs_mom", "mom", None),
+    ("xs_rev", "rev", None),
+    ("xs_lead", "lead", None),
+    ("xs_basis", "basis", "basis"),
+    ("xs_flow", "flow", "flow"),
+    ("xs_crowd", "crowd", "oi"),
 ]
 
-XS_TOTAL_TRIALS = sum(len(grid) for _, _, grid, _ in XS_FAMILIES)
+# families searched by default: the ones whose input series cover the whole
+# candle history. Basis / taker-flow / open-interest only exist for the last
+# ~180 days on OKX, far too short to validate anything; they can be enabled
+# in config once enough history has accumulated.
+DEFAULT_XS_FAMILIES = ("funding_xs", "xs_mom", "xs_rev", "xs_lead")
+
+XS_TOTAL_TRIALS = sum(len(xs_grid(k, "15m")) for _, k, _ in XS_FAMILIES)
+
+
+def xs_total_trials(families, bar: str) -> int:
+    fam = set(families)
+    return sum(len(xs_grid(k, bar)) for name, k, _ in XS_FAMILIES if name in fam)
 
 
 def _trim_to_need(candles_map: dict[str, Candles], need: str, log=None
@@ -89,6 +98,7 @@ def _validate_family(
     n_folds: int,
     log,
     leader: str | None = None,
+    n_trials: int = XS_TOTAL_TRIALS,
 ) -> ValidatedStrategy | None:
     insts = sorted(candles_map)
     bar = candles_map[insts[0]].bar
@@ -138,7 +148,8 @@ def _validate_family(
                                    fee_bps, slip_bps)
     oos = rets_full[oos_start:]
     eq = np.cumprod(1.0 + oos)
-    st = metrics.summarize(oos, eq, bpy, n_trials=XS_TOTAL_TRIALS)
+    st = metrics.summarize(oos, eq, bpy, n_trials=n_trials)
+    st["n_trials_charged"] = n_trials
 
     edges = np.linspace(0, len(oos), n_folds + 1).astype(int)
     fold_sh = [metrics.sharpe(oos[a + (12 if a else 0):b], bpy)
@@ -160,7 +171,8 @@ def _validate_family(
     genome = Genome(signal=name, params=dict(params),
                     vol_target=0.15, max_lev=1.0)
     return ValidatedStrategy(genome=genome, inst=XS_INST, bar=bar,
-                             is_stats={"sharpe": best[0]}, oos_stats=st)
+                             is_stats={"sharpe": best[0]}, oos_stats=st,
+                             oos_rets=oos)
 
 
 def research_xs(
@@ -175,14 +187,22 @@ def research_xs(
     n_folds: int = 3,
     log=None,
     leader: str | None = None,
+    families=DEFAULT_XS_FAMILIES,
 ) -> list[ValidatedStrategy]:
-    """Run every XS family through the gate; return the survivors."""
+    """Run the selected XS families through the gate; return the survivors.
+    The Deflated Sharpe is charged for every config of every family run."""
     if len(candles_map) < 4:
         if log:
             log("xs research: needs >= 4 instruments, skipping")
         return []
+    bar = next(iter(candles_map.values())).bar
+    fam = set(families)
+    n_trials = max(xs_total_trials(fam, bar), 1)
     out: list[ValidatedStrategy] = []
-    for name, kind, grid, need in XS_FAMILIES:
+    for name, kind, need in XS_FAMILIES:
+        if name not in fam:
+            continue
+        grid = xs_grid(kind, bar)
         data = _trim_to_need(candles_map, need, log) if need else candles_map
         if data is None:
             continue
@@ -193,7 +213,7 @@ def research_xs(
         s = _validate_family(name, kind, grid, data, fee_bps, slip_bps,
                              is_fraction, embargo_bars, min_oos_sharpe,
                              min_dsr, max_oos_drawdown, n_folds, log,
-                             leader=leader)
+                             leader=leader, n_trials=n_trials)
         if s is not None:
             out.append(s)
     return out

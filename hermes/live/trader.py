@@ -21,12 +21,16 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .. import ENGINE_VERSION
 from ..config import Config, effective_costs
 from ..data.store import BAR_MS, BARS_PER_YEAR, Candles, DataStore
 from ..ml.regime import regime_series
 from ..portfolio.allocator import Allocator
-from ..research.evolve import evolve
-from ..research.validate import ValidatedStrategy, split_is_oos, validate_candidates
+from ..research.evolve import evolve, return_matrix
+from ..research.panel import PANEL_INST, Panel
+from ..research.pbo import cscv
+from ..research.validate import (ValidatedStrategy, select_book, split_is_oos,
+                                 validate_candidates, validate_panel)
 from ..risk import LeverageGovernor, RiskEngine
 from ..strategy.signals import compute_position
 from ..exchange.broker import Broker, PaperBroker
@@ -45,6 +49,44 @@ def _log_factory(state_dir: str):
     return log
 
 
+STATE_FILES = ("registry.json", "risk.json", "trader.json", "journal.jsonl",
+               "scalp.json", "flow.jsonl", "flow_model.json", "hermes.log",
+               "research.json")
+
+
+def ensure_state_version(state_dir: str, log=None) -> bool:
+    """State written by another engine version is archived, never reused:
+    strategies validated under a different protocol, paper books opened
+    under another risk regime and a kill switch tripped by a retired desk
+    have no business steering this engine. Returns True when archived."""
+    os.makedirs(state_dir, exist_ok=True)
+    marker = os.path.join(state_dir, "engine_version")
+    current = None
+    if os.path.exists(marker):
+        try:
+            with open(marker) as f:
+                current = int(f.read().strip() or 0)
+        except (OSError, ValueError):
+            current = None
+    if current == ENGINE_VERSION:
+        return False
+    present = [n for n in STATE_FILES if os.path.exists(os.path.join(state_dir, n))]
+    archived = False
+    if present:
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+        dest = os.path.join(state_dir, f"archive-v{current or 0}-{stamp}")
+        os.makedirs(dest, exist_ok=True)
+        for n in present:
+            os.replace(os.path.join(state_dir, n), os.path.join(dest, n))
+        archived = True
+        if log:
+            log(f"state: engine v{current or 0} -> v{ENGINE_VERSION}; archived "
+                f"{len(present)} file(s) to {dest}")
+    with open(marker, "w") as f:
+        f.write(f"{ENGINE_VERSION}\n")
+    return archived
+
+
 class Registry:
     """Deployed strategies + research metadata, persisted to disk."""
 
@@ -54,6 +96,7 @@ class Registry:
         self.researched_at: float = 0.0
         self.n_trials: int = 0
         self.consecutive_empty: int = 0   # empty research passes in a row
+        self.last_report: dict = {}       # diagnostics of the last pass (PBO...)
         self.load()
 
     def load(self) -> None:
@@ -64,15 +107,18 @@ class Registry:
             self.researched_at = d.get("researched_at", 0.0)
             self.n_trials = d.get("n_trials", 0)
             self.consecutive_empty = d.get("consecutive_empty", 0)
+            self.last_report = d.get("last_report", {}) or {}
 
     def save(self) -> None:
         os.makedirs(os.path.dirname(self.path) or ".", exist_ok=True)
         with open(self.path, "w") as f:
             json.dump({
+                "engine_version": ENGINE_VERSION,
                 "strategies": [s.to_dict() for s in self.strategies],
                 "researched_at": self.researched_at,
                 "n_trials": self.n_trials,
                 "consecutive_empty": self.consecutive_empty,
+                "last_report": self.last_report,
             }, f, indent=2)
 
     def apply_survivors(self, survivors: list) -> bool:
@@ -91,6 +137,21 @@ class Registry:
 
     def sid(self, s: ValidatedStrategy) -> str:
         return f"{s.inst}:{s.genome.gid}"
+
+
+def panel_live_book(candles_by_inst: dict[str, Candles], genome,
+                    leader_inst: str | None) -> dict[str, float]:
+    """Latest exposure of a panel rule on every instrument, equal-split —
+    the same construction the research scored (see Panel.book)."""
+    raw: dict[str, float] = {}
+    for inst, c in candles_by_inst.items():
+        ctx = make_ctx(candles_by_inst, inst, leader_inst)
+        pos = compute_position(c, genome, ctx)
+        raw[inst] = float(pos[-1])
+    if not raw:
+        return {}
+    n = len(raw)
+    return {inst: v / n for inst, v in raw.items()}
 
 
 def make_ctx(candles_by_inst: dict[str, Candles], inst: str,
@@ -133,16 +194,25 @@ def _research_one(inst: str, candles: Candles, leader: Candles | None,
 
 
 def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
-                 min_bars: int = 2000, escalation: int = 0
+                 min_bars: int = 2000, escalation: int = 0,
+                 report: dict | None = None
                  ) -> tuple[list[ValidatedStrategy], int]:
-    """Full autonomous research pass over every instrument, parallelised
-    across CPU cores (each instrument is independent).
+    """Full autonomous research pass.
+
+    Default ("panel") mode: one rule is applied to the whole universe and
+    scored as a book; the evolutionary search explores rules in-sample,
+    the whole evaluated population is audited for backtest overfitting
+    (CSCV / PBO), the best rules face the embargoed holdout (Sharpe, DSR
+    charged for the number of holdout tests, drawdown, purged folds), and
+    finally the deployed set must clear the Sharpe floor as a book. The
+    market-neutral cross-sectional families run beside it.
 
     escalation > 0 (consecutive empty passes) widens the evolutionary
     search — more population and generations — so the hunt digs deeper
     each time it comes back empty-handed. Validation thresholds NEVER move.
     Returns (survivors, total genomes evaluated)."""
     r = dict(cfg["research"])
+    rep: dict = report if report is not None else {}
     if escalation > 0:
         boost = 1.0 + 0.5 * min(escalation, 2)
         r["population"] = int(r["population"] * boost)
@@ -154,63 +224,114 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
     leader_inst = cfg["instruments"][0] if cfg["instruments"] else None
     all_survivors: list[ValidatedStrategy] = []
     total_trials = 0
+    workers = max(1, min((os.cpu_count() or 1) - 1, 6))
 
-    eligible_list = []
-    for inst, candles in candles_by_inst.items():
-        if len(candles) < min_bars:
-            log(f"research {inst}: only {len(candles)} bars, skipping "
-                f"(need {min_bars}+)")
-            continue
-        leader = candles_by_inst.get(leader_inst) if (
-            leader_inst and leader_inst != inst) else None
-        eligible_list.append((inst, candles, leader))
-
-    # worker count: leave one core for the OS/dashboard, cap memory usage
-    workers = max(1, min(len(eligible_list), (os.cpu_count() or 1) - 1, 6))
-    log(f"research: {len(eligible_list)} instruments on {workers} worker(s), "
-        f"population={r['population']} generations={r['generations']}")
-
-    n_universe = max(len(eligible_list), 1)
-    if workers == 1:
-        results = [_research_one(i, c, ld, r, fee_bps, slip_bps, n_universe)
-                   for i, c, ld in eligible_list]
-    else:
-        import concurrent.futures as cf
-        with cf.ProcessPoolExecutor(max_workers=workers) as pool:
-            futures = [pool.submit(_research_one, i, c, ld, r, fee_bps, slip_bps,
-                                   n_universe)
-                       for i, c, ld in eligible_list]
-            results = []
-            for fut in cf.as_completed(futures):
-                try:
-                    results.append(fut.result())
-                except Exception as exc:
-                    log(f"research worker failed: {type(exc).__name__}: {exc}")
-
-    for inst, survivors, n_trials, lines in sorted(results, key=lambda t: t[0]):
-        for line in lines:
-            log(line)
-        charged = max(n_trials, 1) * n_universe
-        if survivors:
-            for s in survivors:
-                s.oos_stats["n_trials_charged"] = charged
-        log(f"research {inst}: {len(survivors)} strategies passed OOS "
-            f"validation ({n_trials} genomes, DSR N={charged})")
-        all_survivors.extend(survivors)
-        total_trials += n_trials
-
-    # ---- cross-sectional portfolio strategies (funding carry) ----------
     eligible = {i: c for i, c in candles_by_inst.items() if len(c) >= min_bars}
+    for inst, c in candles_by_inst.items():
+        if inst not in eligible:
+            log(f"research {inst}: only {len(c)} bars, skipping (need {min_bars}+)")
+    if not eligible:
+        log("research: no instrument has enough history")
+        return [], 0
+    bar = next(iter(eligible.values())).bar
+    bpy = BARS_PER_YEAR[bar]
+    mode = r.get("mode", "panel")
+
+    if mode == "panel":
+        panel = Panel(eligible, leader=leader_inst)
+        cut = panel.cut_index(r["is_fraction"])
+        panel_is = panel.slice_to(cut)
+        log(f"research: panel of {panel.k} instruments, {panel.n} bars of {bar} "
+            f"(in-sample {panel_is.n}, holdout {panel.n - cut - r['embargo_bars']}), "
+            f"population={r['population']} generations={r['generations']} "
+            f"workers={workers}")
+        archive: list = []
+        t0 = time.time()
+        pop, n_eval = evolve(
+            panel_is, population=r["population"], generations=r["generations"],
+            fee_bps=fee_bps, slip_bps=slip_bps, seed=r.get("seed"),
+            log=log, workers=workers, archive=archive)
+        total_trials += n_eval
+        log(f"research: evolution evaluated {n_eval} rules in {time.time() - t0:.0f}s")
+        R = return_matrix(archive)
+        pb = cscv(R, bpy, n_blocks=int(r.get("pbo_blocks", 10)))
+        rep["pbo"] = pb
+        rep["n_evaluated"] = n_eval
+        log(f"research: CSCV over {pb['n_trials']} rules x {pb['n_combos']} splits: "
+            f"PBO={pb['pbo']:.2f} median OOS sharpe of IS-winner={pb['oos_sharpe_median']:.2f} "
+            f"P(loss)={pb['p_oos_loss']:.2f} slope={pb['slope']:.2f}")
+        if pb["pbo"] > float(r.get("max_pbo", 0.5)):
+            log(f"research: PBO {pb['pbo']:.2f} > {r.get('max_pbo', 0.5)} — the search "
+                "is ranking noise; nothing from evolution is eligible this pass")
+        else:
+            survivors = validate_panel(
+                pop, panel, is_fraction=r["is_fraction"],
+                embargo_bars=r["embargo_bars"],
+                min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
+                max_oos_drawdown=float(r.get("max_oos_drawdown", 0.30)),
+                fee_bps=fee_bps, slip_bps=slip_bps, top_k=int(r.get("top_k", 10)),
+                max_deployed=r["max_deployed"], n_folds=int(r.get("n_folds", 4)),
+                log=log)
+            for s_ in survivors:
+                s_.oos_stats["pbo"] = pb["pbo"]
+            log(f"research panel: {len(survivors)} rules passed the holdout")
+            all_survivors.extend(survivors)
+    else:
+        eligible_list = []
+        for inst, candles in eligible.items():
+            leader = eligible.get(leader_inst) if (
+                leader_inst and leader_inst != inst) else None
+            eligible_list.append((inst, candles, leader))
+        n_universe = max(len(eligible_list), 1)
+        wk = max(1, min(len(eligible_list), workers))
+        log(f"research: {len(eligible_list)} instruments on {wk} worker(s), "
+            f"population={r['population']} generations={r['generations']}")
+        if wk == 1:
+            results = [_research_one(i, c, ld, r, fee_bps, slip_bps, n_universe)
+                       for i, c, ld in eligible_list]
+        else:
+            import concurrent.futures as cf
+            with cf.ProcessPoolExecutor(max_workers=wk) as pool:
+                futures = [pool.submit(_research_one, i, c, ld, r, fee_bps, slip_bps,
+                                       n_universe)
+                           for i, c, ld in eligible_list]
+                results = []
+                for fut in cf.as_completed(futures):
+                    try:
+                        results.append(fut.result())
+                    except Exception as exc:
+                        log(f"research worker failed: {type(exc).__name__}: {exc}")
+        for inst, survivors, n_trials, lines in sorted(results, key=lambda t: t[0]):
+            for line in lines:
+                log(line)
+            charged = max(n_trials, 1) * n_universe
+            for s_ in survivors:
+                s_.oos_stats["n_trials_charged"] = charged
+            log(f"research {inst}: {len(survivors)} strategies passed OOS "
+                f"validation ({n_trials} genomes, DSR N={charged})")
+            all_survivors.extend(survivors)
+            total_trials += n_trials
+
+    # ---- cross-sectional portfolio strategies (market-neutral books) -----
     if len(eligible) >= 4:
-        from ..research.xs import XS_TOTAL_TRIALS, research_xs
-        xs_survivors = research_xs(
-            eligible, fee_bps=fee_bps, slip_bps=slip_bps,
-            is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
-            min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"], log=log,
-            leader=leader_inst)
-        all_survivors.extend(xs_survivors)
-        total_trials += XS_TOTAL_TRIALS
-        log(f"research XS: {len(xs_survivors)} portfolio strategies deployed")
+        from ..research.xs import research_xs, xs_total_trials
+        fams = tuple(r.get("xs_families") or ())
+        if fams:
+            xs_survivors = research_xs(
+                eligible, fee_bps=fee_bps, slip_bps=slip_bps,
+                is_fraction=r["is_fraction"], embargo_bars=r["embargo_bars"],
+                min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
+                max_oos_drawdown=float(r.get("max_oos_drawdown", 0.35)),
+                log=log, leader=leader_inst, families=fams)
+            all_survivors.extend(xs_survivors)
+            total_trials += xs_total_trials(fams, bar)
+            log(f"research XS: {len(xs_survivors)} portfolio strategies deployed")
+
+    # ---- the deployed set must work as a book ----------------------------
+    all_survivors = select_book(all_survivors, r["min_oos_sharpe"], bpy, log)
+    rep["deployed"] = len(all_survivors)
+    rep["total_trials"] = total_trials
+    rep["finished_at"] = time.time()
     return all_survivors, total_trials
 
 
@@ -321,6 +442,14 @@ class Trader:
         for s in self.registry.strategies:
             sid = self.registry.sid(s)
             from ..strategy.xs import XS_KINDS, xs_positions
+            if s.inst == PANEL_INST:
+                eligible = {i: c for i, c in candles_by_inst.items()
+                            if len(c) >= 600}
+                book = panel_live_book(eligible, s.genome, leader_inst)
+                if book:
+                    per_strategy[sid] = book
+                    self.last_positions[sid] = book
+                continue
             if s.genome.signal in XS_KINDS:
                 eligible = {i: c for i, c in candles_by_inst.items()
                             if len(c) >= 600}
@@ -543,9 +672,11 @@ class LiveRunner:
         self.cfg = cfg
         state_dir = cfg["state_dir"]
         os.makedirs(state_dir, exist_ok=True)
+        ensure_state_version(state_dir, log=None)
         self.log = _log_factory(state_dir)
         self.store = DataStore(cfg["data_dir"])
         self.registry = Registry(state_dir)
+        self._research_lock = threading.Lock()
 
         from ..exchange.okx_client import OKXClient
         creds = cfg.credentials
@@ -563,11 +694,17 @@ class LiveRunner:
                 maker_wait_s=cfg["live"].get("maker_wait_s", 20))
             self._configure_account()
         else:
-            # Paper = taker at bid/ask. Do not blend in phantom maker rebates.
+            # Paper fills mirror the live execution model: post-only at the
+            # touch, with the configured miss rate falling back to taker at
+            # bid/ask — the same assumption every backtest was scored under.
+            costs = cfg["costs"]
             self.broker = PaperBroker(
                 cash=cfg["live"]["paper_equity"],
-                fee_bps=float(cfg["costs"]["taker_fee_bps"]),
-                slippage_bps=float(cfg["costs"]["slippage_bps"]),
+                fee_bps=float(costs["taker_fee_bps"]),
+                maker_fee_bps=float(costs.get("maker_fee_bps", 2.0)),
+                slippage_bps=float(costs["slippage_bps"]),
+                maker_miss_rate=(float(costs.get("maker_miss_rate", 0.3))
+                                 if costs.get("prefer_maker", True) else 1.0),
             )
             try:
                 specs = {}
@@ -671,7 +808,10 @@ class LiveRunner:
                 except Exception as exc:
                     self.log(f"desk backfill {inst} {bar}: {type(exc).__name__}: {exc}")
 
-    def ensure_research(self, force: bool = False) -> None:
+    def ensure_research(self, force: bool = False) -> bool:
+        """Re-run the hunt when the deployed set is stale (weekly), daily
+        while the book is empty, or when it never ran. Returns True when a
+        pass ran. Serialised: two passes never overlap."""
         age_h = (time.time() - self.registry.researched_at) / 3600.0
         r = self.cfg["research"]
         # adaptive cadence: while the book is empty the hunt re-runs daily
@@ -683,13 +823,22 @@ class LiveRunner:
         never_ran = self.registry.researched_at == 0
         # NB: an empty deployed set after a completed research is a legitimate
         # outcome (no robust edge) — it must NOT trigger an immediate re-run
-        if force or stale or never_ran:
+        if not (force or stale or never_ran):
+            return False
+        lock = getattr(self, "_research_lock", None)
+        if lock is None:
+            lock = self._research_lock = threading.Lock()
+        if not lock.acquire(blocking=False):
+            self.log("research pass already running, skipping")
+            return False
+        try:
             self.log(f"research pass starting (stale={stale}, "
                      f"deployed={len(self.registry.strategies)}, "
                      f"empty_streak={self.registry.consecutive_empty})")
+            report: dict = {"started_at": time.time()}
             survivors, n_trials = run_research(
                 self._load_candles(), self.cfg, self.log,
-                escalation=self.registry.consecutive_empty)
+                escalation=self.registry.consecutive_empty, report=report)
             replaced = self.registry.apply_survivors(survivors)
             if not replaced:
                 self.log(f"research empty — keeping {len(self.registry.strategies)} "
@@ -697,8 +846,12 @@ class LiveRunner:
             self.registry.record_outcome(survivors)
             self.registry.researched_at = time.time()
             self.registry.n_trials = n_trials
+            self.registry.last_report = report
             self.registry.save()
             self.log(f"research done: {len(self.registry.strategies)} deployed")
+            return True
+        finally:
+            lock.release()
 
     def run_once(self, allow_research: bool = False) -> dict | None:
         """One decision cycle then return — the execution model for scheduled
@@ -737,149 +890,75 @@ class LiveRunner:
         return report
 
     def run_forever(self) -> None:
-        self.log(f"Hermes starting: mode={self.cfg['live']['mode']} "
-                 f"bar={self.cfg['bar']} instruments={self.cfg['instruments']}"
-                 + (" scalp=1m" if self.scalp else ""))
+        self.log(f"Hermes v{ENGINE_VERSION} starting: mode={self.cfg['live']['mode']} "
+                 f"bar={self.cfg['bar']} instruments={len(self.cfg['instruments'])} "
+                 f"deployed={len(self.registry.strategies)}"
+                 + (" +scalp-desk" if self.scalp else ""))
         if self.risk.state.killed:
             self.log("KILL SWITCH is set — idling, no orders. "
                      f"reason={self.risk.state.kill_reason!r}. "
                      "reset_kill to resume. systemd must NOT respawn a halt.")
-            while True:
-                time.sleep(30)
+            self._idle_forever()
+        # data first (blocking: the first decision needs full history), then
+        # the hunt runs in the background so the loop is never blocked by a
+        # research pass — the book keeps trading whatever is deployed
+        try:
+            self.ensure_data()
+        except Exception as exc:
+            self.log(f"startup sync failed ({type(exc).__name__}: {exc}); "
+                     "continuing with cached data")
+        threading.Thread(target=self._research_bg, daemon=True).start()
         if self.scalp:
             self._ensure_scalp_data()
             try:
-                names = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
-                self.scalp.horizons.fit_store(self.store, names)
+                self.scalp.horizons.fit_store(self.store, list(self.scalp.instruments))
             except Exception as exc:
                 self.log(f"learner fit: {type(exc).__name__}: {exc}")
-            threading.Thread(target=self._bg_sync, daemon=True).start()
-        else:
-            self.ensure_data()
-            threading.Thread(target=self._research_bg, daemon=True).start()
+        poll = int(self.cfg["live"]["poll_seconds"])
+        if self.scalp:
+            poll = min(poll, int((self.cfg.raw.get("scalp") or {}).get("poll_seconds", 5)))
         last_cycle_bar = 0
-        last_scalp_bar = {b: 0 for b in ("1m", "3m", "5m", "15m")}
-        last_uni = 0.0
-        last_learn = time.time()
-        rr = 0
-        book_rr = 0
-        poll = int((self.cfg.raw.get("scalp") or {}).get("poll_seconds", 5)
-                   if self.scalp else self.cfg["live"]["poll_seconds"])
+        last_light = 0.0
         while True:
             try:
-                from ..data.fetcher import update_latest
-                if self.scalp:
-                    try:
-                        ticks = self.client.swap_tickers()
-                    except Exception as exc:
-                        self.log(f"scalp tickers: {type(exc).__name__}: {exc}")
-                        ticks = {}
-                    if ticks and (last_uni == 0.0 or time.time() - last_uni > 900):
-                        before = list(self.scalp.instruments)
-                        uni = self.scalp.refresh_universe(ticks)
-                        last_uni = time.time()
-                        self.scalp.flatten_foreign()
-                        self.trader.save_state(self.cfg["state_dir"])
-                        if uni != before:
-                            self.log(f"scalp universe {len(uni)}: "
-                                     + ",".join(i.split("-")[0] for i in uni[:12])
-                                     + ("…" if len(uni) > 12 else ""))
-                    elif ticks:
-                        self.scalp.ticks = ticks
-                    if ticks and hasattr(self.broker, "mark_ticks"):
-                        self.broker.mark_ticks(ticks)
-                    names = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
-                    if time.time() - last_learn > 3600:
-                        last_learn = time.time()
-                        def _refit():
-                            try:
-                                self.scalp.horizons.fit_store(self.store, names)
-                            except Exception as exc:
-                                self.log(f"learner refit: {type(exc).__name__}: {exc}")
-                        threading.Thread(target=_refit, daemon=True).start()
-                    t0, r0 = self.client.timeout, self.client.max_retries
-                    self.client.timeout, self.client.max_retries = 4.0, 1
-                    try:
-                        for inst in names:
-                            try:
-                                self.scalp.ingest_book(inst, self.client.books(inst, sz=10))
-                            except Exception as exc:
-                                self.log(f"L2 {inst}: {type(exc).__name__}")
-                            try:
-                                self.scalp.ingest_trades(inst, self.client.last_trades(inst, limit=50))
-                            except Exception:
-                                pass
-                            try:
-                                update_latest(self.client, self.store, inst, "1m", limit=120)
-                            except Exception:
-                                pass
-                            slow = ("3m", "5m", "15m")[rr % 3]
-                            try:
-                                update_latest(self.client, self.store, inst, slow, limit=120)
-                            except Exception:
-                                pass
-                        rr += 1
-                    finally:
-                        self.client.timeout, self.client.max_retries = t0, r0
-                    from ..scalp.clock import BARS as _BARS
-                    any_new = False
-                    last_rep = None
-                    for bar in _BARS:
-                        cbar = {inst: self.store.load(inst, bar) for inst in names}
-                        newest = max((int(c.ts[-1]) for c in cbar.values() if len(c)), default=0)
-                        if newest > last_scalp_bar.get(bar, 0):
-                            last_scalp_bar[bar] = newest
-                            any_new = True
-                            last_rep = self.scalp.tick(cbar, time.time(), bar=bar)
-                            live = [p for p in (last_rep.get("preds") or []) if p.get("dir") != "flat"]
-                            self.log(f"desk {bar} @ {newest}: eq={last_rep.get('equity', 0):.2f} "
-                                     f"live={len(live)}/{len(last_rep.get('preds') or [])} "
-                                     f"hz={last_rep.get('live_bars')}")
-                    if last_rep and last_rep.get("targets") is not None:
-                        self.trader._last_targets = last_rep["targets"]
-                    if self.risk.state.killed:
-                        self.log("KILL SWITCH TRIPPED - idling (no systemd restart mill).")
-                        while True:
-                            time.sleep(30)
-                    if not any_new:
-                        if self.risk.trading_allowed:
-                            self.scalp.check_exits()
-                            self.scalp.execute_pending()
-                        else:
-                            self.scalp.pending = {}
-                        self.scalp._snapshot({"equity": self.broker.equity()})
-                    px = {i: float((t or {}).get("last") or 0)
-                          for i, t in (self.scalp.ticks or {}).items()}
-                    px = {k: v for k, v in px.items() if v > 0}
-                    if px:
-                        eq = self.trader.heartbeat(px, time.time())
-                        self.trader.save_state(self.cfg["state_dir"])
-                        self.scalp._snapshot({"equity": eq})
-                else:
-                    for inst in self.cfg["instruments"]:
-                        try:
-                            update_latest(self.client, self.store, inst, self.cfg["bar"])
-                        except Exception:
-                            pass
+                now = time.time()
+                # the swing book: one decision per closed bar
+                if now - last_light >= max(poll, 20):
+                    last_light = now
+                    self._refresh_latest()
                     candles = self._load_candles()
                     newest = max((int(c.ts[-1]) for c in candles.values() if len(c)),
                                  default=0)
-                    if newest > last_cycle_bar and self.registry.strategies:
+                    if newest > last_cycle_bar:
                         last_cycle_bar = newest
-                        report = self.trader.run_cycle(candles, time.time())
-                        self.trader.save_state(self.cfg["state_dir"])
-                        self.log(f"swing @ {newest}: equity={report['equity']:.2f}")
-                        if self.risk.state.killed:
-                            self.log("KILL SWITCH TRIPPED - idling (no systemd restart mill).")
-                            while True:
-                                time.sleep(30)
-                    else:
-                        try:
-                            ticks = self.client.tickers(self.cfg["instruments"])
-                            if ticks:
-                                self.trader.heartbeat(ticks, time.time())
-                        except Exception as exc:
-                            self.log(f"heartbeat: {type(exc).__name__}: {exc}")
+                        if self.registry.strategies:
+                            report = self.trader.run_cycle(candles, now)
+                            self.trader.save_state(self.cfg["state_dir"])
+                            tg = {k.split("-")[0]: round(v, 3)
+                                  for k, v in report.get("targets", {}).items()
+                                  if abs(v) > 1e-4}
+                            self.log(f"cycle @ {newest}: equity={report['equity']:.2f} "
+                                     f"book={tg}")
+                        else:
+                            # nothing deployed: still mark to market so the
+                            # journal / dashboard stay alive
+                            prices = {i: float(c.c[-1]) for i, c in candles.items()
+                                      if len(c)}
+                            if prices:
+                                self.trader.heartbeat(prices, now)
+                if self.risk.state.killed:
+                    self.log("KILL SWITCH TRIPPED - idling (no systemd restart mill).")
+                    self._idle_forever()
+                if self.scalp:
+                    self._scalp_step()
+                else:
+                    try:
+                        ticks = self.client.tickers(self.cfg["instruments"])
+                        if ticks:
+                            self.trader.heartbeat(ticks, time.time())
+                            self.trader.save_state(self.cfg["state_dir"])
+                    except Exception as exc:
+                        self.log(f"heartbeat: {type(exc).__name__}: {exc}")
             except KeyboardInterrupt:
                 self.log("interrupted, exiting cleanly")
                 return
@@ -887,13 +966,99 @@ class LiveRunner:
                 self.log(f"cycle error: {type(exc).__name__}: {exc}")
             time.sleep(poll)
 
-    def _bg_sync(self) -> None:
-        time.sleep(45)  # let the 1m loop run uncontended first
+    def _idle_forever(self) -> None:
+        while True:
+            time.sleep(30)
+
+    def _refresh_latest(self) -> None:
+        from ..data.fetcher import update_latest
+        for inst in self.cfg["instruments"]:
+            try:
+                update_latest(self.client, self.store, inst, self.cfg["bar"])
+            except Exception as exc:
+                self.log(f"refresh {inst}: {type(exc).__name__}: {exc}")
+
+    def _research_bg(self) -> None:
+        """Background hunt: checks hourly whether the deployed set is stale
+        (weekly) or empty (daily) and re-runs the whole research pass on
+        fresh data. Never blocks the trading loop."""
+        time.sleep(5)
+        while True:
+            try:
+                self.ensure_research()
+            except Exception as exc:
+                self.log(f"research thread: {type(exc).__name__}: {exc}")
+            time.sleep(3600)
+
+    # ---- optional intraday desk (opt-in) ----------------------------------
+
+    def _scalp_step(self) -> None:
+        from ..data.fetcher import update_latest
         try:
-            self.ensure_data()
+            ticks = self.client.swap_tickers()
         except Exception as exc:
-            self.log(f"bg sync: {type(exc).__name__}: {exc}")
+            self.log(f"scalp tickers: {type(exc).__name__}: {exc}")
+            ticks = {}
+        if ticks:
+            if self.scalp.universe_at == 0.0 or time.time() - self.scalp.universe_at > 900:
+                self.scalp.refresh_universe(ticks)
+            else:
+                self.scalp.ticks = ticks
+            if hasattr(self.broker, "mark_ticks"):
+                self.broker.mark_ticks(ticks)
+        names = list(self.scalp.instruments)
+        if time.time() - getattr(self, "_last_learn", 0.0) > 3600:
+            self._last_learn = time.time()
+
+            def _refit():
+                try:
+                    self.scalp.horizons.fit_store(self.store, names)
+                except Exception as exc:
+                    self.log(f"learner refit: {type(exc).__name__}: {exc}")
+            threading.Thread(target=_refit, daemon=True).start()
+        t0, r0 = self.client.timeout, self.client.max_retries
+        self.client.timeout, self.client.max_retries = 4.0, 1
         try:
-            self.ensure_research()
-        except Exception as exc:
-            self.log(f"research thread: {type(exc).__name__}: {exc}")
+            for inst in names:
+                try:
+                    self.scalp.ingest_book(inst, self.client.books(inst, sz=10))
+                except Exception as exc:
+                    self.log(f"L2 {inst}: {type(exc).__name__}")
+                try:
+                    self.scalp.ingest_trades(inst, self.client.last_trades(inst, limit=50))
+                except Exception:
+                    pass
+                for bar in ("1m", "3m", "5m", "15m"):
+                    try:
+                        update_latest(self.client, self.store, inst, bar, limit=120)
+                    except Exception:
+                        pass
+        finally:
+            self.client.timeout, self.client.max_retries = t0, r0
+        from ..scalp.clock import BARS as _BARS
+        if not hasattr(self, "_last_scalp_bar"):
+            self._last_scalp_bar = {b: 0 for b in _BARS}
+        any_new = False
+        for bar in _BARS:
+            cbar = {inst: self.store.load(inst, bar) for inst in names}
+            newest = max((int(c.ts[-1]) for c in cbar.values() if len(c)), default=0)
+            if newest > self._last_scalp_bar.get(bar, 0):
+                self._last_scalp_bar[bar] = newest
+                any_new = True
+                rep = self.scalp.tick(cbar, time.time(), bar=bar)
+                live = [p for p in (rep.get("preds") or []) if p.get("dir") != "flat"]
+                self.log(f"desk {bar} @ {newest}: eq={rep.get('equity', 0):.2f} "
+                         f"live={len(live)}/{len(rep.get('preds') or [])}")
+        if not any_new:
+            if self.risk.trading_allowed:
+                self.scalp.check_exits()
+                self.scalp.execute_pending()
+            else:
+                self.scalp.pending = {}
+        px = {i: float((t or {}).get("last") or 0)
+              for i, t in (self.scalp.ticks or {}).items()}
+        px = {k: v for k, v in px.items() if v > 0}
+        if px:
+            eq = self.trader.heartbeat(px, time.time())
+            self.trader.save_state(self.cfg["state_dir"])
+            self.scalp._snapshot({"equity": eq})

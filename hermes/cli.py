@@ -276,14 +276,30 @@ def cmd_fetch(args) -> None:
 
 
 def cmd_research(args) -> None:
-    from .live.trader import Registry, run_research
+    from .live.trader import Registry, ensure_state_version, run_research
 
     cfg = Config.load(args.config)
+    if args.bar:
+        cfg.raw["bar"] = args.bar
+    for k in ("population", "generations", "seed"):
+        v = getattr(args, k, None)
+        if v is not None:
+            cfg.raw["research"][k] = v
     store = DataStore(cfg["data_dir"])
     candles = {inst: store.load(inst, cfg["bar"]) for inst in cfg["instruments"]}
+    ensure_state_version(cfg["state_dir"], log=print)
     registry = Registry(cfg["state_dir"])
+    report: dict = {"started_at": time.time()}
     survivors, n_trials = run_research(
-        candles, cfg, log=print, escalation=registry.consecutive_empty)
+        candles, cfg, log=print, escalation=registry.consecutive_empty,
+        report=report)
+    if args.dry_run:
+        print(f"dry run: {len(survivors)} strategies would be deployed "
+              f"(registry untouched)")
+        for s in survivors:
+            print(f"  {s.inst} {s.genome.gid} {s.genome.describe()} "
+                  f"OOS sharpe {s.oos_stats['sharpe']:.2f} dsr {s.oos_stats['dsr']:.2f}")
+        return
     replaced = registry.apply_survivors(survivors)
     if not replaced:
         print(f"research empty — keeping {len(registry.strategies)} existing "
@@ -291,8 +307,61 @@ def cmd_research(args) -> None:
     registry.record_outcome(survivors)
     registry.researched_at = time.time()
     registry.n_trials = n_trials
+    registry.last_report = report
     registry.save()
     print(f"deployed {len(registry.strategies)} strategies -> {registry.path}")
+
+
+def cmd_import_snapshot(args) -> None:
+    """Load a gzipped-CSV market snapshot (see .github/workflows/
+    data-snapshot.yml) into the local SQLite store."""
+    import csv
+    import gzip
+
+    cfg = Config.load(args.config)
+    store = DataStore(cfg["data_dir"])
+    d = args.dir
+
+    def rows(name):
+        path = os.path.join(d, f"{name}.csv.gz")
+        if not os.path.exists(path):
+            return
+        with gzip.open(path, "rt", newline="") as f:
+            r = csv.reader(f)
+            header = next(r, None)
+            if header is None:
+                return
+            yield from r
+
+    n = 0
+    batch: dict[tuple, list] = {}
+    for inst, bar, ts, o, h, l, c, v in rows("candles"):
+        batch.setdefault((inst, bar), []).append((int(ts), o, h, l, c, v))
+    for (inst, bar), rs in batch.items():
+        n += store.upsert_candles(inst, bar, rs)
+        print(f"{inst} {bar}: {len(rs)} candles")
+    fb: dict[str, list] = {}
+    for inst, ts, rate in rows("funding"):
+        fb.setdefault(inst, []).append((int(ts), float(rate)))
+    for inst, rs in fb.items():
+        store.upsert_funding(inst, rs)
+    ob: dict[str, list] = {}
+    for inst, ts, oi in rows("oi"):
+        ob.setdefault(inst, []).append((int(ts), float(oi)))
+    for inst, rs in ob.items():
+        store.upsert_oi(inst, rs)
+    flb: dict[str, list] = {}
+    for inst, ts, buy, sell in rows("flow"):
+        flb.setdefault(inst, []).append((int(ts), float(buy), float(sell)))
+    for inst, rs in flb.items():
+        store.upsert_flow(inst, rs)
+    for table in ("mark_px", "index_px"):
+        pb: dict[tuple, list] = {}
+        for inst, bar, ts, px in rows(table):
+            pb.setdefault((inst, bar), []).append((int(ts), float(px)))
+        for (inst, bar), rs in pb.items():
+            store.upsert_px(table, inst, bar, rs)
+    print(f"imported {n} candles into {store.path}")
 
 
 def cmd_run(args) -> None:
@@ -381,7 +450,18 @@ def main(argv: list[str] | None = None) -> None:
     rt.set_defaults(fn=cmd_realtest)
 
     r = sub.add_parser("research", help="run alpha search on stored data")
+    r.add_argument("--bar", default=None, help="override the research bar (e.g. 1H)")
+    r.add_argument("--population", type=int, default=None)
+    r.add_argument("--generations", type=int, default=None)
+    r.add_argument("--seed", type=int, default=None)
+    r.add_argument("--dry-run", action="store_true",
+                   help="run the full pass but leave the registry untouched")
     r.set_defaults(fn=cmd_research)
+
+    imp = sub.add_parser("import-snapshot",
+                         help="load a gzipped-CSV market snapshot into the store")
+    imp.add_argument("dir", help="directory with candles.csv.gz, funding.csv.gz, ...")
+    imp.set_defaults(fn=cmd_import_snapshot)
 
     u = sub.add_parser("run", help="autonomous trading loop")
     u.add_argument("--mode", choices=["paper", "live"], default=None)

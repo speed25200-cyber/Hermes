@@ -28,6 +28,7 @@ from ..data.store import BARS_PER_YEAR, Candles
 from ..strategy.genome import Genome
 from ..strategy.signals import compute_position
 from .evolve import Candidate
+from .panel import PANEL_INST, Panel
 
 
 @dataclass
@@ -37,6 +38,7 @@ class ValidatedStrategy:
     bar: str
     is_stats: dict
     oos_stats: dict
+    oos_rets: np.ndarray | None = None   # transient: book-level checks only
 
     def to_dict(self) -> dict:
         return {
@@ -53,6 +55,113 @@ class ValidatedStrategy:
             genome=Genome.from_dict(d["genome"]), inst=d["inst"], bar=d["bar"],
             is_stats=d.get("is_stats", {}), oos_stats=d.get("oos_stats", {}),
         )
+
+
+def _fold_consistency(rets: np.ndarray, bpy: int, n_folds: int,
+                      fold_embargo: int) -> tuple[bool, str, list[float]]:
+    """Purged sub-fold consistency: cut the OOS window into `n_folds`
+    embargoed folds; the majority must be individually profitable."""
+    edges = np.linspace(0, len(rets), n_folds + 1).astype(int)
+    fold_sharpes: list[float] = []
+    for a, b in zip(edges[:-1], edges[1:]):
+        a2 = a + (fold_embargo if a > 0 else 0)
+        if b - a2 > 50:
+            fold_sharpes.append(metrics.sharpe(rets[a2:b], bpy))
+    positive = sum(1 for x in fold_sharpes if x > 0)
+    ok = positive >= (len(fold_sharpes) // 2 + 1) if fold_sharpes else False
+    return ok, f"{positive}/{len(fold_sharpes)}", fold_sharpes
+
+
+def validate_panel(
+    candidates: list[Candidate],
+    panel: Panel,
+    is_fraction: float = 0.65,
+    embargo_bars: int = 72,
+    min_oos_sharpe: float = 0.7,
+    min_dsr: float = 0.5,
+    max_oos_drawdown: float = 0.30,
+    fee_bps: float = 5.0,
+    slip_bps: float = 2.0,
+    top_k: int = 10,
+    max_deployed: int = 4,
+    n_folds: int = 4,
+    fold_embargo: int = 48,
+    max_per_family: int = 2,
+    extra_trials: int = 0,
+    log=None,
+) -> list[ValidatedStrategy]:
+    """Score the best in-sample rules on the embargoed panel holdout.
+
+    Exactly `top_k` rules are tested out-of-sample, so the Deflated Sharpe
+    is charged for `top_k` (+ `extra_trials`) selections — the number of
+    strategies that actually competed on the holdout, which is what the
+    multiple-testing correction must reflect."""
+    cut = panel.cut_index(is_fraction)
+    oos_start = min(cut + embargo_bars, panel.n)
+    if panel.n - oos_start < 300:
+        raise ValueError("not enough OOS data to validate (need >= 300 bars)")
+    bpy = panel.bpy
+    n_trials = max(top_k + extra_trials, 1)
+    survivors: list[ValidatedStrategy] = []
+    tested = 0
+    family_seen: dict[str, int] = {}
+    for cand in candidates:
+        if tested >= top_k or len(survivors) >= max_deployed:
+            break
+        g = cand.genome
+        if family_seen.get(g.signal, 0) >= max_per_family:
+            continue
+        family_seen[g.signal] = family_seen.get(g.signal, 0) + 1
+        tested += 1
+        P = panel.positions(g)
+        rets, turnover, gross = panel.book_returns(P, fee_bps, slip_bps)
+        oos = rets[oos_start:]
+        eq = np.cumprod(1.0 + oos)
+        st = metrics.summarize(oos, eq, bpy, turnover, n_trials)
+        st["gross_exposure"] = gross
+        st["n_trials_charged"] = n_trials
+        consistent, label, _ = _fold_consistency(oos, bpy, n_folds, fold_embargo)
+        st["oos_folds_positive"] = label
+        verdict = (
+            st["sharpe"] >= min_oos_sharpe
+            and st["dsr"] >= min_dsr
+            and st["max_drawdown"] <= max_oos_drawdown
+            and consistent
+        )
+        if log:
+            log(f"  OOS panel {g.gid} {g.describe()}: sharpe={st['sharpe']:.2f} "
+                f"dsr={st['dsr']:.3f} psr={st['psr']:.3f} "
+                f"mdd={st['max_drawdown']:.1%} folds+={label} "
+                f"gross={gross:.2f} -> {'DEPLOY' if verdict else 'reject'}")
+        if verdict:
+            survivors.append(ValidatedStrategy(
+                genome=g, inst=PANEL_INST, bar=panel.bar,
+                is_stats=cand.is_stats, oos_stats=st, oos_rets=oos))
+    return survivors
+
+
+def select_book(survivors: list[ValidatedStrategy], min_sharpe: float, bpy: int,
+                log=None) -> list[ValidatedStrategy]:
+    """The deployed set is itself a portfolio: its equal-weight OOS return
+    must clear the Sharpe floor. Drop the weakest member until it does (or
+    nothing is left). Strategies without an OOS series are kept as-is."""
+    with_rets = [s for s in survivors if s.oos_rets is not None and len(s.oos_rets) > 50]
+    others = [s for s in survivors if s not in with_rets]
+    while len(with_rets) >= 1:
+        T = min(len(s.oos_rets) for s in with_rets)
+        book = np.mean([s.oos_rets[-T:] for s in with_rets], axis=0)
+        sh = metrics.sharpe(book, bpy)
+        if log:
+            log(f"book check: {len(with_rets)} strategies, equal-weight OOS "
+                f"sharpe={sh:.2f} (floor {min_sharpe})")
+        if sh >= min_sharpe or len(with_rets) == 1:
+            break
+        weakest = min(with_rets, key=lambda s: s.oos_stats.get("sharpe", 0.0))
+        with_rets.remove(weakest)
+        if log:
+            log(f"book check: dropping {weakest.genome.gid} "
+                f"({weakest.genome.describe()})")
+    return with_rets + others
 
 
 def split_is_oos(candles: Candles, is_fraction: float, embargo_bars: int

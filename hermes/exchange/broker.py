@@ -61,6 +61,11 @@ class PaperBroker(Broker):
     specs: dict[str, dict] = field(default_factory=dict)
     lever: dict[str, float] = field(default_factory=dict)  # OKX lev per inst
     margin_mode: bool = True
+    # realism: a post-only entry is not guaranteed to fill. The same miss
+    # rate the backtests assume is drawn (deterministically seeded) per
+    # order; a miss pays taker fee + crosses the spread, exactly like live.
+    maker_miss_rate: float = 0.0
+    _rng_state: int = 12345
 
     def set_specs(self, specs: dict[str, dict]) -> None:
         self.specs = dict(specs)
@@ -164,7 +169,7 @@ class PaperBroker(Broker):
         qty = self._round_qty(inst, qty)
         if qty == 0 or (price_hint <= 0 and not (self.book.get(inst) or {}).get("bid")):
             return None
-        if force_taker:
+        if force_taker or self._maker_missed():
             px = self._taker_px(inst, qty, price_hint)
             fee_bps = self.fee_bps
         else:
@@ -229,6 +234,17 @@ class PaperBroker(Broker):
         self.fills.append(fill)
         return fill
 
+    def _maker_missed(self) -> bool:
+        if self.maker_miss_rate <= 0.0:
+            return False
+        # xorshift32: cheap, deterministic, persisted with the broker
+        x = self._rng_state & 0xFFFFFFFF
+        x ^= (x << 13) & 0xFFFFFFFF
+        x ^= x >> 17
+        x ^= (x << 5) & 0xFFFFFFFF
+        self._rng_state = x
+        return (x / 4294967296.0) < self.maker_miss_rate
+
     def apply_funding(self, inst: str, rate: float) -> None:
         """Long pays positive funding on notional."""
         q = self.pos.get(inst, 0.0)
@@ -238,13 +254,15 @@ class PaperBroker(Broker):
 
     def to_dict(self) -> dict:
         return {"cash": self.cash, "pos": self.pos, "prices": self.prices,
-                "entry": self.entry, "lever": self.lever, "margin_mode": True}
+                "entry": self.entry, "lever": self.lever, "margin_mode": True,
+                "rng_state": self._rng_state}
 
     def restore(self, d: dict) -> None:
         self.pos = dict(d.get("pos", {}))
         self.prices = dict(d.get("prices", {}))
         self.entry = dict(d.get("entry", {}))
         self.lever = {k: float(v) for k, v in (d.get("lever") or {}).items()}
+        self._rng_state = int(d.get("rng_state", self._rng_state))
         cash = float(d.get("cash", self.cash))
         if d.get("margin_mode"):
             self.cash = cash

@@ -27,47 +27,51 @@ from .. import features as F
 from ..data.store import BARS_PER_YEAR, Candles
 
 # parameter grids searched by the XS research gate (small on purpose: few
-# trials keep the deflated-Sharpe penalty low and the strategy honest)
-XS_GRID = [  # carry (funding_xs)
-    {"lookback": lb, "max_w": mw}
-    for lb in (100, 200, 400)
-    for mw in (0.15, 0.25)
-]
-XS_MOM_GRID = [  # ~3 weeks / 6 weeks / 12 weeks of 15m bars
-    {"lookback": lb, "max_w": mw}
-    for lb in (2000, 4000, 8000)
-    for mw in (0.15, 0.25)
-]
-XS_REV_GRID = [  # 4h / 12h / 1 day of 15m bars
-    {"lookback": lb, "max_w": mw}
-    for lb in (16, 48, 96)
-    for mw in (0.15, 0.25)
-]
-XS_LEAD_GRID = [  # leader-move window: 2h / 4h / 8h of 15m bars
-    {"lookback": lb, "max_w": mw}
-    for lb in (8, 16, 32)
-    for mw in (0.15, 0.25)
-]
+# trials keep the deflated-Sharpe penalty low and the strategy honest).
+# Lookbacks are defined in HOURS and converted to bars for the panel's bar,
+# so the same economic horizons are searched whatever the data frequency.
+_GRID_HOURS = {
+    "carry": (24, 72, 168),        # funding EWMA: 1d / 3d / 1w
+    "mom":   (504, 1008, 2016),    # 3 / 6 / 12 weeks
+    "rev":   (4, 12, 24),          # 4h / 12h / 1d
+    "lead":  (2, 4, 8),            # leader-move window
+    "basis": (12, 24, 48),
+    "flow":  (4, 12, 24),
+    "crowd": (4, 12, 24),
+}
+_MAX_W = (0.15, 0.25)
 
-XS_BASIS_GRID = [  # fade rich perp premium / cheap discount
-    {"lookback": lb, "max_w": mw}
-    for lb in (48, 96, 192)
-    for mw in (0.15, 0.25)
-]
-XS_FLOW_GRID = [  # fade aggressive taker flow (4h / 12h / 1d)
-    {"lookback": lb, "max_w": mw}
-    for lb in (16, 48, 96)
-    for mw in (0.15, 0.25)
-]
-XS_CROWD_GRID = [  # fade OI-up + price-up crowding
-    {"lookback": lb, "max_w": mw}
-    for lb in (16, 48, 96)
-    for mw in (0.15, 0.25)
-]
 
-# trailing window (bars) for estimating each name's lead-lag beta to the
+def bars_per_hour(bar: str) -> float:
+    from ..data.store import BAR_MS
+    return 3_600_000.0 / BAR_MS[bar]
+
+
+def hours_to_bars(hours: float, bar: str) -> int:
+    return max(1, int(round(hours * bars_per_hour(bar))))
+
+
+def xs_grid(kind: str, bar: str = "15m") -> list[dict]:
+    return [{"lookback": hours_to_bars(h, bar), "max_w": mw}
+            for h in _GRID_HOURS[kind] for mw in _MAX_W]
+
+
+# legacy names (15m grids) kept for existing imports/tests
+XS_GRID = xs_grid("carry", "15m")
+XS_MOM_GRID = xs_grid("mom", "15m")
+XS_REV_GRID = xs_grid("rev", "15m")
+XS_LEAD_GRID = xs_grid("lead", "15m")
+XS_BASIS_GRID = xs_grid("basis", "15m")
+XS_FLOW_GRID = xs_grid("flow", "15m")
+XS_CROWD_GRID = xs_grid("crowd", "15m")
+
+# trailing window (hours) for estimating each name's lead-lag beta to the
 # universe leader's previous-bar return (fixed a priori, not searched)
-LEAD_BETA_WINDOW = 2000
+LEAD_BETA_HOURS = 500
+LEAD_BETA_WINDOW = 2000   # legacy constant (15m bars)
+
+# realised-vol / portfolio-vol estimation window, hours
+VOL_WINDOW_HOURS = 24
 
 # skip the most recent day when ranking momentum (dodges 1-day reversal)
 MOM_SKIP_FRAC = 0.05
@@ -142,7 +146,7 @@ def _scores(kind: str, candles: Candles, rv: np.ndarray, lb: int) -> np.ndarray:
 
 def _lead_scores(candles_map: dict[str, Candles], insts: list[str],
                  idx: dict[str, np.ndarray], n: int, lb: int,
-                 leader: str) -> np.ndarray | None:
+                 leader: str, bar: str = "15m") -> np.ndarray | None:
     """Follow-the-leader continuation: each name's score is its causally
     estimated beta to the LEADER's previous-bar return, times the leader's
     recent move. High-beta laggards go long after the leader rallies (they
@@ -158,13 +162,13 @@ def _lead_scores(candles_map: dict[str, Candles], insts: list[str],
     if lb >= n:
         return None
     L[lb:] = lc[lb:] / lc[:-lb] - 1.0
-    lsd = F.rolling_std(lret, 96) * np.sqrt(lb)
+    lsd = F.rolling_std(lret, hours_to_bars(VOL_WINDOW_HOURS, bar)) * np.sqrt(lb)
     with np.errstate(invalid="ignore", divide="ignore"):
         L = L / np.where(lsd > 1e-9, lsd, np.nan)
     L = np.clip(np.nan_to_num(L, nan=0.0), -3.0, 3.0)
 
     x = np.concatenate(([0.0], lret[:-1]))          # leader ret, lagged 1 bar
-    W = LEAD_BETA_WINDOW
+    W = hours_to_bars(LEAD_BETA_HOURS, bar)
     cs_xx = np.cumsum(x * x)
     smat = np.zeros((len(insts), n))
     for k, inst in enumerate(insts):
@@ -209,20 +213,21 @@ def xs_positions(
     bar = candles_map[insts[0]].bar
     bpy = BARS_PER_YEAR[bar]
 
+    vw = hours_to_bars(VOL_WINDOW_HOURS, bar)
     vmat = np.zeros((len(insts), n))
     for k, inst in enumerate(insts):
         c = candles_map[inst]
-        rv = F.realized_vol(c.c, w=96, bars_per_year=bpy)
+        rv = F.realized_vol(c.c, w=vw, bars_per_year=bpy)
         vmat[k] = np.nan_to_num(rv, nan=0.0)[idx[inst]]
     if kind == "lead":
-        smat = _lead_scores(candles_map, insts, idx, n, lb, leader)
+        smat = _lead_scores(candles_map, insts, idx, n, lb, leader, bar)
         if smat is None:
             return common, insts, {}
     else:
         smat = np.zeros((len(insts), n))
         for k, inst in enumerate(insts):
             c = candles_map[inst]
-            rv = F.realized_vol(c.c, w=96, bars_per_year=bpy)
+            rv = F.realized_vol(c.c, w=vw, bars_per_year=bpy)
             rv = np.nan_to_num(rv, nan=0.0)
             smat[k] = _scores(kind, c, rv, lb)[idx[inst]]
 
@@ -258,14 +263,14 @@ def xs_positions(
         c = candles_map[inst].c[idx[inst]]
         rets[k, 1:] = c[1:] / c[:-1] - 1.0
     port_ret[1:] = np.sum(w[:, :-1] * rets[:, 1:], axis=0)
-    pvol = F.rolling_std(port_ret, 96) * np.sqrt(bpy)
+    pvol = F.rolling_std(port_ret, vw) * np.sqrt(bpy)
     with np.errstate(invalid="ignore", divide="ignore"):
         scale = vol_target / np.where(pvol > 1e-3, pvol, np.nan)
     scale = np.clip(np.nan_to_num(scale, nan=1.0), 0.0, 3.0)
     w = w * scale[None, :]
 
     # warm-up guard (lead-lag also needs its beta-estimation window)
-    warm = max(lb, 200, LEAD_BETA_WINDOW if kind == "lead" else 0)
+    warm = max(lb, 200, hours_to_bars(LEAD_BETA_HOURS, bar) if kind == "lead" else 0)
     w[:, :warm] = 0.0
 
     # no-trade band (hysteresis): hold the current position until the target

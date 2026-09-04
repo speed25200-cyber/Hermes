@@ -119,3 +119,24 @@ def ewma_funding(funding: np.ndarray, w: int) -> np.ndarray:
     nz = (np.asarray(funding, dtype=np.float64) != 0.0).astype(np.float64)
     density = np.maximum(ema(nz, w), 1.0 / max(int(w), 1))
     return paid / density
+
+
+def hysteresis(target: np.ndarray, band: float) -> np.ndarray:
+    """No-trade band: hold the current exposure until the target drifts at
+    least `band` (equity units) away from it, then jump to the target. Kills
+    the per-bar churn of continuously re-scaled positions without touching
+    the signal itself; identical in backtest and live because it is applied
+    inside the position function. A target of exactly zero always flattens
+    (a signal that switched off must not leave dust behind)."""
+    t = np.nan_to_num(np.asarray(target, dtype=np.float64), nan=0.0)
+    if band <= 0:
+        return t.copy()
+    vals = t.tolist()
+    out = [0.0] * len(vals)
+    held = 0.0
+    for i, x in enumerate(vals):
+        d = x - held
+        if d >= band or d <= -band or (x == 0.0 and held != 0.0):
+            held = x
+        out[i] = held
+    return np.asarray(out, dtype=np.float64)

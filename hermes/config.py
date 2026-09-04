@@ -26,27 +26,41 @@ DEFAULTS: dict[str, Any] = {
                     "AVAX-USDT-SWAP", "LINK-USDT-SWAP", "ADA-USDT-SWAP",
                     "LTC-USDT-SWAP", "DOT-USDT-SWAP", "BCH-USDT-SWAP",
                     "UNI-USDT-SWAP", "ATOM-USDT-SWAP"],
-    # 15m bars: ~35k bars/year per instrument -> 4x the statistical power of
-    # 1H for the validation gates, and intraday seasonality becomes usable
-    "bar": "15m",
+    # 1H bars: the horizon where documented crypto premia (carry, multi-day
+    # momentum, short-term reversal, vol-managed trend) live, and where
+    # maker-first execution costs stay small relative to the edge. Faster
+    # bars quadruple the sample but the extra observations are bid-ask
+    # bounce, not signal — and costs eat them alive.
+    "bar": "1H",
     "data_dir": "data",
     "state_dir": "state",
-    # two years of 15m bars (~70k/instrument) doubles the statistical power
-    # of every validation gate; newer listings contribute what they have
-    "history_days": 730,
+    # five years of hourly bars (~44k/instrument): the validation holdout is
+    # then ~1.7 years, which is the minimum for a Sharpe-1 rule to be
+    # statistically separable from the luckiest of a handful of noise trials.
+    # Newer listings contribute what they have.
+    "history_days": 1825,
     "research": {
+        # "panel": one rule applied to the whole universe (default);
+        # "per_instrument": legacy per-coin genomes
+        "mode": "panel",
         "population": 64,
         "generations": 18,
         "seed": None,
-        "is_fraction": 0.7,          # fraction of history used in-sample
-        "embargo_bars": 192,         # 2 days of 15m — must exceed max ML horizon (48)
-        "min_oos_sharpe": 0.5,       # OOS annualised Sharpe required to deploy
-        "min_dsr": 0.05,             # deflated Sharpe probability threshold
+        "is_fraction": 0.65,         # fraction of history used in-sample
+        "embargo_bars": 72,          # 3 days of 1H — must exceed max ML horizon (48)
+        "top_k": 10,                 # rules tested on the holdout (= DSR trials)
+        "min_oos_sharpe": 0.7,       # OOS annualised Sharpe required to deploy
+        "min_dsr": 0.5,              # P(true SR > expected max of top_k noise trials)
+        "max_oos_drawdown": 0.30,
+        "n_folds": 4,                # purged OOS sub-folds, majority must be > 0
+        "max_pbo": 0.5,              # CSCV probability of backtest overfitting cap
+        "pbo_blocks": 10,
         "max_deployed": 4,           # max strategies live at once
+        "xs_families": ["funding_xs", "xs_mom", "xs_rev", "xs_lead"],
         "refresh_hours": 168,        # re-run research weekly
         "refresh_hours_empty": 24,   # ...but daily while nothing is deployed:
                                      # the hunt escalates instead of sleeping
-        "retire_after_bars": 1000,   # live bars before retirement can trigger
+        "retire_after_bars": 720,    # live bars (30 days of 1H) before retirement can trigger
         "retire_sharpe": -0.5,       # retire when live Sharpe falls below
     },
     "costs": {
@@ -55,16 +69,17 @@ DEFAULTS: dict[str, Any] = {
         "slippage_bps": 2.0,         # paid on taker fills only
         "prefer_maker": True,        # post-only limit first, market fallback
         "maker_miss_rate": 0.30,     # fraction of maker attempts that fall
-                                     # back to taker (modelled in backtests)
+                                     # back to taker (modelled in backtests
+                                     # AND in paper fills)
     },
     "risk": {
-        "portfolio_vol_target": 0.20,   # annualised
-        "max_gross_leverage": 20.0,
-        "max_instrument_leverage": 20.0,
-        "daily_loss_limit_pct": 8.0,    # ~2–3 SL at 20x then sit out the UTC day
-        "max_drawdown_pct": 25.0,       # kill: ~8 SL or one ~1.2% unstopped wick
+        "portfolio_vol_target": 0.15,   # annualised
+        "max_gross_leverage": 3.0,
+        "max_instrument_leverage": 1.0,
+        "daily_loss_limit_pct": 4.0,    # flatten + sit out the UTC day
+        "max_drawdown_pct": 20.0,       # kill switch: flatten, halt, manual reset
         "min_trade_notional": 10.0,     # USDT
-        "max_order_notional": 250000.0, # 20x on $10k book + headroom
+        "max_order_notional": 50000.0,
         # leverage governor: autonomous risk-on/risk-off throttle. Exposure
         # above 1x must be EARNED by live results (rolling Sharpe >= 1 with
         # tiny drawdown, ramped slowly); drawdown de-risks fast and always
@@ -72,7 +87,7 @@ DEFAULTS: dict[str, Any] = {
         "governor": {"enabled": True, "max_boost": 1.5},
     },
     "allocator": {
-        "ewma_halflife_bars": 672,   # ~7 days of 15m; 24 bars is too short for corr
+        "ewma_halflife_bars": 336,   # ~2 weeks of 1H
         "eta": 2.0,
         "max_weight": 0.5,
     },
@@ -83,10 +98,12 @@ DEFAULTS: dict[str, Any] = {
         "paper_equity": 10000.0,
         "maker_wait_s": 20,          # post-only resting time before fallback
     },
-    # 1-minute order-flow scalp: live directional loop. NOT a candle-color
-    # oracle — fade bounce + book imbalance, trade only if edge > costs.
+    # Experimental intraday desk (1m–15m clocks, L2 order flow). OFF by
+    # default: its single-split "holdout" has no multiple-testing control
+    # and its economics after fees are unproven — it must never be the
+    # engine. Opt in for research only.
     "scalp": {
-        "enabled": True,
+        "enabled": False,
         "bar": "15m",
         "instruments": ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"],
         "universe_n": 3,
@@ -99,8 +116,8 @@ DEFAULTS: dict[str, Any] = {
         "horizon": 8,
         "min_edge_bps": 6.0,
         "max_hold_bars": 16,
-        "max_name_lev": 20.0,
-        "gross_cap": 20.0,
+        "max_name_lev": 1.0,
+        "gross_cap": 2.0,
         "poll_seconds": 5,
         "history_days": 60,
         "maker_wait_s": 8,

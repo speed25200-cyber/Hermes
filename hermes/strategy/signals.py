@@ -23,6 +23,11 @@ from .genome import Genome
 
 ML_HORIZONS = (2, 4, 8, 16, 32, 48)
 
+# no-trade band on the final exposure (fraction of equity). Chosen a priori,
+# identical for every genome, never searched: it exists purely to keep
+# transaction costs from eating continuously re-scaled positions alive.
+POSITION_BAND = 0.05
+
 
 def _ml_position(candles: Candles, g: Genome, ctx: dict | None) -> np.ndarray:
     p = g.params
@@ -175,4 +180,4 @@ def compute_position(candles: Candles, g: Genome, ctx: dict | None = None) -> np
         scale = g.vol_target / np.where(rv > 1e-4, rv, np.nan)
     scale = np.clip(np.nan_to_num(scale, nan=0.0), 0.0, g.max_lev)
     out = np.clip(pos * scale, -g.max_lev, g.max_lev)
-    return out
+    return F.hysteresis(out, POSITION_BAND)
