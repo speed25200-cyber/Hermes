@@ -25,14 +25,14 @@ on:
 permissions:
   contents: write
 
-concurrency:
-  group: okx-data-snapshot
-  cancel-in-progress: false
-
 jobs:
   snapshot:
     runs-on: ubuntu-latest
     timeout-minutes: 170
+    # one publisher per target branch; different snapshots run in parallel
+    concurrency:
+      group: ${{ matrix.branch }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
