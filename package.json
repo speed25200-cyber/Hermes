@@ -4,11 +4,13 @@
   "main": "app/main.js",
   "scripts": {
     "start": "node app/main.js",
-    "dev": "node app/main.js"
+    "dev": "node app/main.js",
+    "test": "node --test tests/*.test.js && node banc/epreuve_juge.js && node banc/epreuve_regime.js && node banc/epreuve_langues.js && node banc/epreuve_hors_echantillon.js && node banc/epreuve_ampleur.js && node banc/epreuve_taille.js",
+    "check": "node --check app/main.js && node --check app/serveur.js && node --check modules/live_safety.js && node --check modules/position_metadata.js && node --check modules/exec.js && node --check REPARER_protections_tick.js",
+    "gate:status": "node deploy/verifier_gate_live.js"
   },
   "dependencies": {
     "axios": "^1.12.2",
-    "crypto": "^1.0.1",
     "dayjs": "^1.11.18",
     "dotenv": "^16.6.1",
     "lodash": "^4.17.21",

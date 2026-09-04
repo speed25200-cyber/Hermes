@@ -168,7 +168,10 @@ function lireCache(instId, ageMaxMs, signature) {
     // produite. Changer la liste des signaux ou la grille des sorties
     // change ce que le hasard rapporte ; reutiliser l'ancien nul
     // reviendrait a juger une nouvelle recherche a l'aune d'une autre.
-    if (signature && j.signature && j.signature !== signature) return null;
+    /* Une ancienne entree sans signature est aussi incompatible qu'une
+       signature differente. L'accepter revenait a promouvoir avec un
+       null produit par une autre procedure. */
+    if (signature && j.signature !== signature) return null;
     return j;
   } catch { return null; }
 }

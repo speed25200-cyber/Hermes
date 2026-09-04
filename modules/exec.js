@@ -5,6 +5,18 @@
 
 
 
+const {
+  assertOkxSuccess: __assertOkxSuccess,
+  newHermesClientId: __newHermesClientId,
+  isHermesOwnedAlgo: __isHermesOwnedAlgo,
+} = require("./live_safety");
+
+function __assertOkxResponse(response, operation) {
+  const payload = response?.data && !Array.isArray(response.data) ? response.data : response;
+  __assertOkxSuccess(payload, operation);
+  return response;
+}
+
 /* === SAFE CLORDID CORE START === */
 var __safeClOrdId = (typeof __safeClOrdId==="function") ? __safeClOrdId : function(prefix){
   const p = (prefix || process.env.AI_CLORD_PREFIX || "AI").replace(/[^A-Za-z0-9]/g,"") || "A";
@@ -411,7 +423,10 @@ async function normalizeTradeOrderBody(body){
       const last = await __ph2_getLast(b.instId);
       if(last!=null && b.side){
         const at = __ph2_attachFromPct(b.side, last, b.tpPct, b.slPct);
-        if (at.length) b.attachAlgoOrds = at;
+        if (at.length) b.attachAlgoOrds = at.map((algo) => ({
+          ...algo,
+          attachAlgoClOrdId: __newHermesClientId("attach"),
+        }));
       }
     }
     return b;
@@ -500,9 +515,18 @@ module.exports.computeBudgetPerTrade = computeBudgetPerTrade;
 
 /* =================== PHASEA ORDER WRAPPER START =================== */
 async function okxTradeOrderWithGuards(body){
+  /* Ce module historique reste utile aux sorties reduce-only et au
+     nettoyage, mais ne possede ni le gate signe, ni le ledger d'intent,
+     ni la machine de fills de app/main.js. Toute entree doit donc passer
+     par le chemin canonique; les anciens scripts CLI echouent ferme. */
+  if (!body || body.reduceOnly !== true) {
+    throw new Error("LEGACY_ENTRY_PATH_DISABLED_USE_APP_MAIN");
+  }
   await ensureKillSwitch();
   const b = await normalizeTradeOrderBody(body);
-  return await okx.okxPOST("/api/v5/trade/order", b);
+  const response = await okx.okxPOST("/api/v5/trade/order", b);
+  __assertOkxResponse(response, "POST order");
+  return response;
 }
 module.exports.okxTradeOrderWithGuards = okxTradeOrderWithGuards;
 /* ==================== PHASEA ORDER WRAPPER END ==================== */
@@ -521,41 +545,15 @@ if (typeof getOkxWsUrls !== 'function') {
 
 if (typeof okxTradeOrderWithGuards_phaseB1 !== 'function') {
   async function okxTradeOrderWithGuards_phaseB1(body){
-    const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
-    const jitter = (b)=> Math.max(100, Math.floor(b * (0.85 + Math.random()*0.30)));
     const genClOrdId = (p="AI") => __safeClOrdId(p);
-    const shouldRetry = (e)=>{
-      try{
-        const s = e?.response?.status ?? e?.status ?? null;
-        const code = String(e?.response?.data?.code ?? "");
-        const msg = String(e?.response?.data?.msg ?? e?.message ?? "").toLowerCase();
-        if (s && (s>=500 || s===429 || s===408)) return true;
-        if (code && ["50011","50001","500","58001","58102"].includes(code)) return true;
-        if (msg.includes("too many")||msg.includes("rate")||msg.includes("throttle")||msg.includes("server busy")) return true;
-      }catch(_){}
-      return false;
-    };
 
-    try { if (typeof ensureKillSwitch === "function") await ensureKillSwitch(); } catch(_){}
+    if (typeof ensureKillSwitch === "function") await ensureKillSwitch();
     const baseBody = (typeof normalizeTradeOrderBody === "function") ? await normalizeTradeOrderBody(body) : body;
     const b = { ...baseBody };
     if (!b.clOrdId) b.clOrdId = __safeClOrdId("AI");
-
-    const max = Number(process.env.AI_ORDER_RETRY_MAX ?? 3);
-    const baseDelay = Number(process.env.AI_ORDER_RETRY_BASE_MS ?? 400);
-
-    let lastErr;
-    for (let attempt=1; attempt<=max; attempt++){
-      try {
-        const r = await okx.okxPOST("/api/v5/trade/order", b);
-        return r;
-      } catch(e){
-        lastErr = e;
-        if (attempt>=max || !shouldRetry(e)) throw e;
-        await sleep(jitter(baseDelay * Math.pow(2, attempt-1)));
-      }
-    }
-    throw lastErr;
+    const response = await okx.okxPOST("/api/v5/trade/order", b);
+    __assertOkxResponse(response, "POST order");
+    return response;
   }
 
   // Expose & override en douceur
@@ -571,7 +569,9 @@ if (typeof okxTradeOrderWithGuards_phaseA !== "function") {
     // 1) on exécute la fonction actuelle (B1) ou fallback direct
     const baseFn = __prevOkxTradeOrderWithGuards || (async (b)=>{
       const nb = (typeof normalizeTradeOrderBody === "function") ? await normalizeTradeOrderBody(b) : b;
-      return okx.okxPOST("/api/v5/trade/order", nb);
+      const response = await okx.okxPOST("/api/v5/trade/order", nb);
+      __assertOkxResponse(response, "POST order");
+      return response;
     });
     const res = await baseFn(body);
 
@@ -593,6 +593,7 @@ if (typeof okxTradeOrderWithGuards_phaseA !== "function") {
             tdMode: b.tdMode || b.mgnMode || "isolated",
             side: opposite,
             ordType: "move_order_stop",
+            algoClOrdId: __newHermesClientId("trail"),
             sz: String(b.sz || ""),
             callbackRatio: String(callback),
             activePx: String(activePx)
@@ -603,15 +604,8 @@ if (typeof okxTradeOrderWithGuards_phaseA !== "function") {
           }
           if (posMode==="long_short_mode" && b.posSide) algo.posSide = b.posSide;
 
-          const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
-          const jitter = (base)=> Math.max(100, Math.floor(base*(0.85+Math.random()*0.3)));
-          const max = Number(process.env.AI_ORDER_RETRY_MAX ?? 3);
-          const baseDelay = Number(process.env.AI_ORDER_RETRY_BASE_MS ?? 400);
-          let lastErr;
-          for (let a=1; a<=max; a++){
-            try { await okx.okxPOST("/api/v5/trade/order-algo", algo); lastErr=null; break; }
-            catch(e){ lastErr=e; if (a>=max) throw e; await sleep(jitter(baseDelay*Math.pow(2,a-1))); }
-          }
+          const algoResponse = await okx.okxPOST("/api/v5/trade/order-algo", algo);
+          __assertOkxResponse(algoResponse, "POST order-algo");
         }
       }
     }catch(_){}
@@ -631,7 +625,7 @@ if (typeof listOpenAlgoIdsByInst !== 'function') {
       const arr = Array.isArray(r?.data?.data) ? r.data.data : (Array.isArray(r?.data)? r.data : (Array.isArray(r)? r : []));
       const ids = [];
       for (const it of arr || []) {
-        if (it?.algoId && it?.instId === instId) ids.push(it.algoId);
+        if (it?.algoId && it?.instId === instId && __isHermesOwnedAlgo(it)) ids.push(it.algoId);
       }
       return ids;
     } catch(e){ return []; }
@@ -642,8 +636,10 @@ if (typeof listOpenAlgoIdsByInst !== 'function') {
 if (typeof cancelAlgosByInst !== 'function') {
   async function cancelAlgosByInst(instId){
     const ids = await listOpenAlgoIdsByInst(instId);
-    for (const algoId of ids) {
-      try { await okx.okxPOST("/api/v5/trade/cancel-algos", { algoId, instId }); } catch(_) {}
+    for (let i = 0; i < ids.length; i += 10) {
+      const batch = ids.slice(i, i + 10).map((algoId) => ({ algoId, instId }));
+      const response = await okx.okxPOST("/api/v5/trade/cancel-algos", batch);
+      __assertOkxResponse(response, "POST cancel-algos");
     }
     return ids.length;
   }
@@ -995,7 +991,10 @@ async function normalizeTradeOrderBody(body){
       const last = await __ph2_getLast(b.instId);
       if(last!=null && b.side){
         const at = __ph2_attachFromPct(b.side, last, b.tpPct, b.slPct);
-        if (at.length) b.attachAlgoOrds = at;
+        if (at.length) b.attachAlgoOrds = at.map((algo) => ({
+          ...algo,
+          attachAlgoClOrdId: __newHermesClientId("attach"),
+        }));
       }
     }
     return b;
@@ -1061,20 +1060,9 @@ async function __phC_ensureSz(body){
 
 /* === OKX CORE GUARD WRAP START === */
 async function okxTradeOrderWithGuards(body){
-  const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
-  const jitter= (b)=> Math.max(100, Math.floor(b*(0.85 + Math.random()*0.30)));
-  const shouldRetry = (e)=>{
-    try{
-      const s = e?.response?.status ?? e?.status ?? null;
-      const code = String(e?.response?.data?.code ?? "");
-      const msg  = String(e?.response?.data?.msg  ?? e?.message ?? "").toLowerCase();
-      if (s && (s>=500 || s===429 || s===408)) return true;
-      if (code && ["50011","50001","500","58001","58102"].includes(code)) return true;
-      if (msg.includes("too many")||msg.includes("rate")||msg.includes("throttle")||msg.includes("server busy")) return true;
-    }catch(_){}
-    return false;
-  };
-
+  if (!body || body.reduceOnly !== true) {
+    throw new Error("LEGACY_ENTRY_PATH_DISABLED_USE_APP_MAIN");
+  }
   await ensureKillSwitch();
   let b = (typeof normalizeTradeOrderBody==="function") ? await normalizeTradeOrderBody(body) : body;
   b = await __phC_ensureSz(b);
@@ -1086,21 +1074,30 @@ async function okxTradeOrderWithGuards(body){
     if (!/^[A-Za-z]/.test(b.clOrdId)) b.clOrdId = "A" + b.clOrdId.slice(1);
   }
 
-  const max = Number(process.env.AI_ORDER_RETRY_MAX ?? 3);
-  const baseDelay = Number(process.env.AI_ORDER_RETRY_BASE_MS ?? 400);
-  let lastErr;
-  for (let attempt=1; attempt<=max; attempt++){
-    try {
-      const r = await okx.okxPOST("/api/v5/trade/order", b);
-      return r;
-    } catch(e){
-      lastErr = e;
-      if (attempt>=max || !shouldRetry(e)) throw e;
-      await sleep(jitter(baseDelay * Math.pow(2, attempt-1)));
-    }
-  }
-  throw lastErr;
+  /* Une reponse perdue ne prouve pas que l'ordre a echoue. Rejouer le
+     POST peut doubler l'exposition; la reconciliation par clOrdId doit
+     preceder toute nouvelle tentative. */
+  const response = await okx.okxPOST("/api/v5/trade/order", b);
+  __assertOkxResponse(response, "POST order");
+  return response;
 }
 try { module.exports.okxTradeOrderWithGuards = okxTradeOrderWithGuards; } catch(_){}
  /* === OKX CORE GUARD WRAP END === */
+
+/* Barriere finale, apres tous les wrappers historiques. Plusieurs blocs
+   ci-dessus reassigent la liaison de fonction pendant le chargement;
+   seule une fermeture exportee en dernier garantit que le test porte
+   sur la fonction effectivement appelee. */
+const __legacyReduceOnlyDelegate = module.exports.okxTradeOrderWithGuards;
+const __legacyReduceOnlyExport = async function(body) {
+  if (!body || body.reduceOnly !== true) {
+    throw new Error("LEGACY_ENTRY_PATH_DISABLED_USE_APP_MAIN");
+  }
+  return await __legacyReduceOnlyDelegate(body);
+};
+module.exports.okxTradeOrderWithGuards = __legacyReduceOnlyExport;
+module.exports.openMarket = async function() {
+  throw new Error("LEGACY_ENTRY_PATH_DISABLED_USE_APP_MAIN");
+};
+try { okxTradeOrderWithGuards = __legacyReduceOnlyExport; } catch(_){}
 

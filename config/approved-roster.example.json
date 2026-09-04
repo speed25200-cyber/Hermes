@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "genere": "1970-01-01T00:00:00.000Z",
+  "selectionRunId": "replace-with-immutable-ci-run-id",
+  "dataManifestSha256": "replace-with-data-manifest-sha256",
+  "perles": {}
+}

@@ -16,6 +16,30 @@ const https  = require("https");
 const crypto = require("crypto");
 const axios  = require("axios");
 const WebSocket = require("ws");
+const {
+  assertOkxSuccess,
+  isRetryableOkxError,
+  quantityToLotString,
+  computePositionSizing,
+  effectiveStopLossMarginPct,
+  makerOrderDirective,
+  evaluateEntryStopRisk,
+  validateRiskConfig,
+  hermesAlgoOwnerNamespace,
+  newHermesClientId,
+  isHermesOwnedAlgo,
+  isProtectiveStopAlgo,
+  readLiveGate,
+} = require("../modules/live_safety.js");
+const {
+  createTimedExitRecord,
+  emptyLedger: emptyTimedExitLedger,
+  readTimedExitLedger,
+  writeTimedExitLedgerAtomic,
+  matchTimedExitRecord,
+  destructiveSnapshotDecision,
+  parsePositionWsUpdate,
+} = require("../modules/position_metadata.js");
 
 /* ===== ENV / ROOT ===== */
 const ROOT = path.resolve(__dirname, "..");
@@ -54,6 +78,10 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
 function rndInt(a, b) { return a + Math.floor(Math.random() * (b - a + 1)); }
+function envBool(value, fallback = false) {
+  if (value == null || value === "") return fallback;
+  return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
+}
 
 /* ===== Safe Read Configs ===== */
 function safeReadJSON(p, fallback) {
@@ -87,8 +115,21 @@ const AI_CFG = safeReadJSON(path.join(ROOT, "config", "ai.config.json"), {
 });
 /* ===== CONFIG / ENV Vars ===== */
 const DEFAULT_UNIVERSE       = (process.env.HERMES_MARKETS || "").split(",").map(s => s.trim()).filter(Boolean);
-const MAX_POSITIONS_GLOBAL   = Number(process.env.HERMES_MAX_POSITIONS || 10);
-const DEFAULT_LEVERAGE       = Number(process.env.HERMES_DEFAULT_LEVERAGE || 15);  // ×15 validé client 30/08 (ex-20)
+const RISK_CFG = safeReadJSON(path.join(ROOT, "config", "risk.json"), {});
+const RISK_LIMITS = validateRiskConfig({
+  maxPositions: process.env.HERMES_MAX_POSITIONS ?? RISK_CFG.maxPositionsGlobal ?? 3,
+  leverage: process.env.HERMES_DEFAULT_LEVERAGE ?? 15,
+  maxMarginPct: process.env.HERMES_MAX_MARGIN_PCT ?? process.env.HERMES_MAX_RISK_PCT ?? RISK_CFG.maxMarginPct ?? 0.25,
+  riskPerTradePct: process.env.HERMES_RISK_PER_TRADE_PCT ?? RISK_CFG.riskPerTradePct ?? 0.005,
+  maxDrawdownPct: process.env.HERMES_MAX_DRAWDOWN_PCT ?? RISK_CFG.maxDrawdownPct ?? 0.10,
+  maxDailyLossPct: process.env.HERMES_MAX_DAILY_LOSS_PCT ?? RISK_CFG.maxDailyLossPct ?? 0.02,
+  stopLossMarginPct: process.env.HERMES_STOP_MARGIN_PCT ?? 0.30,
+  sameSideFull: process.env.HERMES_MEME_SENS_PLEIN ?? 2,
+  correlationScale: process.env.HERMES_CORREL_ECHELLE ?? 0.6,
+});
+const MAX_POSITIONS_GLOBAL   = RISK_LIMITS.maxPositions;
+const DEFAULT_LEVERAGE       = RISK_LIMITS.leverage;
+const LIVE_START_REQUESTED   = envBool(process.env.HERMES_AI_DEFAULT_ON, false);
 const SYMBOL_COOLDOWN_SEC    = 10;
 const MAX_ORDERS_INFLIGHT    = 5;
 
@@ -112,7 +153,15 @@ const BK_JITTER       = Number(OKX_CFG.reconnectBackoff.jitterMs || 500);
    instruments — qtyFromUSDT le fait, instrument par instrument, ce
    qu'un seuil global sur l'équité ne peut pas faire. */
 const MIN_EQUITY_USDT   = Number(process.env.HERMES_MIN_EQUITY_USDT || 5);
-const MAX_RISK_PCT      = Number(process.env.HERMES_MAX_RISK_PCT || 0.90); // spec client : 90 % du capital en marge max (coussin 10 %)
+/* La marge n'est pas le risque. Le sizing est borne a la fois par la
+   marge totale et par la perte planifiee au stop. Les anciens 90 % de
+   marge a x15 exposaient 13,5 fois l'equite et risquaient environ 9 %
+   du compte par position pleine. */
+const MAX_RISK_PCT      = RISK_LIMITS.maxMarginPct;
+const RISK_PER_TRADE_PCT= RISK_LIMITS.riskPerTradePct;
+const MAX_DRAWDOWN_PCT  = RISK_LIMITS.maxDrawdownPct;
+const MAX_DAILY_LOSS_PCT= RISK_LIMITS.maxDailyLossPct;
+const DEFAULT_STOP_MARGIN_PCT = RISK_LIMITS.stopLossMarginPct;
 const MIN_BALANCE_AVAIL = Number(process.env.HERMES_MIN_BAL_AVAIL || 5);  // USDT
 
 let RUNNING = true;
@@ -147,7 +196,8 @@ function statusFromAge(ageMs, warn = 10000, fault = 25000) {
 
 /* ===== STATE ===== */
 const AI = {
-  on:    (String(process.env.HERMES_AI_DEFAULT_ON || "false").toLowerCase() === "true"),
+  // Toujours faux jusqu'a evaluation de la preuve de deploiement.
+  on:    false,
   simOn: (String(process.env.HERMES_AI_SIM_ALWAYS_ON || "true").toLowerCase() !== "false"),
   mode: "LIVE+SIM",
 
@@ -155,9 +205,23 @@ const AI = {
   equityPeakTier: null,          // amorcé sur l'equity RÉELLE au 1er relevé (plus de 250 en dur)
   tier: "<1000",
   tierStopLossPct: 0.5,
+  riskDayUTC: null,
+  riskDayStart: null,
+  riskLockedReason: null,
+  riskStateCorrupt: false,
+  riskStateReady: false,
 
   openPositions: {},             // { instId: { side, qty, avgPx, ts, stopId?, stopPx?, stopMode? } }
   inflight: 0,
+  pendingEntries: {},
+  orderIntents: {},
+  timedExitLedger: emptyTimedExitLedger(),
+  timedExitLedgerStatus: "unloaded",
+  timedExitAmbiguities: {},
+  positionMutationGeneration: 0,
+  lastPositionMutationAt: 0,
+  protectionFailures: {},
+  algoCleanupInProgress: false,
   cooldown: {},
 
   logsAIFile: path.join(DATADIR, "ai-logs.jsonl"),
@@ -170,7 +234,8 @@ const MARKET = {
   universe: [...DEFAULT_UNIVERSE],
   tick: {}, candles: {},         // 15s store
 
-  meta: {},                      // instId -> {ctVal, lotSz, minSz}
+  meta: {},                      // instId -> {ctVal, lotSz, minSz, tickSz, maxLever}
+  metaLoadedAt: 0,
   fees: { maker: null, taker: null },
 
   wsPublic: null, wsPrivate: null,
@@ -181,19 +246,56 @@ const MARKET = {
 
 const OKX = {
   REST_BASE: OKX_CFG.restBase || "https://www.okx.com",
-  PUB_WS: (String(process.env.OKX_SIMULATED || "").toLowerCase() === "true")
+  PUB_WS: envBool(process.env.OKX_SIMULATED, false)
     ? (OKX_CFG.wsPublicDemo  || "wss://wspap.okx.com:8443/ws/v5/public")
     : (OKX_CFG.wsPublic      || "wss://ws.okx.com:8443/ws/v5/public"),
-  PRI_WS: (String(process.env.OKX_SIMULATED || "").toLowerCase() === "true")
+  PRI_WS: envBool(process.env.OKX_SIMULATED, false)
     ? (OKX_CFG.wsPrivateDemo || "wss://wspap.okx.com:8443/ws/v5/private")
     : (OKX_CFG.wsPrivate     || "wss://ws.okx.com:8443/ws/v5/private"),
 
   KEY:    process.env.OKX_API_KEY || "",
   SECRET: process.env.OKX_API_SECRET || "",
   PASS:   process.env.OKX_API_PASSPHRASE || process.env.OKX_PASSPHRASE || "",
-  SIMULATED: (String(process.env.OKX_SIMULATED || "").toLowerCase() === "true")
+  SIMULATED: envBool(process.env.OKX_SIMULATED, false)
 };
 log("[ENV] OKX key:", !!OKX.KEY, "secret:", !!OKX.SECRET, "pass:", !!OKX.PASS, "sim:", OKX.SIMULATED);
+
+/* Une strategie candidate n'est pas une autorisation de risquer de
+   l'argent. Le live exige une preuve process-level fraiche, liee au
+   roster ET au code exact. En demo, les ordres restent autorises afin
+   de construire la preuve shadow-live sans capital reel. */
+let LIVE_GATE_STATUS = null;
+let LIVE_GATE_CHECKED_AT = 0;
+let LIVE_GATE_FINGERPRINT = "";
+function liveGateStatus(force = false) {
+  if (!force && LIVE_GATE_STATUS && Date.now() - LIVE_GATE_CHECKED_AT < 10000) return LIVE_GATE_STATUS;
+  const evidence = readLiveGate(ROOT);
+  const liveReasons = [...evidence.reasons];
+  const ownerReady = !!hermesAlgoOwnerNamespace(process.env.HERMES_ALGO_OWNER);
+  if (!ownerReady) liveReasons.push("algo_owner_absent");
+  const simulatedReasons = evidence.reasons.filter((reason) => String(reason).startsWith("roster_"));
+  if (!ownerReady) simulatedReasons.push("algo_owner_absent");
+  LIVE_GATE_STATUS = OKX.SIMULATED
+    ? { ...evidence, allowed: simulatedReasons.length === 0, reasons: simulatedReasons,
+        liveAllowed: liveReasons.length === 0, liveReasons, simulated: true }
+    : { ...evidence, allowed: liveReasons.length === 0, reasons: liveReasons,
+        liveAllowed: liveReasons.length === 0, liveReasons, simulated: false };
+  LIVE_GATE_CHECKED_AT = Date.now();
+  const fingerprint = `${LIVE_GATE_STATUS.allowed}|${LIVE_GATE_STATUS.reasons.join(",")}`;
+  if (fingerprint !== LIVE_GATE_FINGERPRINT) {
+    LIVE_GATE_FINGERPRINT = fingerprint;
+    log("[LIVE_GATE]", LIVE_GATE_STATUS.allowed ? "OUVERT" : "FERME", LIVE_GATE_STATUS.simulated ? "demo" : "reel", LIVE_GATE_STATUS.reasons.join(",") || "preuve valide");
+  }
+  if (!LIVE_GATE_STATUS.allowed && AI.on) {
+    AI.on = false;
+    setHealth("aiEngine", { on: false, status: "WARN", info: "live-gate-closed", lastToggle: Date.now() });
+  }
+  return LIVE_GATE_STATUS;
+}
+const BOOT_LIVE_GATE = liveGateStatus(true);
+if (LIVE_START_REQUESTED && BOOT_LIVE_GATE.allowed) AI.on = true;
+else if (LIVE_START_REQUESTED) log("[LIVE_GATE] activation au demarrage refusee");
+setInterval(() => { try { liveGateStatus(true); } catch (e) { AI.on = false; log("[LIVE_GATE_ERR]", e.message); } }, 60000);
 
 /* === UI runtime mode (auto: file/localhost => full, public => viewer) === */
 let UI_RUNTIME_MODE = "full";
@@ -203,83 +305,243 @@ function currentTier(cap) {
   if (cap >= 1000) return "1000-1999";
   return "<1000";
 }
-function tierStopLossPct(t) { return (t === ">=2000") ? 0.30 : 0.50; }
+function tierStopLossPct(_t) { return MAX_DRAWDOWN_PCT; }
 
 /* Baseline du garde-fou persistée (survit aux redémarrages : un restart ne doit
    pas effacer un vrai drawdown ni réinitialiser le pic sur une equity dégradée). */
 const TIER_PEAK_FILE = path.join(ROOT, "runtime", "tier_peak.json");
+const ORDER_INTENT_FILE = path.join(ROOT, "runtime", "order_intents.json");
+const TIMED_EXIT_FILE = path.join(ROOT, "runtime", "position_metadata.json");
+
+function notePositionMutation(at = Date.now()) {
+  AI.positionMutationGeneration += 1;
+  AI.lastPositionMutationAt = Math.max(AI.lastPositionMutationAt, Number(at) || Date.now());
+}
+
+function destructiveSnapshotAllowed(snapshot) {
+  return destructiveSnapshotDecision(snapshot, {
+    currentGeneration:AI.positionMutationGeneration,
+    lastMutationAt:AI.lastPositionMutationAt,
+    inflight:AI.inflight,
+    pendingCount:Object.keys(AI.pendingEntries || {}).length,
+    intentCount:Object.keys(AI.orderIntents || {}).length,
+  });
+}
+
+function lockTimedExitState(instId, reason, detail = "") {
+  const key = instId || "*";
+  AI.timedExitAmbiguities[key] = { reason, detail:String(detail || ""), detectedAt:Date.now() };
+  AI.on = false;
+  if (!AI.riskLockedReason) AI.riskLockedReason = "timed-exit-state-ambiguous";
+  setHealth("strategy", { status:"WARN", info:`timed-exit:${reason}` });
+  log("[TIMED_EXIT_LOCK]", key, reason, detail || "");
+  /* Ne pas creer un tier_peak invalide avant le premier releve d'equity.
+     refreshTier persistera le verrou des que la baseline existe. */
+  if (AI.riskStateReady && AI.equityPeakTier > 0) saveTierPeak();
+}
+
+function loadTimedExitState() {
+  try {
+    const loaded = readTimedExitLedger(TIMED_EXIT_FILE);
+    AI.timedExitLedger = loaded.ledger;
+    AI.timedExitLedgerStatus = loaded.status;
+    if (loaded.reconstructed) {
+      writeTimedExitLedgerAtomic(TIMED_EXIT_FILE, AI.timedExitLedger);
+      AI.timedExitLedgerStatus = "ok";
+      log("[TIMED_EXIT] deadlines reconstruites et registre normalise");
+    }
+    log("[TIMED_EXIT] registre", AI.timedExitLedgerStatus,
+      Object.keys(AI.timedExitLedger.positions).length, "position(s)");
+  } catch (e) {
+    AI.timedExitLedger = emptyTimedExitLedger();
+    AI.timedExitLedgerStatus = "corrupt";
+    lockTimedExitState(null, "registre_corrompu", e.message);
+  }
+}
+
+function saveTimedExitState() {
+  try {
+    writeTimedExitLedgerAtomic(TIMED_EXIT_FILE, AI.timedExitLedger);
+    AI.timedExitLedgerStatus = "ok";
+    return true;
+  } catch (e) {
+    AI.timedExitLedgerStatus = "write-error";
+    lockTimedExitState(null, "ecriture_impossible", e.message);
+    return false;
+  }
+}
+
+function rememberTimedExit(position, holdMs, enteredAt = Date.now()) {
+  try {
+    const record = createTimedExitRecord({
+      instId: position.instId,
+      side: position.side,
+      enteredAt,
+      holdMs,
+      holdUntil: enteredAt + Number(holdMs),
+      posId: position.posId || null,
+    });
+    AI.timedExitLedger.positions[position.instId] = record;
+    position.ts = record.enteredAt;
+    position.holdUntil = record.holdUntil;
+    position.timedExitState = "PERSISTED";
+    if (!saveTimedExitState()) position.timedExitState = "VOLATILE";
+    return position.timedExitState === "PERSISTED";
+  } catch (e) {
+    position.timedExitState = "AMBIGUOUS";
+    lockTimedExitState(position.instId, "metadata_entree_invalide", e.message);
+    return false;
+  }
+}
+
+function forgetTimedExit(instId) {
+  if (!AI.timedExitLedger.positions[instId]) return true;
+  delete AI.timedExitLedger.positions[instId];
+  return saveTimedExitState();
+}
+
+function restoreTimedExit(position, exchangePosition) {
+  const match = matchTimedExitRecord(
+    AI.timedExitLedger.positions[position.instId],
+    { ...exchangePosition, instId:position.instId, side:position.side },
+  );
+  if (!match.ok) {
+    position.holdUntil = null;
+    position.timedExitState = "AMBIGUOUS";
+    lockTimedExitState(position.instId, match.reason, match.detail);
+    return false;
+  }
+  position.ts = match.record.enteredAt;
+  position.holdUntil = match.record.holdUntil;
+  position.posId = match.record.posId || exchangePosition?.posId || null;
+  position.timedExitState = "RESTORED";
+  if (match.bound) {
+    AI.timedExitLedger.positions[position.instId] = match.record;
+    if (!saveTimedExitState()) position.timedExitState = "VOLATILE";
+  }
+  delete AI.timedExitAmbiguities[position.instId];
+  return true;
+}
+
+function loadOrderIntents() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(ORDER_INTENT_FILE, "utf8"));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("registre ordres invalide");
+    AI.orderIntents = parsed;
+  } catch (e) {
+    if (e?.code !== "ENOENT") {
+      AI.riskStateCorrupt = true;
+      AI.riskLockedReason = "order-intent-corrupt";
+      log("[RISK_LOCK]", e.message);
+    }
+  }
+}
+function saveOrderIntents() {
+  try {
+    fs.mkdirSync(path.dirname(ORDER_INTENT_FILE), { recursive: true });
+    const tmp = ORDER_INTENT_FILE + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify(AI.orderIntents, null, 2));
+    fs.renameSync(tmp, ORDER_INTENT_FILE);
+  } catch (e) {
+    AI.riskStateCorrupt = true;
+    AI.riskLockedReason = "order-intent-write";
+    log("[RISK_LOCK]", e.message);
+    throw e;
+  }
+}
+function setOrderIntent(instId, patch) {
+  AI.orderIntents[instId] = { ...(AI.orderIntents[instId] || {}), ...patch, instId, updatedAt: Date.now() };
+  saveOrderIntents();
+}
+function clearOrderIntent(instId) {
+  if (!AI.orderIntents[instId]) return;
+  delete AI.orderIntents[instId];
+  saveOrderIntents();
+}
+loadOrderIntents();
 function loadTierPeak() {
-  try { const j = JSON.parse(fs.readFileSync(TIER_PEAK_FILE, "utf8")); if (j && j.peak > 0) AI.equityPeakTier = num(j.peak); } catch {}
+  try {
+    const j = JSON.parse(fs.readFileSync(TIER_PEAK_FILE, "utf8"));
+    if (!j || !(num(j.peak) > 0)) throw new Error("etat risque invalide");
+    AI.equityPeakTier = num(j.peak);
+    AI.riskDayUTC = typeof j.dayUTC === "string" ? j.dayUTC : null;
+    AI.riskDayStart = num(j.dayStart) > 0 ? num(j.dayStart) : null;
+    AI.riskLockedReason = typeof j.lockedReason === "string" ? j.lockedReason : null;
+  } catch (e) {
+    if (e?.code !== "ENOENT") {
+      AI.riskStateCorrupt = true;
+      AI.riskLockedReason = "risk-state-corrupt";
+      log("[RISK_LOCK]", e.message);
+    }
+  } finally { AI.riskStateReady = true; }
 }
 function saveTierPeak() {
-  try { fs.mkdirSync(path.dirname(TIER_PEAK_FILE), { recursive: true }); fs.writeFileSync(TIER_PEAK_FILE, JSON.stringify({ peak: AI.equityPeakTier, ts: Date.now() })); } catch {}
+  try {
+    fs.mkdirSync(path.dirname(TIER_PEAK_FILE), { recursive: true });
+    const tmp = TIER_PEAK_FILE + ".tmp";
+    fs.writeFileSync(tmp, JSON.stringify({ peak: AI.equityPeakTier, dayUTC: AI.riskDayUTC,
+      dayStart: AI.riskDayStart, lockedReason: AI.riskLockedReason, ts: Date.now() }));
+    fs.renameSync(tmp, TIER_PEAK_FILE);
+  } catch (e) { AI.riskStateCorrupt = true; AI.riskLockedReason = "risk-state-write"; log("[RISK_LOCK]", e.message); }
 }
 function refreshTier() {
+  let changed = false;
   AI.tier = currentTier(AI.equityUSDT);
+  const dayUTC = new Date().toISOString().slice(0, 10);
+  if (AI.equityUSDT > 0 && AI.riskDayUTC !== dayUTC) {
+    AI.riskDayUTC = dayUTC;
+    AI.riskDayStart = AI.equityUSDT;
+    if (AI.riskLockedReason === "daily-loss") AI.riskLockedReason = null;
+    changed = true;
+  }
   /* 1er relevé réel : on amorce le pic sur l'equity courante (jamais 250 en dur). */
   if ((AI.equityPeakTier == null || AI.equityPeakTier <= 0) && AI.equityUSDT > 0) {
-    AI.equityPeakTier = AI.equityUSDT; saveTierPeak();
+    AI.equityPeakTier = AI.equityUSDT; changed = true;
   } else if (AI.equityUSDT > (AI.equityPeakTier || 0)) {
-    AI.equityPeakTier = AI.equityUSDT; saveTierPeak();
+    AI.equityPeakTier = AI.equityUSDT; changed = true;
   }
   AI.tierStopLossPct = tierStopLossPct(AI.tier);
+  if (!AI.riskLockedReason && AI.riskDayStart > 0 && AI.equityUSDT <= AI.riskDayStart * (1 - MAX_DAILY_LOSS_PCT)) {
+    AI.riskLockedReason = "daily-loss"; changed = true;
+  }
+  if (!AI.riskLockedReason && AI.equityPeakTier > 0 && AI.equityUSDT <= AI.equityPeakTier * (1 - MAX_DRAWDOWN_PCT)) {
+    AI.riskLockedReason = "max-drawdown"; changed = true;
+  }
+  if (changed) saveTierPeak();
 }
 function tierBreach() {
+  if (!AI.riskStateReady) return true;
+  /* Un etat illisible/ecriture impossible est un verrou, meme avant le
+     premier relevé d'equity. L'ordre inverse rendrait la corruption
+     fail-open pendant cette fenetre de demarrage. */
+  if (AI.riskStateCorrupt || AI.riskLockedReason) return true;
   /* Pas de verdict tant que la baseline réelle n'est pas connue. */
   if (AI.equityPeakTier == null || AI.equityPeakTier <= 0 || AI.equityUSDT <= 0) return false;
-  const floor = AI.equityPeakTier * (1 - AI.tierStopLossPct);
-  return AI.equityUSDT <= floor;
+  return false;
 }
-/* La taille se déduit du capital, à chaque appel. perTradeUSDT est une
-   MARGE — le notionnel envoyé à OKX vaut marge × levier.
+/* La taille se déduit du capital à chaque appel. perTradeUSDT est une
+   MARGE; le notionnel envoyé à OKX vaut marge × levier. */
+/* LE CAPITAL, EN RISQUE.
 
-   Règle : coussin de 10 % jamais engagé, puis la moitié du budget par
-   trade, plafonnée. La moitié plutôt que le dixième parce qu'un dixième
-   de petit capital ne produit pas un lot que la place accepte.
-
-   Deux défauts corrigés ici, et ils se voyaient mal parce qu'une garde
-   budgétaire séparée rattrapait le second sans rien dire.
-
-   Le plancher valait 50 USDT. Sur un compte de 10, il écrasait la règle
-   de la moitié — 4,50 devenait 50, puis se faisait rabattre sur les 9
-   disponibles : la totalité du capital partait dans UN trade, l'inverse
-   de ce que la règle demande. Le plancher existe pour éviter les
-   poussières qui n'atteignent aucun lot ; il ne doit jamais dépasser la
-   part qu'il est censé protéger, donc il est borné par elle.
-
-   maxPositions valait 10, écrit en dur, quel que soit le capital. Le
-   plan annonçait ainsi 10 × 150 = 1503 USDT de marge pour 300 USDT
-   disponibles, et 10 × 9 = 90 pour 9. Ce n'était pas seulement faux :
-   canPlaceOrder s'en sert pour décider, et un nombre qui ne veut rien
-   dire déplace la décision vers la garde budgétaire, où elle devient
-   illisible. Le nombre de places est désormais celui que le budget
-   finance vraiment. */
-/* LE CAPITAL, EN PLACES.
-
-   Le budget (90 % de l'equite) se partage en PLACES egales — trois
-   par defaut. Deux places a 6 $ ou trois a 4 $ engagent le meme
-   argent, mais trois places prennent une fois et demie plus de
-   signaux, et un stop n'emporte plus un tiers du compte : meme
-   risque total, plus de debit, moins de variance. Le winrate est une
-   propriete de chaque perle, pas de la taille : il ne bouge pas.
-
-   Les places suivent le capital : on en vise PLACES, mais jamais au
-   prix d'une marge sous le plancher viable — a 8 $ d'equite on
-   retombe a deux places, a 5 $ a une seule. Avec plus de capital, ce
-   sont les trades qui grossissent, pas leur nombre : la concurrence
-   entre positions reste celle qu'on a choisie. */
-function positionSizing(cap) {
-  const usable = Math.max(0, cap * MAX_RISK_PCT);
+   La taille est la plus petite de trois bornes : marge totale,
+   perte-dollar au stop et plafond absolu. On vise trois places, mais
+   on ne remonte jamais artificiellement une petite taille au plancher
+   si cela violerait le budget de risque. */
+function positionSizing(cap, stopLossMarginPct = DEFAULT_STOP_MARGIN_PCT) {
   const PLACES = Math.max(1, Number(process.env.HERMES_PLACES || 3));
   const MIN_M  = Number(process.env.HERMES_MARGIN_MIN || 3);     // marge viable : sous 3 $, les lots minimaux mangent tout
   const MAX_M  = Number(process.env.HERMES_MARGIN_MAX || 200);
-
-  let places = Math.min(PLACES, MAX_POSITIONS_GLOBAL);
-  if (usable / places < MIN_M) places = Math.max(1, Math.floor(usable / MIN_M));
-  const marginPerTrade = Math.min(usable / places, MAX_M);
-  if (!(marginPerTrade > 0)) return { perTradeUSDT: 0, maxPositions: 0, riskFrac: MAX_RISK_PCT, step: 5 };
-
-  return { perTradeUSDT: marginPerTrade, maxPositions: places, riskFrac: MAX_RISK_PCT, step: 5 };
+  const sized = computePositionSizing({
+    equity: cap,
+    maxMarginPct: MAX_RISK_PCT,
+    riskPerTradePct: RISK_PER_TRADE_PCT,
+    stopLossMarginPct,
+    places: PLACES,
+    maxPositions: MAX_POSITIONS_GLOBAL,
+    minMargin: MIN_M,
+    maxMargin: MAX_M,
+  });
+  return { ...sized, riskFrac: MAX_RISK_PCT, step: 5 };
 }
 globalThis.__hermesCapital = () => {
   const s = positionSizing(AI.equityUSDT);
@@ -343,7 +605,7 @@ function setCooldown(instId, sec = SYMBOL_COOLDOWN_SEC) { AI.cooldown[instId] = 
    01/09 a la demande du proprietaire : debranches depuis le 30/08,
    ils calculaient encore a chaque tick pour un journal que personne
    ne lisait. Les entrees viennent de HERMES15 (fin de fichier),
-   nourri par config/roster.json que le chercheur de perles ecrit. */
+   nourri uniquement par config/approved-roster.json, promu explicitement. */
 
 /* ===== Universe loader ===== */
 const TAILLE_UNIVERS = Number(process.env.HERMES_UNIVERSE_SIZE || 20);
@@ -549,16 +811,21 @@ async function loadMetaInstruments() {
       OKX.REST_BASE + "/api/v5/public/instruments?instType=SWAP",
       { timeout: Number(process.env.HERMES_API_TIMEOUT_MS || 15000) }
     );
+    assertOkxSuccess(r.data, "GET public instruments");
     const arr = Array.isArray(r.data?.data) ? r.data.data : [];
+    const next = {};
     for (const x of arr) {
-      MARKET.meta[x.instId] = {
-        ctVal: num(x.ctVal || 1),
-        lotSz: num(x.lotSz || 0.001),
-        minSz: num(x.minSz || 0.001),
-        tickSz: String(x.tickSz || ""),  // pas de repli ici : pxToTick doit voir le vrai tick
-        maxLever: num(x.lever || 0)      // levier max de la plateforme pour cet instrument
+      const meta = {
+        ctVal: num(x.ctVal), lotSz: num(x.lotSz), minSz: num(x.minSz),
+        tickSz: String(x.tickSz || ""), maxLever: num(x.lever),
       };
+      if (!x.instId || !(meta.ctVal > 0) || !(meta.lotSz > 0) || !(meta.minSz > 0)
+          || !(num(meta.tickSz) > 0) || !(meta.maxLever > 0)) continue;
+      next[x.instId] = meta;
     }
+    if (!Object.keys(next).length) throw new Error("aucune meta valide");
+    MARKET.meta = next;
+    MARKET.metaLoadedAt = Date.now();
   } catch (e) { log("[META_ERR]", e.message); }
 }
 
@@ -666,12 +933,7 @@ function okxRestHeaders(pathname, method = "GET", body = "") {
 
 /* Faut-il retenter cet appel ? (rate-limit, erreurs serveur, réseau, horloge). */
 function __okxRetryable(e) {
-  const st = e?.response?.status;
-  if (st === 429 || (st >= 500 && st <= 599)) return true;
-  const code = e?.response?.data?.code;
-  if (code === "50011" || code === "50102" || code === "50001") return true; // rate-limit / timestamp / busy
-  if (["ECONNRESET","ETIMEDOUT","ECONNREFUSED","EAI_AGAIN","ECONNABORTED"].includes(e?.code)) return true;
-  return false;
+  return isRetryableOkxError(e);
 }
 async function __okxWithRetry(fn, label) {
   let lastErr;
@@ -680,9 +942,9 @@ async function __okxWithRetry(fn, label) {
     catch (e) {
       lastErr = e;
       if (!__okxRetryable(e)) break;
-      if (e?.response?.data?.code === "50102") await syncServerTime(); // resynchro immédiate
+      if (String(e?.okxCode || e?.response?.data?.code || "") === "50102") await syncServerTime(); // resynchro immédiate
       const wait = 300 * Math.pow(2, i) + Math.floor(Math.random() * 200);
-      log("[REST_RETRY]", label, "tentative", i + 1, "dans", wait, "ms", e?.response?.data?.code || e?.code || e?.response?.status || e.message);
+      log("[REST_RETRY]", label, "tentative", i + 1, "dans", wait, "ms", e?.okxCode || e?.response?.data?.code || e?.code || e?.response?.status || e.message);
       await sleep(wait);
     }
   }
@@ -691,13 +953,14 @@ async function __okxWithRetry(fn, label) {
 
 /* Mode de position du compte (net_mode | long_short_mode) — détecté au boot.
    En mode net, posSide doit être OMIS et les algos de protection portent reduceOnly. */
-let POS_MODE = "net_mode";
+let POS_MODE = "unknown";
 async function loadAccountPosMode() {
   try {
     const r = await okxGET("/api/v5/account/config");
     const m = r?.data?.[0]?.posMode;
-    if (m) { POS_MODE = m; log("[ACCOUNT] posMode:", m); }
-  } catch (e) { log("[ACCOUNT] posMode indétectable, défaut net_mode:", e.message); }
+    if (["net_mode", "long_short_mode"].includes(m)) { POS_MODE = m; log("[ACCOUNT] posMode:", m); }
+    else throw new Error("posMode absent ou inconnu");
+  } catch (e) { log("[ACCOUNT] posMode indetectable, entrees bloquees:", e.message); }
 }
 const isHedge = () => POS_MODE === "long_short_mode";
 
@@ -705,11 +968,15 @@ async function okxGET(pathname, params) {
   const url = new URL(OKX.REST_BASE + pathname);
   if (params) Object.keys(params).forEach(k => url.searchParams.append(k, params[k]));
   try {
-    const r = await __okxWithRetry(() => axios.get(url.toString(), {
-      headers: okxRestHeaders(url.pathname + url.search, "GET", ""),
-      timeout: Number(process.env.HERMES_API_TIMEOUT_MS || 12000),
-      httpsAgent: new https.Agent({ keepAlive: true })
-    }), "GET " + pathname);
+    const r = await __okxWithRetry(async () => {
+      const response = await axios.get(url.toString(), {
+        headers: okxRestHeaders(url.pathname + url.search, "GET", ""),
+        timeout: Number(process.env.HERMES_API_TIMEOUT_MS || 12000),
+        httpsAgent: new https.Agent({ keepAlive: true })
+      });
+      assertOkxSuccess(response.data, "GET " + pathname);
+      return response;
+    }, "GET " + pathname);
     setHealth("rest", { status: "OK", info: "GET " + pathname, lastOk: Date.now() });
     return r.data;
   } catch (e) {
@@ -722,11 +989,21 @@ async function okxGET(pathname, params) {
 async function okxPOST(pathname, body) {
   const payload = JSON.stringify(body || {});
   try {
-    const r = await __okxWithRetry(() => axios.post(OKX.REST_BASE + pathname, payload, {
-      headers: okxRestHeaders(pathname, "POST", payload),
-      timeout: Number(process.env.HERMES_API_TIMEOUT_MS || 12000),
-      httpsAgent: new https.Agent({ keepAlive: true })
-    }), "POST " + pathname);
+    const send = async () => {
+      const response = await axios.post(OKX.REST_BASE + pathname, payload, {
+        headers: okxRestHeaders(pathname, "POST", payload),
+        timeout: Number(process.env.HERMES_API_TIMEOUT_MS || 12000),
+        httpsAgent: new https.Agent({ keepAlive: true })
+      });
+      assertOkxSuccess(response.data, "POST " + pathname);
+      return response;
+    };
+    /* Une creation dont la reponse est perdue a un resultat INCONNU.
+       La rejouer aveuglement peut doubler une position. Les creations
+       d'ordre ne sont donc jamais retryees ici; leur machine d'etat
+       doit d'abord reconcilier par identifiant client. */
+    const createsOrder = pathname === "/api/v5/trade/order" || pathname === "/api/v5/trade/order-algo";
+    const r = createsOrder ? await send() : await __okxWithRetry(send, "POST " + pathname);
     setHealth("rest", { status: "OK", info: "POST " + pathname, lastOk: Date.now() });
     return r.data;
   } catch (e) {
@@ -762,40 +1039,12 @@ async function okxPOST(pathname, body) {
    taille en la quantifiant au nombre de decimales du pas. Le petit
    epsilon absorbe le cas inverse, ou 28,9 / 0,1 vaut 288,9999999 et
    ferait perdre un lot entier. */
-/* LE CORRECTIF EST SOUS INTERRUPTEUR, ET CE N'EST PAS DE LA TIMIDITE.
-
-   Chaque mise en ligne recopie tout le depot sur la machine. Sans
-   interrupteur, le premier diagnostic lance apres ce commit changerait
-   AUSSI, et sans que personne l'ait demande, la facon dont le moteur
-   dimensionne ses ordres sur un compte reel — en lui faisant passer des
-   trades qui echouaient, sur un systeme dont l'esperance par trade est
-   mesuree negative.
-
-   HERMES_TAILLE_EXACTE=1 active la taille corrigee. Par defaut le
-   moteur garde son comportement d'aujourd'hui, defaut compris, pour que
-   deployer une mesure reste une mesure et rien d'autre. Le jour ou le
-   proprietaire veut le correctif, c'est un mot dans le .env — et le
-   moment sensé est apres avoir mis le moteur en pause, ou le jour ou un
-   avantage brut est demontre. */
-const TAILLE_EXACTE = process.env.HERMES_TAILLE_EXACTE === "1";
-
 function roundQtyToLot(instId, qty) {
-  const meta  = MARKET.meta[instId] || { lotSz: 0.001, minSz: 0.001 };
-  const step  = num(meta.lotSz || 0.001);
-  const minSz = num(meta.minSz || step);
-  if (!(step > 0)) return 0;
-  if (!TAILLE_EXACTE) {
-    /* Le comportement historique, conserve tel quel. Sur un lot
-       fractionnaire il produit des chaines comme « 0.6000000000000001 »
-       qu'OKX refuse avec le code 51121 : c'est le defaut mesure le
-       2 septembre, garde ici volontairement et non par oubli. */
-    const rounded = Math.floor(qty / step) * step;
-    return Math.max(rounded, minSz);
-  }
-  const dec = (String(step).split(".")[1] || "").length;
-  const lots = Math.floor(qty / step + 1e-9);
-  const rounded = Number((Math.max(lots, 0) * step).toFixed(dec));
-  return Number(Math.max(rounded, minSz).toFixed(dec));
+  const meta = MARKET.meta[instId];
+  if (!meta || !(meta.lotSz > 0) || !(meta.minSz > 0)) return "0";
+  /* La chaine reseau est construite par lots entiers et BigInt. Il n'y
+     a plus de branche qui puisse recreer 0.6000000000000001. */
+  return quantityToLotString(qty, String(meta.lotSz), String(meta.minSz));
 }
 function qtyFromUSDT(instId, marginUSDT) {
   const px = MARKET.tick[instId]?.lastPrice || 0;
@@ -829,6 +1078,15 @@ function usedMarginNow() {
 }
 
 /* ===== Orders & Stops ===== */
+/* Identifiants d'appartenance : le compte OKX peut aussi contenir des
+   ordres manuels ou ceux d'un autre moteur. Hermes ne doit jamais les
+   annuler. Les IDs OKX sont alphanumeriques et limites a 32 caracteres. */
+function hermesClientId(kind = "o") {
+  return newHermesClientId(kind, process.env.HERMES_ALGO_OWNER);
+}
+function isHermesAlgo(order) {
+  return isHermesOwnedAlgo(order, process.env.HERMES_ALGO_OWNER);
+}
 /* === ORDER DEDUP HELPER START === */
 function __keySide(side){
   const s = String(side||"").toLowerCase();
@@ -849,21 +1107,36 @@ function __shouldPlace(instId, side){
 /* === ORDER DEDUP HELPER END === */
 function canPlaceOrder(instId, side, availableUSDT = Infinity) {
   if (!AI.on) return false;
+  if (!liveGateStatus().allowed) return false;
+  if (tierBreach()) return false;
+  if (AI.algoCleanupInProgress) return false;
+  /* Sans reconciliation automatique complete, un resultat d'ordre
+     inconnu reserve le portefeuille entier. Ouvrir ailleurs pourrait
+     depasser slots et marge si l'ordre ancien finit par etre execute. */
+  if (Object.keys(AI.orderIntents || {}).length) return false;
+  /* L'etat local est cle par instrument. Tant qu'il n'est pas migre vers
+     instrument+cote, ouvrir en long_short_mode ferait fusionner deux
+     expositions distinctes. Le live reste donc net-mode uniquement. */
+  if (POS_MODE !== "net_mode") return false;
   if (AI.inflight >= MAX_ORDERS_INFLIGHT) return false;
   if (perSymbolCooldown(instId)) return false;
 
   if (!/-USDT-SWAP$/.test(instId)) return false;   // marge USDT uniquement (jamais les contrats coin-margined)
-  const maxLev = num(MARKET.meta[instId]?.maxLever || 0);
-  if (maxLev > 0 && maxLev < DEFAULT_LEVERAGE) return false;   // levier spec ×20 impossible ici (ex. BSB max 10x)
+  const meta = MARKET.meta[instId];
+  if (!meta || Date.now() - MARKET.metaLoadedAt > 6 * 3600e3
+      || !(meta.ctVal > 0) || !(meta.lotSz > 0) || !(meta.minSz > 0)
+      || !(num(meta.tickSz) > 0) || !(meta.maxLever > 0)) return false;
+  if (meta.maxLever < DEFAULT_LEVERAGE) return false;
 
   const open = currentOpenCount();
+  const pending = Object.keys(AI.pendingEntries || {}).length;
   const sizing = positionSizing(AI.equityUSDT);
-  if (open >= Math.min(MAX_POSITIONS_GLOBAL, sizing.maxPositions)) return false;
+  if (open + pending >= Math.min(MAX_POSITIONS_GLOBAL, sizing.maxPositions)) return false;
 
   /* Jamais de ré-entrée sur un symbole déjà en position (mode net : une seule
      position nette par instrument → on ne double ni ne réduit une position existante). */
   const pos = AI.openPositions[instId];
-  if (pos) return false;
+  if (pos || AI.pendingEntries?.[instId]) return false;
 
   if (AI.equityUSDT < MIN_EQUITY_USDT) return false;
   /* Assez de solde LIBRE pour financer un trade. Le seuil était fixe à
@@ -877,7 +1150,7 @@ function canPlaceOrder(instId, side, availableUSDT = Infinity) {
   const tk = MARKET.tick[instId];
   if (!tk || !tk.rx || (Date.now() - tk.rx) > 10000) return false;
 
-  /* Budget de marge (spec : 90 % de l'équité). Il suffit qu'il reste de quoi
+  /* Budget de marge plafonne. Il suffit qu'il reste de quoi
      ouvrir un trade minimal — placeMarket dimensionne ensuite sur le reliquat,
      donc les places libérées se re-remplissent dès qu'un signal arrive. */
   const budget = MAX_RISK_PCT * AI.equityUSDT;
@@ -900,6 +1173,7 @@ async function placeInitialStop(instId, side, entryPx) {
       instId, tdMode: "isolated", posSide: side,
       side: side === "long" ? "sell" : "buy",
       ordType: "trigger",
+      algoClOrdId: hermesClientId("stop"),
       triggerPx: String(stopPx),
       tpTriggerPxType: OKX_CFG.trading?.triggerPxType || "mark",
       slTriggerPxType: OKX_CFG.trading?.triggerPxType || "mark"
@@ -926,6 +1200,7 @@ async function placeTrailing(instId, side, entryPx) {
     const body = {
       instId, tdMode: "isolated", posSide: side,
       ordType: "move_order_stop",
+      algoClOrdId: hermesClientId("trail"),
       callbackRatio: String(ratio),
       activePx: String(activePx.toFixed(6))
     };
@@ -943,6 +1218,7 @@ async function placeMarket(instId, side) {
 
   // Guardrails avec balance
   const port = await loadPortfolio().catch(() => null);
+  if (!reconcilePortfolioForOrder(port)) return { ok:false, reason:"portfolioUnavailable" };
   const availableUSDT = num(port?.balances?.details?.find(d => String(d.ccy).toUpperCase() === "USDT")?.availBal || 0);
   if (!canPlaceOrder(instId, side, availableUSDT)) return { ok: false, reason: "cannotPlace" };
 
@@ -1032,8 +1308,15 @@ function computeUIModeFromURL(u) {
 function isViewerMode() { return UI_RUNTIME_MODE === "viewer"; }
 /* ===== Portfolio & Private WS ===== */
 async function loadPortfolio() {
+  const snapshot = {
+    authoritative:false,
+    startedAt:Date.now(),
+    generationAtStart:AI.positionMutationGeneration,
+    completedAt:null,
+  };
   if (!OKX.KEY || !OKX.SECRET || !OKX.PASS) {
-    return { balances: { totalEq: AI.equityUSDT || 0, details: [] }, positions: [], ts: tsISO(), note: "NO_OKX_CREDS" };
+    return { balances: { totalEq: AI.equityUSDT || 0, details: [] }, positions: [], ts: tsISO(),
+      note:"NO_OKX_CREDS", snapshot:{ ...snapshot, completedAt:Date.now() } };
   }
   try {
     const b = await okxGET("/api/v5/account/balance");
@@ -1054,9 +1337,10 @@ async function loadPortfolio() {
     const arr = Array.isArray(p?.data) ? p.data : (Array.isArray(p?.data?.data) ? p.data.data : []);
     const positions = arr.map(x => ({
       instId:  String(x.instId || ""),
+      posId:   x.posId == null ? null : String(x.posId),
       posSide: String(x.posSide || ""),
       lever:   num(x.lever ?? x.leverage),
-      sz:      num(x.pos || x.sz || 0),
+      sz:      String(x.pos ?? x.sz ?? "0"),
       avgPx:   num(x.avgPx || x.openAvgPx),
       margin:  num(x.margin ?? x.imr ?? 0),   // marge isolée réellement immobilisée
       // null quand OKX ne la pas fourni, jamais 0 : un PnL absent et un
@@ -1072,12 +1356,94 @@ async function loadPortfolio() {
     }));
 
     setHealth("portfolio", { status: "OK", info: "fetch", lastOk: Date.now() });
-    return { balances, positions, ts: tsISO() };
+    return { balances, positions, ts: tsISO(),
+      snapshot:{ ...snapshot, authoritative:true, completedAt:Date.now() } };
   } catch (e) {
     setHealth("portfolio", { status: "WARN", info: "fetch error", lastErr: Date.now() });
     log("[PORTFOLIO_ERR]", e.message);
-    return { balances: { totalEq: AI.equityUSDT || 0, details: [] }, positions: [], ts: tsISO(), error: String(e.message || e) };
+    return { balances: { totalEq: AI.equityUSDT || 0, details: [] }, positions: [], ts: tsISO(),
+      error:String(e.message || e), snapshot:{ ...snapshot, completedAt:Date.now() } };
   }
+}
+
+function reconcilePositionSnapshot(positions, snapshot) {
+  if (!Array.isArray(positions)) throw new Error("snapshot positions absent");
+  const destructive = destructiveSnapshotAllowed(snapshot);
+  const realOpen = {};
+  let positionChanged = false;
+  for (const x of positions) {
+    const sz = num(x.sz);
+    if (Math.abs(sz) <= 0 || !x.instId) continue;
+    const side = (String(x.posSide) === "short" || sz < 0) ? "short" : "long";
+    const canonicalQty = roundQtyToLot(x.instId, Math.abs(sz));
+    realOpen[x.instId] = true;
+    /* Le fill peut devenir visible chez OKX quelques millisecondes avant
+       que la coroutine d'entree ait persiste sa deadline. Ce n'est pas
+       une position inconnue tant que cette entree locale est active. */
+    if (!AI.timedExitLedger.positions[x.instId]
+        && (AI.pendingEntries[x.instId] || AI.inflight > 0)) continue;
+    const previous = AI.openPositions[x.instId] || {};
+    const merged = {
+      ...previous, instId:x.instId, side,
+      qty:num(canonicalQty) > 0 ? canonicalQty : String(x.sz).replace(/^-/, ""),
+      avgPx:num(x.avgPx) || num(previous.avgPx), realMargin:num(x.margin),
+      posId:x.posId || previous.posId || null,
+      ts:previous.ts || num(x.cTime) || Date.now(), adopted:previous.adopted ?? true,
+    };
+    restoreTimedExit(merged, x);
+    if (!previous.instId || previous.side !== merged.side || String(previous.qty) !== String(merged.qty)
+        || String(previous.posId || "") !== String(merged.posId || "")) positionChanged = true;
+    AI.openPositions[x.instId] = merged;
+  }
+  if (destructive.allowed) {
+    for (const id of Object.keys(AI.openPositions)) {
+      if (!realOpen[id]) { delete AI.openPositions[id]; positionChanged = true; }
+    }
+    let ledgerChanged = false;
+    for (const id of Object.keys(AI.timedExitLedger.positions)) {
+      if (!realOpen[id]) { delete AI.timedExitLedger.positions[id]; ledgerChanged = true; }
+    }
+    if (ledgerChanged) saveTimedExitState();
+  } else if (Object.keys(AI.openPositions).some((id) => !realOpen[id])
+      || Object.keys(AI.timedExitLedger.positions).some((id) => !realOpen[id])) {
+    log("[RECONCILE_NON_DESTRUCTIF]", destructive.reason);
+  }
+  if (positionChanged) notePositionMutation();
+  return realOpen;
+}
+
+function reconcilePortfolioForOrder(portfolio) {
+  if (!portfolio || portfolio.error || portfolio.snapshot?.authoritative !== true
+      || !Array.isArray(portfolio.positions)) return false;
+  const totalEqRaw = portfolio.balances?.totalEq;
+  if (totalEqRaw === undefined || totalEqRaw === null || totalEqRaw === "") return false;
+  AI.equityUSDT = num(totalEqRaw);
+  refreshTier();
+  reconcilePositionSnapshot(portfolio.positions, portfolio.snapshot);
+  return true;
+}
+
+let wsPositionReconcileInFlight = false;
+let wsPositionReconcileTimer = null;
+function scheduleAuthoritativePositionReconcile(reason) {
+  if (wsPositionReconcileInFlight || wsPositionReconcileTimer) return;
+  wsPositionReconcileTimer = setTimeout(() => {
+    wsPositionReconcileTimer = null;
+    if (AI.inflight > 0 || Object.keys(AI.pendingEntries || {}).length > 0) {
+      scheduleAuthoritativePositionReconcile(reason);
+      return;
+    }
+    wsPositionReconcileInFlight = true;
+    Promise.resolve().then(async () => {
+    const portfolio = await loadPortfolio();
+    if (portfolio.snapshot?.authoritative !== true || portfolio.error) {
+      log("[WS_POSITION_RECONCILE_SKIP]", reason, portfolio.note || portfolio.error || "non autoritatif");
+      return;
+    }
+    reconcilePositionSnapshot(portfolio.positions, portfolio.snapshot);
+    }).catch((e) => log("[WS_POSITION_RECONCILE_ERR]", reason, e.message))
+      .finally(() => { wsPositionReconcileInFlight = false; });
+  }, 250);
 }
 
 /* Les protections VIVANTES, lues chez OKX et non dans la memoire du
@@ -1157,7 +1523,10 @@ async function portfolioLoop() {
   while (RUNNING) {
     try {
       const port = await loadPortfolio();
-      AI.equityUSDT = num(port.balances?.totalEq || AI.equityUSDT);
+      const totalEqRaw = port.balances?.totalEq;
+      if (!port.error && totalEqRaw !== undefined && totalEqRaw !== null && totalEqRaw !== "") {
+        AI.equityUSDT = num(totalEqRaw);  // zero est une valeur reelle, pas une absence
+      }
       refreshTier();
       try { rapportAccessibilite(); } catch {}
       // Sans await : la fraicheur des protections vaut moins que la
@@ -1168,19 +1537,8 @@ async function portfolioLoop() {
       /* Synchro de l'état des positions avec OKX (toutes les 4 s) : garantit que
          canPlaceOrder voit fidèlement les symboles déjà ouverts → empêche la
          ré-entrée (et donc le doublement) d'une position existante. */
-      if (!port.error && Array.isArray(port.positions)) {   // jamais de purge sur une lecture en échec
-        const realOpen = {};
-        for (const x of port.positions) {
-          const sz = num(x.sz);
-          if (Math.abs(sz) <= 0) continue;
-          const side = (String(x.posSide) === "short" || sz < 0) ? "short" : "long";
-          realOpen[x.instId] = true;
-          if (!AI.openPositions[x.instId]) AI.openPositions[x.instId] = { instId: x.instId, side, qty: Math.abs(sz), avgPx: num(x.avgPx), realMargin: num(x.margin), ts: Date.now(), adopted: true };
-          else { AI.openPositions[x.instId].side = side; AI.openPositions[x.instId].qty = Math.abs(sz); AI.openPositions[x.instId].realMargin = num(x.margin); }
-        }
-        for (const id of Object.keys(AI.openPositions)) {
-          if (!realOpen[id]) delete AI.openPositions[id];   // fermée côté OKX → libère le slot
-        }
+      if (!port.error && port.snapshot?.authoritative === true && Array.isArray(port.positions)) {
+        reconcilePositionSnapshot(port.positions, port.snapshot);
       }
 
       // Guard Ã¢â‚¬Å“tier breachÃ¢â‚¬Â => OFF
@@ -1318,7 +1676,7 @@ async function startPrivateWS() {
     setHealth("wsPrivate", { status: "OK", info: "open", lastTs: Date.now(), authed: false });
     log("[WS] private open -> login");
 
-    const ts = (Date.now() / 1000).toFixed(3); // seconds.mmm
+    const ts = ((Date.now() + TIME_OFFSET_MS) / 1000).toFixed(3); // seconds.mmm, horloge OKX
     const sign = crypto.createHmac("sha256", OKX.SECRET).update(ts + "GET" + "/users/self/verify").digest("base64");
     const args = { apiKey: OKX.KEY, passphrase: OKX.PASS, timestamp: ts, sign };
     if (OKX.SIMULATED) args["x-simulated-trading"] = "1";
@@ -1349,38 +1707,52 @@ async function startPrivateWS() {
 
       if (msg.arg?.channel === "positions" && msg.data) {
         for (const p of msg.data) {
-          const instId = p.instId;
-          const sz     = num(p.pos);
-          const side   = (p.posSide || "").toLowerCase();
-          const avgPx  = num(p.avgPx);
-          const was    = AI.openPositions[instId];
-
-          if (sz === 0) {
-            // Fermeture -> enregistrer un deal
-            try {
-              if (was) {
-                const meta = MARKET.meta[instId] || { ctVal: 1 };
-                const ct   = num(meta.ctVal || 1);
-                const last = MARKET.tick[instId]?.lastPrice || avgPx || 0;
-                const qty  = Math.abs(was.qty || 0);
-                const wasSide = String(was.side || "").toUpperCase();
-                const lev  = num(p.lever ?? p.leverage) || DEFAULT_LEVERAGE || 20;
-                const notional = last * qty * ct;
-                const margin   = lev ? (notional / lev) : 0;
-                const profit   = wasSide === "LONG"
-                  ? (last - (was.avgPx || last)) * qty * ct
-                  : ((was.avgPx || last) - last) * qty * ct;
-                try {
-                  DEALS.recent.unshift({ time: Date.now(), symbol: instId, side: wasSide, price: last, margin, leverage: lev, notional, profit });
-                  if (DEALS.recent.length > 300) DEALS.recent.pop();
-                } catch {}
-                logAIEvent({ event: "TRADE_EXIT", instId, side: wasSide, price: last, qty, profit, live: true });
-              }
-            } catch {}
-            delete AI.openPositions[instId];
-          } else {
-            AI.openPositions[instId] = { side, qty: Math.abs(sz), avgPx, ts: now() };
+          const update = parsePositionWsUpdate(p);
+          if (!update.ok) {
+            log("[WS_POSITION_IGNORED]", update.instId || "?", update.reason);
+            setHealth("wsPrivate", { status:"WARN", info:`position:${update.reason}` });
+            scheduleAuthoritativePositionReconcile(update.reason);
+            continue;
           }
+          const instId = update.instId;
+          const was = AI.openPositions[instId];
+
+          /* Un zero WS est un indice de fermeture, pas une autorisation
+             de detruire le ledger. Seul le snapshot REST complet lance
+             le nettoyage et l'historique exchange reste la source PnL. */
+          if (update.type === "flat-hint") {
+            scheduleAuthoritativePositionReconcile("ws-flat-hint");
+            continue;
+          }
+
+          const identity = matchTimedExitRecord(
+            AI.timedExitLedger.positions[instId],
+            { ...p, instId, side:update.side },
+          );
+          if (!identity.ok) {
+            /* Un paquet simplement incomplet est ignore sans casser un
+               etat REST deja etabli. Une contradiction explicite ou une
+               metadata absente verrouille, puis REST tranche. */
+            const localEntryActive = Boolean(AI.pendingEntries[instId] || AI.inflight > 0);
+            if (identity.reason !== "identite_exchange_absente"
+                && !(identity.reason === "metadata_absente" && localEntryActive)) {
+              lockTimedExitState(instId, `ws_${identity.reason}`, identity.detail);
+            }
+            scheduleAuthoritativePositionReconcile(`ws-${identity.reason}`);
+            continue;
+          }
+
+          const merged = {
+            ...(was || {}), instId, side:update.side, qty:update.size,
+            avgPx:num(p.avgPx) || was?.avgPx || 0,
+            realMargin:num(p.margin ?? p.imr ?? was?.realMargin),
+            posId:update.posId || was?.posId || null,
+            ts:was?.ts || update.cTime || now(),
+          };
+          restoreTimedExit(merged, p);
+          if (!was || was.side !== merged.side || String(was.qty) !== String(merged.qty)
+              || String(was.posId || "") !== String(merged.posId || "")) notePositionMutation();
+          AI.openPositions[instId] = merged;
         }
       }
       // (orders channel dispo si besoin)
@@ -1513,17 +1885,16 @@ ipcMain.handle("poser-cles", async (_e, p = {}) => {
 
     // Une vraie requete signee : cest OKX qui dit si les cles valent
     // quelque chose, pas nous.
-    const ts = new Date().toISOString().replace(/(\.\d{3})\d*Z$/, "$1Z");
+    const ts = new Date(Date.now() + TIME_OFFSET_MS).toISOString().replace(/(\.\d{3})\d*Z$/, "$1Z");
     const chemin = "/api/v5/account/config";
     const sign = crypto.createHmac("sha256", secret).update(ts + "GET" + chemin).digest("base64");
     let rep;
     try {
-      rep = await axios.get(OKX.REST_BASE + chemin, {
-        timeout: 15000,
-        headers: { "OK-ACCESS-KEY": cle, "OK-ACCESS-SIGN": sign,
-                   "OK-ACCESS-TIMESTAMP": ts, "OK-ACCESS-PASSPHRASE": passe,
-                   "Content-Type": "application/json" },
-      });
+      const headers = { "OK-ACCESS-KEY": cle, "OK-ACCESS-SIGN": sign,
+                        "OK-ACCESS-TIMESTAMP": ts, "OK-ACCESS-PASSPHRASE": passe,
+                        "Content-Type": "application/json" };
+      if (OKX.SIMULATED) headers["x-simulated-trading"] = "1";
+      rep = await axios.get(OKX.REST_BASE + chemin, { timeout: 15000, headers });
     } catch (e) {
       rep = e.response || null;
     }
@@ -1579,6 +1950,7 @@ if (ipcMain && !global.__AI_LOG_SUB__) {
 ipcMain.handle("ai:live-status", async () => ({
   ok: true,
   liveEnabled: !!AI.on,
+  liveGate: liveGateStatus(),
   ts: tsISO()
 }));
 
@@ -1659,6 +2031,7 @@ ipcMain.handle("get-ai-state", async () => {
       mode: AI.mode,
       equityUSDT: AI.equityUSDT,
       tier: AI.tier,
+      liveGate: liveGateStatus(),
       pending: 0,
       ts: tsISO()
     };
@@ -1732,8 +2105,10 @@ ipcMain.handle("chandelles", async (_e, p) => {
    aucune cle requise, la lecture seule y a droit. */
 ipcMain.handle("laboratoire", async () => {
   try {
-    let roster = null;
+    let roster = null, approvedRoster = null;
     try { roster = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "roster.json"), "utf8")); }
+    catch {}
+    try { approvedRoster = JSON.parse(fs.readFileSync(path.join(ROOT, "config", "approved-roster.json"), "utf8")); }
     catch {}
     const historique = [];
     try {
@@ -1772,8 +2147,8 @@ ipcMain.handle("laboratoire", async () => {
        trois mois de bruit. */
     let hors = null;
     try { hors = JSON.parse(fs.readFileSync(path.join(DATADIR, "hors_echantillon.json"), "utf8")); } catch {}
-    return { ok: true, roster, historique, joue, guet, capital, transversal, hors,
-             moteur: !!(typeof AI !== "undefined" && AI.on), progression, ts: tsISO() };
+    return { ok: true, roster, approvedRoster, historique, joue, guet, capital, transversal, hors,
+             moteur: !!(typeof AI !== "undefined" && AI.on), liveGate: liveGateStatus(), progression, ts: tsISO() };
   } catch (e) {
     return { ok: false, error: String(e.message || e) };
   }
@@ -2006,6 +2381,7 @@ ipcMain.handle("toggle-ai", async (_e, desired) => {
   }
 
   try {
+    if (isViewerMode()) return { ok: false, success: false, active: !!AI.on, error: "VIEW_ONLY", ts: tsISO() };
     // Debounce (800ms) + lock concurrent
     if (now - global.__AI_TOGGLE_GUARD.t < 800 || global.__AI_TOGGLE_GUARD.lock) {
       return { ok: true, success: true, active: !!AI.on, skipped: true, ts: tsISO() };
@@ -2014,6 +2390,20 @@ ipcMain.handle("toggle-ai", async (_e, desired) => {
 
     const prev = !!AI.on;
     const next = (typeof desired === "boolean") ? desired : !prev;
+
+    if (next) {
+      const gate = liveGateStatus(true);
+      if (!gate.allowed) {
+        global.__AI_TOGGLE_GUARD.lock = false;
+        global.__AI_TOGGLE_GUARD.t = Date.now();
+        return { ok: false, success: false, active: false, error: "LIVE_GATE_BLOCKED", liveGate: gate, ts: tsISO() };
+      }
+      if (tierBreach()) {
+        global.__AI_TOGGLE_GUARD.lock = false;
+        global.__AI_TOGGLE_GUARD.t = Date.now();
+        return { ok: false, success: false, active: false, error: "RISK_DRAWDOWN_LOCK", ts: tsISO() };
+      }
+    }
 
     // Aucun changement d'Ã©tat â†’ no-op
     if (next === prev) {
@@ -2043,6 +2433,7 @@ ipcMain.handle("toggle-ai", async (_e, desired) => {
       mode: AI.mode,
       equityUSDT: AI.equityUSDT,
       tier: AI.tier,
+      liveGate: liveGateStatus(),
       pending: 0,
       ts: tsISO(),
       logs: []
@@ -2060,9 +2451,12 @@ ipcMain.handle("place-order", async (_e, opt = {}) => {
   log("[UI] place-order requested | mode:", UI_RUNTIME_MODE);
   if (isViewerMode()) return { ok: false, success: false, error: "VIEW_ONLY" };
   try {
+    if (!envBool(process.env.HERMES_ENABLE_MANUAL_ORDER, false)) return { ok: false, success: false, error: "MANUAL_ORDER_PATH_DISABLED" };
     if (!OKX.KEY || !OKX.SECRET || !OKX.PASS) return { ok: false, success: false, error: "NO_OKX_CREDS" };
     if (!AI.on) return { ok: false, success: false, error: "AI_OFF" };
     const instId = String(opt.instId || "BTC-USDT-SWAP");
+    const approved = (typeof globalThis.__hermes15Roster === "function") ? globalThis.__hermes15Roster()?.strats : null;
+    if (!approved?.[instId]) return { ok: false, success: false, error: "INSTRUMENT_NOT_APPROVED" };
     const side   = (opt.side === "long" || opt.side === "short") ? opt.side : "long";
     const res    = await placeMarket(instId, side);
     return { ok: !!res.ok, success: !!res.ok, res, ts: tsISO() };
@@ -2092,91 +2486,19 @@ async function resolveLoadTarget() {
   return { type: "none", value: null };
 }
 
-/* ===== IPC: ai:order-margin (marge Ãƒâ€” levier Ã¢â€¡â€™ notionnel) ===== */
-(function orderMarginWiring(){
-  try {
-    function tryReq(p){ try { return require(p); } catch { return null; } }
-    const exec = tryReq(path.join(ROOT, "modules", "exec.js")) || tryReq("../modules/exec.js") || tryReq("./modules/exec.js");
-    const okx  = tryReq(path.join(ROOT, "modules", "okx.js"))  || tryReq("../modules/okx.js")  || tryReq("./modules/okx.js");
-
-    if (!ipcMain || !exec || !okx) {
-      log("[AI] modules exec/okx introuvables pour ai:order-margin");
-      return;
-    }
-
-    async function ensureLeverage(instId, leverage, tdMode = "isolated") {
-      try {
-        if (exec.normalizeSetLeverageBody) {
-          const body = await exec.normalizeSetLeverageBody({ instId, leverage, mgnMode: tdMode });
-          return await okx.okxPOST("/api/v5/account/set-leverage", body);
-        } else {
-          return await okx.okxPOST("/api/v5/account/set-leverage", { instId, mgnMode: tdMode, lever: String(leverage) });
-        }
-      } catch (e) {
-        log("[AI] set-leverage err:", (e?.response?.data || e?.message || e));
-        return null;
-      }
-    }
-
-    async function placeOrderMargin({ instId, side, marginUSDT, leverage, tpPct, slPct, trailingSpec, tdMode = "isolated", posSide = null }) {
-  // DÃ©doublonnage manual (1.5s) pour Ã©viter double ouverture (instId+side)
-  if (!__shouldPlace(instId, side)) {
-    const __m = `[INFO] Filtre doublon : ordre ignorÃ© (${instId} ${side})`;
-    try { appendJSONL(AI.logsAIFile, { ts: tsISO(), event:"INFO", info: __m, msg: __m }); broadcastAILog({ ts: tsISO(), event:"INFO", info: __m, msg: __m }); } catch {}
-    return { ok:false, reason:"dedup" };
-  }
-      if (leverage != null) await ensureLeverage(instId, leverage, tdMode);
-      const body = { instId, side, ordType: "market", tdMode, leverage, budgetUSDT: Number(marginUSDT) };
-      if (posSide) body.posSide = posSide;
-      if (tpPct  != null) body.tpPct = Number(tpPct);
-      if (slPct  != null) body.slPct = Number(slPct);
-      if (trailingSpec)   body.trailingSpec = trailingSpec;
-      if (!exec.okxTradeOrderWithGuards) throw new Error("okxTradeOrderWithGuards indisponible");
-      return await exec.okxTradeOrderWithGuards(body);
-    }
-
-    if (!global.__AI_ORDER_MARGIN__) {
-      global.__AI_ORDER_MARGIN__ = true;
-      ipcMain.handle("ai:order-margin", async (_e, p = {}) => { try { if (!AI.on) return { ok:false, error:"AI_OFF" };
-          const inst   = p.instId   || process.env.AI_INST || "BTC-USDT-SWAP";
-          const side   = p.side     || "buy";
-          const lev    = (p.leverage != null ? Number(p.leverage) : Number(process.env.AI_DEFAULT_LEVERAGE || process.env.AI_LEVERAGE || 20));
-          const margin = (p.marginUSDT != null ? Number(p.marginUSDT) : Number(process.env.AI_BUDGET_USDT || 20));
-          const tpPct  = (p.tpPct  != null) ? Number(p.tpPct)  : (process.env.AI_TP_PCT  ? Number(process.env.AI_TP_PCT)  : undefined);
-          const slPct  = (p.slPct  != null) ? Number(p.slPct)  : (process.env.AI_SL_PCT  ? Number(process.env.AI_SL_PCT)  : undefined);
-
-          let trailingSpec = p.trailingSpec || null;
-          if (!trailingSpec && (process.env.AI_TRAIL_ACTIVE_PCT || process.env.AI_TRAIL_CB_RATIO)) {
-            trailingSpec = {
-              activePct: Number(process.env.AI_TRAIL_ACTIVE_PCT || 0.35),
-              callbackRatio: Number(process.env.AI_TRAIL_CB_RATIO || 0.15),
-            };
-          }
-
-          const res = await placeOrderMargin({ instId: inst, side, marginUSDT: margin, leverage: lev, tpPct, slPct, trailingSpec });
-          return { ok: true, res };
-        } catch (e) {
-          const payload = e?.response?.data || e?.response || e?.message || e;
-          return { ok: false, error: payload };
-        }
-      });
-      log("[AI] IPC prÃƒÂªt: ai:order-margin (marge Ãƒâ€” levier Ã¢â€¡â€™ notionnel).");
-    }
-  } catch (e) {
-    log("[AI] Order wiring failed:", (e && e.message) || e);
-  }
-})();
-
 /* ===== ELECTRON BOOT ===== */
 async function createWindow() {
   try {
     MARKET.universe = await loadUniverse();
     await loadMetaInstruments();
+    setInterval(() => { loadMetaInstruments().catch(()=>{}); }, 3 * 3600 * 1000);
     await syncServerTime();                 // aligner l'horloge AVANT tout appel signé
     setInterval(() => { syncServerTime().catch(()=>{}); }, 15 * 60 * 1000);
     await loadTradeFees();
     await loadAccountPosMode();
+    setInterval(() => { loadAccountPosMode().catch(()=>{}); }, 5 * 60 * 1000);
     loadTierPeak();
+    loadTimedExitState();
 
     log("[BOOT] Universe:", MARKET.universe.length, "symbols");
     log("[BOOT] __dirname:", HERE);
@@ -2487,7 +2809,7 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
     /* SPEC validée par le client le 30/08 (ajusté même jour : activation +10 %) :
        levier ×15, TP +80 % marge / SL −30 % / trail 5 % de marge activé à +10 %.
        Tous les prix se déduisent du levier : pct marge ÷ levier = pct prix. */
-    const SPEC = { tpPctMargin: 0.80, slPctMargin: 0.30, trailActPctMargin: 0.10, trailCbPctMargin: 0.05 };
+    const SPEC = { tpPctMargin: 0.80, slPctMargin: DEFAULT_STOP_MARGIN_PCT, trailActPctMargin: 0.10, trailCbPctMargin: 0.05 };
     const trailCallbackPx = () => (SPEC.trailCbPctMargin / (DEFAULT_LEVERAGE || 15));
 
     /* Arrondi au tickSz de l'instrument, sortie décimale (jamais d'exponentielle). */
@@ -2512,15 +2834,16 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
     /* Réparation : pose un OCO TP/SL exchange-side pour une position existante. */
     placeInitialStop = async function(instId, side, entryPx, qtyIn, ov){
       try{
-        const qty = Math.abs(qtyIn || AI.openPositions[instId]?.qty || 0);
-        if (qty <= 0 || !(entryPx > 0)) return { ok:false, reason:"noQty" };
+        const qty = roundQtyToLot(instId, Math.abs(num(qtyIn || AI.openPositions[instId]?.qty || 0)));
+        if (num(qty) <= 0 || !(entryPx > 0)) return { ok:false, reason:"noQty" };
         const px = specPrices(instId, side, entryPx, ov);
         const body = {
           instId, tdMode:"isolated",
           ...(isHedge() ? { posSide: side } : { reduceOnly: true }),
           side: side === "long" ? "sell" : "buy",
           ordType: "oco",
-          sz: String(qty),
+          algoClOrdId: hermesClientId("oco"),
+          sz: qty,
           tpTriggerPx: px.tp, tpOrdPx: "-1",
           slTriggerPx: px.sl, slOrdPx: "-1",
           tpTriggerPxType: "last", slTriggerPxType: "last"
@@ -2534,14 +2857,14 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
         }
         log("[STOP_INIT_ERR]", instId, JSON.stringify(r).slice(0,180));
         return { ok:false, r };
-      }catch(e){ setHealth("stops",{ status:"WARN", info:"placeInitialStop error" }); log("[STOP_INIT_ERR]", instId, e.message); return { ok:false, error:e.message }; }
+      }catch(e){ setHealth("stops",{ status:"WARN", info:"placeInitialStop error" }); log("[STOP_INIT_ERR]", instId, e.message); return { ok:false, error:e.message, ambiguous:!/^\d+$/.test(String(e?.okxCode || "")) }; }
     };
 
     /* Trailing exchange-side : callback 0,5 % de prix (=10 % de marge), activation à +0,5 % prix. */
     placeTrailing = async function(instId, side, entryPx, qtyIn, ov){
       try{
-        const qty = Math.abs(qtyIn || AI.openPositions[instId]?.qty || 0);
-        if (qty <= 0 || !(entryPx > 0)) return { ok:false, reason:"noQty" };
+        const qty = roundQtyToLot(instId, Math.abs(num(qtyIn || AI.openPositions[instId]?.qty || 0)));
+        if (num(qty) <= 0 || !(entryPx > 0)) return { ok:false, reason:"noQty" };
         const px = specPrices(instId, side, entryPx, ov);
         const cb = ((ov?.trailCbPctMargin ?? SPEC.trailCbPctMargin) / (DEFAULT_LEVERAGE || 15));
         const body = {
@@ -2549,7 +2872,8 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
           ...(isHedge() ? { posSide: side } : { reduceOnly: true }),
           side: side === "long" ? "sell" : "buy",
           ordType: "move_order_stop",
-          sz: String(qty),
+          algoClOrdId: hermesClientId("trail"),
+          sz: qty,
           callbackRatio: cb.toFixed(4),
           activePx: px.act
         };
@@ -2567,18 +2891,21 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
     /* Entrée protégée : TP/SL attachés À l'ordre (atomique côté OKX), puis trailing. */
     const __prev_placeMarket = (typeof placeMarket==="function") ? placeMarket : null;
     placeMarket = async function(instId, side, ov){
+      const effectiveStopMarginPct = effectiveStopLossMarginPct(ov, SPEC.slPctMargin);
+      const effectiveOrderOv = { ...(ov || {}), slPctMargin: effectiveStopMarginPct };
       const px = MARKET.tick[instId]?.lastPrice || 0;
       if (px<=0) return { ok:false, reason:"noPrice" };
 
       const port = await loadPortfolio().catch(()=>null);
+      if (!reconcilePortfolioForOrder(port)) return { ok:false, reason:"portfolioUnavailable" };
       const availableUSDT = num(port?.balances?.details?.find(d=>String(d.ccy).toUpperCase()==="USDT")?.availBal || 0);
       if (!canPlaceOrder(instId, side, availableUSDT)) return { ok:false, reason:"cannotPlace" };
 
-      /* Sizing sur le budget RESTANT (spec : 90 % de l'équité, surconsommation des
+      /* Sizing sur le budget restant (marge plafonnee + risque au stop, surconsommation des
          lots déduite) : plafonné par la marge/trade de la spec et le cash dispo.
          Ainsi une place libérée se re-remplit immédiatement, même si le reliquat
          est inférieur à une marge pleine. */
-      const s  = positionSizing(AI.equityUSDT);
+      const s  = positionSizing(AI.equityUSDT, effectiveStopMarginPct);
       const restant = Math.max(0, MAX_RISK_PCT * AI.equityUSDT - usedMarginNow());
       let marge = Math.min(s.perTradeUSDT, restant * 0.98, availableUSDT * 0.95);
       /* La garde de correlation. Douze perles, presque toutes des longs
@@ -2587,11 +2914,12 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
          la suivante ouvre a taille reduite — on prend le signal (le
          winrate est le sien), mais on ne triple pas l'exposition a la
          meme chute. */
-      const PLEIN_MEME_SENS = Number(process.env.HERMES_MEME_SENS_PLEIN || 2);
-      const ECHELLE_CORREL  = Number(process.env.HERMES_CORREL_ECHELLE || 0.6);
-      const memeSens = Object.values(AI.openPositions).filter((p) => String(p.side).toLowerCase() === String(side).toLowerCase()).length;
+      const PLEIN_MEME_SENS = RISK_LIMITS.sameSideFull;
+      const ECHELLE_CORREL  = RISK_LIMITS.correlationScale;
+      const memeSens = Object.values(AI.openPositions).filter((p) => String(p.side).toLowerCase() === String(side).toLowerCase()).length
+        + Object.values(AI.pendingEntries || {}).filter((pSide) => String(pSide).toLowerCase() === String(side).toLowerCase()).length;
       if (memeSens >= PLEIN_MEME_SENS) {
-        marge *= ECHELLE_CORREL;
+        marge = Math.min(marge * ECHELLE_CORREL, s.perTradeUSDT, restant * 0.98, availableUSDT * 0.95);
         log("[CORREL]", instId, side, `${memeSens} deja dans ce sens -> marge reduite a ${marge.toFixed(2)} USDT`);
       }
       /* Le plancher etait la constante 5 USDT, et il a coute la deuxieme
@@ -2616,6 +2944,7 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
          ici) : un signal concurrent verra ce budget comme consommé. Libérée dans le
          finally — en cas de succès la position est déjà comptée dans AI.openPositions. */
       AI.reservedMargin = num(AI.reservedMargin || 0) + marge;
+      AI.pendingEntries[instId] = side;
 
       try{
         AI.inflight++; setHealth("orders",{ inflight:AI.inflight });
@@ -2623,14 +2952,17 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
         const levR = await okxPOST("/api/v5/account/set-leverage",{ instId, lever:String(DEFAULT_LEVERAGE), mgnMode:"isolated", ...(isHedge() ? { posSide: side } : {}) });
         if (levR?.code != "0") log("[LEV_WARN]", instId, JSON.stringify(levR).slice(0,120));
 
-        const prot = specPrices(instId, side, px, ov);
-        const clOrdId = ("hm" + Date.now().toString(36) + Math.random().toString(36).slice(2,8)).slice(0,32);
-        const common = {
+        const tick0 = MARKET.tick[instId] || {};
+        const lmtPx = side === 'long' ? (tick0.bidPx || px) : (tick0.askPx || px);
+        let prot = specPrices(instId, side, lmtPx, effectiveOrderOv);
+        const clOrdId = hermesClientId("entry");
+        let common = {
           instId, tdMode:"isolated",
           side: side==='long' ? "buy" : "sell",
           sz:String(qty),
           ...(isHedge() ? { posSide: side } : {}),
           attachAlgoOrds: [{
+            attachAlgoClOrdId: hermesClientId("attach"),
             tpTriggerPx: prot.tp, tpOrdPx: "-1",
             slTriggerPx: prot.sl, slOrdPx: "-1",
             tpTriggerPxType: "last", slTriggerPxType: "last"
@@ -2640,37 +2972,222 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
         /* P2 (validé client 30/08) : entrée MAKER — limite post-only au meilleur prix du
            carnet. Non exécutée en ~5 s (ou rejetée car elle croiserait) → bascule en ordre
            marché pour ne perdre aucun trade. Frais ~divisés par 2 (~+2 % de marge/trade). */
-        let res = null, viaMaker = false, filledPx = px;
-        const tick0 = MARKET.tick[instId] || {};
-        const lmtPx = side === 'long' ? (tick0.bidPx || px) : (tick0.askPx || px);
-        const lim = await okxPOST('/api/v5/trade/order', { ...common, ordType:"post_only", px: pxToTick(instId, lmtPx), clOrdId }).catch(e => ({ __err: e?.response?.data || e.message }));
+        let res = null, viaMaker = false, makerPartial = false, makerTerminal = false;
+        let filledPx = px, filledQty = String(qty), marketReferencePx = px;
+        let makerCancelRequested = false;
+        let partialProtectedQty = 0;
+        let partialProtectionFailed = false;
+        const provisionalProtectionIds = [];
+        let lim = null;
+        const entryAuthorityStillValid = () => !!AI.on && liveGateStatus(true).allowed
+          && !tierBreach() && !AI.algoCleanupInProgress;
+        if (!entryAuthorityStillValid()) throw new Error("ENTRY_AUTHORITY_REVOKED");
+        setOrderIntent(instId, { phase:"maker-submit", clOrdId, side, qty:String(qty), createdAt:Date.now() });
+        try {
+          lim = await okxPOST('/api/v5/trade/order', { ...common, ordType:"post_only", px: pxToTick(instId, lmtPx), clOrdId });
+        } catch (e) {
+          /* Un refus metier est definitif : aucun ordre n'a ete cree et
+             le fallback marche est permis. Un timeout/reseau signifie
+             au contraire resultat INCONNU : ne jamais doubler. */
+          if (/^\d+$/.test(String(e?.okxCode || ""))) { makerTerminal = true; clearOrderIntent(instId); }
+          else throw new Error("MAKER_OUTCOME_UNKNOWN: " + e.message);
+          log("[MAKER_MISS]", instId, e.message);
+        }
         const limId = (lim?.code=="0" && lim?.data?.[0]?.sCode=="0") ? lim?.data?.[0]?.ordId : null;
-        if (!limId) log("[MAKER_MISS]", instId, "px", pxToTick(instId, lmtPx), "bid/ask", tick0.bidPx, tick0.askPx, JSON.stringify(lim?.data?.[0] || lim?.__err || lim).slice(0, 160));
+        if (lim && !limId) throw new Error("MAKER_ACK_WITHOUT_ORDER_ID");
+
+        const protectObservedPartial = async (order) => {
+          const directive = makerOrderDirective(order, {
+            cancelRequested: makerCancelRequested,
+            protectedQty: partialProtectedQty,
+          });
+          const lot = num(MARKET.meta[instId]?.lotSz);
+          if (!(directive.protectQty >= lot * 0.5) || !(directive.filledQty > 0)) return true;
+          const protectionQty = roundQtyToLot(instId, directive.protectQty);
+          if (!(num(protectionQty) > 0)) return true;
+          const observedAvgPx = num(order?.avgPx);
+          if (!(observedAvgPx > 0)) {
+            partialProtectionFailed = true;
+            AI.on = false;
+            AI.riskLockedReason = "partial-fill-price-unknown";
+            saveTierPeak();
+            setOrderIntent(instId, { phase:"maker-partial-price-unknown" });
+            return false;
+          }
+          filledPx = observedAvgPx;
+          filledQty = String(order?.accFillSz || filledQty);
+          makerPartial = true;
+          setOrderIntent(instId, {
+            phase:"maker-partial-protect",
+            observedFillQty:filledQty,
+            observedAvgPx:filledPx,
+          });
+          const protection = await placeInitialStop(
+            instId, side, filledPx, protectionQty, effectiveOrderOv
+          );
+          if (!protection.ok) {
+            partialProtectionFailed = true;
+            AI.on = false;
+            AI.riskLockedReason = "partial-fill-protection-failed";
+            saveTierPeak();
+            setOrderIntent(instId, { phase:"maker-partial-unprotected" });
+            return false;
+          }
+          partialProtectedQty += num(protectionQty);
+          if (protection.algoId) provisionalProtectionIds.push(protection.algoId);
+          setOrderIntent(instId, {
+            phase:"maker-partial-protected",
+            protectedQty:partialProtectedQty,
+            protectionAlgoId:protection.algoId,
+          });
+          return true;
+        };
+
+        const requestMakerCancel = async (order) => {
+          const shouldSendCancel = !makerCancelRequested;
+          makerCancelRequested = true;
+          setOrderIntent(instId, { phase:"maker-cancel-requested", ordId:limId });
+          /* Le cancel et le SL partiel partent ensemble : attendre d'abord
+             l'un laisserait inutilement l'autre risque ouvert. */
+          const [cancelOutcome, protectionOutcome] = await Promise.allSettled([
+            shouldSendCancel
+              ? okxPOST("/api/v5/trade/cancel-order", { instId, ordId:limId })
+              : Promise.resolve({ code:"0" }),
+            protectObservedPartial(order),
+          ]);
+          if (protectionOutcome.status === "rejected") {
+            partialProtectionFailed = true;
+            AI.on = false;
+            AI.riskLockedReason = "partial-fill-protection-ambiguous";
+            saveTierPeak();
+          }
+          if (cancelOutcome.status === "rejected") {
+            AI.on = false;
+            AI.riskLockedReason = "maker-cancel-ambiguous";
+            saveTierPeak();
+            setOrderIntent(instId, { phase:"maker-cancel-ambiguous" });
+            throw new Error("MAKER_CANCEL_UNCONFIRMED: " + cancelOutcome.reason?.message);
+          }
+        };
+
         if (limId){
+          setOrderIntent(instId, { phase:"maker-live", ordId:limId });
           const fin = Date.now() + Number(process.env.HERMES_MAKER_WAIT_MS || 5000);
           while (Date.now() < fin){
+            if (!entryAuthorityStillValid()) break;
             await sleep(700);
             const st = await okxGET("/api/v5/trade/order?instId="+instId+"&ordId="+limId).catch(()=>null);
             const o = st?.data?.[0];
             if (!o) continue;
-            if (o.state === "filled"){ viaMaker = true; filledPx = num(o.avgPx)||lmtPx; res = lim; break; }
-            if (o.state === "canceled") break;             // post-only rejetée par l'exchange
-          }
-          if (!viaMaker){
-            await okxPOST("/api/v5/trade/cancel-order", { instId, ordId: limId }).catch(()=>null);
-            const st2 = await okxGET("/api/v5/trade/order?instId="+instId+"&ordId="+limId).catch(()=>null);
-            const o2 = st2?.data?.[0];
-            if (o2 && num(o2.accFillSz) > 0){              // remplie (en entier ou en partie) pendant l'annulation
-              viaMaker = true; filledPx = num(o2.avgPx)||lmtPx; res = lim;
+            const directive = makerOrderDirective(o, {
+              cancelRequested:makerCancelRequested,
+              protectedQty:partialProtectedQty,
+            });
+            if (directive.inconsistent) throw new Error("MAKER_OUTCOME_UNKNOWN: terminal incomplet");
+            if (directive.filled){
+              const terminalAvgPx = num(o.avgPx);
+              if (!(terminalAvgPx > 0)) throw new Error("MAKER_OUTCOME_UNKNOWN: avgPx absent");
+              viaMaker = true; makerTerminal = true; filledPx = terminalAvgPx;
+              filledQty = String(o.accFillSz || qty); res = lim; break;
+            }
+            if (directive.requestCancel) {
+              viaMaker = true;
+              filledPx = num(o.avgPx);
+              filledQty = String(o.accFillSz);
+              await requestMakerCancel(o);
+              break;
+            }
+            if (directive.terminal) {
+              makerTerminal = true;
+              const actual = num(o.accFillSz);
+              if (actual > 0) {
+                const terminalAvgPx = num(o.avgPx);
+                if (!(terminalAvgPx > 0)) throw new Error("MAKER_OUTCOME_UNKNOWN: avgPx absent");
+                viaMaker = true; makerPartial = true;
+                filledPx = terminalAvgPx; filledQty = String(o.accFillSz); res = lim;
+                await protectObservedPartial(o);
+              }
+              else clearOrderIntent(instId);
+              break;
             }
           }
+          if (!makerTerminal){
+            await requestMakerCancel(null);
+            const cancelDeadline = Date.now() + Number(process.env.HERMES_CANCEL_CONFIRM_MS || 10000);
+            while (Date.now() < cancelDeadline) {
+              const st2 = await okxGET("/api/v5/trade/order?instId="+instId+"&ordId="+limId).catch(()=>null);
+              const o2 = st2?.data?.[0];
+              if (!o2) { await sleep(400); continue; }
+              const directive2 = makerOrderDirective(o2, {
+                cancelRequested:makerCancelRequested,
+                protectedQty:partialProtectedQty,
+              });
+              if (directive2.inconsistent) throw new Error("MAKER_OUTCOME_UNKNOWN: terminal incomplet");
+              if (!directive2.filled && directive2.protectQty > 0) await protectObservedPartial(o2);
+              if (directive2.terminal) {
+                makerTerminal = true;
+                const actual = num(o2.accFillSz);
+                if (actual > 0) {
+                  const terminalAvgPx = num(o2.avgPx);
+                  if (!(terminalAvgPx > 0)) throw new Error("MAKER_OUTCOME_UNKNOWN: avgPx absent");
+                  viaMaker = true; makerPartial = !directive2.filled;
+                  filledPx = terminalAvgPx; filledQty = String(o2.accFillSz); res = lim;
+                }
+                else clearOrderIntent(instId);
+                break;
+              }
+              await sleep(400);
+            }
+          }
+          if (!makerTerminal) throw new Error("MAKER_CANCEL_UNCONFIRMED");
         }
         if (!res){
-          res = await okxPOST('/api/v5/trade/order', { ...common, ordType:"market", clOrdId:(clOrdId+"m").slice(0,32) });
+          if (!makerTerminal) throw new Error("MAKER_STATE_UNKNOWN");
+          if (!entryAuthorityStillValid()) throw new Error("ENTRY_AUTHORITY_REVOKED");
+          /* Le stop d'un ordre market doit partir de la cotation actuelle,
+             pas du tick qui précédait l'attente maker + annulation. */
+          const quoteResponse = await axios.get(
+            OKX.REST_BASE + "/api/v5/market/ticker?instId=" + encodeURIComponent(instId),
+            { timeout:8000 }
+          );
+          assertOkxSuccess(quoteResponse.data, "GET public ticker before market fallback");
+          const quote = quoteResponse.data?.data?.[0];
+          marketReferencePx = side === "long"
+            ? num(quote?.askPx || quote?.last)
+            : num(quote?.bidPx || quote?.last);
+          if (!(marketReferencePx > 0)) throw new Error("MARKET_QUOTE_UNAVAILABLE");
+          MARKET.tick[instId] = {
+            ...(MARKET.tick[instId] || {}),
+            instId,
+            lastPrice:num(quote?.last || marketReferencePx),
+            bidPx:num(quote?.bidPx),
+            askPx:num(quote?.askPx),
+            rx:Date.now(),
+          };
+          prot = specPrices(instId, side, marketReferencePx, effectiveOrderOv);
+          common = {
+            ...common,
+            attachAlgoOrds:[{
+              attachAlgoClOrdId:hermesClientId("attach"),
+              tpTriggerPx:prot.tp, tpOrdPx:"-1",
+              slTriggerPx:prot.sl, slOrdPx:"-1",
+              tpTriggerPxType:"last", slTriggerPxType:"last",
+            }],
+          };
+          const marketClOrdId = hermesClientId("market");
+          setOrderIntent(instId, { phase:"market-submit", clOrdId:marketClOrdId, ordId:null });
+          try { res = await okxPOST('/api/v5/trade/order', {
+            ...common,
+            ordType:"market",
+            clOrdId:marketClOrdId
+          }); } catch (e) {
+            if (/^\d+$/.test(String(e?.okxCode || ""))) clearOrderIntent(instId);
+            throw e;
+          }
         }
 
-        const accepted = (res && (res.code=="0"||res.code===0))
-                      || (res?.data && res.data[0] && (res.data[0].sCode=="0"||res.data[0].sCode===0||res.data[0].ordId));
+        const ack = res?.data?.[0];
+        const accepted = !!(res && String(res.code) === "0" && ack && String(ack.sCode) === "0" && ack.ordId);
         if (!accepted){
           try{
             const code=res?.data?.[0]?.sCode??res?.code, msg=res?.data?.[0]?.sMsg??res?.msg;
@@ -2680,35 +3197,182 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
           throw new Error("OKX reject");
         }
 
+        /* L'ACK d'un ordre marche signifie accepte, pas rempli. On ne
+           dimensionne la position/protection qu'apres un etat terminal. */
+        if (!viaMaker) {
+          setOrderIntent(instId, { phase:"market-accepted", ordId:ack.ordId });
+          let marketTerminal = false;
+          const marketDeadline = Date.now() + Number(process.env.HERMES_MARKET_CONFIRM_MS || 10000);
+          while (Date.now() < marketDeadline) {
+            const state = await okxGET("/api/v5/trade/order?instId="+instId+"&ordId="+ack.ordId).catch(()=>null);
+            const order = state?.data?.[0];
+            const marketDirective = order ? makerOrderDirective(order, {
+              cancelRequested:true,
+              protectedQty:partialProtectedQty,
+            }) : null;
+            if (marketDirective?.inconsistent) throw new Error("MARKET_OUTCOME_UNKNOWN: terminal incomplet");
+            if (order?.state === "partially_filled" && num(order.accFillSz) > 0) {
+              const partialAvgPx = num(order.avgPx);
+              if (!(partialAvgPx > 0)) throw new Error("MARKET_OUTCOME_UNKNOWN: avgPx absent");
+              makerPartial = true;
+              filledQty = String(order.accFillSz);
+              filledPx = partialAvgPx;
+              await protectObservedPartial(order);
+            }
+            if (marketDirective?.terminal) {
+              marketTerminal = true;
+              const actual = num(order.accFillSz);
+              if (!(actual > 0)) { clearOrderIntent(instId); throw new Error("MARKET_CANCELED_UNFILLED"); }
+              const terminalAvgPx = num(order.avgPx);
+              if (!(terminalAvgPx > 0)) throw new Error("MARKET_OUTCOME_UNKNOWN: avgPx absent");
+              makerPartial = !marketDirective.filled;
+              filledQty = String(order.accFillSz);
+              filledPx = terminalAvgPx;
+              break;
+            }
+            await sleep(250);
+          }
+          if (!marketTerminal) throw new Error("MARKET_OUTCOME_UNKNOWN");
+        }
+
+        /* Si l'ordre termine annule avec un fill, les attaches ne sont
+           pas materialisees. Les stops provisoires couvrent la fenetre
+           d'annulation; un OCO final coherent remplace ensuite le tout. */
+        let finalPartialProtection = null;
+        if (makerPartial) {
+          prot = specPrices(instId, side, filledPx, effectiveOrderOv);
+          finalPartialProtection = await placeInitialStop(
+            instId, side, filledPx, filledQty, effectiveOrderOv
+          );
+          if (finalPartialProtection.ok) partialProtectionFailed = false;
+          else partialProtectionFailed = true;
+        }
+
+        /* Une protection provisoire n'est annulee qu'apres confirmation
+           d'une couverture finale (attach full-fill ou OCO final). */
+        if (provisionalProtectionIds.length && (!makerPartial || finalPartialProtection?.ok)) {
+          try {
+            await okxPOST("/api/v5/trade/cancel-algos",
+              provisionalProtectionIds.map((algoId) => ({ instId, algoId })));
+          } catch (cleanupError) {
+            /* Tous ces ordres sont reduce-only et attribues a cette
+               instance : un doublon temporaire ne peut pas inverser la position. */
+            log("[PARTIAL_PROTECTION_CLEANUP]", instId, cleanupError.message);
+          }
+        }
+
+        const stopRisk = evaluateEntryStopRisk({
+          side,
+          entryPx:filledPx,
+          stopPx:prot.sl,
+          qty:filledQty,
+          contractValue:ctVal(instId),
+          equity:AI.equityUSDT,
+          riskPct:RISK_PER_TRADE_PCT,
+          tickSize:MARKET.meta[instId]?.tickSz,
+        });
+
         AI.counters.ordersPlaced++; setHealth("orders",{ placed:AI.counters.ordersPlaced, status:"OK", info:"placed" });
 
         const lev = DEFAULT_LEVERAGE || 15;
-        const mgn = marginAt(filledPx, qty, instId, lev);
-        AI.openPositions[instId] = { instId, side, qty, avgPx:filledPx, ts:Date.now(), marginAtEntry: mgn,
-                                     tpPx: prot.tp, slPx: prot.sl, protection: "ATTACHED",
-                                     ...(ov ? { ov } : {}),   // sorties personnalisées : la garde doit les respecter
-                                     ...(ov?.holdMs ? { holdUntil: Date.now() + ov.holdMs } : {}) };
+        const mgn = marginAt(filledPx, Number(filledQty), instId, lev);
+        const enteredAt = Date.now();
+        AI.openPositions[instId] = {
+          instId, side, qty:filledQty, avgPx:filledPx, ts:enteredAt, marginAtEntry:mgn,
+          tpPx:prot.tp, slPx:prot.sl,
+          protection:makerPartial ? "REPAIRED_PARTIAL" : "ATTACHED",
+          ov:effectiveOrderOv,
+        };
+        notePositionMutation(enteredAt);
+        /* La deadline fait partie de l'etat de position, pas du roster
+           courant. Elle est fsync + rename avant de poursuivre : un
+           restart ne peut ni rallonger ni oublier silencieusement le trade. */
+        if (effectiveOrderOv.holdMs) {
+          rememberTimedExit(AI.openPositions[instId], effectiveOrderOv.holdMs, enteredAt);
+        } else lockTimedExitState(instId, "duree_absente", "entree sans holdMs");
+
+        const emergencyFlattenEntry = async (reason) => {
+          AI.openPositions[instId].protection = "EMERGENCY_FLATTEN_REQUESTED";
+          AI.on = false;
+          AI.riskLockedReason = reason;
+          saveTierPeak();
+          const closeClOrdId = hermesClientId("market");
+          setOrderIntent(instId, { phase:"emergency-flatten-submit", reason, filledQty, filledPx, closeClOrdId });
+          try {
+            const closeResponse = await okxPOST("/api/v5/trade/order", {
+              instId, tdMode:"isolated", side:side === "long" ? "sell" : "buy",
+              ordType:"market", sz:roundQtyToLot(instId, Math.abs(num(filledQty))),
+              reduceOnly:true, clOrdId:closeClOrdId,
+            });
+            const closeAck = closeResponse?.data?.[0];
+            if (!closeAck?.ordId) throw new Error("EMERGENCY_ACK_WITHOUT_ORDER_ID");
+            setOrderIntent(instId, { phase:"emergency-flatten-accepted", closeOrdId:closeAck.ordId });
+            const closeDeadline = Date.now() + Number(process.env.HERMES_MARKET_CONFIRM_MS || 10000);
+            let closeTerminal = false;
+            while (Date.now() < closeDeadline) {
+              const closeState = await okxGET(
+                "/api/v5/trade/order?instId="+instId+"&ordId="+closeAck.ordId
+              ).catch(()=>null);
+              const closeOrder = closeState?.data?.[0];
+              if (closeOrder && (closeOrder.state === "filled" || closeOrder.state === "canceled")) {
+                closeTerminal = true;
+                break;
+              }
+              await sleep(250);
+            }
+            if (!closeTerminal) return false;
+            const afterClose = await loadPortfolio().catch(()=>null);
+            if (!afterClose || afterClose.error || afterClose.snapshot?.authoritative !== true
+                || !Array.isArray(afterClose.positions)) return false;
+            const stillOpen = afterClose.positions.some((position) =>
+              position.instId === instId && Math.abs(num(position.sz)) > 0);
+            if (stillOpen) return false;
+            delete AI.openPositions[instId];
+            forgetTimedExit(instId);
+            notePositionMutation();
+            clearOrderIntent(instId);
+            return true;
+          } catch (closeError) {
+            log("[EMERGENCY_FLATTEN_ERR]", instId, closeError.message);
+            return false;
+          }
+        };
+
+        if (partialProtectionFailed) {
+          await emergencyFlattenEntry("unprotected-partial-fill");
+          throw new Error("PARTIAL_FILL_UNPROTECTED");
+        }
+        if (!stopRisk.allowed) {
+          log("[ENTRY_STOP_RISK]", instId, JSON.stringify(stopRisk));
+          await emergencyFlattenEntry("entry-stop-risk-exceeded");
+          throw new Error("ENTRY_STOP_RISK_EXCEEDED");
+        }
 
         /* Trailing exchange-side (activation/suivi selon la spec ou la stratégie perso).
            Échec non fatal : le SL attaché protège déjà ; la garde horaire retentera. */
-        const tr = await placeTrailing(instId, side, filledPx, qty, ov);
+        const tr = await placeTrailing(instId, side, filledPx, filledQty, effectiveOrderOv);
         if (tr.ok) AI.openPositions[instId].trailAlgoId = tr.algoId;
+        clearOrderIntent(instId);
 
-        broadcastAILog({ ts: tsISO(), event:"TRADE_ENTER", instId, symbol: prettySymbol(instId), side, qty, price:filledPx,
+        broadcastAILog({ ts: tsISO(), event:"TRADE_ENTER", instId, symbol: prettySymbol(instId), side, qty:filledQty, price:filledPx,
                          lev:lev, tp:prot.tp, sl:prot.sl, trail:(tr.ok?"armé":"à réparer"), entree:(viaMaker?"maker":"marché"), live: !!AI.on });
-        logAIEvent({ event:"TRADE_ENTER", instId, side, qty, price:filledPx, leverage:lev, tp:prot.tp, sl:prot.sl, entree:(viaMaker?"maker":"marché"), live:true });
+        logAIEvent({ event:"TRADE_ENTER", instId, side, qty:filledQty, price:filledPx, leverage:lev, tp:prot.tp, sl:prot.sl, entree:(viaMaker?"maker":"marché"), live:true });
 
         const cd = !!AI.on ? (POLICY.cooldownLiveSec||10) : (POLICY.cooldownSimSec||5);
         setCooldown(instId, cd);
 
         return { ok:true, res };
       }catch(e){
+        if (/OUTCOME_UNKNOWN|CANCEL_UNCONFIRMED|PARTIAL_FILL_UNPROTECTED|ENTRY_STOP_RISK_EXCEEDED/.test(String(e.message || ""))) {
+          setTimeout(() => { try { globalThis.__hermesEnsureProtections?.().catch(()=>{}); } catch {} }, 1000);
+        }
         if (String(e.message||"") !== "OKX reject"){
           AI.counters.orderErrors++; setHealth("orders",{ errors:AI.counters.orderErrors, status:"WARN", info:"place error" });
           log("[ORDER_ERR]", instId, side, e.message);
         }
         return { ok:false, error:e.message };
       }finally{
+        delete AI.pendingEntries[instId];
         AI.reservedMargin = Math.max(0, num(AI.reservedMargin || 0) - marge);
         AI.inflight = Math.max(0, AI.inflight-1); setHealth("orders",{ inflight:AI.inflight });
       }
@@ -2724,10 +3388,20 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
        - toute position sans trailing actif reçoit son move_order_stop
        - les algos orphelins (position fermée) sont annulés */
     const ensureProtections = async function(){
+      if (POS_MODE === "unknown") { log("[GUARD] posMode inconnu: aucune mutation"); return; }
+      if (AI.algoCleanupInProgress || AI.inflight > 0) {
+        log("[GUARD] controle differe: entree en cours");
+        return;
+      }
+      AI.algoCleanupInProgress = true;
+      let urgentRetry = false;
       try{
+        const guardSnapshot = { authoritative:true, startedAt:Date.now(),
+          generationAtStart:AI.positionMutationGeneration, completedAt:null };
         const pr = await okxGET("/api/v5/account/positions?instType=SWAP");
         if (pr?.code != "0"){ log("[GUARD] positions illisibles", JSON.stringify(pr).slice(0,120)); return; }
         const positions = (pr.data||[]).filter(x => Math.abs(num(x.pos)) > 0);
+        guardSnapshot.completedAt = Date.now();
 
         const algos = [];
         for (const ot of ["oco","conditional","move_order_stop","trigger"]){
@@ -2736,20 +3410,17 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
         }
 
         /* 1) resynchronisation de l'état local */
-        const realSet = new Set(positions.map(x => x.instId));
-        for (const id of Object.keys(AI.openPositions)){
-          if (!realSet.has(id)){
-            const gp = AI.openPositions[id];
-            broadcastAILog({ ts: tsISO(), event:"TRADE_EXIT", instId:id, symbol: prettySymbol(id), side: gp.side, info:"réconciliation (fermée côté OKX)", live: !!AI.on });
-            delete AI.openPositions[id];
-          }
-        }
-        for (const x of positions){
-          const side = (x.posSide === "short" || num(x.pos) < 0) ? "short" : "long";
-          if (!AI.openPositions[x.instId]){
-            AI.openPositions[x.instId] = { instId:x.instId, side, qty:Math.abs(num(x.pos)), avgPx:num(x.avgPx), ts:Date.now(), adopted:true };
-            log("[GUARD] position adoptée", x.instId, side, "avgPx", x.avgPx);
-          }
+        const positionKey = (instId, posSide) => `${instId}|${isHedge() ? String(posSide || "") : "net"}`;
+        const realKeys = new Set(positions.map((x) => positionKey(x.instId, x.posSide)));
+        const beforeIds = new Set(Object.keys(AI.openPositions));
+        reconcilePositionSnapshot(positions.map((x) => ({
+          instId:String(x.instId || ""), posId:x.posId == null ? null : String(x.posId),
+          posSide:String(x.posSide || ""), sz:String(x.pos ?? "0"), avgPx:num(x.avgPx),
+          margin:num(x.margin ?? x.imr), cTime:num(x.cTime),
+        })), guardSnapshot);
+        for (const id of Object.keys(AI.openPositions)) {
+          if (!beforeIds.has(id)) log("[GUARD] position adoptée", id, AI.openPositions[id].side,
+            "avgPx", AI.openPositions[id].avgPx);
         }
 
         /* 2) protections manquantes */
@@ -2760,12 +3431,20 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
              sinon la garde croit les protections absentes et les repose (en écrasant
              les sorties personnalisées HERMES 15 par la spec globale). */
           const mine = algos.filter(a => a.instId === x.instId && (a.posSide && a.posSide !== "net" ? a.posSide === side : true));
-          const hasSl    = mine.some(a => (a.ordType === "oco" || a.ordType === "conditional" || a.ordType === "trigger") && num(a.slTriggerPx || a.triggerPx) > 0);
-          const hasTrail = mine.some(a => a.ordType === "move_order_stop");
-          const qty = Math.abs(num(x.pos)), avg = num(x.avgPx);
+          const qty = roundQtyToLot(x.instId, Math.abs(num(x.pos))), avg = num(x.avgPx);
+          if (!(num(qty) > 0)) { log("[GUARD] taille non canonique, aucune mutation", x.instId); continue; }
+          const slCoverage = mine
+            .filter(a => isProtectiveStopAlgo(a, { positionSide:side, entryPx:avg, hedgeMode:isHedge() }))
+            .reduce((sum, a) => sum + Math.abs(num(a.sz)), 0);
+          const trailCoverage = mine.filter(a => a.ordType === "move_order_stop")
+            .reduce((sum, a) => sum + Math.abs(num(a.sz)), 0);
+          const hasSl = slCoverage >= num(qty) * 0.99;
+          const hasTrail = trailCoverage >= num(qty) * 0.99;
+          const failureKey = `${x.instId}|${side}`;
+          if (hasSl) delete AI.protectionFailures[failureKey];
           if (!hasSl){
             const r1 = await placeInitialStop(x.instId, side, avg, qty, AI.openPositions[x.instId]?.ov);
-            if (r1.ok) repare++;
+            if (r1.ok) { repare++; delete AI.protectionFailures[failureKey]; }
             else {
               /* SL improsable (ex. 51053 : le prix a déjà dépassé le déclencheur).
                  La position aurait dû être stoppée — on la ferme au marché plutôt
@@ -2774,15 +3453,48 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
               const slPx = side === "short" ? avg * (1 + SPEC.slPctMargin / (DEFAULT_LEVERAGE || 20))
                                             : avg * (1 - SPEC.slPctMargin / (DEFAULT_LEVERAGE || 20));
               const depasse = side === "short" ? (mark >= slPx) : (mark <= slPx);
-              if (depasse && mark > 0 && qty > 0){
+              const failures = (AI.protectionFailures[failureKey] || 0) + 1;
+              AI.protectionFailures[failureKey] = failures;
+              if ((depasse || failures >= 2 || r1.ambiguous) && num(qty) > 0){
+                AI.on = false;
+                AI.riskLockedReason = "protection-failure";
+                saveTierPeak();
+                const closeClOrdId = hermesClientId("market");
+                setOrderIntent(x.instId, { phase:"guard-emergency-flatten", side, qty, clOrdId:closeClOrdId });
                 const body = { instId: x.instId, tdMode: "isolated",
                                side: side === "short" ? "buy" : "sell",
-                               ordType: "market", sz: String(qty), reduceOnly: true };
+                               ordType: "market", sz: qty, reduceOnly: true,
+                               clOrdId: closeClOrdId };
                 if (isHedge()) body.posSide = side;
-                const cr = await okxPOST("/api/v5/trade/order", body).catch(()=>null);
-                log("[GUARD] SL improsable et prix au-delà -> fermeture marché", x.instId, cr?.code == "0" ? "OK" : JSON.stringify(cr?.data?.[0] || cr));
+                let flat = false;
+                try {
+                  const cr = await okxPOST("/api/v5/trade/order", body);
+                  const closeId = cr?.data?.[0]?.ordId;
+                  if (!closeId) throw new Error("EMERGENCY_CLOSE_ACK_WITHOUT_ID");
+                  setOrderIntent(x.instId, { phase:"guard-emergency-accepted", ordId:closeId });
+                  const deadline = Date.now() + Number(process.env.HERMES_MARKET_CONFIRM_MS || 10000);
+                  while (Date.now() < deadline) {
+                    const state = await okxGET("/api/v5/trade/order?instId="+x.instId+"&ordId="+closeId).catch(()=>null);
+                    if (["filled", "canceled"].includes(String(state?.data?.[0]?.state || ""))) break;
+                    await sleep(250);
+                  }
+                  const check = await okxGET("/api/v5/account/positions", { instType:"SWAP", instId:x.instId });
+                  flat = !(check?.data || []).some((position) => Math.abs(num(position.pos)) > 0);
+                } catch (closeError) { log("[GUARD_EMERGENCY_ERR]", x.instId, closeError.message); }
+                if (flat) {
+                  clearOrderIntent(x.instId);
+                  delete AI.openPositions[x.instId];
+                  forgetTimedExit(x.instId);
+                  notePositionMutation();
+                  delete AI.protectionFailures[failureKey];
+                  log("[GUARD] fermeture d'urgence confirmee", x.instId);
+                } else {
+                  urgentRetry = true;
+                  log("[GUARD] fermeture d'urgence non confirmee, controle rapide maintenu", x.instId);
+                }
                 continue;
               }
+              urgentRetry = true;
             }
           }
           if (!hasTrail){
@@ -2801,20 +3513,24 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
           if (ar?.code == "0" && Array.isArray(ar.data)) fresh.push(...ar.data.map(a => ({ ...a, __grp: (a.ordType === "move_order_stop" ? "trail" : "sltp") })));
         }
         const posSz = {};
-        for (const x of positions) posSz[x.instId] = Math.abs(num(x.pos));
+        for (const x of positions) posSz[positionKey(x.instId, x.posSide)] = Math.abs(num(x.pos));
         const toCancel = [];
         const groups = {};
         for (const a of fresh){
-          if (!realSet.has(a.instId)) { toCancel.push(a); continue; }   // orphelin (position fermée)
-          const k = a.instId + "|" + a.__grp;
+          if (!isHermesAlgo(a)) continue;  // manuel/autre moteur : lecture seule, jamais annule
+          if (isHedge() && !["long", "short"].includes(String(a.posSide || ""))) continue;
+          const posKey = positionKey(a.instId, a.posSide);
+          if (!realKeys.has(posKey)) { toCancel.push(a); continue; }   // orphelin Hermes (position fermée)
+          const k = posKey + "|" + a.__grp;
           (groups[k] = groups[k] || []).push(a);
         }
         /* Dédup CONSCIENT DE LA TAILLE : on garde, du plus récent au plus ancien,
            juste assez d'ordres pour couvrir toute la position (cas net-mode où une
            position agrégée nécessite 2 ordres). On n'annule que le vrai surplus. */
         for (const k in groups){
-          const instId = k.split("|")[0];
-          const need = posSz[instId] || 0;
+          const parts = k.split("|");
+          const posKey = parts[0] + "|" + parts[1];
+          const need = posSz[posKey] || 0;
           const arr = groups[k].sort((x,y) => (+y.cTime||0) - (+x.cTime||0));
           let acc = 0;
           for (const a of arr){
@@ -2831,6 +3547,10 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
         setHealth("guard", { status:"OK", info:`positions ${positions.length} · réparations ${repare} · nettoyés ${toCancel.length}`, lastTs: Date.now() });
         log(`[GUARD] contrôle : ${positions.length} position(s), ${repare} reposée(s), ${toCancel.length} algo(s) nettoyé(s)`);
       }catch(e){ log("[GUARD_ERR]", e.message); setHealth("guard",{ status:"WARN", info:e.message }); }
+      finally {
+        AI.algoCleanupInProgress = false;
+        if (urgentRetry) setTimeout(() => { ensureProtections().catch(()=>{}); }, 5000);
+      }
     };
     globalThis.__hermesEnsureProtections = ensureProtections;
     setTimeout(() => { ensureProtections().catch(()=>{}); }, 20 * 1000);       // 1er contrôle 90 s après le boot
@@ -2861,49 +3581,35 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
      NES retirée (−10 réels) · ENSO v1 → v2 (RSI + moitié du range 24 h, méga-validée)
      GPS → gen_regime_3 (4/4 : 3 fenêtres + Binance) · SOON → Keltner reclaim (4/4)
      Ajouts : O (Keltner), ACT (Donchian width), POPCAT (ROC+vol), LIT (%B+range). */
-  /* Le roster ecrit en dur du 31/08 — desormais le REPLI, plus la
-     source. La source est config/roster.json, ecrit par le chercheur de
-     perles (deploy/chercher_perles.js) toutes les douze heures et
-     recharge ici a chaud. Le repli ne sert que tant qu'aucun roster
-     valide n'existe : mieux vaut trader les perles validees d'hier
-     qu'un fichier absent. */
-  const STRATS_REPLI = {
-    "ENSO-USDT-SWAP":  { sig:"rsi_regime",    ov:{ tpPctMargin:0.80, trailActPctMargin:0.30, holdMs:12*H } },
-    "GRASS-USDT-SWAP": { sig:"z48_5m",        ov:{ tpPctMargin:0.60, trailActPctMargin:0.30, holdMs:12*H } },
-    /* GPS version haut-winrate (boucle Fable, bi-époque wr 68,7/65,8 %) : TP court +30 %, trail à mi-chemin. */
-    "GPS-USDT-SWAP":   { sig:"meche_regime",  ov:{ tpPctMargin:0.30, trailActPctMargin:0.15, holdMs:12*H } },
-    "AXS-USDT-SWAP":   { sig:"run5_5m",       ov:{ tpPctMargin:0.80, trailActPctMargin:0.30, holdMs:12*H } },
-    "SOON-USDT-SWAP":  { sig:"keltner3",      ov:{ tpPctMargin:0.80, trailActPctMargin:0.30, holdMs:8*H } },
-    "MANA-USDT-SWAP":  { sig:"run5_5m",       ov:{ tpPctMargin:0.60, trailActPctMargin:0.20, holdMs:12*H } },
-    "LUNA-USDT-SWAP":  { sig:"run5_5m",       ov:{ tpPctMargin:0.40, trailActPctMargin:0.30, holdMs:24*H } },
-    "MEGA-USDT-SWAP":  { sig:"run5_5m",       ov:{ tpPctMargin:0.40, trailActPctMargin:0.30, holdMs:24*H } },
-    "PIEVERSE-USDT-SWAP": { sig:"double_extreme", ov:{ tpPctMargin:0.80, trailActPctMargin:0.30, holdMs:12*H } },
-    "O-USDT-SWAP":     { sig:"keltner3",      ov:{ tpPctMargin:0.80, trailActPctMargin:0.30, holdMs:8*H } },
-    /* ACT version haut-winrate (boucle Fable, bi-époque wr 74,5/76,8 %) : TP court +30 %, trail à mi-chemin. */
-    "ACT-USDT-SWAP":   { sig:"donchian_fade", ov:{ tpPctMargin:0.30, trailActPctMargin:0.15, holdMs:12*H } },
-    "POPCAT-USDT-SWAP":{ sig:"roc_vol",       ov:{ tpPctMargin:0.60, trailActPctMargin:0.20, holdMs:8*H } },
-    "LIT-USDT-SWAP":   { sig:"bb_range",      ov:{ tpPctMargin:0.60, trailActPctMargin:0.20, holdMs:8*H } },
-    /* PENGU x3_combos_3 (3/4 : +3,53 60j / +0,99 180j / Binance +3,20, recale J-180→365) — validé client 31/08. */
-    "PENGU-USDT-SWAP": { sig:"vwap_reclaim",  ov:{ tpPctMargin:0.60, trailActPctMargin:0.20, holdMs:24*H } }
-  };
-  // SL -30 % et trail 5 % (SPEC) pour toutes.
-
-  let STRATS = STRATS_REPLI;
+  /* Aucun roster de secours en argent reel. Un fichier absent, vide,
+     corrompu ou expire EST un verdict : aucune nouvelle entree. */
+  let STRATS = {};
+  let rosterCharge = false;
   let rosterVu = "";        // empreinte du dernier roster charge, pour ne journaliser que les changements
   function chargerRoster() {
     try {
-      const brut = fs.readFileSync(path.join(ROOT, "config", "roster.json"), "utf8");
+      /* roster.json est la sortie volatile du chercheur. Seul un roster
+         explicitement promu, immuable et lie a sa preuve peut trader. */
+      const brut = fs.readFileSync(path.join(ROOT, "config", "approved-roster.json"), "utf8");
       const j = JSON.parse(brut);
+      if (Number(j?.schemaVersion) !== 1 || typeof j?.selectionRunId !== "string"
+          || !j.selectionRunId.trim() || !/^[a-f0-9]{64}$/i.test(String(j?.dataManifestSha256 || ""))) {
+        throw new Error("roster non promu ou manifeste absent");
+      }
       const perles = j && j.perles && typeof j.perles === "object" ? j.perles : null;
-      if (!perles || !Object.keys(perles).length) return;   // roster vide : on garde ce qu'on a
+      if (!perles || Array.isArray(perles)) throw new Error("roster invalide");
+      const genere = Date.parse(j.genere || "");
+      const gatePolicy = safeReadJSON(path.join(ROOT, "config", "live-gate.policy.json"), {});
+      const maxAge = Number(gatePolicy.rosterMaxAgeHours || 2160) * 3600e3;
+      if (!Number.isFinite(genere) || genere > Date.now() + 5 * 60e3 || Date.now() - genere > maxAge) throw new Error("roster expire ou non date");
       const neuf = {};
       for (const [instId, p] of Object.entries(perles)) {
         if (!p || typeof p.sig !== "string" || !p.ov) continue;
+        effectiveStopLossMarginPct(p.ov, DEFAULT_STOP_MARGIN_PCT);
         neuf[instId] = { sig: p.sig, ov: p.ov };
       }
-      if (!Object.keys(neuf).length) return;
       const empreinte = JSON.stringify(neuf);
-      if (empreinte === rosterVu) return;
+      if (empreinte === rosterVu && rosterCharge) return;
       const avant = new Set(Object.keys(STRATS));
       const apres = new Set(Object.keys(neuf));
       const entrent = [...apres].filter((k) => !avant.has(k)).map((k) => k.replace("-USDT-SWAP", ""));
@@ -2912,6 +3618,7 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
         .map((k) => k.replace("-USDT-SWAP", "") + " " + STRATS[k].sig + "->" + neuf[k].sig);
       STRATS = neuf;
       rosterVu = empreinte;
+      rosterCharge = true;
       // Une position deja ouverte garde SES sorties : elles ont ete
       // attachees a l'entree, cote exchange. Le roster ne gouverne que
       // les prochaines entrees — un instrument qui en sort n'est donc
@@ -2921,8 +3628,11 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
         + (sortent.length ? ` | sortent: ${sortent.join(", ")}` : "")
         + (changent.length ? ` | changent: ${changent.join(", ")}` : ""));
     } catch (e) {
-      // Fichier absent au premier demarrage : normal, le repli joue.
-      if (e && e.code !== "ENOENT") log("[ROSTER_ERR]", e.message);
+      const avait = Object.keys(STRATS).length;
+      STRATS = {};
+      rosterVu = "";
+      rosterCharge = false;
+      if (avait || e?.code !== "ENOENT") log("[ROSTER_FAIL_CLOSED]", e.message);
     }
   }
   chargerRoster();
@@ -2932,7 +3642,7 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
   // 31/08 tant que le chercheur n'a rien ecrit, dernier roster valide
   // si le fichier devient illisible).
   globalThis.__hermes15Roster = () => ({
-    source: rosterVu ? "chercheur" : "repli-31/08",
+    source: rosterCharge ? "chercheur" : "aucun-fail-closed",
     strats: Object.fromEntries(Object.entries(STRATS).map(([k, v]) => [k, { sig: v.sig, ov: v.ov }])),
   });
 
@@ -2961,6 +3671,7 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
   globalThis.__hermes15Guet = () => GUET;
 
   const lastClosed = {};   // instId -> ts de la dernière bougie 5m traitée
+  let pollEnCours = false;
   /* Les évaluateurs vivent dans modules/signaux.js, partagés avec le
      chercheur de perles : une seule formule, deux consommateurs, aucun
      écart possible entre ce qu'on teste et ce qu'on trade. La parité a
@@ -2969,19 +3680,28 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
   const etatsSignaux = {};   // instId -> mémoire du signal (dédup 15 m)
 
   async function poll() {
-    for (const [instId, cfg] of Object.entries(STRATS)) {
-      try {
+    if (pollEnCours) return;
+    pollEnCours = true;
+    try {
+      for (const [instId, cfg] of Object.entries(STRATS)) {
+        try {
         const r = await axios.get(OKX.REST_BASE + "/api/v5/market/candles?instId=" + instId + "&bar=5m&limit=300", { timeout: 10000 });
+        assertOkxSuccess(r.data, "GET public candles");
         const raw = (r.data?.data || []);
-        if (raw.length < 60) continue;
-        // data[0] = bougie EN COURS -> on l'exclut ; ordre API descendant -> on inverse
-        const closed = raw.slice(1).map(c => [+c[0], +c[1], +c[2], +c[3], +c[4], +c[5]]).reverse();
+        /* OKX fournit un drapeau confirm par bougie. Retirer toujours
+           l'index zero perd une bougie quand elle est deja confirmee et
+           peut garder une bougie ouverte si un cache repond autrement. */
+        const confirmed = raw.filter((c) => String(c?.[8]) === "1");
+        if (confirmed.length < 60) continue;
+        const closed = confirmed.map(c => [+c[0], +c[1], +c[2], +c[3], +c[4], +c[5]]).reverse();
         const lastTs = closed[closed.length - 1][0];
-        if (lastClosed[instId] === lastTs) continue;   // pas de nouvelle bougie close
+        if (lastClosed[instId] && lastTs <= lastClosed[instId]) continue;   // cache identique ou regressif
+        if (Date.now() - (lastTs + 5 * 60e3) > 2 * 60e3) { log("[H15_STALE]", instId, lastTs); continue; }
         lastClosed[instId] = lastTs;
 
         // rafraîchit le tick local (fraîcheur + prix + bid/ask pour le maker)
         const tk = await axios.get(OKX.REST_BASE + "/api/v5/market/ticker?instId=" + instId, { timeout: 8000 }).catch(() => null);
+        if (tk) assertOkxSuccess(tk.data, "GET public ticker");
         const t0 = tk?.data?.data?.[0];
         if (t0) MARKET.tick[instId] = { ...(MARKET.tick[instId] || {}), instId, lastPrice: +t0.last, bidPx: +t0.bidPx, askPx: +t0.askPx, rx: Date.now() };
 
@@ -3000,8 +3720,11 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
         log("[H15] signal", instId, side, "stratégie", cfg.sig);
         const res = await globalThis.__hermesEntre(instId, side, cfg.ov);
         if (!res?.ok) { log("[H15] entrée refusée", instId, res?.reason || ""); GUET[instId].refus = res?.reason || null; }
-      } catch (e) { log("[H15_ERR]", instId, e.message); }
-      await new Promise(r => setTimeout(r, 300));
+        } catch (e) { log("[H15_ERR]", instId, e.message); }
+        await new Promise(r => setTimeout(r, 300));
+      }
+    } finally {
+      pollEnCours = false;
     }
   }
   setInterval(() => { poll().catch(() => {}); }, 20 * 1000);
@@ -3011,18 +3734,40 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
   setInterval(async () => {
     for (const [instId, p] of Object.entries(AI.openPositions)) {
       if (!p.holdUntil || Date.now() < p.holdUntil) continue;
+      if (POS_MODE === "unknown") { log("[H15_HOLD_ERR]", instId, "posMode inconnu"); continue; }
       try {
+        const closeQty = roundQtyToLot(instId, Math.abs(num(p.qty || 0)));
+        if (!(num(closeQty) > 0)) { log("[H15_HOLD_ERR]", instId, "taille non canonique"); continue; }
         const body = { instId, tdMode: "isolated", side: p.side === "long" ? "sell" : "buy",
-                       ordType: "market", sz: String(Math.abs(p.qty || 0)), reduceOnly: true };
+                       ordType: "market", sz: closeQty, reduceOnly: true, clOrdId:hermesClientId("market") };
         if (isHedge()) body.posSide = p.side;
         const r = await okxPOST("/api/v5/trade/order", body);
-        log("[H15] durée max atteinte -> fermeture", instId, r?.code == "0" ? "OK" : JSON.stringify(r?.data?.[0] || r).slice(0, 120));
-        delete AI.openPositions[instId];   // la synchro 4 s et la garde nettoient le reste
+        const closeId = r?.data?.[0]?.ordId;
+        if (!closeId) throw new Error("CLOSE_ACK_WITHOUT_ORDER_ID");
+        const deadline = Date.now() + Number(process.env.HERMES_MARKET_CONFIRM_MS || 10000);
+        while (Date.now() < deadline) {
+          const state = await okxGET("/api/v5/trade/order?instId="+instId+"&ordId="+closeId).catch(()=>null);
+          if (["filled", "canceled"].includes(String(state?.data?.[0]?.state || ""))) break;
+          await sleep(250);
+        }
+        const positions = await okxGET("/api/v5/account/positions", { instType:"SWAP", instId });
+        const remaining = (positions?.data || []).find((x) => Math.abs(num(x.pos)) > 0);
+        if (!remaining) {
+          delete AI.openPositions[instId];
+          forgetTimedExit(instId);
+          notePositionMutation();
+          log("[H15] durée max atteinte -> position confirmee fermee", instId);
+        } else {
+          p.qty = roundQtyToLot(instId, Math.abs(num(remaining.pos)));
+          p.holdUntil = Date.now() + 60 * 1000;
+          notePositionMutation();
+          log("[H15] fermeture partielle/non confirmee -> nouvel essai conserve", instId, p.qty);
+        }
       } catch (e) { log("[H15_HOLD_ERR]", instId, e.message); }
     }
   }, 60 * 1000);
 
-  log("[HERMES15] actif —", Object.keys(STRATS).length, "perle(s) au roster (repli du 31/08 tant que le chercheur n'a pas ecrit)");
+  log("[HERMES15] actif —", Object.keys(STRATS).length, "perle(s) au roster; absence/expiration = aucune entree");
 })();
 
 

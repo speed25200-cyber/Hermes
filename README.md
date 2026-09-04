@@ -4,38 +4,39 @@ Robot de trading sur les perpétuels OKX. Il ouvre en long comme en
 short, avec levier et taille dynamique, et se pilote depuis une page
 web.
 
-Ce dépôt repart de la version **Hermes Astra v4.2.5**, qui apporte les
-stratégies validées. L'état antérieur, un moteur Python distinct, reste
-récupérable au commit `ccb34a6`.
+Ce dépôt repart de la version **Hermes Astra v4.2.5**. L'état antérieur,
+un moteur Python distinct, reste récupérable au commit `ccb34a6`.
+
+> **État du live (audit du 4 septembre 2026)** — aucune stratégie du
+> dépôt ne possède aujourd'hui une preuve process-level de rentabilité
+> après frais, funding, spread et slippage. Le live est donc fail-closed :
+> un `config/approved-roster.json` explicitement promu ET
+> `data/live-evidence.json`, liés par hash au manifeste, au roster, à la
+> politique de risque, aux dépendances et au code exact, sont obligatoires.
+> La preuve doit être signée Ed25519 par le job de validation; le moteur
+> ne possède que `config/evidence-public-key.pem`, jamais la clé privée.
+> Le mode démo permet la validation shadow-live, mais exige lui aussi ce
+> roster et une identité stable `HERMES_ALGO_OWNER` afin de ne jamais
+> confondre les protections de deux moteurs. `npm run gate:status` explique
+> chaque refus.
 
 ## Les stratégies
 
-Le classement du 31 août 2026 a soumis chaque candidate à quatre
-épreuves : trois fenêtres temporelles disjointes sur OKX (60 j récents,
-90–180 j, 180–365 j) et une contre-validation sur Binance Futures. Deux
-seulement passent les quatre — et c'est le résultat le plus important
-du document, bien plus que les scores eux-mêmes.
+Le classement du 31 août 2026 avait retenu GPS et SOON sur plusieurs
+fenêtres. La réplication ultérieure du processus de sélection sur douze
+mois a invalidé cette conclusion : l'avantage brut par trade est
+statistiquement indistinguable de zéro et les frais rendent le résultat
+net négatif. Le winrate seul n'est pas un objectif économique.
 
-| Stratégie | 60 j | 180 j | 365 j | Binance |
-|---|---:|---:|---:|---:|
-| **GPS** — signal simple + moitié favorable du range 24 h | +4,81 | +3,25 | +1,54 | **+7,33** |
-| **SOON** — Keltner reclaim (EMA20 ± 3 ATR) | +3,64 | +0,55 | +0,69 | +2,61 |
-
-Les chiffres sont en pourcentage de marge par trade, net.
-
-Une deuxième ligne existe — ENSO v1 et v2, SOON-VWAP, ACT, POPCAT, LIT,
-O-Keltner — validée sur deux fenêtres, à conviction réduite.
-
-Trois leçons du travail qui a produit ce classement, et elles valent
-d'être lues avant de toucher au moteur :
-
-1. Les avantages **durables** sont rarissimes : deux sur environ cent
-   quarante modules testés, deux millions de bougies, cent cinq mille
-   paires d'indicateurs.
-2. Un score de banc supérieur à +8 est presque toujours un mirage. Les
-   deux élites font +1,5 à +5 par fenêtre, pas +10.
-3. Ce qui brille sur une époque meurt souvent sur l'autre. D'où la
-   règle des trois fenêtres, désormais obligatoire.
+La recherche reste expérimentale. `config/roster.json` est seulement le
+roster candidat réécrit par le chercheur. Le moteur ne lit que
+`config/approved-roster.json`, artefact immuable pendant le shadow test :
+le chercheur ne peut donc plus réactiver seul une stratégie. Une promotion
+live exige maintenant
+au minimum une validation walk-forward purgée sur le processus complet,
+une correction familiale à 1 %, 9 999 réplications nulles, une borne
+basse nette positive sous stress de coûts, puis 60 jours de shadow-live.
+Les critères complets sont dans `config/live-gate.policy.json`.
 
 ## Comment c'est fait
 
@@ -84,10 +85,18 @@ Ce qui décide réellement :
 | réglage | où | défaut |
 |---|---|---|
 | levier | `HERMES_DEFAULT_LEVERAGE` | 15 |
-| positions simultanées | `HERMES_MAX_POSITIONS` | 10, **réduit à ce que le capital finance** |
-| part du capital engageable | `HERMES_MAX_RISK_PCT` | 0,90 (coussin de 10 %) |
+| positions simultanées | `HERMES_MAX_POSITIONS` | 3 |
+| marge totale maximale | `HERMES_MAX_MARGIN_PCT` | 0,25 |
+| perte planifiée par trade | `HERMES_RISK_PER_TRADE_PCT` | 0,005 (0,5 %) |
+| perte journalière maximale | `HERMES_MAX_DAILY_LOSS_PCT` | 0,02 |
+| drawdown maximal depuis le pic | `HERMES_MAX_DRAWDOWN_PCT` | 0,10 |
 | équité sous laquelle rien n'est tenté | `HERMES_MIN_EQUITY_USDT` | 5 |
-| plancher / plafond de marge par trade | `HERMES_MARGIN_MIN` / `HERMES_MARGIN_MAX` | 1 / 200 |
+| plancher / plafond de marge par trade | `HERMES_MARGIN_MIN` / `HERMES_MARGIN_MAX` | 3 / 200 |
+| identité stable de l'instance | `HERMES_ALGO_OWNER` | générée une fois par l'installateur |
+
+Changer `HERMES_ALGO_OWNER` rend les anciennes protections volontairement
+non attribuables : elles ne seront jamais annulées automatiquement. Toute
+rotation de cette identité impose donc une réconciliation manuelle sur OKX.
 
 Les seuils de sortie sont la constante `SPEC` d'`app/main.js` :
 take-profit à +80 % de la marge, stop à −30 %, armement du trail à
@@ -98,18 +107,19 @@ take-profit à +80 % de la marge, stop à −30 %, armement du trail à
 Elle se recalcule **à chaque décision**, à partir de l'équité que le
 compte affiche sur le moment — jamais d'un montant écrit à l'avance.
 
-    usable        = équité × 0,90
-    marge / trade = min(usable ÷ 2, plafond), plancher si franchi
-    places        = usable ÷ marge, borné par HERMES_MAX_POSITIONS
+    budget marge  = équité × 0,25
+    budget risque = équité × 0,005
+    marge / trade = min(budget marge ÷ 3, budget risque ÷ 0,30, plafond)
+    si cette marge est sous le plancher, le trade est refusé
 
 Ce que cela donne :
 
 | équité | marge / trade | notionnel (×15) | places |
 |---:|---:|---:|---:|
-| 10 USDT | 4,50 | 68 | 2 |
-| 20 USDT | 9,00 | 135 | 2 |
-| 334 USDT | 150,30 | 2 255 | 2 |
-| 1 000 USDT | 200,00 | 3 000 | 4 |
+| 10 USDT | refusée | 0 | 0 |
+| 20 USDT | refusée | 0 | 0 |
+| 334 USDT | 5,57 | 84 | 3 |
+| 1 000 USDT | 16,67 | 250 | 3 |
 
 Le nombre de places était auparavant fixé à 10 quel que soit le
 capital. Le plan annonçait donc 1 503 USDT de marge pour 300

@@ -24,3 +24,7 @@ config.local.json
 # Ecrit par le chercheur de perles SUR la machine ; le deployer depuis
 # le depot ecraserait le verdict le plus recent par un vieux.
 /config/roster.json
+# Roster live promu sur la machine avec sa preuve; jamais remplace par rsync.
+/config/approved-roster.json
+# Cle publique de promotion propre au deploiement (la cle privee reste en CI).
+/config/evidence-public-key.pem

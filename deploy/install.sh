@@ -56,14 +56,14 @@ echo "=== 3. dependances ==="
 cd "$DIR"
 # --omit=dev ecarte Electron : trois cents megaoctets de binaire pour une
 # fenetre quon nouvrira jamais sur un serveur sans ecran.
-npm install --no-audit --no-fund --omit=dev 2>&1 | tail -3
+npm ci --ignore-scripts --no-audit --no-fund --omit=dev 2>&1 | tail -3
 
 echo "=== 4. reseau ==="
 apt-get -y -qq install ufw >/dev/null 2>&1 || true
 ufw allow OpenSSH >/dev/null 2>&1 || true
-ufw allow 8899/tcp >/dev/null 2>&1 || true
+ufw --force delete allow 8899/tcp >/dev/null 2>&1 || true
 ufw --force enable >/dev/null 2>&1 || true
-echo "  8899 ouvert"
+echo "  console fermee au reseau; acces local/tunnel uniquement"
 
 echo "=== 5. environnement ==="
 # La cle du tableau de bord vit ici et nulle part ailleurs. rsync exclut
@@ -78,6 +78,12 @@ if ! grep -q "^HERMES_DASH_TOKEN=" "$ENV_FILE" 2>/dev/null; then
 else
   echo "  cle de tableau de bord conservee"
 fi
+if ! grep -q "^HERMES_ALGO_OWNER=.\+" "$ENV_FILE" 2>/dev/null; then
+  echo "HERMES_ALGO_OWNER=hermes-$(openssl rand -hex 12)" >> "$ENV_FILE"
+  echo "  identite stable des protections creee et conservee"
+else
+  echo "  identite stable des protections conservee"
+fi
 if grep -q "^OKX_API_KEY=.\+" "$ENV_FILE" 2>/dev/null; then
   echo "  cles OKX presentes"
 else
@@ -85,7 +91,12 @@ else
   echo "  seule et nouvrira aucune position. Cest voulu tant que les cles"
   echo "  compromises nont pas ete remplacees."
 fi
-set -x 2>/dev/null || true
+if [ ! -s "$DIR/config/evidence-public-key.pem" ]; then
+  echo "  aucune cle publique de preuve : gate live fermee (attendu avant promotion)"
+fi
+if [ ! -s "$DIR/config/approved-roster.json" ]; then
+  echo "  aucun roster promu : gate live fermee (le candidat ne trade jamais seul)"
+fi
 
 echo "=== 6. service ==="
 mkdir -p "$DIR/logs" "$DIR/data" "$DIR/runtime"
@@ -101,20 +112,12 @@ WorkingDirectory=$DIR
 EnvironmentFile=-$DIR/.env
 Environment=NODE_ENV=production
 Environment=HERMES_PORT=8899
-Environment=HERMES_HOST=0.0.0.0
+Environment=HERMES_HOST=127.0.0.1
 Environment=HERMES_UNIVERSE_SIZE=50
-# Le pilotage, demande explicitement par le proprietaire.
-#
-# Le defaut du code est « lecture seule », et ce defaut est le bon :
-# servi par le reseau, ladresse decoute ne dit rien de qui se connecte,
-# et un robot de trading joignable sur Internet ne doit pas obeir au
-# premier venu. Ici la garde qui reste est la cle du tableau de bord —
-# trente-deux caracteres, exigee a chaque requete, sans laquelle le
-# serveur repond 403 avant meme de lire le chemin demande.
-#
-# Ce que cela ouvre, dit franchement : quiconque possede cette cle peut
-# demarrer et arreter le moteur, et passer un ordre. La cle merite donc
-# le meme soin quun mot de passe de compte.
+# Le pilotage reste disponible, mais seulement sur loopback. L'acces
+# distant doit passer par un tunnel SSH ou un reverse proxy HTTPS avec
+# authentification; une simple cle dans une URL ne securise pas une
+# console de trading exposee a Internet.
 Environment=HERMES_UI_MODE=full
 # Sortir en IPv4.
 #
@@ -180,8 +183,9 @@ UNIT
 systemctl daemon-reload
 systemctl enable hermes >/dev/null 2>&1 || true
 systemctl enable --now hermes-perles.timer >/dev/null 2>&1 || true
-# Premiere recherche SANS attendre le minuteur, en arriere-plan : le
-# moteur rechargera le roster a chaud des quelle aura ecrit.
+# Premiere recherche SANS attendre le minuteur, en arriere-plan. Elle
+# ecrit seulement un roster candidat; aucune strategie ne devient live
+# sans promotion explicite vers approved-roster.json et preuve associee.
 systemctl start --no-block hermes-perles.service || true
 systemctl restart hermes
 

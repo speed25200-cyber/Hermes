@@ -1,6 +1,8 @@
-﻿{
-    "maxPositionsGlobal":  10,
-    "minBalanceAvail":  5,
-    "maxRiskPct":  0.5,
-    "MAX_POSITIONS_GLOBAL":  10
+{
+  "maxPositionsGlobal": 3,
+  "maxMarginPct": 0.25,
+  "riskPerTradePct": 0.005,
+  "maxDrawdownPct": 0.10,
+  "maxDailyLossPct": 0.02,
+  "minBalanceAvail": 5
 }

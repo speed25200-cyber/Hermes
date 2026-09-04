@@ -159,6 +159,7 @@ sed -i -E '/^(OKX_API_KEY|OKX_API_SECRET|OKX_API_PASSPHRASE|OKX_SIMULATED|OK_ACC
   printf 'OKX_API_KEY=%s\n' "$CLE"
   printf 'OKX_API_SECRET=%s\n' "$SECRET"
   printf 'OKX_API_PASSPHRASE=%s\n' "$PASSE"
+  if [ "${SIMULE:-0}" = "1" ]; then printf 'OKX_SIMULATED=true\n'; fi
 } >> "$ENV"
 chmod 600 "$ENV"
 echo "  ecrit, droits 600 (lisible par root seul)"

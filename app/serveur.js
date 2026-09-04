@@ -27,7 +27,7 @@ const crypto = require("crypto");
 const { EventEmitter } = require("events");
 
 const PORT = Number(process.env.HERMES_PORT || 8899);
-const HOTE = process.env.HERMES_HOST || "0.0.0.0";
+const HOTE = process.env.HERMES_HOST || "127.0.0.1";
 const CLE = String(process.env.HERMES_DASH_TOKEN || "");
 const RACINE_APP = __dirname;
 const RACINE_PUB = path.join(__dirname, "..", "public");
@@ -55,7 +55,7 @@ function memeChaine(a, b) {
 function autorise(req) {
   const q = new URL(req.url, "http://x").searchParams.get("key");
   if (q && memeChaine(q, CLE)) {
-    return { ok: true, cookie: `hermes_key=${CLE}; Max-Age=31536000; Path=/; HttpOnly; SameSite=Lax` };
+    return { ok: true, cookie: `hermes_key=${CLE}; Max-Age=28800; Path=/; HttpOnly; SameSite=Strict` };
   }
   for (const part of String(req.headers.cookie || "").split(";")) {
     const i = part.indexOf("=");
@@ -215,6 +215,15 @@ async function traiter(req, rep) {
   }
   const entetes = auth.cookie ? { "Set-Cookie": auth.cookie } : {};
 
+  /* Le secret d'amorcage ne reste jamais dans la barre d'adresse,
+     l'historique ou un en-tete Referer. Une fois le cookie court pose,
+     retour immediat vers l'URL propre. */
+  if (auth.cookie) {
+    rep.writeHead(303, { ...entetes, Location: "/", "Cache-Control": "no-store" });
+    rep.end();
+    return;
+  }
+
   // Le flux devenements : ce que webContents.send poussait a la fenetre.
   if (chemin === "/api/flux") {
     rep.writeHead(200, Object.assign({
@@ -276,6 +285,12 @@ function demarrer() {
   if (!CLE) {
     console.error("[SERVEUR] HERMES_DASH_TOKEN est vide. Un robot de trading joignable");
     console.error("[SERVEUR] sur Internet sans cle nest pas une commodite. Arret.");
+    process.exit(1);
+  }
+  const boucleLocale = HOTE === "127.0.0.1" || HOTE === "::1" || HOTE === "localhost";
+  if (!boucleLocale && String(process.env.HERMES_ALLOW_INSECURE_REMOTE || "") !== "1") {
+    console.error("[SERVEUR] Refus d'exposer le pilotage de trading en HTTP clair sur", HOTE);
+    console.error("[SERVEUR] Utiliser un tunnel/VPN vers 127.0.0.1, ou un proxy TLS puis autoriser explicitement le bind distant.");
     process.exit(1);
   }
   serveur = http.createServer((req, rep) => {

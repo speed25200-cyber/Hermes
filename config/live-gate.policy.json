@@ -1,0 +1,39 @@
+{
+  "rosterMaxAgeHours": 2160,
+  "evidenceMaxAgeDays": 31,
+  "requireEvidenceSignature": true,
+  "minOosTrades": 1500,
+  "minOosDays": 365,
+  "minShadowDays": 60,
+  "minShadowTrades": 100,
+  "minNullReplications": 9999,
+  "minProfitableFoldRate": 0.70,
+  "maxProfitConcentration": 0.25,
+  "maxFamilywisePValue": 0.01,
+  "maxDrawdownPct": 0.10,
+  "minProfitFactor": 1.10,
+  "engineFiles": [
+    "app/main.js",
+    "modules/live_safety.js",
+    "modules/signaux.js",
+    "modules/backtest.js",
+    "deploy/chercher_perles.js",
+    "config/live-gate.policy.json",
+    "config/risk.json",
+    "package-lock.json"
+  ],
+  "requiredMethodology": [
+    "processLevel",
+    "walkForward",
+    "pointInTimeUniverse",
+    "purgedEmbargo",
+    "usesOkxData",
+    "includesFees",
+    "includesFunding",
+    "includesSpreadSlippage",
+    "modelsPartialFills",
+    "familywiseControlled",
+    "sideSeparated",
+    "dataManifestVerified"
+  ]
+}

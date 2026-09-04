@@ -201,14 +201,16 @@ jobs:
           # autre architecture que celle qui les executera.
           # logs et runtime sont ecrits par le moteur en marche ; --delete
           # les effacerait a chaque mise en ligne.
-          # config/roster.json est ecrit par le chercheur de perles SUR la
-          # machine : sans cette exclusion, chaque mise en ligne
-          # ecraserait le verdict le plus recent.
+          # config/roster.json est le candidat ecrit par le chercheur et
+          # approved-roster.json le roster live promu avec sa preuve. Ils
+          # vivent sur la machine et doivent tous deux survivre au rsync.
           sshpass -e rsync -az --delete \
             --exclude '/.git' --exclude '/state' --exclude '/data' \
             --exclude '/.env' --exclude '/node_modules' \
             --exclude '/logs' --exclude '/runtime' \
-            --exclude '/config/roster.json' --exclude '/banc' --exclude '/recherche' \
+            --exclude '/config/roster.json' --exclude '/config/approved-roster.json' \
+            --exclude '/config/evidence-public-key.pem' \
+            --exclude '/banc' --exclude '/recherche' \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             ./ "root@$VPS:/root/hermes/"
 

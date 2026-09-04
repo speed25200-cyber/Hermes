@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "decision": "rejected",
+  "signature": "",
+  "generatedAt": "2026-09-04T00:00:00.000Z",
+  "expiresAt": "2026-09-04T00:00:00.000Z",
+  "rosterSha256": "replace-with-gate-status-output",
+  "engineSha256": "replace-with-gate-status-output",
+  "metrics": {
+    "oosTrades": 0,
+    "oosDays": 0,
+    "netMeanPerTrade": 0,
+    "netMeanLower99": 0,
+    "costStressLower95": 0,
+    "familywisePValue": 1,
+    "nullReplications": 0,
+    "profitableFoldRate": 0,
+    "maxProfitConcentration": 1,
+    "maxDrawdownPct": 1,
+    "profitFactor": 0,
+    "shadowLiveDays": 0,
+    "shadowLiveTrades": 0,
+    "shadowLiveNet": 0
+  },
+  "methodology": {
+    "processLevel": false,
+    "walkForward": false,
+    "pointInTimeUniverse": false,
+    "purgedEmbargo": false,
+    "usesOkxData": false,
+    "includesFees": false,
+    "includesFunding": false,
+    "includesSpreadSlippage": false,
+    "modelsPartialFills": false,
+    "familywiseControlled": false,
+    "sideSeparated": false,
+    "dataManifestVerified": false
+  }
+}
