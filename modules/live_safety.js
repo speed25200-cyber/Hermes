@@ -8,39 +8,83 @@ const DEFAULT_POLICY = Object.freeze({
   rosterMaxAgeHours: 2160,
   evidenceMaxAgeDays: 31,
   requireEvidenceSignature: true,
+  evidencePublicKeySpkiSha256: "UNCONFIGURED",
+  monitoringPublicKeySpkiSha256: "UNCONFIGURED",
   minOosTrades: 1500,
-  minOosDays: 365,
-  minShadowDays: 60,
+  minOosDays: 1095,
+  minShadowDays: 90,
   minShadowTrades: 100,
   minNullReplications: 9999,
   minProfitableFoldRate: 0.70,
   maxProfitConcentration: 0.25,
   maxFamilywisePValue: 0.01,
+  maxPbo: 0.10,
+  minDeflatedSharpeProbability: 0.95,
+  maxSpaPValue: 0.05,
+  maxWhiteRealityCheckPValue: 0.05,
+  minEffectiveDays: 250,
+  minIndependentBaskets: 100,
+  maxCalendarYearProfitConcentration: 0.60,
+  maxInstrumentProfitConcentration: 0.10,
+  maxTopFiveProfitConcentration: 0.50,
   maxDrawdownPct: 0.10,
   minProfitFactor: 1.10,
   engineFiles: [
     "app/main.js",
+    "app/serveur.js",
+    "app/pont.js",
     "modules/live_safety.js",
+    "modules/position_metadata.js",
+    "modules/okx_top_movers.js",
+    "modules/autopilot.js",
+    "modules/autopilot_cycle.js",
+    "modules/quant_validation.js",
+    "modules/carry_strategy.js",
     "modules/signaux.js",
     "modules/backtest.js",
+    "modules/juge.js",
+    "modules/exec.js",
     "deploy/chercher_perles.js",
+    "deploy/autopilot_cycle.js",
+    "deploy/compiler_preuve_quantitative.js",
+    "deploy/verifier_gate_live.js",
+    "deploy/install.sh",
     "config/live-gate.policy.json",
+    "config/autopilot.policy.json",
+    "config/quant-validation.policy.json",
+    "config/quant-trial-ledger.json",
+    "config/report-profile-priors.json",
+    "config/carry-candidate.json",
     "config/risk.json",
+    "config/okx.json",
+    "config/ai.config.json",
+    "config/policy.json",
+    "package.json",
     "package-lock.json",
   ],
   requiredMethodology: [
     "processLevel",
     "walkForward",
+    "nestedWalkForward",
     "pointInTimeUniverse",
+    "top30Movers",
     "purgedEmbargo",
     "usesOkxData",
     "includesFees",
     "includesFunding",
     "includesSpreadSlippage",
-    "modelsPartialFills",
+    "includesMarketImpactLatency",
+    "modelsPartialFillsAndRejections",
     "familywiseControlled",
+    "historicalTrialsIncluded",
+    "shadowLogsManifestVerified",
+    "tradesReplayedFromPreparedExecutions",
+    "portfolioMetricsRecomputed",
+    "cycleLedgerIncluded",
     "sideSeparated",
     "dataManifestVerified",
+    "instrumentMasterPointInTime",
+    "includesDelisted",
   ],
 });
 
@@ -226,6 +270,54 @@ function evaluateEntryStopRisk(options) {
   };
 }
 
+/* Revalue isolated margin with the last executable quote. The reservation was
+   computed before the maker wait; a market fallback must not reuse that stale
+   dollar value after price moved. totalUsedMargin includes this reservation,
+   so the calculation replaces it with the exact revalued margin. */
+function evaluateEntryMarginBudget(options) {
+  const entryPx = options?.entryPx;
+  const qty = options?.qty;
+  const contractValue = options?.contractValue;
+  const leverage = options?.leverage;
+  const reservedMargin = options?.reservedMargin;
+  const perTradeMargin = options?.perTradeMargin;
+  const totalUsedMargin = options?.totalUsedMargin;
+  const totalMarginBudget = options?.totalMarginBudget;
+  const values = [entryPx, qty, contractValue, leverage, reservedMargin,
+    perTradeMargin, totalUsedMargin, totalMarginBudget];
+  const finiteNumbers = values.every((value) => typeof value === "number" && Number.isFinite(value));
+  const positiveInputs = finiteNumbers && entryPx > 0 && qty > 0 && contractValue > 0
+    && leverage > 0 && reservedMargin > 0 && perTradeMargin > 0 && totalMarginBudget > 0
+    && totalUsedMargin >= 0;
+  const exactMargin = positiveInputs
+    ? (entryPx * Math.abs(qty) * Math.abs(contractValue)) / leverage
+    : Infinity;
+  const epsilon = positiveInputs
+    ? Math.max(1e-10, Math.max(exactMargin, reservedMargin, perTradeMargin, totalMarginBudget)
+      * Number.EPSILON * 32)
+    : 0;
+  const reservationAccounted = positiveInputs && totalUsedMargin + epsilon >= reservedMargin;
+  const usedWithoutReservation = reservationAccounted
+    ? Math.max(0, totalUsedMargin - reservedMargin)
+    : Infinity;
+  const totalMarginAtQuote = usedWithoutReservation + exactMargin;
+  const reasons = [];
+  if (!positiveInputs) reasons.push("marge_entree_invalide");
+  else if (!reservationAccounted) reasons.push("reservation_marge_absente");
+  if (positiveInputs && exactMargin > reservedMargin + epsilon) reasons.push("marge_cotation_depasse_reservation");
+  if (positiveInputs && exactMargin > perTradeMargin + epsilon) reasons.push("marge_cotation_depasse_par_trade");
+  if (positiveInputs && reservationAccounted && totalMarginAtQuote > totalMarginBudget + epsilon) {
+    reasons.push("marge_cotation_depasse_budget_total");
+  }
+  return {
+    allowed: reasons.length === 0,
+    reasons,
+    exactMargin,
+    usedWithoutReservation,
+    totalMarginAtQuote,
+  };
+}
+
 function validateRiskConfig(input) {
   const rules = {
     maxPositions: [1, 3, true], leverage: [1, 15, false],
@@ -301,9 +393,16 @@ function rosterSha256(roster) {
 }
 
 function engineSha256(root, files = DEFAULT_POLICY.engineFiles) {
+  const resolvedRoot = fs.realpathSync(path.resolve(root));
   const hash = crypto.createHash("sha256");
   for (const relative of files) {
-    const absolute = path.join(root, relative);
+    if (typeof relative !== "string" || !relative || path.isAbsolute(relative)) throw new Error("chemin moteur invalide");
+    const absolute = fs.realpathSync(path.resolve(resolvedRoot, relative));
+    const inside = path.relative(resolvedRoot, absolute);
+    if (!inside || inside.startsWith("..") || path.isAbsolute(inside)) {
+      if (!inside) throw new Error("un repertoire ne peut pas etre un fichier moteur");
+      throw new Error(`fichier moteur hors racine: ${relative}`);
+    }
     hash.update(relative.replace(/\\/g, "/"));
     hash.update("\0");
     hash.update(fs.readFileSync(absolute));
@@ -317,9 +416,7 @@ function readJson(file) {
 }
 
 function asFinite(value) {
-  if (value == null || value === "") return null;
-  const n = Number(value);
-  return Number.isFinite(n) ? n : null;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 function atLeast(value, minimum) { const n = asFinite(value); return n !== null && n >= Number(minimum); }
 function atMost(value, maximum) { const n = asFinite(value); return n !== null && n <= Number(maximum); }
@@ -329,38 +426,414 @@ function between(value, minimum, maximum) {
   return n !== null && n >= Number(minimum) && n <= Number(maximum);
 }
 
-function evidenceSigningPayload(evidence) {
-  if (!evidence || typeof evidence !== "object") return "";
-  const unsigned = { ...evidence };
+const MINIMUM_POLICY_FIELDS = Object.freeze([
+  "minOosTrades", "minOosDays", "minShadowDays", "minShadowTrades",
+  "minNullReplications", "minProfitableFoldRate", "minDeflatedSharpeProbability",
+  "minEffectiveDays", "minIndependentBaskets", "minProfitFactor",
+]);
+const MAXIMUM_POLICY_FIELDS = Object.freeze([
+  "rosterMaxAgeHours", "evidenceMaxAgeDays", "maxProfitConcentration",
+  "maxFamilywisePValue", "maxPbo", "maxSpaPValue", "maxWhiteRealityCheckPValue",
+  "maxCalendarYearProfitConcentration", "maxInstrumentProfitConcentration",
+  "maxTopFiveProfitConcentration", "maxDrawdownPct",
+]);
+
+/* Une politique de fichier peut durcir les constantes compilees, jamais les
+   assouplir. Son engineFiles effectif contient toujours la surface minimale
+   codee ici, y compris la politique elle-meme. */
+function normaliseLiveGatePolicy(input) {
+  const supplied = input && typeof input === "object" && !Array.isArray(input) ? input : {};
+  const policy = { ...DEFAULT_POLICY, ...supplied };
+  const reasons = [];
+  for (const name of MINIMUM_POLICY_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(supplied, name)) continue;
+    const value = asFinite(supplied[name]);
+    if (value === null || value < Number(DEFAULT_POLICY[name])) {
+      reasons.push(`politique_assouplie_${name}`);
+      policy[name] = DEFAULT_POLICY[name];
+    } else policy[name] = value;
+  }
+  for (const name of MAXIMUM_POLICY_FIELDS) {
+    if (!Object.prototype.hasOwnProperty.call(supplied, name)) continue;
+    const value = asFinite(supplied[name]);
+    if (!(value > 0) || value > Number(DEFAULT_POLICY[name])) {
+      reasons.push(`politique_assouplie_${name}`);
+      policy[name] = DEFAULT_POLICY[name];
+    } else policy[name] = value;
+  }
+  if (supplied.requireEvidenceSignature === false) reasons.push("politique_signature_desactivee");
+  policy.requireEvidenceSignature = true;
+
+  const requiredFiles = [...DEFAULT_POLICY.engineFiles];
+  const suppliedFiles = Array.isArray(supplied.engineFiles) ? supplied.engineFiles : requiredFiles;
+  const safeExtras = [];
+  for (const item of suppliedFiles) {
+    const value = String(item || "").replace(/\\/g, "/");
+    if (!value || path.posix.isAbsolute(value) || path.win32.isAbsolute(value)
+        || value.split("/").includes("..")) {
+      reasons.push("politique_fichier_moteur_invalide");
+      continue;
+    }
+    safeExtras.push(value);
+  }
+  const suppliedSet = new Set(safeExtras);
+  for (const file of requiredFiles) if (!suppliedSet.has(file)) reasons.push(`politique_fichier_moteur_absent:${file}`);
+  policy.engineFiles = [...new Set([...requiredFiles, ...safeExtras])];
+
+  const requiredMethods = [...DEFAULT_POLICY.requiredMethodology];
+  const suppliedMethods = Array.isArray(supplied.requiredMethodology)
+    ? supplied.requiredMethodology.map(String) : requiredMethods;
+  const suppliedMethodSet = new Set(suppliedMethods);
+  for (const name of requiredMethods) if (!suppliedMethodSet.has(name)) reasons.push(`politique_methode_absente:${name}`);
+  policy.requiredMethodology = [...new Set([...requiredMethods, ...suppliedMethods])];
+  const fingerprintPattern = /^[a-f0-9]{64}$/i;
+  const evidenceAnchor = String(policy.evidencePublicKeySpkiSha256 || "").toLowerCase();
+  const monitoringAnchor = String(policy.monitoringPublicKeySpkiSha256 || "").toLowerCase();
+  if (fingerprintPattern.test(evidenceAnchor) && fingerprintPattern.test(monitoringAnchor)
+      && evidenceAnchor === monitoringAnchor) reasons.push("politique_cles_signature_non_distinctes");
+  return { policy, reasons: [...new Set(reasons)] };
+}
+
+function hasExactHorizonSet(value) {
+  if (!Array.isArray(value)) return false;
+  const unique = [...new Set(value.map(Number))].sort((a, b) => a - b);
+  return unique.length === 3 && unique[0] === 365 && unique[1] === 730 && unique[2] === 1095;
+}
+
+function evaluateAutopilotCanaryAuthority({ roster, state, policy } = {}) {
+  const hasLiveEntries = roster?.perles && typeof roster.perles === "object"
+    && !Array.isArray(roster.perles) && Object.keys(roster.perles).length > 0;
+  if (!hasLiveEntries) return { required: false, allowed: true, reasons: [], canaryEquityPct: null };
+  const candidate = String(roster?.strategyCandidateId || "").trim().toLowerCase();
+  const reasons = [];
+  if (!/^[a-f0-9]{64}$/.test(candidate)) reasons.push("autopilot_roster_candidate_invalide");
+  if (String(state?.stage || "") !== "canary") reasons.push("autopilot_canary_non_active");
+  if (String(state?.candidateId || "").toLowerCase() !== candidate) reasons.push("autopilot_state_candidate_different");
+  if (state?.championCandidateId != null
+      && String(state.championCandidateId).toLowerCase() !== candidate) reasons.push("autopilot_champion_different");
+  const cap = asFinite(state?.canaryEquityPct);
+  const maximum = asFinite(policy?.promotion?.maximumCanaryEquityPct) ?? 0.05;
+  const initial = asFinite(policy?.promotion?.initialCanaryEquityPct);
+  const automaticScaleUp = policy?.promotion?.automaticScaleUp === true;
+  if (!(maximum > 0 && maximum <= 0.05)) reasons.push("autopilot_plafond_politique_invalide");
+  if (!(cap !== null && cap > 0 && cap <= maximum)) reasons.push("autopilot_plafond_canary_invalide");
+  if (!(initial !== null && initial > 0 && initial <= maximum)) reasons.push("autopilot_plafond_initial_invalide");
+  if (!automaticScaleUp && cap !== initial) reasons.push("autopilot_scale_up_non_autorise");
+  return {
+    required: true,
+    allowed: reasons.length === 0,
+    reasons,
+    candidateId: candidate,
+    canaryEquityPct: cap,
+    initialCanaryEquityPct: initial,
+    maximumCanaryEquityPct: maximum,
+  };
+}
+
+const LIVE_EVIDENCE_SIGNATURE_DOMAIN = "hermes/live-evidence/v1";
+const MONITORING_SIGNATURE_DOMAIN = "hermes/okx-account-monitoring/v1";
+
+function unsignedCanonicalPayload(artifact) {
+  if (!artifact || typeof artifact !== "object") return "";
+  const unsigned = { ...artifact };
   delete unsigned.signature;
   return stableStringify(unsigned);
 }
 
-function verifyEvidenceSignature(evidence, publicKey) {
+function domainSeparatedSigningPayload(domain, artifact) {
+  return `${domain}\0${unsignedCanonicalPayload(artifact)}`;
+}
+
+function evidenceSigningPayload(evidence) {
+  return domainSeparatedSigningPayload(LIVE_EVIDENCE_SIGNATURE_DOMAIN, evidence);
+}
+
+function monitoringSigningPayload(monitoring) {
+  return domainSeparatedSigningPayload(MONITORING_SIGNATURE_DOMAIN, monitoring);
+}
+
+function publicKeySpkiSha256(publicKey) {
   try {
-    if (!evidence?.signature || !publicKey) return false;
+    if (!publicKey) return null;
+    const key = publicKey?.type === "public" ? publicKey : crypto.createPublicKey(publicKey);
+    if (key.asymmetricKeyType !== "ed25519") return null;
+    const spki = key.export({ type: "spki", format: "der" });
+    return crypto.createHash("sha256").update(spki).digest("hex");
+  } catch { return null; }
+}
+
+function verifyDomainSeparatedSignature(artifact, publicKey, payloadBuilder) {
+  try {
+    if (!artifact?.signature || !publicKey) return false;
+    const key = publicKey?.type === "public" ? publicKey : crypto.createPublicKey(publicKey);
+    if (key.asymmetricKeyType !== "ed25519") return false;
     return crypto.verify(
       null,
-      Buffer.from(evidenceSigningPayload(evidence), "utf8"),
-      publicKey,
-      Buffer.from(String(evidence.signature), "base64")
+      Buffer.from(payloadBuilder(artifact), "utf8"),
+      key,
+      Buffer.from(String(artifact.signature), "base64")
     );
   } catch { return false; }
 }
 
-function evaluateLiveGate({ roster, evidence, policy, nowMs, expectedEngineSha256, evidenceSignatureVerified }) {
-  const cfg = { ...DEFAULT_POLICY, ...(policy || {}) };
-  const now = Number(nowMs || Date.now());
+function verifyEvidenceSignature(evidence, publicKey) {
+  return verifyDomainSeparatedSignature(evidence, publicKey, evidenceSigningPayload);
+}
+
+function verifyMonitoringSignature(monitoring, publicKey) {
+  return verifyDomainSeparatedSignature(monitoring, publicKey, monitoringSigningPayload);
+}
+
+const MONITORING_HIGH_WATER_SCHEMA_VERSION = 1;
+
+function emptyMonitoringHighWater() {
+  return { schemaVersion: MONITORING_HIGH_WATER_SCHEMA_VERSION, entries: {} };
+}
+
+/* Decision pure: aucun acces disque et aucune horloge implicite. La sequence
+   est globale par autorite de reconciliation (cle SPKI + source), et surtout
+   pas par candidat/roster : changer puis restaurer un roster ne doit jamais
+   remettre le compteur a zero. Un snapshot identique est idempotent; toute
+   regression ou reuse de sequence avec d'autres octets est refusee.
+   `replayEligible` ne depend pas de la sante du compte : un constat signe de
+   breach/kill-switch doit lui aussi faire avancer la marque, sinon un ancien
+   constat sain pourrait etre rejoue. */
+function evaluateMonitoringReplay({ monitoringGate, highWater } = {}) {
+  const required = monitoringGate?.required === true;
+  const candidateId = String(monitoringGate?.candidateId || "").toLowerCase();
+  const rosterHash = String(monitoringGate?.rosterSha256 || "").toLowerCase();
+  const signerSpkiSha256 = String(monitoringGate?.signerSpkiSha256 || "").toLowerCase();
+  const source = String(monitoringGate?.source || "");
+  const sequence = Number.isSafeInteger(monitoringGate?.sequence) ? monitoringGate.sequence : null;
+  const monitoringHash = String(monitoringGate?.monitoringSha256 || "").toLowerCase();
+  const identityKey = /^[a-f0-9]{64}$/.test(signerSpkiSha256)
+      && source === "okx-account-reconciliation-v1"
+    ? `${signerSpkiSha256}:${source}` : null;
+  const base = {
+    required,
+    candidateId: candidateId || null,
+    rosterSha256: rosterHash || null,
+    signerSpkiSha256: signerSpkiSha256 || null,
+    source: source || null,
+    sequence,
+    monitoringSha256: /^[a-f0-9]{64}$/.test(monitoringHash) ? monitoringHash : null,
+    identityKey,
+  };
+  if (!required) {
+    return { ...base, allowed: true, reasons: [], shouldAdvance: false, nextHighWater: highWater || null };
+  }
+
   const reasons = [];
+  const supplied = highWater == null ? emptyMonitoringHighWater() : highWater;
+  const entries = supplied?.entries;
+  if (supplied?.schemaVersion !== MONITORING_HIGH_WATER_SCHEMA_VERSION
+      || !entries || typeof entries !== "object" || Array.isArray(entries)) {
+    reasons.push("monitoring_high_water_invalide");
+  }
+  const normalizedEntries = {};
+  if (reasons.length === 0) {
+    for (const [key, value] of Object.entries(entries)) {
+      const storedSigner = String(value?.signerSpkiSha256 || "").toLowerCase();
+      const storedSource = String(value?.source || "");
+      const storedCandidate = String(value?.candidateId || "").toLowerCase();
+      const storedRoster = String(value?.rosterSha256 || "").toLowerCase();
+      const storedHash = String(value?.monitoringSha256 || "").toLowerCase();
+      const expectedKey = `${storedSigner}:${storedSource}`;
+      if (key !== expectedKey
+          || !/^[a-f0-9]{64}$/.test(storedSigner)
+          || storedSource !== "okx-account-reconciliation-v1"
+          || !/^[a-f0-9]{64}$/.test(storedCandidate)
+          || !/^[a-f0-9]{64}$/.test(storedRoster)
+          || !Number.isSafeInteger(value?.sequence) || value.sequence < 0
+          || !/^[a-f0-9]{64}$/.test(storedHash)) {
+        reasons.push("monitoring_high_water_entree_invalide");
+        break;
+      }
+      normalizedEntries[key] = {
+        signerSpkiSha256: storedSigner,
+        source: storedSource,
+        candidateId: storedCandidate,
+        rosterSha256: storedRoster,
+        sequence: value.sequence,
+        monitoringSha256: storedHash,
+      };
+    }
+  }
+  if (!identityKey || sequence === null || sequence < 0
+      || !base.monitoringSha256 || monitoringGate?.replayEligible !== true) {
+    reasons.push("monitoring_snapshot_non_authentifie_pour_rejeu");
+  }
+  if (reasons.length > 0) {
+    return {
+      ...base, allowed: false, reasons: [...new Set(reasons)], shouldAdvance: false,
+      nextHighWater: null,
+    };
+  }
+
+  const previous = normalizedEntries[identityKey] || null;
+  if (previous && sequence < previous.sequence) reasons.push("monitoring_sequence_regressive");
+  if (previous && sequence === previous.sequence
+      && (base.monitoringSha256 !== previous.monitoringSha256
+        || candidateId !== previous.candidateId
+        || rosterHash !== previous.rosterSha256)) reasons.push("monitoring_sequence_collision");
+  if (reasons.length > 0) {
+    return { ...base, allowed: false, reasons, shouldAdvance: false, nextHighWater: null };
+  }
+  const shouldAdvance = !previous || sequence > previous.sequence;
+  const nextHighWater = {
+    schemaVersion: MONITORING_HIGH_WATER_SCHEMA_VERSION,
+    entries: { ...normalizedEntries },
+  };
+  if (shouldAdvance) {
+    nextHighWater.entries[identityKey] = {
+      signerSpkiSha256,
+      source,
+      candidateId,
+      rosterSha256: rosterHash,
+      sequence,
+      monitoringSha256: base.monitoringSha256,
+    };
+  }
+  return { ...base, allowed: true, reasons: [], shouldAdvance, nextHighWater };
+}
+
+function evaluateSignedMonitoring({ monitoring, roster, autopilotPolicy, publicKey, nowMs,
+  policyPublicKeySpkiSha256, expectedPublicKeySpkiSha256,
+  evidencePublicKeySpkiSha256 } = {}) {
+  const hasLiveEntries = roster?.perles && typeof roster.perles === "object"
+    && !Array.isArray(roster.perles) && Object.keys(roster.perles).length > 0;
+  if (!hasLiveEntries) return { required: false, allowed: true, reasons: [] };
+  const candidateId = String(roster?.strategyCandidateId || "").toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(candidateId)) {
+    return { required: true, allowed: false, reasons: ["monitoring_candidate_roster_invalide"] };
+  }
+  const reasons = [];
+  const now = typeof nowMs === "number" && Number.isFinite(nowMs) ? nowMs : Date.now();
+  const configuredTtl = asFinite(autopilotPolicy?.demotion?.maximumMonitoringStalenessMinutes);
+  const ttlMinutes = configuredTtl !== null && configuredTtl > 0 ? Math.min(5, configuredTtl) : 5;
+  let signatureVerified = false;
+  let identityVerified = false;
+  let monitoringSha256 = null;
+  const signerSpkiSha256 = publicKeySpkiSha256(publicKey);
+  const source = typeof monitoring?.source === "string" ? monitoring.source : null;
+  const fingerprintPattern = /^[a-f0-9]{64}$/i;
+  const policyAnchor = String(policyPublicKeySpkiSha256 || "").toLowerCase();
+  const externalAnchor = String(expectedPublicKeySpkiSha256 || "").toLowerCase();
+  const evidenceAnchor = String(evidencePublicKeySpkiSha256 || "").toLowerCase();
+  const actualAnchor = String(signerSpkiSha256 || "").toLowerCase();
+  if (!fingerprintPattern.test(policyAnchor)) reasons.push("monitoring_ancre_politique_absente");
+  if (!fingerprintPattern.test(externalAnchor)) reasons.push("monitoring_ancre_deploiement_absente");
+  if (!fingerprintPattern.test(actualAnchor)) reasons.push("monitoring_cle_publique_ed25519_invalide");
+  if (fingerprintPattern.test(policyAnchor) && fingerprintPattern.test(externalAnchor)
+      && policyAnchor !== externalAnchor) reasons.push("monitoring_ancre_politique_differente");
+  if (fingerprintPattern.test(actualAnchor) && fingerprintPattern.test(externalAnchor)
+      && actualAnchor !== externalAnchor) reasons.push("monitoring_cle_publique_deploiement_differente");
+  if (fingerprintPattern.test(actualAnchor) && fingerprintPattern.test(evidenceAnchor)
+      && actualAnchor === evidenceAnchor) reasons.push("monitoring_cle_non_distincte");
+  const anchorVerified = fingerprintPattern.test(policyAnchor)
+    && fingerprintPattern.test(externalAnchor)
+    && fingerprintPattern.test(actualAnchor)
+    && policyAnchor === externalAnchor
+    && actualAnchor === externalAnchor
+    && (!fingerprintPattern.test(evidenceAnchor) || actualAnchor !== evidenceAnchor);
+  if (!monitoring || typeof monitoring !== "object" || Array.isArray(monitoring)) {
+    reasons.push("monitoring_autoritatif_absent");
+  } else {
+    /* L'identite anti-rejeu porte sur le payload signe, sans l'encodage de la
+       signature. Cela evite de traiter deux representations cryptographiques
+       d'un meme message comme deux observations differentes. */
+    monitoringSha256 = sha256(monitoringSigningPayload(monitoring));
+    signatureVerified = verifyMonitoringSignature(monitoring, publicKey);
+    const observedAt = Date.parse(String(monitoring.generatedAt || ""));
+    const schemaValid = Number(monitoring.schemaVersion) === 1;
+    const sourceValid = String(monitoring.source || "") === "okx-account-reconciliation-v1";
+    const sequenceValid = Number.isSafeInteger(monitoring.sequence) && monitoring.sequence >= 0;
+    const candidateValid = String(monitoring.candidateId || "").toLowerCase() === candidateId;
+    const rosterValid = String(monitoring.rosterSha256 || "").toLowerCase() === rosterSha256(roster);
+    if (!schemaValid) reasons.push("monitoring_schema_invalide");
+    if (!sourceValid) reasons.push("monitoring_source_invalide");
+    if (!sequenceValid) reasons.push("monitoring_sequence_invalide");
+    if (!candidateValid) reasons.push("monitoring_mauvais_candidat");
+    if (!rosterValid) reasons.push("monitoring_mauvais_roster");
+    identityVerified = schemaValid && sourceValid && sequenceValid && candidateValid && rosterValid;
+    if (!Number.isFinite(observedAt) || observedAt > now + 30_000
+        || now - observedAt > ttlMinutes * 60_000) reasons.push("monitoring_perime_ou_futur");
+    if (!signatureVerified) reasons.push("monitoring_signature_invalide");
+    if (monitoring.riskBreach !== false) reasons.push(
+      monitoring.riskBreach === true ? "monitoring_risque_explicite" : "monitoring_riskBreach_absent"
+    );
+    if (monitoring.killSwitch !== false) reasons.push(
+      monitoring.killSwitch === true ? "monitoring_kill_switch" : "monitoring_killSwitch_absent"
+    );
+    if (monitoring.venueHealthy !== true) reasons.push("monitoring_venue_non_saine");
+    const trades = asFinite(monitoring.trades);
+    if (trades === null || trades < 0) reasons.push("monitoring_trades_invalides");
+    const minimumTrades = asFinite(autopilotPolicy?.demotion?.minimumTrades) ?? 30;
+    if (trades !== null && trades >= minimumTrades) {
+      const checks = [
+        ["netLower95", asFinite(autopilotPolicy?.demotion?.quarantineIfNetLower95AtMost) ?? 0,
+          (value, threshold) => value <= threshold, "monitoring_borne_nette_degradee"],
+        ["profitFactor", asFinite(autopilotPolicy?.demotion?.quarantineIfProfitFactorBelow) ?? 1,
+          (value, threshold) => value < threshold, "monitoring_profit_factor_degrade"],
+        ["costRatio", asFinite(autopilotPolicy?.demotion?.quarantineIfCostRatioAbove) ?? 0.8,
+          (value, threshold) => value > threshold, "monitoring_ratio_couts_degrade"],
+        ["trackingErrorBps", asFinite(autopilotPolicy?.demotion?.quarantineIfTrackingErrorBpsAbove) ?? 25,
+          (value, threshold) => value > threshold, "monitoring_tracking_error_degrade"],
+      ];
+      for (const [name, threshold, failed, reason] of checks) {
+        const value = asFinite(monitoring[name]);
+        if (value === null) reasons.push(`monitoring_${name}_absent`);
+        else if (failed(value, threshold)) reasons.push(reason);
+      }
+    }
+  }
+  return {
+    required: true,
+    allowed: reasons.length === 0,
+    reasons,
+    ttlMinutes,
+    signatureVerified,
+    identityVerified,
+    anchorVerified,
+    replayEligible: signatureVerified && identityVerified && anchorVerified,
+    monitoringSha256,
+    signerSpkiSha256,
+    source,
+    sequence: Number.isSafeInteger(monitoring?.sequence) ? monitoring.sequence : null,
+    candidateId,
+    rosterSha256: rosterSha256(roster),
+  };
+}
+
+function evaluateLiveGate({ roster, evidence, policy, nowMs, expectedEngineSha256, evidenceSignatureVerified,
+  evidencePublicKeySpkiSha256, expectedPublicKeySpkiSha256, policyValidationReasons = [] }) {
+  const normalized = normaliseLiveGatePolicy(policy);
+  const cfg = normalized.policy;
+  const now = Number(nowMs || Date.now());
+  const reasons = [...normalized.reasons, ...(policyValidationReasons || [])];
   const perles = roster?.perles;
   const generatedMs = Date.parse(roster?.genere || "");
   const rosterHash = rosterSha256(roster);
+
+  const fingerprintPattern = /^[a-f0-9]{64}$/i;
+  const policyAnchor = String(cfg.evidencePublicKeySpkiSha256 || "").toLowerCase();
+  const externalAnchor = String(expectedPublicKeySpkiSha256 || "").toLowerCase();
+  const actualAnchor = String(evidencePublicKeySpkiSha256 || "").toLowerCase();
+  if (!fingerprintPattern.test(policyAnchor)) reasons.push("ancre_confiance_politique_absente");
+  if (!fingerprintPattern.test(externalAnchor)) reasons.push("ancre_confiance_deploiement_absente");
+  if (!fingerprintPattern.test(actualAnchor)) reasons.push("cle_publique_ed25519_invalide");
+  if (fingerprintPattern.test(policyAnchor) && fingerprintPattern.test(externalAnchor)
+      && policyAnchor !== externalAnchor) reasons.push("ancre_confiance_politique_differente");
+  if (fingerprintPattern.test(actualAnchor) && fingerprintPattern.test(externalAnchor)
+      && actualAnchor !== externalAnchor) reasons.push("cle_publique_deploiement_differente");
 
   if (!roster || typeof roster !== "object") reasons.push("roster_absent");
   else {
     if (Number(roster.schemaVersion) !== 1) reasons.push("roster_schema");
     if (typeof roster.selectionRunId !== "string" || !roster.selectionRunId.trim()) reasons.push("roster_run_absent");
     if (!/^[a-f0-9]{64}$/i.test(String(roster.dataManifestSha256 || ""))) reasons.push("roster_manifest_invalide");
+    if (!/^[a-f0-9]{64}$/i.test(String(roster.quantEvidenceSha256 || ""))) reasons.push("roster_preuve_quantitative_invalide");
+    if (!/^[a-f0-9]{64}$/i.test(String(roster.strategyCandidateId || ""))) reasons.push("roster_candidat_autopilot_invalide");
     if (!perles || typeof perles !== "object" || Array.isArray(perles)) reasons.push("roster_invalide");
     else if (Object.keys(perles).length === 0) reasons.push("roster_vide");
   }
@@ -381,6 +854,12 @@ function evaluateLiveGate({ roster, evidence, policy, nowMs, expectedEngineSha25
     if (!Number.isFinite(expires) || expires <= now) reasons.push("preuve_hors_validite");
     else if (!Number.isFinite(made) || expires <= made || expires - made > Number(cfg.evidenceMaxAgeDays) * 86400e3) reasons.push("preuve_validite_excessive");
     if (evidence.rosterSha256 !== rosterHash) reasons.push("preuve_roster_different");
+    if (!/^[a-f0-9]{64}$/i.test(String(evidence.quantEvidenceSha256 || ""))) {
+      reasons.push("preuve_quantitative_invalide");
+    } else if (String(evidence.quantEvidenceSha256).toLowerCase()
+        !== String(roster?.quantEvidenceSha256 || "").toLowerCase()) {
+      reasons.push("preuve_quantitative_differente");
+    }
     if (!expectedEngineSha256 || evidence.engineSha256 !== expectedEngineSha256) reasons.push("preuve_moteur_different");
 
     const metrics = evidence.metrics || {};
@@ -392,11 +871,27 @@ function evaluateLiveGate({ roster, evidence, policy, nowMs, expectedEngineSha25
       [positive(metrics.costStressLower95), "stress_couts_non_positif"],
       [between(metrics.familywisePValue, 0, 1), "p_value_invalide"],
       [atMost(metrics.familywisePValue, cfg.maxFamilywisePValue), "test_famille_non_significatif"],
+      [between(metrics.pbo, 0, 1), "pbo_invalide"],
+      [atMost(metrics.pbo, cfg.maxPbo), "pbo_trop_eleve"],
+      [between(metrics.deflatedSharpeProbability, 0, 1), "dsr_invalide"],
+      [atLeast(metrics.deflatedSharpeProbability, cfg.minDeflatedSharpeProbability), "dsr_insuffisant"],
+      [between(metrics.spaPValue, 0, 1), "spa_p_value_invalide"],
+      [atMost(metrics.spaPValue, cfg.maxSpaPValue), "spa_non_significatif"],
+      [between(metrics.whiteRealityCheckPValue, 0, 1), "white_p_value_invalide"],
+      [atMost(metrics.whiteRealityCheckPValue, cfg.maxWhiteRealityCheckPValue), "white_reality_check_non_significatif"],
       [atLeast(metrics.nullReplications, cfg.minNullReplications), "replications_null_insuffisantes"],
       [between(metrics.profitableFoldRate, 0, 1), "taux_folds_invalide"],
       [atLeast(metrics.profitableFoldRate, cfg.minProfitableFoldRate), "folds_profitables_insuffisants"],
       [between(metrics.maxProfitConcentration, 0, 1), "concentration_invalide"],
       [atMost(metrics.maxProfitConcentration, cfg.maxProfitConcentration), "profit_trop_concentre"],
+      [atLeast(metrics.effectiveDays, cfg.minEffectiveDays), "jours_effectifs_insuffisants"],
+      [atLeast(metrics.independentBaskets, cfg.minIndependentBaskets), "baskets_independantes_insuffisantes"],
+      [between(metrics.calendarYearProfitConcentration, 0, 1), "concentration_annee_invalide"],
+      [atMost(metrics.calendarYearProfitConcentration, cfg.maxCalendarYearProfitConcentration), "profit_annee_trop_concentre"],
+      [between(metrics.instrumentProfitConcentration, 0, 1), "concentration_instrument_invalide"],
+      [atMost(metrics.instrumentProfitConcentration, cfg.maxInstrumentProfitConcentration), "profit_instrument_trop_concentre"],
+      [between(metrics.topFiveProfitConcentration, 0, 1), "concentration_top5_invalide"],
+      [atMost(metrics.topFiveProfitConcentration, cfg.maxTopFiveProfitConcentration), "profit_top5_trop_concentre"],
       [between(metrics.maxDrawdownPct, 0, 1), "drawdown_invalide"],
       [atMost(metrics.maxDrawdownPct, cfg.maxDrawdownPct), "drawdown_trop_eleve"],
       [atLeast(metrics.profitFactor, cfg.minProfitFactor), "profit_factor_insuffisant"],
@@ -405,6 +900,8 @@ function evaluateLiveGate({ roster, evidence, policy, nowMs, expectedEngineSha25
       [positive(metrics.shadowLiveNet), "shadow_net_non_positif"],
     ];
     for (const [ok, reason] of tests) if (!ok) reasons.push(reason);
+    if (!hasExactHorizonSet(metrics.validatedHorizonsDays)) reasons.push("horizons_1_2_3_ans_incomplets");
+    if (Number(metrics.primaryHorizonDays) !== 1095) reasons.push("horizon_primaire_non_3_ans");
     for (const flag of cfg.requiredMethodology || []) {
       if (evidence.methodology?.[flag] !== true) reasons.push(`methode_${flag}`);
     }
@@ -425,24 +922,106 @@ function readLiveGate(root, options = {}) {
   const policyFile = options.policyFile || path.join(root, "config", "live-gate.policy.json");
   const rosterFile = options.rosterFile || path.join(root, "config", "approved-roster.json");
   const evidenceFile = options.evidenceFile || process.env.HERMES_LIVE_EVIDENCE_FILE || path.join(root, "data", "live-evidence.json");
-  let policy = DEFAULT_POLICY;
+  const autopilotPolicyFile = options.autopilotPolicyFile
+    || path.join(root, "config", "autopilot.policy.json");
+  const autopilotStateFile = options.autopilotStateFile
+    || path.join(root, "data", "autopilot", "state.json");
+  const monitoringFile = options.monitoringFile
+    || path.join(root, "data", "autopilot", "monitoring.json");
+  let policy = null;
+  const policyValidationReasons = [];
   let roster = null;
   let evidence = null;
-  try { policy = { ...DEFAULT_POLICY, ...readJson(policyFile) }; } catch {}
-  try { roster = readJson(rosterFile); } catch {}
-  try { evidence = readJson(evidenceFile); } catch {}
+  let autopilotPolicy = null;
+  let autopilotState = null;
+  let monitoring = null;
+  const initialFileHashes = new Map();
+  const readSnapshot = (file) => {
+    try {
+      const raw = fs.readFileSync(file);
+      initialFileHashes.set(file, crypto.createHash("sha256").update(raw).digest("hex"));
+      return JSON.parse(raw.toString("utf8").replace(/^\uFEFF/, ""));
+    } catch {
+      initialFileHashes.set(file, null);
+      return null;
+    }
+  };
+  policy = readSnapshot(policyFile);
+  if (!policy) policyValidationReasons.push("politique_live_absente_ou_illisible");
+  roster = readSnapshot(rosterFile);
+  evidence = readSnapshot(evidenceFile);
+  autopilotPolicy = readSnapshot(autopilotPolicyFile);
+  autopilotState = readSnapshot(autopilotStateFile);
+  monitoring = readSnapshot(monitoringFile);
   let publicKey = options.evidencePublicKey || null;
+  let publicKeyFile = null;
   if (!publicKey) {
-    const publicKeyFile = options.publicKeyFile || process.env.HERMES_EVIDENCE_PUBLIC_KEY_FILE
+    publicKeyFile = options.publicKeyFile || process.env.HERMES_EVIDENCE_PUBLIC_KEY_FILE
       || path.join(root, "config", "evidence-public-key.pem");
-    try { publicKey = fs.readFileSync(publicKeyFile, "utf8"); } catch {}
+    try {
+      const raw = fs.readFileSync(publicKeyFile);
+      initialFileHashes.set(publicKeyFile, crypto.createHash("sha256").update(raw).digest("hex"));
+      publicKey = raw.toString("utf8");
+    } catch { initialFileHashes.set(publicKeyFile, null); }
   }
+  const actualPublicKeySpkiSha256 = publicKeySpkiSha256(publicKey);
+  const expectedPublicKeySpkiSha256 = options.expectedPublicKeySpkiSha256
+    || process.env.HERMES_EVIDENCE_PUBLIC_KEY_SPKI_SHA256 || null;
+  let monitoringPublicKey = options.monitoringPublicKey || null;
+  let monitoringPublicKeyFile = null;
+  if (!monitoringPublicKey) {
+    monitoringPublicKeyFile = options.monitoringPublicKeyFile
+      || process.env.HERMES_MONITORING_PUBLIC_KEY_FILE
+      || path.join(root, "config", "monitoring-public-key.pem");
+    try {
+      const raw = fs.readFileSync(monitoringPublicKeyFile);
+      initialFileHashes.set(monitoringPublicKeyFile, crypto.createHash("sha256").update(raw).digest("hex"));
+      monitoringPublicKey = raw.toString("utf8");
+    } catch { initialFileHashes.set(monitoringPublicKeyFile, null); }
+  }
+  const expectedMonitoringPublicKeySpkiSha256 = options.expectedMonitoringPublicKeySpkiSha256
+    || process.env.HERMES_MONITORING_PUBLIC_KEY_SPKI_SHA256 || null;
+  const normalized = normaliseLiveGatePolicy(policy);
   let engineHash = null;
-  try { engineHash = engineSha256(root, policy.engineFiles); } catch {}
-  return evaluateLiveGate({
+  try { engineHash = engineSha256(root, normalized.policy.engineFiles); } catch {
+    policyValidationReasons.push("hash_moteur_impossible");
+  }
+  /* Une promotion/quarantaine repose sur plusieurs renames atomiques, mais la
+     lecture de l'ensemble ne l'est pas. Relire les octets critiques apres le
+     hash moteur interdit de combiner le roster A, la preuve B et la policy C
+     au sein d'une meme decision. */
+  for (const [file, initialHash] of initialFileHashes.entries()) {
+    let currentHash = null;
+    try {
+      currentHash = crypto.createHash("sha256").update(fs.readFileSync(file)).digest("hex");
+    } catch {}
+    if (currentHash !== initialHash) policyValidationReasons.push("snapshot_gate_concurrent");
+  }
+  const result = evaluateLiveGate({
     roster, evidence, policy, nowMs: options.nowMs, expectedEngineSha256: engineHash,
     evidenceSignatureVerified: verifyEvidenceSignature(evidence, publicKey),
+    evidencePublicKeySpkiSha256: actualPublicKeySpkiSha256,
+    expectedPublicKeySpkiSha256,
+    policyValidationReasons,
   });
+  const monitoringGate = evaluateSignedMonitoring({
+    monitoring,
+    roster,
+    autopilotPolicy,
+    publicKey: monitoringPublicKey,
+    nowMs: options.nowMs,
+    policyPublicKeySpkiSha256: normalized.policy.monitoringPublicKeySpkiSha256,
+    expectedPublicKeySpkiSha256: expectedMonitoringPublicKeySpkiSha256,
+    evidencePublicKeySpkiSha256: actualPublicKeySpkiSha256,
+  });
+  const reasons = [...new Set([...result.reasons, ...monitoringGate.reasons])];
+  return {
+    ...result,
+    allowed: reasons.length === 0,
+    reasons,
+    monitoringGate,
+    snapshots: { roster, autopilotPolicy, autopilotState, monitoring },
+  };
 }
 
 module.exports = {
@@ -455,10 +1034,18 @@ module.exports = {
   effectiveStopLossMarginPct,
   makerOrderDirective,
   evaluateEntryStopRisk,
+  evaluateEntryMarginBudget,
   validateRiskConfig,
   stableStringify,
   evidenceSigningPayload,
+  monitoringSigningPayload,
   verifyEvidenceSignature,
+  verifyMonitoringSignature,
+  evaluateSignedMonitoring,
+  emptyMonitoringHighWater,
+  evaluateMonitoringReplay,
+  publicKeySpkiSha256,
+  normaliseLiveGatePolicy,
   hermesAlgoOwnerNamespace,
   newHermesClientId,
   isHermesOwnedAlgo,
@@ -466,5 +1053,6 @@ module.exports = {
   rosterSha256,
   engineSha256,
   evaluateLiveGate,
+  evaluateAutopilotCanaryAuthority,
   readLiveGate,
 };

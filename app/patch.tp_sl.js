@@ -28,6 +28,7 @@ async function attachTpSl({ okxPOST, stopPxFromMargin }, { instId, side, entryPx
       instId,
       tdMode: "isolated",
       posSide: side,               // "long" / "short" si long_short_mode
+      reduceOnly: true,
       ordType: "conditional",
       slTriggerPxType: TRIGGER_PX_TYPE, slTriggerPx: String(slPx),
       tpTriggerPxType: TRIGGER_PX_TYPE, tpTriggerPx: String(tpPx)

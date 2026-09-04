@@ -9,6 +9,11 @@ const https = require("https");
 const { assertOkxSuccess, newHermesClientId, isHermesOwnedAlgo } = require("./modules/live_safety");
 
 function req(method, p, body) {
+  if (String(method).toUpperCase() === "POST"
+      && /^\/api\/v5\/trade\/order(?:-algo)?$/.test(String(p))
+      && body?.reduceOnly !== true) {
+    throw new Error("MAINTENANCE_ENTRY_DISABLED_REDUCE_ONLY_REQUIRED");
+  }
   return new Promise((res, rej) => {
     const ts = new Date().toISOString();
     const b = body ? JSON.stringify(body) : "";

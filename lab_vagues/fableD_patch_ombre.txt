@@ -1,5 +1,9 @@
 ================================================================================
-fableD_patch_ombre.txt — PATCH « MODE OMBRE » de l'ancienne stratégie (inversée)
+fableD_patch_ombre.txt — ARCHIVE HISTORIQUE « MODE OMBRE »
+
+SECURITE ACTUELLE : le module reste utilisable pour le papier/replay, mais son
+ancien mode arme est desactive fail-closed. Seul app/main.js peut ouvrir une
+position apres les gates roster signe + Top30 + intent/fill.
 Boucle Fable n°2, angle 3 (déploiement). PRÊT À APPLIQUER — MAIS NE PAS APPLIQUER
 SANS ACCORD DU CLIENT (règle : aucune persistance/mise en ligne sans OK explicite).
 ================================================================================

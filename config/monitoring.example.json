@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "source": "okx-account-reconciliation-v1",
+  "sequence": 0,
+  "candidateId": "replace-with-64-hex-candidate-id",
+  "rosterSha256": "replace-with-64-hex-roster-sha256",
+  "generatedAt": "2026-09-04T00:00:00.000Z",
+  "riskBreach": true,
+  "killSwitch": true,
+  "venueHealthy": false,
+  "trades": 0,
+  "netLower95": 0,
+  "profitFactor": 0,
+  "costRatio": 1,
+  "trackingErrorBps": 999,
+  "signature": ""
+}

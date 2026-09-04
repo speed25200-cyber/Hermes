@@ -1,0 +1,103 @@
+{
+  "schemaVersion": 1,
+  "mode": "shadow-first",
+  "universe": {
+    "venue": "OKX",
+    "instrumentType": "SWAP",
+    "quoteCurrency": "USDT",
+    "instrumentCategory": "1",
+    "ranking": "absolute-return-24h",
+    "rankingMetric": "absolute-log-return",
+    "rankingWindowHours": 24,
+    "topN": 30,
+    "refreshMinutes": 60,
+    "barMinutes": 5,
+    "minQuoteVolumeUsd": 5000000,
+    "maxTickerAgeMs": 600000,
+    "maxSpreadBps": 15,
+    "minListingDays": 90,
+    "minTimeToDelistDays": 7,
+    "requiredInstrumentState": "live",
+    "requiredRuleType": "normal",
+    "requireLiveState": true,
+    "requireSpotHedgeForCarry": true,
+    "pointInTimeSnapshotsRequired": true
+  },
+  "backtest": {
+    "cutoff": "same-for-all-horizons",
+    "primaryHorizonDays": 1095,
+    "horizonsDays": [365, 730, 1095],
+    "minimumCoverageRatio": 0.99,
+    "purgeHours": 25,
+    "embargoHours": 25,
+    "minimumFolds": 10,
+    "minOosDays": 1095,
+    "nestedSelection": true,
+    "portfolioSynchronized": true,
+    "delistedInstrumentsRequired": true
+  },
+  "costModel": {
+    "accountFeeEndpointRequired": true,
+    "includeBothLegFees": true,
+    "includeObservedSpread": true,
+    "includeDepthSlippage": true,
+    "includeFunding": true,
+    "includeBorrowCost": true,
+    "includePartialFills": true,
+    "includeRejectsAndLatency": true,
+    "stressMultipliers": [1, 1.5, 2]
+  },
+  "validation": {
+    "minimumNullReplications": 9999,
+    "maximumFamilywisePValue": 0.01,
+    "maximumPbo": 0.10,
+    "minimumDeflatedSharpeProbability": 0.95,
+    "maximumHansenSpaPValue": 0.05,
+    "maximumWhiteRealityCheckPValue": 0.05,
+    "minimumEffectiveDays": 250,
+    "minimumIndependentBaskets": 100,
+    "maximumCalendarYearProfitConcentration": 0.60,
+    "maximumInstrumentProfitConcentration": 0.10,
+    "maximumTopFiveProfitConcentration": 0.50
+  },
+  "discovery": {
+    "objective": "net-lower-confidence-bound",
+    "families": [
+      "spot-perpetual-carry",
+      "cross-sectional-funding",
+      "momentum",
+      "breakout",
+      "pullback",
+      "reversion",
+      "hybrid"
+    ],
+    "recordEveryTrial": true,
+    "deduplicateEquivalentTrials": true,
+    "neverOptimizeWinRateAlone": true,
+    "reportProfilePriors": "config/report-profile-priors.json"
+  },
+  "promotion": {
+    "automaticShadowApplication": true,
+    "automaticLiveApplication": true,
+    "signedEvidenceRequired": true,
+    "independentSignerRequired": true,
+    "engineHashMatchRequired": true,
+    "dataManifestMatchRequired": true,
+    "championChallengerRequired": true,
+    "minimumNetLowerBoundImprovement": 0,
+    "initialCanaryEquityPct": 0.01,
+    "maximumCanaryEquityPct": 0.05,
+    "automaticScaleUp": false
+  },
+  "demotion": {
+    "automatic": true,
+    "maximumMonitoringStalenessMinutes": 5,
+    "rollingWindowDays": 30,
+    "minimumTrades": 30,
+    "quarantineIfNetLower95AtMost": 0,
+    "quarantineIfProfitFactorBelow": 1,
+    "quarantineIfCostRatioAbove": 0.8,
+    "quarantineIfTrackingErrorBpsAbove": 25,
+    "quarantineIfGateFails": true
+  }
+}

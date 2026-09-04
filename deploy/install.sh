@@ -12,8 +12,9 @@
 #      DANS le moteur — un seul processus, donc un seul etat, et plus de
 #      risque que la page montre les chiffres dun moteur different de
 #      celui qui trade.
-#   3. Il ny a plus de service de recherche. Astra apporte des
-#      strategies deja validees ; le laboratoire tourne a la main.
+#   3. Deux oneshots bornes entretiennent la recherche : le chercheur produit
+#      uniquement des candidats Top30, puis l'autopilot les journalise et les
+#      refuse tant que 1/2/3 ans + shadow + signatures ne sont pas complets.
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
@@ -24,7 +25,7 @@ echo "=== 1. demontage de lancienne installation Python ==="
 # On DESACTIVE avant de reecrire : un service laisse actif redemarrerait
 # un interpreteur qui na plus de code a executer, et il remplirait le
 # journal de traces sans rapport avec le probleme quon chercherait.
-for u in hermes-research.timer hermes-research.service hermes-dashboard.service; do
+for u in hermes-research.timer hermes-research.service hermes-dashboard.service hermes-perles.timer hermes-perles.service hermes-autopilot.timer hermes-autopilot.service; do
   systemctl disable --now "$u" >/dev/null 2>&1 || true
   rm -f "/etc/systemd/system/$u"
   echo "  $u retire"
@@ -94,6 +95,35 @@ fi
 if [ ! -s "$DIR/config/evidence-public-key.pem" ]; then
   echo "  aucune cle publique de preuve : gate live fermee (attendu avant promotion)"
 fi
+if [ ! -s "$DIR/config/monitoring-public-key.pem" ]; then
+  echo "  aucune cle publique monitoring distincte : gate live fermee"
+fi
+if ! grep -q "^HERMES_EVIDENCE_PUBLIC_KEY_SPKI_SHA256=.\+" "$ENV_FILE" 2>/dev/null; then
+  echo "  aucune ancre SPKI externe de preuve : gate live fermee"
+fi
+if ! grep -q "^HERMES_MONITORING_PUBLIC_KEY_SPKI_SHA256=.\+" "$ENV_FILE" 2>/dev/null; then
+  echo "  aucune ancre SPKI externe monitoring : gate live fermee"
+fi
+if [ ! -s "$DIR/config/quant-execution-attestation-public-key.pem" ] \
+    && ! grep -q "^HERMES_QUANT_EXECUTION_ATTESTATION_PUBLIC_KEY_FILE=.\+" "$ENV_FILE" 2>/dev/null; then
+  echo "  aucune cle publique quant execution/processus : compilateur quant fail-closed"
+fi
+if [ ! -s "$DIR/config/quant-cycle-ledger-attestation-public-key.pem" ] \
+    && ! grep -q "^HERMES_QUANT_CYCLE_LEDGER_ATTESTATION_PUBLIC_KEY_FILE=.\+" "$ENV_FILE" 2>/dev/null; then
+  echo "  aucune cle publique quant journal de cycles : compilateur quant fail-closed"
+fi
+if ! grep -q "^HERMES_QUANT_EXECUTION_ATTESTATION_PUBLIC_KEY_SPKI_SHA256=.\+" "$ENV_FILE" 2>/dev/null; then
+  echo "  aucune ancre SPKI quant execution/processus : compilateur quant fail-closed"
+fi
+if ! grep -q "^HERMES_QUANT_CYCLE_LEDGER_ATTESTATION_PUBLIC_KEY_SPKI_SHA256=.\+" "$ENV_FILE" 2>/dev/null; then
+  echo "  aucune ancre SPKI quant journal de cycles : compilateur quant fail-closed"
+fi
+if ! grep -q "^HERMES_QUANT_POLICY_SHA256=.\+" "$ENV_FILE" 2>/dev/null; then
+  echo "  aucune ancre externe de policy quantitative : compilateur quant fail-closed"
+fi
+# Ces avertissements ne bloquent pas le moteur: la compilation quantitative
+# reste un job offline distinct. Ils rendent seulement explicite qu'aucun run
+# ne peut obtenir decision=passed tant que les autorites ne sont pas ancrees.
 if [ ! -s "$DIR/config/approved-roster.json" ]; then
   echo "  aucun roster promu : gate live fermee (le candidat ne trade jamais seul)"
 fi
@@ -113,7 +143,6 @@ EnvironmentFile=-$DIR/.env
 Environment=NODE_ENV=production
 Environment=HERMES_PORT=8899
 Environment=HERMES_HOST=127.0.0.1
-Environment=HERMES_UNIVERSE_SIZE=50
 # Le pilotage reste disponible, mais seulement sur loopback. L'acces
 # distant doit passer par un tunnel SSH ou un reverse proxy HTTPS avec
 # authentification; une simple cle dans une URL ne securise pas une
@@ -146,7 +175,7 @@ UNIT
 
 cat > /etc/systemd/system/hermes-perles.service <<UNIT
 [Unit]
-Description=Hermes — chercheur de perles (une strategie validee par crypto)
+Description=Hermes — chercheur de candidats Top30 (discovery-only)
 After=network-online.target
 
 [Service]
@@ -154,7 +183,6 @@ Type=oneshot
 WorkingDirectory=$DIR
 EnvironmentFile=-$DIR/.env
 Environment=NODE_OPTIONS=--dns-result-order=ipv4first
-Environment=HERMES_UNIVERSE_SIZE=50
 ExecStart=/usr/bin/env node deploy/chercher_perles.js
 # La recherche pagine trente jours de bougies par instrument : elle
 # prend plusieurs minutes, et cest son rythme normal.
@@ -180,13 +208,43 @@ Persistent=true
 WantedBy=timers.target
 UNIT
 
+cat > /etc/systemd/system/hermes-autopilot.service <<UNIT
+[Unit]
+Description=Hermes — reconciliation champion/challenger fail-closed
+After=network-online.target hermes-perles.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=$DIR
+EnvironmentFile=-$DIR/.env
+Environment=NODE_OPTIONS=--dns-result-order=ipv4first
+ExecStart=/usr/bin/env node deploy/autopilot_cycle.js
+# Le code 2 signifie « attente/refus prudent », pas une panne du service.
+SuccessExitStatus=2
+TimeoutStartSec=300
+UNIT
+
+cat > /etc/systemd/system/hermes-autopilot.timer <<UNIT
+[Unit]
+Description=Rejoue la reconciliation autonome Hermes
+
+[Timer]
+OnBootSec=7min
+OnUnitActiveSec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+UNIT
+
 systemctl daemon-reload
-systemctl enable hermes >/dev/null 2>&1 || true
-systemctl enable --now hermes-perles.timer >/dev/null 2>&1 || true
+systemctl enable hermes >/dev/null 2>&1
+systemctl enable --now hermes-perles.timer >/dev/null 2>&1
+systemctl enable --now hermes-autopilot.timer >/dev/null 2>&1
 # Premiere recherche SANS attendre le minuteur, en arriere-plan. Elle
 # ecrit seulement un roster candidat; aucune strategie ne devient live
 # sans promotion explicite vers approved-roster.json et preuve associee.
-systemctl start --no-block hermes-perles.service || true
+systemctl start --no-block hermes-perles.service
 systemctl restart hermes
 
 echo "=== 7. verification ==="

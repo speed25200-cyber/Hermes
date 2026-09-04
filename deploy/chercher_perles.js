@@ -2,37 +2,43 @@
 /* ============================================================================
    Le chercheur de perles.
 
-   Une perle : pour UNE crypto, LA combinaison signal × sorties qui a le
-   meilleur winrate ET qui gagne de l'argent — dans deux fenêtres de temps
-   disjointes, pas une. Le classement d'août l'a appris au prix fort : ce
+   Une perle de DECOUVERTE : pour UNE crypto, une combinaison signal × sorties
+   qui survit à deux fenêtres de temps disjointes. Ce filtre court ne constitue
+   jamais une preuve 1/2/3 ans et ne peut jamais autoriser le live. Le
+   classement d'août l'a appris au prix fort : ce
    qui brille sur une époque meurt souvent sur l'autre, et un score de banc
    mirifique est presque toujours un mirage. Ici la règle est écrite dans
    le code : une candidate n'existe que si elle est positive dans la
    fenêtre de sélection (23 jours) ET dans les 7 derniers jours, que le
    choix n'a jamais regardés. Parmi les survivantes, le winrate tranche.
 
-   Pas de perle = pas de trade. Un roster vide sur une crypto n'est pas un
+   Pas de perle = pas de candidat. Un roster de recherche vide n'est pas un
    échec du chercheur, c'est son verdict le plus utile.
 
-   Ce que le chercheur évalue est EXACTEMENT ce que le moteur tradera :
+   Ce que le chercheur évalue réutilise les formules que le moteur sait trader :
    mêmes formules (modules/signaux.js, la bibliothèque unique), mêmes
    fenêtres de 299 bougies, mêmes sorties, mêmes frais taker
    (modules/backtest.js). Sélectionner sur une formule et en trader une
    autre est le défaut que cette architecture rend impossible.
 
    Tourne sur le VPS (points publics OKX, aucune clé, aucun ordre), écrit
-   config/roster.json de façon atomique ; le moteur le recharge à chaud.
-   Relancé par systemd toutes les trente minutes : la recherche n'est pas
-   un événement, c'est un entretien.
+   config/roster.json et le catalogue de candidats de façon atomique. Le moteur
+   live ignore ce roster volatil : seul config/approved-roster.json, lié à une
+   preuve indépendante signée, peut atteindre le gate d'entrée. La recherche
+   récurrente est un générateur d'hypothèses, pas une promotion.
    ============================================================================ */
 "use strict";
 const https = require("https");
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
+const crypto = require("crypto");
 
 const { serieSignaux, simuler, resumer } = require(path.join(__dirname, "..", "modules", "backtest.js"));
 const JUGE = require(path.join(__dirname, "..", "modules", "juge.js"));
 const SIG = require(path.join(__dirname, "..", "modules", "signaux.js"));
+const { selectOkxTopMovers } = require(path.join(__dirname, "..", "modules", "okx_top_movers.js"));
+const { mergeCandidateCatalog } = require(path.join(__dirname, "..", "modules", "autopilot.js"));
 /* La grille des signaux, reglable par l'environnement, defaut INCHANGE.
    « suite » remplace les treize contre-tendance par les six de suite de
    tendance ; « tout » donne les dix-neuf. Sans variable, le chercheur
@@ -48,6 +54,13 @@ const ROSTER = path.join(RACINE, "config", "roster.json");
 const HISTORIQUE = path.join(RACINE, "data", "perles-historique.jsonl");
 const CACHE_DIR = path.join(RACINE, "data", "cache-5m");
 const PROGRESSION = path.join(RACINE, "data", "perles-progression.json");
+const CANDIDATE_CATALOG = path.join(RACINE, "data", "autopilot", "candidates.json");
+const UNIVERSE_ARCHIVE_DIR = path.join(RACINE, "data", "research-universe-snapshots");
+const AUTOPILOT_POLICY = JSON.parse(fs.readFileSync(
+  path.join(RACINE, "config", "autopilot.policy.json"), "utf8"
+));
+const UNIVERSE_POLICY = AUTOPILOT_POLICY.universe || {};
+let DERNIER_UNIVERS_RECHERCHE = null;
 
 /* La progression est ecrite dans un fichier que le moteur sert a la
    page : le bouton « lancer une recherche » a besoin de voir la passe
@@ -97,8 +110,7 @@ const NULL_TIRAGES = Number(process.env.PERLES_NULL_TIRAGES ?? 12);
 const NULL_PERCENTILE = Number(process.env.PERLES_NULL_PERCENTILE ?? 0.90);
 const NULL_AGE_H = Number(process.env.PERLES_NULL_AGE_H ?? 20);
 
-const TAILLE_UNIVERS = Number(process.env.HERMES_UNIVERSE_SIZE || 20);
-const WEEKEND_MIN = Number(process.env.HERMES_WEEKEND_MIN || 0.34);
+const TAILLE_UNIVERS = 30;
 const LEVIER = Number(process.env.HERMES_DEFAULT_LEVERAGE || 15);
 
 /* Les familles de sorties sont celles que le roster actuel emploie déjà :
@@ -155,42 +167,121 @@ async function getSur(chemin) {
   }
 }
 
-/* ---- 1. les candidats : le top volume en dollars, filtre 24/7 ---- */
+/* ---- 1. les candidats : exactement le Top 30 movers OKX ---- */
+
+function archiverUniversRecherche(result, sources) {
+  fs.mkdirSync(UNIVERSE_ARCHIVE_DIR, { recursive: true });
+  const payload = {
+    schemaVersion: 1,
+    capturedAt: new Date(result.asOfMs).toISOString(),
+    selectorResult: result,
+    raw: sources,
+  };
+  const stamp = new Date(result.asOfMs).toISOString().replace(/[:.]/g, "-");
+  const file = path.join(UNIVERSE_ARCHIVE_DIR, `${stamp}-${result.snapshotSha256}.json.gz`);
+  const temp = `${file}.${process.pid}.tmp`;
+  const fd = fs.openSync(temp, "wx", 0o600);
+  try {
+    fs.writeFileSync(fd, zlib.gzipSync(Buffer.from(JSON.stringify(payload))));
+    fs.fsyncSync(fd);
+  } finally { fs.closeSync(fd); }
+  fs.renameSync(temp, file);
+  return file;
+}
+
+function fsyncDirectory(directory) {
+  let descriptor = null;
+  try {
+    descriptor = fs.openSync(directory, "r");
+    fs.fsyncSync(descriptor);
+  } catch (error) {
+    if (process.platform !== "win32") throw error;
+  } finally {
+    if (descriptor !== null) fs.closeSync(descriptor);
+  }
+}
+
+function writeJsonAtomic(file, value) {
+  const directory = path.dirname(file);
+  fs.mkdirSync(directory, { recursive: true });
+  const temporary = `${file}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+  let descriptor = null;
+  try {
+    descriptor = fs.openSync(temporary, "wx", 0o600);
+    fs.writeFileSync(descriptor, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor); descriptor = null;
+    fs.renameSync(temporary, file);
+    fsyncDirectory(directory);
+  } finally {
+    if (descriptor !== null) fs.closeSync(descriptor);
+    try { fs.unlinkSync(temporary); } catch {}
+  }
+}
+
+async function withCandidateCatalogLock(file, operation, options = {}) {
+  const lockFile = `${path.resolve(file)}.quant.lock`;
+  const timeoutMs = Math.max(0, Number(options.timeoutMs ?? 10_000));
+  const retryMs = Math.max(25, Number(options.retryMs ?? 100));
+  const deadline = Date.now() + timeoutMs;
+  fs.mkdirSync(path.dirname(lockFile), { recursive: true });
+  let descriptor = null;
+  while (descriptor === null) {
+    try {
+      descriptor = fs.openSync(lockFile, "wx", 0o600);
+    } catch (error) {
+      if (String(error?.code || "") !== "EEXIST") throw error;
+      if (Date.now() >= deadline) {
+        throw new Error("catalogue verrouille par le compilateur quantitatif: aucune mutation seeker");
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryMs));
+    }
+  }
+  try {
+    fs.writeFileSync(descriptor, `${JSON.stringify({ pid: process.pid, producer: "chercher_perles" })}\n`, "utf8");
+    fs.fsyncSync(descriptor);
+    return await operation();
+  } finally {
+    fs.closeSync(descriptor);
+    try { fs.unlinkSync(lockFile); } catch {}
+  }
+}
 
 async function candidats() {
-  const t = await getSur("/api/v5/market/tickers?instType=SWAP");
-  const ranges = t.data
-    .filter((x) => /-USDT-SWAP$/.test(x.instId))
-    .map((x) => ({ instId: x.instId, dollars: Number(x.volCcy24h) * Number(x.last) }))
-    .sort((a, b) => b.dollars - a.dollars);
-
-  const retenus = [];
-  for (const c of ranges) {
-    if (retenus.length >= TAILLE_UNIVERS) break;
-    // Le rapport week-end/semaine, même critère que le moteur : une
-    // action tokenisée s'effondre le week-end, une crypto non.
-    try {
-      const h = await getSur(`/api/v5/market/candles?instId=${encodeURIComponent(c.instId)}&bar=1H&limit=168`);
-      const rows = h.data || [];
-      if (rows.length < 120) continue;
-      let we = 0, sem = 0, nWe = 0, nSem = 0;
-      for (const k of rows) {
-        const j = new Date(Number(k[0])).getUTCDay();
-        const v = Number(k[7] || k[6] || 0) || Number(k[5]) * Number(k[4]);
-        if (j === 0 || j === 6) { we += v; nWe++; } else { sem += v; nSem++; }
-      }
-      const ratio = (nWe && nSem) ? (we / nWe) / ((sem / nSem) || 1e-9) : 0;
-      if (ratio >= WEEKEND_MIN) retenus.push(c.instId);
-    } catch { /* candidat suivant */ }
-    await pause(120);
+  const [tickers, swaps, spots] = await Promise.all([
+    getSur("/api/v5/market/tickers?instType=SWAP"),
+    getSur("/api/v5/public/instruments?instType=SWAP"),
+    getSur("/api/v5/public/instruments?instType=SPOT"),
+  ]);
+  const asOfMs = Date.now();
+  const result = selectOkxTopMovers({
+    swapTickers: tickers.data,
+    swapInstruments: swaps.data,
+    spotInstruments: spots.data,
+    asOfMs,
+    config: {
+      topN: TAILLE_UNIVERS,
+      minQuoteVolumeUsd: Number(UNIVERSE_POLICY.minQuoteVolumeUsd),
+      maxSpreadBps: Number(UNIVERSE_POLICY.maxSpreadBps),
+      minListingAgeDays: Number(UNIVERSE_POLICY.minListingDays),
+      minTimeToDelistDays: Number(UNIVERSE_POLICY.minTimeToDelistDays),
+      maxTickerAgeMs: Number(UNIVERSE_POLICY.maxTickerAgeMs),
+      requiredInstrumentState: UNIVERSE_POLICY.requiredInstrumentState,
+      requiredRuleType: UNIVERSE_POLICY.requiredRuleType,
+    },
+  });
+  const archive = archiverUniversRecherche(result, {
+    swapTickers: tickers.data,
+    swapInstruments: swaps.data,
+    spotInstruments: spots.data,
+  });
+  if (!result.accepted) {
+    console.log(`[PERLES] Top30 refuse: ${result.eligibleCount}/30 eligibles; archive ${archive}`);
+    return [];
   }
-  // Le roster courant reste candidat même sorti du top volume : une
-  // perle en place se re-valide, elle ne disparaît pas en silence.
-  try {
-    const actuel = JSON.parse(fs.readFileSync(ROSTER, "utf8"));
-    for (const id of Object.keys(actuel.perles || {})) if (!retenus.includes(id)) retenus.push(id);
-  } catch {}
-  return retenus;
+  DERNIER_UNIVERS_RECHERCHE = result;
+  console.log(`[PERLES] Top30 movers snapshot ${result.snapshotSha256}; archive ${archive}`);
+  return result.selected.map((row) => row.instId);
 }
 
 /* ---- 2. l'histoire : JOURS jours de 5 m, paginés vers le passé ---- */
@@ -477,6 +568,45 @@ async function main() {
   fs.writeFileSync(tmp, JSON.stringify(sortie, null, 2));
   fs.renameSync(tmp, ROSTER);
 
+  /* Le chercheur nourrit automatiquement le catalogue champion/challenger,
+     mais ses 30 jours ne sont JAMAIS promus au rang de backtest 1/2/3 ans.
+     horizonReports reste donc vide: l'orchestrateur journalise l'essai puis le
+     refuse jusqu'a ce que le compilateur quantitatif rejoue les donnees PIT. */
+  const discoveryRunId = `perles-${sortie.genere}`;
+  const discoveredCandidates = Object.keys(perles).length ? [{
+      schemaVersion: 1,
+      family: "directional-signal-grid",
+      executionType: "directional-signal",
+      params: {
+        searchSignatureSha256: crypto.createHash("sha256").update(SIGNATURE).digest("hex"),
+        discoveryWindowDays: JOURS,
+        validationWindowDays: JOURS_VALID,
+      },
+      universe: {
+        methodology: DERNIER_UNIVERS_RECHERCHE?.methodology || "okx-top30-unavailable",
+        snapshotSha256: DERNIER_UNIVERS_RECHERCHE?.snapshotSha256 || null,
+        topN: TAILLE_UNIVERS,
+      },
+      perles,
+      discoveryRunId,
+      discoveredAt: sortie.genere,
+      horizonReports: [],
+      validationStatus: "discovery-only-30d-not-evidence",
+    }] : [];
+  await withCandidateCatalogLock(CANDIDATE_CATALOG, async () => {
+    let previousCatalog = null;
+    try {
+      previousCatalog = JSON.parse(fs.readFileSync(CANDIDATE_CATALOG, "utf8").replace(/^\uFEFF/, ""));
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    const catalog = mergeCandidateCatalog(previousCatalog, discoveredCandidates, {
+      runId: discoveryRunId,
+      generatedAt: sortie.genere,
+    });
+    writeJsonAtomic(CANDIDATE_CATALOG, catalog);
+  });
+
   try {
     fs.mkdirSync(path.dirname(HISTORIQUE), { recursive: true });
     fs.appendFileSync(HISTORIQUE, JSON.stringify({ ts: sortie.genere, dureeS: Math.round((Date.now() - debut) / 1000), perles }) + "\n");
@@ -486,6 +616,7 @@ async function main() {
     `${Math.round((Date.now() - debut) / 1000)} s) :`);
   for (const l of rapport) console.log(l);
   console.log(`[PERLES] roster ecrit : ${ROSTER}`);
+  console.log(`[PERLES] catalogue discovery ecrit : ${CANDIDATE_CATALOG} (non promouvable sans 1/2/3 ans)`);
   direProgression(null);
 }
 

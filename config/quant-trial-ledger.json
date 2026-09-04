@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "complete": false,
+  "reasonIncomplete": "Le PDF ne donne pas l'inventaire exact de toutes les familles, grilles et variantes essayees. Il doit etre reconstruit avant toute conclusion confirmatoire.",
+  "trials": [
+    {
+      "id": "legacy-pdf-binance-2026-09-04",
+      "kind": "historical-exploration",
+      "sourceArtifactSha256": "460ee15da1a2e816303d96f908bf05762fe4b4de3ee55bbcf1b33a70ac42fc0b",
+      "dataCutoff": "2026-08-31T23:59:59.999Z",
+      "venue": "Binance",
+      "universe": {
+        "construction": "static-snapshot",
+        "size": 100,
+        "snapshotDate": "2026-09-04"
+      },
+      "knownHypothesisCountLowerBound": 89,
+      "knownFamilies": [
+        "88-instrument-specific-profiles",
+        "static-top-100-universe-selection"
+      ],
+      "reportedMetricsForAuditOnly": {
+        "oosTrades": 1665,
+        "winRatePct": 69.25,
+        "medianProfitFactor": 1.523,
+        "medianReturnPct": 9.41
+      },
+      "disqualifyingLimitations": [
+        "point-in-time-universe-not-reconstructed",
+        "funding-omitted",
+        "slippage-modeled-as-two-ticks-only",
+        "portfolio-and-correlation-not-simulated",
+        "many-profiles-have-one-to-twenty-trades",
+        "profit-factor-99-can-have-zero-losses",
+        "exact-trial-family-unknown"
+      ],
+      "eligibleAsEvidence": false
+    }
+  ]
+}

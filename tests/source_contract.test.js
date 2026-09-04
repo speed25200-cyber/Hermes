@@ -40,6 +40,8 @@ test("contrat risque: le stop effectif du roster dimensionne l'entree", () => {
   assert.match(main, /specPrices\(instId, side, lmtPx, effectiveOrderOv\)/);
   assert.match(main, /specPrices\(instId, side, marketReferencePx, effectiveOrderOv\)/);
   assert.match(main, /evaluateEntryStopRisk\(\{/);
+  assert.match(main, /const finalMarginBudget = evaluateEntryMarginBudget\(\{/);
+  assert.match(main, /if \(!finalMarginBudget\.allowed\)[\s\S]*?emergencyFlattenEntry\("entry-margin-budget-exceeded"\)/);
   assert.match(main, /effectiveStopLossMarginPct\(p\.ov, DEFAULT_STOP_MARGIN_PCT\)/);
 });
 

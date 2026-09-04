@@ -6,8 +6,11 @@
     "start": "node app/main.js",
     "dev": "node app/main.js",
     "test": "node --test tests/*.test.js && node banc/epreuve_juge.js && node banc/epreuve_regime.js && node banc/epreuve_langues.js && node banc/epreuve_hors_echantillon.js && node banc/epreuve_ampleur.js && node banc/epreuve_taille.js",
-    "check": "node --check app/main.js && node --check app/serveur.js && node --check modules/live_safety.js && node --check modules/position_metadata.js && node --check modules/exec.js && node --check REPARER_protections_tick.js",
-    "gate:status": "node deploy/verifier_gate_live.js"
+    "check": "node --check app/main.js && node --check app/serveur.js && node --check modules/live_safety.js && node --check modules/position_metadata.js && node --check modules/exec.js && node --check modules/okx_top_movers.js && node --check modules/autopilot.js && node --check modules/autopilot_cycle.js && node --check modules/quant_validation.js && node --check modules/carry_strategy.js && node --check deploy/chercher_perles.js && node --check deploy/autopilot_cycle.js && node --check deploy/compiler_preuve_quantitative.js && node --check deploy/verifier_gate_live.js && node --check REPARER_protections_tick.js",
+    "gate:status": "node deploy/verifier_gate_live.js",
+    "autopilot:status": "node deploy/autopilot_cycle.js --dry-run",
+    "autopilot:cycle": "node deploy/autopilot_cycle.js",
+    "quant:compile": "node deploy/compiler_preuve_quantitative.js"
   },
   "dependencies": {
     "axios": "^1.12.2",

@@ -152,10 +152,9 @@ function ouvrir(v, instId, choix, nouvelle, f) {
     latenceMs: S.cfg.live ? Math.max(0, Date.now() - nouvelle.ts) : null
   });
   if (S.cfg.live) S.cfg.log("[OMBRE_INV] OPEN", v, instId, nd > 0 ? "long" : "short", "@", entry);
-  if (S.cfg.armer === v && S.cfg.entrerReel) {
-    try { S.cfg.entrerReel(instId, nd > 0 ? "long" : "short"); }
-    catch (e) { if (S.cfg.live) S.cfg.log("[INVERSE_ARME_ERR]", instId, e.message); }
-  }
+  /* Ce laboratoire reste strictement papier. Le seul chemin autorise pour
+     une entree reelle est app/main.js, avec roster/promesse/Top30 relus au
+     moment du POST. Aucun callback injecte ne peut contourner ce contrat. */
 }
 
 /* ---------- gestion de la position papier, bougie close par bougie close ---------- */
@@ -329,6 +328,9 @@ function backfillTick() {
 /* ---------- démarrage live ---------- */
 function demarrer(refs) {
   if (S.cfg && S.cfg.live) return;
+  if (refs?.armer && refs.armer !== "off") {
+    throw new Error("LEGACY_REAL_ENTRY_DISABLED_USE_APP_MAIN_GATED_EXECUTOR");
+  }
   const env = process.env;
   const variantes = String(env.HERMES_OMBRE_VARIANTES || "v2,it1,fablew")
     .split(",").map(x => x.trim()).filter(x => TABLE[x]);
@@ -340,11 +342,8 @@ function demarrer(refs) {
     variantes: variantes.length ? variantes : ["v2"],
     seuil: Math.abs(Number(env.HERMES_OMBRE_SCORE || 2)) || 2,
     garde289: true,
-    /* Phase ARMÉE (accord client 31/08 « intègre au réel ») : la variante désignée
-       déclenche EN PLUS un ordre réel via le callback entrerReel (circuit placeMarket
-       du bot : maker, budget, protections OKX). "off" pour revenir au papier pur. */
-    armer: (refs.armer && refs.armer !== "off") ? String(refs.armer) : null,
-    entrerReel: typeof refs.entrerReel === "function" ? refs.entrerReel : null
+    armer: null,
+    entrerReel: null,
   };
   try { fs.mkdirSync(path.dirname(S.cfg.fichier), { recursive: true }); } catch {}
   restaurer();

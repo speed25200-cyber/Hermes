@@ -1,0 +1,46 @@
+{
+  "note": "Exemple de forme seulement. Utiliser les corps exacts emis dans attestationRequests; ne jamais signer ces placeholders.",
+  "executionDataset": {
+    "schemaVersion": 1,
+    "artifactType": "hermes-quant-execution-attribution-attestation",
+    "runId": "replace-with-exact-run-id",
+    "candidateId": "replace-with-64-hex-candidate-id",
+    "cutoffTs": 0,
+    "executionDatasetSha256": "replace-with-64-hex",
+    "executionSourceSha256": "replace-with-64-hex",
+    "attributionManifestSha256": "replace-with-64-hex",
+    "fillCount": 0,
+    "publicKeySpkiSha256": "replace-with-64-hex",
+    "signature": "replace-with-ed25519-base64-signature-over-domain-separated-exact-body"
+  },
+  "quantProcess": {
+    "schemaVersion": 1,
+    "artifactType": "hermes-quant-process-replay-attestation",
+    "runId": "replace-with-exact-run-id",
+    "candidateId": "replace-with-64-hex-candidate-id",
+    "cutoffTs": 0,
+    "processReplayManifestSha256": "replace-with-64-hex",
+    "claims": {
+      "instrumentMasterInventoryAuthenticated": true,
+      "processReplayedFromPreparedData": true,
+      "costsAndRiskCapitalReplayed": true,
+      "exclusiveFillToFillCostDecompositionReplayed": true,
+      "portfolioTransitionsReplayed": true,
+      "modelAndNullProcessesReplayed": true
+    },
+    "publicKeySpkiSha256": "replace-with-same-data-authority-64-hex",
+    "signature": "replace-with-ed25519-base64-signature-over-distinct-process-domain"
+  },
+  "cycleLedger": {
+    "schemaVersion": 1,
+    "artifactType": "hermes-quant-cycle-ledger-attestation",
+    "cutoffTs": 0,
+    "cycleLedgerSha256": "replace-with-64-hex",
+    "recordCount": 0,
+    "uniqueHypothesisCount": 0,
+    "hashChainHeadSha256": "replace-with-64-hex",
+    "hashChainSha256": "replace-with-64-hex",
+    "publicKeySpkiSha256": "replace-with-distinct-ledger-authority-64-hex",
+    "signature": "replace-with-ed25519-base64-signature-over-ledger-domain"
+  }
+}

@@ -14,7 +14,9 @@ un moteur Python distinct, reste récupérable au commit `ccb34a6`.
 > `data/live-evidence.json`, liés par hash au manifeste, au roster, à la
 > politique de risque, aux dépendances et au code exact, sont obligatoires.
 > La preuve doit être signée Ed25519 par le job de validation; le moteur
-> ne possède que `config/evidence-public-key.pem`, jamais la clé privée.
+> ne possède que les clés publiques `config/evidence-public-key.pem` et
+> `config/monitoring-public-key.pem`, jamais les clés privées. Les deux clés
+> doivent être distinctes.
 > Le mode démo permet la validation shadow-live, mais exige lui aussi ce
 > roster et une identité stable `HERMES_ALGO_OWNER` afin de ne jamais
 > confondre les protections de deux moteurs. `npm run gate:status` explique
@@ -35,8 +37,17 @@ le chercheur ne peut donc plus réactiver seul une stratégie. Une promotion
 live exige maintenant
 au minimum une validation walk-forward purgée sur le processus complet,
 une correction familiale à 1 %, 9 999 réplications nulles, une borne
-basse nette positive sous stress de coûts, puis 60 jours de shadow-live.
+basse nette positive sous stress de coûts, puis 90 jours de shadow-live.
 Les critères complets sont dans `config/live-gate.policy.json`.
+
+Le nouveau chemin autonome est un système champion/challenger, pas une
+promesse de rendement. Il génère et journalise les essais, reconstruit le Top
+30 OKX à chaque cutoff, valide les mêmes règles sur 365, 730 et 1 095 jours,
+puis passe par shadow et canary. Il ne peut écrire le roster approuvé qu'avec
+une preuve indépendante Ed25519 liée au code, aux données et au roster exacts.
+Une dégradation remet automatiquement le roster en quarantaine. Le candidat
+carry spot/perp est volontairement `SHADOW_ONLY` tant qu'un exécuteur atomique
+deux jambes n'a pas été ajouté et audité.
 
 ## Comment c'est fait
 
@@ -138,8 +149,16 @@ signaux, et n'ouvre rien.
 
 ## L'univers
 
-Hermes trade les **vingt perpétuels USDT au plus gros volume sur OKX**,
-classés en dollars et rafraîchis toutes les heures.
+Par défaut, Hermes observe les **30 plus grands mouvements absolus sur 24 h
+parmi les perpétuels crypto USDT d'OKX**, rafraîchis toutes les heures. Ce
+classement définit l'univers ; il ne constitue jamais, seul, un signal.
+
+Avant le classement, le sélecteur exige `instCategory=1`, `state=live`,
+`ruleType=normal`, 90 jours d'ancienneté, au moins 5 M$ de volume notionnel,
+un spread inférieur ou égal à 15 points de base et une paire spot live. Un
+snapshot horodaté et hashé est ajouté à `data/universe-top30.jsonl`. Si trente
+marchés conformes ne sont pas disponibles, l'univers devient vide : BTC/ETH
+ne sont plus substitués silencieusement à une méthode qui a échoué.
 
 Le classement se faisait auparavant sur le champ `volCcy24h` seul. C'est
 un volume exprimé dans la monnaie de base de chaque instrument : trier
@@ -155,67 +174,88 @@ expliquer les trades après coup. Un instrument sur lequel une position
 est ouverte ne quitte jamais l'univers, sinon le moteur cesserait de
 recevoir son prix et ne pourrait plus ni la surveiller ni la fermer.
 
-Réglages :
+Ces paramètres ne sont plus modifiables par variables d'environnement : ils
+font partie de `config/autopilot.policy.json`, lui-même inclus dans le hash de
+preuve. Le contrat actuel impose 30 actifs, une rotation horaire, 5 M$ de
+volume, 15 bp de spread, 90 jours de listing, 7 jours avant une radiation et
+un ticker vieux de dix minutes au maximum. Un snapshot expire au bout d'une
+heure même si le timer ou OKX se bloque; les nouveaux ordres sont alors refusés.
+`HERMES_MARKETS` reste utile en démo, mais ferme explicitement le live réel.
 
-| variable | défaut | effet |
-|---|---|---|
-| `HERMES_UNIVERSE_SIZE` | 20 | combien d'instruments |
-| `HERMES_UNIVERSE_REFRESH_MS` | 3 600 000 | à quelle fréquence rejouer le classement |
-| `HERMES_MARKETS` | vide | liste imposée à la main, qui court-circuite tout le reste |
+Le snapshot n'est pas un simple log best-effort : le sélecteur archive les
+réponses publiques complètes (tickers, instruments swap et spot) en JSON gzip,
+avec hashes et écriture atomique. Une archive incomplète ou impossible à
+persister produit un univers d'entrée vide.
 
-### Le critère 24/7
+## Recherche autonome et statut des backtests
 
-J'avais d'abord écrit que les actions tokenisées cotées par OKX
-n'apparaîtraient pas au niveau du top 20, et qu'aucun filtre n'était donc
-nécessaire. La première mesure a démenti cela en trois minutes : **sept
-des vingt places** étaient occupées par SNDK, XAU, SKHYNIX, SPCX, MU,
-SOXL et CL.
+`hermes-perles.timer` reconstruit le Top30 et explore la grille directionnelle
+toutes les trente minutes. Il écrit un catalogue `discovery-only`; ses 30 jours
+ne sont jamais présentés comme les backtests demandés. `hermes-autopilot.timer`
+réconcilie toutes les cinq minutes le cycle champion/challenger, journalise
+chaque essai et peut appliquer automatiquement seulement un bundle exact qui a
+franchi les validations 365, 730 et 1 095 jours au même cutoff.
 
-Elles ne s'échangent pas le week-end. Une stratégie calibrée sur un
-marché continu y rencontre des trous : des prix figés, des stops
-traversés à la réouverture, des signaux qui se déclenchent sur des
-bougies mortes.
+Le compilateur quantitatif est volontairement fermé aujourd'hui : le dépôt ne
+contient pas l'inventaire OKX historique point-in-time, les radiations, les
+frais réels du compte, funding/borrow, carnets/fills/latence, MTM portefeuille
+et matrices de toutes les hypothèses nécessaires pour rejouer honnêtement ces
+trois fenêtres. Il retourne donc `rejected`; aucun rendement 1/2/3 ans n'est
+inventé. Les sorties déclaratives ne deviennent jamais une preuve.
 
-J'ai alors compté les heures qui ont vu un échange sur sept jours, en
-supposant qu'une action tokenisée en ferait trente-cinq contre cent
-soixante-huit pour une crypto. **La mesure m'a démenti une seconde
-fois : tous affichent 168/168**, SNDK et SPCX comme BTC.
+Un run complet n'est toutefois plus bloqué par un refus codé en dur. Le
+compilateur émet trois requêtes d'attestation déterministes, puis vérifie deux
+autorités Ed25519 externes : une clé données/processus sous deux domaines
+séparés (fills-attribution et rejeu complet) et une clé distincte qui ancre la
+hash-chain append-only du journal autonome. Les empreintes sont pinées dans
+`config/quant-validation.policy.json` et répétées hors dépôt; la policy exacte
+est elle-même ancrée par `HERMES_QUANT_POLICY_SHA256`. Le compilateur ne lit
+jamais de clé privée et ne signe rien. Après un vrai `passed`, l'option explicite
+`--candidate-catalog … --candidate-id …` peut enrichir atomiquement le candidat
+exact avec les rapports 1/2/3 ans, sans promotion ni activation live. Le contrat
+détaillé et les domaines sont dans `docs/validation_quantitative.md`.
 
-L'explication est que je regardais le mauvais objet. Ce sont des
-*perpétuels OKX* sur ces actions, pas les actions : le perpétuel
-s'échange bien vingt-quatre heures sur vingt-quatre même bourse fermée.
-Le critère était bien formé et ne répondait pas à la question posée.
+Après une validation reproductible, l'état doit rester réellement 90 jours en
+shadow. Le canary commence à 1 % de l'equity, sans montée automatique, et exige
+un monitoring OKX signé vieux de moins de cinq minutes. Deux autorités Ed25519
+distinctes sont obligatoires : la preuve de promotion utilise
+`config/evidence-public-key.pem` et `HERMES_EVIDENCE_PUBLIC_KEY_SPKI_SHA256`, le
+monitoring utilise `config/monitoring-public-key.pem` (ou
+`HERMES_MONITORING_PUBLIC_KEY_FILE`) et
+`HERMES_MONITORING_PUBLIC_KEY_SPKI_SHA256`. Leurs empreintes SPKI doivent aussi
+correspondre aux deux champs de `config/live-gate.policy.json`; une valeur
+`UNCONFIGURED`, une clé partagée ou une seule ancre ferme le live.
 
-Ce qui les distingue réellement est que leur activité s'effondre le
-week-end pendant que celle d'une crypto ne bouge guère. Ce rapport a
-donc été mesuré et imprimé pour chaque candidat, **sans en faire un
-seuil**, le temps de voir les nombres. Les voici, relevé du 31 août :
+Les signatures sont séparées par domaine cryptographique :
+`hermes/live-evidence/v1` pour la preuve et
+`hermes/okx-account-monitoring/v1` pour la réconciliation. Une signature
+monitoring ne peut donc jamais être réutilisée comme signature de promotion,
+ni l'inverse. Ce changement est volontairement incompatible avec les anciennes
+signatures : les artefacts doivent être resignés par leurs autorités respectives.
+`config/live-evidence.example.json` et `config/monitoring.example.json` montrent
+les deux schémas; l'exemple monitoring est volontairement malsain et non signé.
 
-| sous 0,26 | au-dessus de 0,42 |
-|---|---|
-| SPCX 0,05 · SNDK 0,07 · SNXX 0,07 · SOXL 0,08 · MU 0,09 · SKHY 0,16 · SKHYNIX 0,21 · XAU 0,25 · CL 0,25 · XAG 0,26 | BTC 0,42 · HYPE 0,48 · XRP 0,50 · PEPE 0,53 · ETH 0,54 · SOL 0,56 · DOGE 0,58 · PUMP 0,65 · SUI 0,69 · ZEC 0,87 · TRUMP 1,25 · UNI 2,29 |
+La séquence de monitoring est monotone globalement pour une autorité
+`clé SPKI + source`, et non remise à zéro à chaque candidat. Sa marque durable
+vit dans `data/autopilot/monitoring-high-water.json`. Une régression, la
+réutilisation d'un numéro avec un autre payload, l'absence/corruption de cette
+marque ou l'échec de son écriture ferment le live. Une observation signée qui
+annonce un breach fait avancer la marque avant la quarantaine : restaurer
+ensuite un ancien message sain ne peut pas rouvrir le système. Le producteur de
+monitoring externe doit donc conserver cette séquence lors d'une promotion.
 
-Dix d'un côté, douze de l'autre, et rien entre les deux. Le groupe bas
-est exactement celui des actions tokenisées — plus l'or, l'argent et le
-pétrole, auxquels je n'avais pas pensé. Le seuil est donc posé **dans ce
-vide**, à 0,34 : il n'est pas choisi, il est lu.
+Enfin, le repli maker→market revalorise maintenant la marge exacte avec la
+nouvelle cotation et le lot déjà arrondi. Il refuse l'ordre si cette marge
+dépasse la réservation, la limite par trade ou le reliquat du canary, même si
+la distance du stop resterait séparément sous son budget dollar. Après
+exécution, le même calcul est refait au prix moyen réellement rempli; tout
+dépassement verrouille le moteur et déclenche immédiatement l'aplatissement.
 
-**Deux exceptions, écrites ici pour qu'elles ne se perdent pas.** ZORA
-(0,22) et 0G (0,08) sont des cryptos et tombent dans la bande basse.
-Elles sont écartées à tort. C'est le prix assumé d'un seuil unique, et
-il est réversible : `HERMES_MARKETS` les réimpose, `HERMES_WEEKEND_MIN=0`
-désactive le critère.
+Le PDF de profils Top100 sert uniquement de prior pour les familles et régimes
+à explorer (`config/report-profile-priors.json`). Son univers Binance statique,
+l'absence de funding, les petits échantillons et l'absence de portefeuille
+interdisent d'en importer les chiffres comme preuve ou roster live.
 
-Et une réserve qui compte : ce seuil repose sur **une** lecture. Un vide
-observé une fois n'est pas une loi. Un jeton qui vient d'être listé, ou
-un pic d'actualité en semaine, produisent le même chiffre qu'une bourse
-fermée — les deux exceptions sont peut-être cela. Un second relevé, un
-autre jour, dira s'il tient.
-
-Le résultat est imprimé pour **tous** les candidats, admis compris. Un
-critère qui ne s'explique que lorsqu'il dit non est à moitié aveugle :
-on ne peut alors pas savoir s'il laisse passer ce qu'il devrait refuser.
-
-Une mesure ratée — un timeout — ne compte pas comme une discontinuité :
-l'instrument passe, et le rafraîchissement suivant retentera. Refuser
-sur un timeout viderait l'univers à la première minute difficile.
+L'ancien filtre heuristique week-end reste seulement dans une fonction legacy
+non appelée, pour l'historique du projet. Il n'influence ni le Top30 courant,
+ni la recherche, ni une preuve quantitative.

@@ -14,6 +14,7 @@ const fs     = require("fs");
 const http   = require("http");
 const https  = require("https");
 const crypto = require("crypto");
+const zlib   = require("zlib");
 const axios  = require("axios");
 const WebSocket = require("ws");
 const {
@@ -24,12 +25,16 @@ const {
   effectiveStopLossMarginPct,
   makerOrderDirective,
   evaluateEntryStopRisk,
+  evaluateEntryMarginBudget,
+  evaluateAutopilotCanaryAuthority,
+  evaluateMonitoringReplay,
   validateRiskConfig,
   hermesAlgoOwnerNamespace,
   newHermesClientId,
   isHermesOwnedAlgo,
   isProtectiveStopAlgo,
   readLiveGate,
+  stableStringify,
 } = require("../modules/live_safety.js");
 const {
   createTimedExitRecord,
@@ -40,6 +45,7 @@ const {
   destructiveSnapshotDecision,
   parsePositionWsUpdate,
 } = require("../modules/position_metadata.js");
+const { isUniverseSnapshotFresh, selectOkxTopMovers } = require("../modules/okx_top_movers.js");
 
 /* ===== ENV / ROOT ===== */
 const ROOT = path.resolve(__dirname, "..");
@@ -70,6 +76,58 @@ function log(...a) {
 }
 function saveJSON(p, obj) { try { fs.writeFileSync(p, JSON.stringify(obj, null, 2)); } catch (e) { log("[SAVEJSON_ERR]", e.message); } }
 function appendJSONL(file, obj) { try { fs.appendFileSync(file, JSON.stringify(obj) + "\n"); } catch {} }
+
+/* Les snapshots qui gouvernent l'univers live sont une preuve, pas un log
+   best-effort. L'artefact public brut est compresse, ecrit atomiquement et
+   fsync; l'index est lui aussi fsync. La moindre erreur remonte au selecteur,
+   qui retourne alors un univers d'entree vide. */
+function persistTopMoverSnapshot({ result, swapTickers, swapInstruments, spotInstruments }) {
+  const directory = path.join(DATADIR, "universe-top30-snapshots");
+  fs.mkdirSync(directory, { recursive: true });
+  const artifact = {
+    schemaVersion: 1,
+    artifactType: "okx-top30-public-source-snapshot",
+    capturedAt: result.asOf,
+    selectorResult: result,
+    raw: { swapTickers, swapInstruments, spotInstruments },
+  };
+  const plain = Buffer.from(JSON.stringify(artifact), "utf8");
+  const artifactSha256 = crypto.createHash("sha256").update(plain).digest("hex");
+  const stamp = String(result.asOf).replace(/[:.]/g, "-");
+  const filename = `${stamp}-${result.snapshotSha256}.json.gz`;
+  const destination = path.join(directory, filename);
+  const temporary = `${destination}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+  let descriptor = null;
+  try {
+    descriptor = fs.openSync(temporary, "wx", 0o600);
+    fs.writeFileSync(descriptor, zlib.gzipSync(plain, { level: 9 }));
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor); descriptor = null;
+    fs.renameSync(temporary, destination);
+    fsyncDirectoryDurable(directory);
+    const indexFile = path.join(DATADIR, "universe-top30.jsonl");
+    const indexDescriptor = fs.openSync(indexFile, "a", 0o600);
+    try {
+      fs.writeFileSync(indexDescriptor, JSON.stringify({
+        schemaVersion: 2,
+        asOf: result.asOf,
+        accepted: result.accepted,
+        requiredCount: result.requiredCount,
+        eligibleCount: result.eligibleCount,
+        snapshotSha256: result.snapshotSha256,
+        artifactSha256,
+        artifact: path.relative(DATADIR, destination).replace(/\\/g, "/"),
+        sourceManifest: result.sourceManifest,
+      }) + "\n", "utf8");
+      fs.fsyncSync(indexDescriptor);
+    } finally { fs.closeSync(indexDescriptor); }
+    fsyncDirectoryDurable(path.dirname(indexFile));
+  } finally {
+    if (descriptor !== null) fs.closeSync(descriptor);
+    try { fs.unlinkSync(temporary); } catch {}
+  }
+  return { destination, artifactSha256 };
+}
 
 /* ===== Utils ===== */
 const tsISO = () => new Date().toISOString();
@@ -232,6 +290,12 @@ const AI = {
 
 const MARKET = {
   universe: [...DEFAULT_UNIVERSE],
+  // Sous-ensemble autorise pour de NOUVELLES entrees. MARKET.universe peut
+  // aussi contenir temporairement une position sortie du Top30, uniquement
+  // pour continuer a la coter et la fermer proprement.
+  entryUniverse: [...DEFAULT_UNIVERSE],
+  entryUniverseAsOf: DEFAULT_UNIVERSE.length ? Date.now() : 0,
+  entryUniverseValidUntil: DEFAULT_UNIVERSE.length ? Number.MAX_SAFE_INTEGER : 0,
   tick: {}, candles: {},         // 15s store
 
   meta: {},                      // instId -> {ctVal, lotSz, minSz, tickSz, maxLever}
@@ -267,10 +331,127 @@ log("[ENV] OKX key:", !!OKX.KEY, "secret:", !!OKX.SECRET, "pass:", !!OKX.PASS, "
 let LIVE_GATE_STATUS = null;
 let LIVE_GATE_CHECKED_AT = 0;
 let LIVE_GATE_FINGERPRINT = "";
+let AUTOPILOT_AUTHORITY = { required: false, allowed: true, reasons: [], canaryEquityPct: null };
+let LIVE_APPROVED_STRATEGY_HASHES = Object.freeze({});
+
+function executableStrategySha256(strategy) {
+  if (!strategy || typeof strategy !== "object" || Array.isArray(strategy)
+      || typeof strategy.sig !== "string" || !strategy.sig
+      || !strategy.ov || typeof strategy.ov !== "object" || Array.isArray(strategy.ov)) return null;
+  return crypto.createHash("sha256")
+    .update(stableStringify({ sig: strategy.sig, ov: strategy.ov }), "utf8")
+    .digest("hex");
+}
+const MONITORING_HIGH_WATER_FILE = path.join(DATADIR, "autopilot", "monitoring-high-water.json");
+
+function readMonitoringHighWater() {
+  const raw = fs.readFileSync(MONITORING_HIGH_WATER_FILE, "utf8").replace(/^\uFEFF/, "");
+  return JSON.parse(raw);
+}
+
+function fsyncDirectoryDurable(directory) {
+  let descriptor = null;
+  try {
+    descriptor = fs.openSync(directory, "r");
+    fs.fsyncSync(descriptor);
+  } catch (error) {
+    /* Windows ne permet pas toujours d'ouvrir/fsync un repertoire. Le fichier
+       temporaire reste fsync avant rename; sur le VPS Linux, le fsync du
+       repertoire est obligatoire et toute erreur ferme le gate. */
+    if (process.platform !== "win32") throw error;
+  } finally {
+    if (descriptor !== null) fs.closeSync(descriptor);
+  }
+}
+
+function writeMonitoringHighWaterAtomic(nextHighWater) {
+  const directory = path.dirname(MONITORING_HIGH_WATER_FILE);
+  fs.mkdirSync(directory, { recursive: true });
+  const temporary = `${MONITORING_HIGH_WATER_FILE}.${process.pid}.${crypto.randomBytes(6).toString("hex")}.tmp`;
+  let descriptor = null;
+  try {
+    descriptor = fs.openSync(temporary, "wx", 0o600);
+    fs.writeFileSync(descriptor, JSON.stringify(nextHighWater, null, 2) + "\n", "utf8");
+    fs.fsyncSync(descriptor);
+    fs.closeSync(descriptor); descriptor = null;
+    fs.renameSync(temporary, MONITORING_HIGH_WATER_FILE);
+    fsyncDirectoryDurable(directory);
+  } finally {
+    if (descriptor !== null) fs.closeSync(descriptor);
+    try { fs.unlinkSync(temporary); } catch {}
+  }
+}
+
+/* Le verrou serialize aussi deux processus accidentellement lances sur le
+   meme DATADIR. Un verrou abandonne apres crash ferme les nouvelles entrees
+   jusqu'a intervention, ce qui est preferable a une regression silencieuse. */
+function persistMonitoringHighWater(monitoringGate) {
+  if (monitoringGate?.required !== true) {
+    return evaluateMonitoringReplay({ monitoringGate, highWater: null });
+  }
+  const directory = path.dirname(MONITORING_HIGH_WATER_FILE);
+  const lockFile = `${MONITORING_HIGH_WATER_FILE}.lock`;
+  let lockDescriptor = null;
+  try {
+    fs.mkdirSync(directory, { recursive: true });
+    lockDescriptor = fs.openSync(lockFile, "wx", 0o600);
+    const current = readMonitoringHighWater();
+    const decision = evaluateMonitoringReplay({ monitoringGate, highWater: current });
+    if (decision.allowed && decision.shouldAdvance) {
+      writeMonitoringHighWaterAtomic(decision.nextHighWater);
+    }
+    return decision;
+  } catch (error) {
+    return {
+      required: true,
+      allowed: false,
+      reasons: [error?.code === "EEXIST"
+        ? "monitoring_high_water_verrouille"
+        : "monitoring_high_water_persistance_echec"],
+      shouldAdvance: false,
+      nextHighWater: null,
+      candidateId: monitoringGate?.candidateId || null,
+      rosterSha256: monitoringGate?.rosterSha256 || null,
+      sequence: Number.isSafeInteger(monitoringGate?.sequence) ? monitoringGate.sequence : null,
+      monitoringSha256: monitoringGate?.monitoringSha256 || null,
+    };
+  } finally {
+    if (lockDescriptor !== null) {
+      try { fs.closeSync(lockDescriptor); } catch {}
+      try { fs.unlinkSync(lockFile); } catch {}
+    }
+  }
+}
+
 function liveGateStatus(force = false) {
   if (!force && LIVE_GATE_STATUS && Date.now() - LIVE_GATE_CHECKED_AT < 10000) return LIVE_GATE_STATUS;
-  const evidence = readLiveGate(ROOT);
-  const liveReasons = [...evidence.reasons];
+  const evidenceWithSnapshots = readLiveGate(ROOT, {
+    autopilotStateFile: path.join(DATADIR, "autopilot", "state.json"),
+    monitoringFile: path.join(DATADIR, "autopilot", "monitoring.json"),
+  });
+  const { snapshots = {}, ...gateEvidence } = evidenceWithSnapshots;
+  const approvedStrategyHashes = {};
+  const approvedPerles = snapshots.roster?.perles;
+  if (approvedPerles && typeof approvedPerles === "object" && !Array.isArray(approvedPerles)) {
+    for (const [instId, strategy] of Object.entries(approvedPerles)) {
+      const hash = executableStrategySha256(strategy);
+      if (hash) approvedStrategyHashes[String(instId)] = hash;
+    }
+  }
+  LIVE_APPROVED_STRATEGY_HASHES = Object.freeze(approvedStrategyHashes);
+  const replayDecision = persistMonitoringHighWater(gateEvidence.monitoringGate);
+  const { nextHighWater: _nextHighWater, ...monitoringReplay } = replayDecision;
+  const evidence = { ...gateEvidence, monitoringReplay };
+  const liveReasons = [...evidence.reasons, ...monitoringReplay.reasons];
+  AUTOPILOT_AUTHORITY = evaluateAutopilotCanaryAuthority({
+    roster: snapshots.roster,
+    state: snapshots.autopilotState,
+    policy: snapshots.autopilotPolicy,
+  });
+  if (AUTOPILOT_AUTHORITY.required && !AUTOPILOT_AUTHORITY.allowed) {
+    liveReasons.push(...AUTOPILOT_AUTHORITY.reasons);
+  }
+  if (!OKX.SIMULATED && DEFAULT_UNIVERSE.length) liveReasons.push("univers_manuel_interdit_en_live");
   const ownerReady = !!hermesAlgoOwnerNamespace(process.env.HERMES_ALGO_OWNER);
   if (!ownerReady) liveReasons.push("algo_owner_absent");
   const simulatedReasons = evidence.reasons.filter((reason) => String(reason).startsWith("roster_"));
@@ -279,7 +460,8 @@ function liveGateStatus(force = false) {
     ? { ...evidence, allowed: simulatedReasons.length === 0, reasons: simulatedReasons,
         liveAllowed: liveReasons.length === 0, liveReasons, simulated: true }
     : { ...evidence, allowed: liveReasons.length === 0, reasons: liveReasons,
-        liveAllowed: liveReasons.length === 0, liveReasons, simulated: false };
+        liveAllowed: liveReasons.length === 0, liveReasons, simulated: false,
+        canaryEquityPct: AUTOPILOT_AUTHORITY.canaryEquityPct };
   LIVE_GATE_CHECKED_AT = Date.now();
   const fingerprint = `${LIVE_GATE_STATUS.allowed}|${LIVE_GATE_STATUS.reasons.join(",")}`;
   if (fingerprint !== LIVE_GATE_FINGERPRINT) {
@@ -291,6 +473,56 @@ function liveGateStatus(force = false) {
     setHealth("aiEngine", { on: false, status: "WARN", info: "live-gate-closed", lastToggle: Date.now() });
   }
   return LIVE_GATE_STATUS;
+}
+
+/* Une autorisation live est un objet immuable au moment du sizing. Le gate,
+   le champion, le plafond canary et le Top 30 peuvent tous changer pendant
+   les appels reseau qui precedent un ordre. On les empreinte ensemble afin
+   qu'une autorisation plus ancienne ne puisse jamais etre reutilisee avec
+   un nouveau contexte. */
+function captureEntryAuthority(instId, expectedStrategy) {
+  const gate = liveGateStatus(true);
+  const entryUniverse = Array.isArray(MARKET.entryUniverse)
+    ? [...new Set(MARKET.entryUniverse.map(String))].sort()
+    : [];
+  const expectedStrategySha256 = executableStrategySha256(expectedStrategy);
+  const approvedStrategySha256 = LIVE_APPROVED_STRATEGY_HASHES[String(instId)] || null;
+  const strategyAllowed = expectedStrategySha256 !== null
+    && expectedStrategySha256 === approvedStrategySha256;
+  const value = {
+    allowed: gate?.allowed === true,
+    rosterSha256: gate?.rosterSha256 || null,
+    engineSha256: gate?.engineSha256 || null,
+    evidenceExpiresAt: gate?.evidenceExpiresAt || null,
+    monitoringSequence: Number.isSafeInteger(gate?.monitoringReplay?.sequence)
+      ? gate.monitoringReplay.sequence : null,
+    monitoringSha256: /^[a-f0-9]{64}$/i.test(String(gate?.monitoringReplay?.monitoringSha256 || ""))
+      ? String(gate.monitoringReplay.monitoringSha256).toLowerCase() : null,
+    monitoringSignerSpkiSha256: /^[a-f0-9]{64}$/i.test(
+      String(gate?.monitoringReplay?.signerSpkiSha256 || ""),
+    ) ? String(gate.monitoringReplay.signerSpkiSha256).toLowerCase() : null,
+    monitoringSource: gate?.monitoringReplay?.source || null,
+    candidateId: AUTOPILOT_AUTHORITY?.candidateId || null,
+    expectedStrategySha256,
+    approvedStrategySha256,
+    strategyAllowed,
+    canaryEquityPct: AUTOPILOT_AUTHORITY?.canaryEquityPct !== null
+      && AUTOPILOT_AUTHORITY?.canaryEquityPct !== undefined
+      && Number.isFinite(Number(AUTOPILOT_AUTHORITY.canaryEquityPct))
+      ? Number(AUTOPILOT_AUTHORITY.canaryEquityPct) : null,
+    entryUniverse,
+  };
+  const fingerprint = crypto.createHash("sha256")
+    .update(JSON.stringify(value)).digest("hex");
+  return {
+    ...value,
+    fingerprint,
+    instrumentAllowed: strategyAllowed && entryUniverse.includes(String(instId))
+      && isUniverseSnapshotFresh({
+        asOfMs: MARKET.entryUniverseAsOf,
+        validUntilMs: MARKET.entryUniverseValidUntil,
+      }),
+  };
 }
 const BOOT_LIVE_GATE = liveGateStatus(true);
 if (LIVE_START_REQUESTED && BOOT_LIVE_GATE.allowed) AI.on = true;
@@ -531,9 +763,13 @@ function positionSizing(cap, stopLossMarginPct = DEFAULT_STOP_MARGIN_PCT) {
   const PLACES = Math.max(1, Number(process.env.HERMES_PLACES || 3));
   const MIN_M  = Number(process.env.HERMES_MARGIN_MIN || 3);     // marge viable : sous 3 $, les lots minimaux mangent tout
   const MAX_M  = Number(process.env.HERMES_MARGIN_MAX || 200);
+  const autonomousCap = !OKX.SIMULATED && AUTOPILOT_AUTHORITY.required
+    ? (AUTOPILOT_AUTHORITY.allowed ? AUTOPILOT_AUTHORITY.canaryEquityPct : 0)
+    : MAX_RISK_PCT;
+  const effectiveMaxMarginPct = Math.min(MAX_RISK_PCT, Number(autonomousCap));
   const sized = computePositionSizing({
     equity: cap,
-    maxMarginPct: MAX_RISK_PCT,
+    maxMarginPct: effectiveMaxMarginPct,
     riskPerTradePct: RISK_PER_TRADE_PCT,
     stopLossMarginPct,
     places: PLACES,
@@ -541,12 +777,12 @@ function positionSizing(cap, stopLossMarginPct = DEFAULT_STOP_MARGIN_PCT) {
     minMargin: MIN_M,
     maxMargin: MAX_M,
   });
-  return { ...sized, riskFrac: MAX_RISK_PCT, step: 5 };
+  return { ...sized, riskFrac: effectiveMaxMarginPct, step: 5 };
 }
 globalThis.__hermesCapital = () => {
   const s = positionSizing(AI.equityUSDT);
   return { equite: AI.equityUSDT, places: s.maxPositions, parTrade: s.perTradeUSDT,
-           ouvertes: currentOpenCount(), engage: usedMarginNow(), budget: MAX_RISK_PCT * AI.equityUSDT };
+           ouvertes: currentOpenCount(), engage: usedMarginNow(), budget: s.riskFrac * AI.equityUSDT };
 };
 /* Dit tout haut ce que la taille courante permet d'ouvrir.
 
@@ -608,8 +844,15 @@ function setCooldown(instId, sec = SYMBOL_COOLDOWN_SEC) { AI.cooldown[instId] = 
    nourri uniquement par config/approved-roster.json, promu explicitement. */
 
 /* ===== Universe loader ===== */
-const TAILLE_UNIVERS = Number(process.env.HERMES_UNIVERSE_SIZE || 20);
-const RAFRAICHIR_UNIVERS_MS = Number(process.env.HERMES_UNIVERSE_REFRESH_MS || 3600000);
+// Le protocole confirmatoire impose trente constituants. Une ancienne
+// variable HERMES_UNIVERSE_SIZE differente de 30 ne peut donc plus changer
+// silencieusement la methode de selection liee aux preuves statistiques.
+const TAILLE_UNIVERS = 30;
+const TOP_MOVER_POLICY = safeReadJSON(path.join(ROOT, "config", "autopilot.policy.json"), {}).universe || {};
+// Les seuils et la cadence live viennent uniquement de la politique versionnee
+// et hashee. Les anciennes variables HERMES_MOVER_* ne peuvent plus modifier
+// silencieusement la methode couverte par la preuve.
+const RAFRAICHIR_UNIVERS_MS = Number(TOP_MOVER_POLICY.refreshMinutes || 60) * 60_000;
 // Sur cent soixante-huit heures, combien doivent avoir vu un echange
 // pour quon appelle un marche continu. Une action tokenisee tourne
 // autour de trente-cinq heures par semaine ; une crypto, cent
@@ -715,7 +958,7 @@ async function mesurerContinuite(instId) {
   return res;
 }
 
-async function loadUniverse() {
+async function loadUniverseLegacy() {
   if (DEFAULT_UNIVERSE.length) return DEFAULT_UNIVERSE;
   try {
     const r = await axios.get(
@@ -780,7 +1023,19 @@ async function rafraichirUnivers() {
   if (DEFAULT_UNIVERSE.length) return;          // liste imposee a la main
   try {
     const neuf = await loadUniverse();
-    if (!neuf || neuf.length < 2) return;
+    if (!Array.isArray(neuf) || neuf.length !== TAILLE_UNIVERS) {
+      const avant = new Set(MARKET.universe || []);
+      const tenus = [...avant].filter((instId) => AI.openPositions[instId]);
+      MARKET.entryUniverse = [];
+      MARKET.entryUniverseAsOf = 0;
+      MARKET.entryUniverseValidUntil = 0;
+      MARKET.universe = tenus;
+      log(`[UNI_REFUS] snapshot Top30 non durable ou incomplet; nouvelles entrees bloquees${tenus.length ? `, ${tenus.length} position(s) seulement conservee(s) au flux` : ""}.`);
+      if ([...avant].some((instId) => !MARKET.universe.includes(instId)) && MARKET.wsPublic) {
+        startPublicWS().catch((error) => log("[UNI_WS_RESUB_ERR]", error.message));
+      }
+      return;
+    }
     const avant = new Set(MARKET.universe);
     const apres = new Set(neuf);
     const entrent = neuf.filter((i) => !avant.has(i));
@@ -792,12 +1047,14 @@ async function rafraichirUnivers() {
     const tenus = sortent.filter((i) => AI.openPositions[i]);
     const final = tenus.length ? [...neuf, ...tenus] : neuf;
 
+    MARKET.entryUniverse = [...neuf];
     if (entrent.length || sortent.length) {
       MARKET.universe = final;
       log(`[UNI] rotation — entrent: ${entrent.map((s) => s.replace("-USDT-SWAP", "")).join(", ") || "aucun"}`
         + ` | sortent: ${sortent.map((s) => s.replace("-USDT-SWAP", "")).join(", ") || "aucun"}`
         + (tenus.length ? ` | gardes car position ouverte: ${tenus.map((s) => s.replace("-USDT-SWAP", "")).join(", ")}` : ""));
       try { await loadMetaInstruments(); } catch {}
+      if (MARKET.wsPublic) startPublicWS().catch((error) => log("[UNI_WS_RESUB_ERR]", error.message));
     }
   } catch (e) {
     log("[UNI_REFRESH_ERR]", e.message);
@@ -1046,6 +1303,79 @@ function roundQtyToLot(instId, qty) {
      a plus de branche qui puisse recreer 0.6000000000000001. */
   return quantityToLotString(qty, String(meta.lotSz), String(meta.minSz));
 }
+
+/*
+ * Univers operationnel v2 : les trente plus grands mouvements absolus sur
+ * les dernieres 24 h.  Il ne s'agit pas d'un signal.  La selection arrive
+ * avant toute evaluation de strategie et exige une crypto OKX de categorie
+ * 1, un SWAP USDT normal et live, une paire spot live, 90 jours d'anciennete,
+ * assez de volume et un spread observable.  Le snapshot complet est archive
+ * pour que la decision puisse etre rejouee sans survivorship ni look-ahead.
+ */
+async function loadUniverse() {
+  if (DEFAULT_UNIVERSE.length) {
+    log("[UNI] HERMES_MARKETS impose un univers manuel; ce mode n'est pas une preuve Top-30 et le gate live doit rester ferme sans evidence correspondante.");
+    MARKET.entryUniverseAsOf = Date.now();
+    MARKET.entryUniverseValidUntil = Number.MAX_SAFE_INTEGER;
+    return DEFAULT_UNIVERSE;
+  }
+  try {
+    const timeout = Number(process.env.HERMES_API_TIMEOUT_MS || 12000);
+    const [tickersResponse, swapsResponse, spotsResponse] = await Promise.all([
+      axios.get(OKX.REST_BASE + "/api/v5/market/tickers?instType=SWAP", { timeout }),
+      axios.get(OKX.REST_BASE + "/api/v5/public/instruments?instType=SWAP", { timeout }),
+      axios.get(OKX.REST_BASE + "/api/v5/public/instruments?instType=SPOT", { timeout }),
+    ]);
+    assertOkxSuccess(tickersResponse.data, "GET tickers SWAP");
+    assertOkxSuccess(swapsResponse.data, "GET instruments SWAP");
+    assertOkxSuccess(spotsResponse.data, "GET instruments SPOT");
+    const asOfMs = Date.now();
+    const result = selectOkxTopMovers({
+      swapTickers: tickersResponse.data.data,
+      swapInstruments: swapsResponse.data.data,
+      spotInstruments: spotsResponse.data.data,
+      asOfMs,
+      config: {
+        topN: TAILLE_UNIVERS,
+        minQuoteVolumeUsd: Number(TOP_MOVER_POLICY.minQuoteVolumeUsd),
+        maxSpreadBps: Number(TOP_MOVER_POLICY.maxSpreadBps),
+        minListingAgeDays: Number(TOP_MOVER_POLICY.minListingDays),
+        minTimeToDelistDays: Number(TOP_MOVER_POLICY.minTimeToDelistDays),
+        maxTickerAgeMs: Number(TOP_MOVER_POLICY.maxTickerAgeMs),
+        requiredInstrumentState: TOP_MOVER_POLICY.requiredInstrumentState,
+        requiredRuleType: TOP_MOVER_POLICY.requiredRuleType,
+      },
+    });
+    const archived = persistTopMoverSnapshot({
+      result,
+      swapTickers: tickersResponse.data.data,
+      swapInstruments: swapsResponse.data.data,
+      spotInstruments: spotsResponse.data.data,
+    });
+    if (!result.accepted) {
+      MARKET.entryUniverseAsOf = 0;
+      MARKET.entryUniverseValidUntil = 0;
+      log(`[UNI_REFUS] ${result.eligibleCount}/${TAILLE_UNIVERS} movers eligibles; univers vide, aucune nouvelle entree.`);
+      return [];
+    }
+    const trace = result.selected.map((row) => `${row.instId.replace("-USDT-SWAP", "")}`
+      + ` ${(row.logReturn24h * 100).toFixed(2)}%`
+      + ` vol=${(row.quoteVolume24hUsd / 1e6).toFixed(1)}M`
+      + ` spread=${row.spreadBps.toFixed(2)}bp`).join(", ");
+    log(`[UNI] Top ${TAILLE_UNIVERS} movers OKX point-in-time | snapshot=${result.snapshotSha256}`
+      + ` | archive=${archived.artifactSha256} | ${trace}`);
+    MARKET.entryUniverseAsOf = result.asOfMs;
+    MARKET.entryUniverseValidUntil = result.asOfMs + RAFRAICHIR_UNIVERS_MS;
+    return result.selected.map((row) => row.instId);
+  } catch (error) {
+    // Aucune approximation par BTC/ETH : une panne de donnees ne doit jamais
+    // devenir implicitement une autre methode de portefeuille.
+    log("[UNI_ERR] selection Top-30 impossible; univers vide:", error.message);
+    MARKET.entryUniverseAsOf = 0;
+    MARKET.entryUniverseValidUntil = 0;
+    return [];
+  }
+}
 function qtyFromUSDT(instId, marginUSDT) {
   const px = MARKET.tick[instId]?.lastPrice || 0;
   const ct = num(MARKET.meta[instId]?.ctVal || 1);
@@ -1057,9 +1387,11 @@ function qtyFromUSDT(instId, marginUSDT) {
   /* si l'arrondi au lot minimal dépasse nettement la marge visée, on SAUTE le
      trade au lieu de sur-risquer en silence (ancien bug : minSz forcé). */
   const actualMargin = (q * px * ct) / lev;
-  /* tolérance serrée : à 1,5 la surconsommation cumulée mangeait le budget des
-     10 places (6 positions = 95 USDT au lieu de 60-70) et bloquait les ré-ouvertures */
-  if (actualMargin > marginUSDT * 1.10) return 0;
+  /* Seulement une epsilon numerique. Monter au minSz puis tolerer dix pour cent
+     envoyait un ordre dont le stop depassait deja le budget; le moteur devait
+     ensuite le fermer d'urgence en payant deux fois les frais. */
+  const tolerance = Math.max(1e-10, Math.abs(marginUSDT) * Number.EPSILON * 16);
+  if (actualMargin > marginUSDT + tolerance) return 0;
   return q;
 }
 
@@ -1108,6 +1440,11 @@ function __shouldPlace(instId, side){
 function canPlaceOrder(instId, side, availableUSDT = Infinity) {
   if (!AI.on) return false;
   if (!liveGateStatus().allowed) return false;
+  if (!Array.isArray(MARKET.entryUniverse) || !MARKET.entryUniverse.includes(instId)) return false;
+  if (!isUniverseSnapshotFresh({
+    asOfMs: MARKET.entryUniverseAsOf,
+    validUntilMs: MARKET.entryUniverseValidUntil,
+  })) return false;
   if (tierBreach()) return false;
   if (AI.algoCleanupInProgress) return false;
   /* Sans reconciliation automatique complete, un resultat d'ordre
@@ -1153,7 +1490,7 @@ function canPlaceOrder(instId, side, availableUSDT = Infinity) {
   /* Budget de marge plafonne. Il suffit qu'il reste de quoi
      ouvrir un trade minimal — placeMarket dimensionne ensuite sur le reliquat,
      donc les places libérées se re-remplissent dès qu'un signal arrive. */
-  const budget = MAX_RISK_PCT * AI.equityUSDT;
+  const budget = sizing.riskFrac * AI.equityUSDT;
   /* La réserve est ce qu'un trade coûte, pas une constante. À 5 USDT
      fixes sur un budget de 9, la deuxième place que le calcul de taille
      vient d'accorder était refusée ici — les deux moitiés du programme
@@ -1210,53 +1547,12 @@ async function placeTrailing(instId, side, entryPx) {
   } catch (e) { log("[TRAIL_ERR]", instId, e.message); return { ok: false, error: e.message }; }
 }
 
-async function placeMarket(instId, side) {
-  const s  = positionSizing(AI.equityUSDT);
-  const px = MARKET.tick[instId]?.lastPrice || 0;
-  const qty= qtyFromUSDT(instId, s.perTradeUSDT);
-  if (px <= 0 || qty <= 0) return { ok: false, reason: "noPriceOrQty" };
-
-  // Guardrails avec balance
-  const port = await loadPortfolio().catch(() => null);
-  if (!reconcilePortfolioForOrder(port)) return { ok:false, reason:"portfolioUnavailable" };
-  const availableUSDT = num(port?.balances?.details?.find(d => String(d.ccy).toUpperCase() === "USDT")?.availBal || 0);
-  if (!canPlaceOrder(instId, side, availableUSDT)) return { ok: false, reason: "cannotPlace" };
-
-  try {
-    AI.inflight++; setHealth("orders", { inflight: AI.inflight });
-
-    await okxPOST("/api/v5/account/set-leverage", { instId, lever: String(DEFAULT_LEVERAGE), mgnMode: "isolated", posSide: side });
-
-    const res = await okxPOST('/api/v5/trade/order', {
-      instId, tdMode: "isolated",
-      side: side === "long" ? "buy" : "sell",
-      ordType: "market",
-      sz: String(qty),
-      posSide: side});
-
-    AI.counters.ordersPlaced++; setHealth("orders", { placed: AI.counters.ordersPlaced, status: "OK", info: "placed" });
-    logAIEvent({ event: "TRADE_ENTER", instId, side, qty, price: px, live: true });
-
-    const stp = await placeInitialStop(instId, side, px);
-    if (stp.ok) {
-      if (!AI.openPositions[instId]) AI.openPositions[instId] = { side, qty, avgPx: px, ts: now() };
-      AI.openPositions[instId].stopId = stp.algoId;
-      AI.openPositions[instId].stopPx = stp.stopPx;
-      logAIEvent({ event: "STOP_PLACED", instId, side, stopPx: stp.stopPx, live: true });
-    }
-    // Trailing additionnel
-    placeTrailing(instId, side, px).catch(() => {});
-
-    setCooldown(instId);
-    return { ok: true, res };
-  } catch (e) {
-    AI.counters.orderErrors++; setHealth("orders", { errors: AI.counters.orderErrors, status: "WARN", info: "place error" });
-    log("[ORDER_ERR]", instId, side, e.message);
-    return { ok: false, error: e.message };
-  } finally {
-    AI.inflight = Math.max(0, AI.inflight - 1);
-    setHealth("orders", { inflight: AI.inflight });
-  }
+async function placeMarket() {
+  /* Definition de secours volontairement incapable d'ouvrir. Le seul
+     executeur d'entree est installe plus bas avec tous les gates. Si son
+     initialisation echoue, une requete manuelle ou un callback ancien reste
+     donc ferme au lieu de retomber sur un ordre marche non protege. */
+  return { ok: false, reason: "ENTRY_EXECUTOR_NOT_READY_FAIL_CLOSED" };
 }
 
 /* ===== Logging (push vers UI) ===== */
@@ -2458,7 +2754,7 @@ ipcMain.handle("place-order", async (_e, opt = {}) => {
     const approved = (typeof globalThis.__hermes15Roster === "function") ? globalThis.__hermes15Roster()?.strats : null;
     if (!approved?.[instId]) return { ok: false, success: false, error: "INSTRUMENT_NOT_APPROVED" };
     const side   = (opt.side === "long" || opt.side === "short") ? opt.side : "long";
-    const res    = await placeMarket(instId, side);
+    const res    = await placeMarket(instId, side, approved[instId]);
     return { ok: !!res.ok, success: !!res.ok, res, ts: tsISO() };
   } catch (e) {
     return { ok: false, success: false, error: String(e.message || e) };
@@ -2489,7 +2785,8 @@ async function resolveLoadTarget() {
 /* ===== ELECTRON BOOT ===== */
 async function createWindow() {
   try {
-    MARKET.universe = await loadUniverse();
+    MARKET.entryUniverse = await loadUniverse();
+    MARKET.universe = [...MARKET.entryUniverse];
     await loadMetaInstruments();
     setInterval(() => { loadMetaInstruments().catch(()=>{}); }, 3 * 3600 * 1000);
     await syncServerTime();                 // aligner l'horloge AVANT tout appel signé
@@ -2890,15 +3187,28 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
 
     /* Entrée protégée : TP/SL attachés À l'ordre (atomique côté OKX), puis trailing. */
     const __prev_placeMarket = (typeof placeMarket==="function") ? placeMarket : null;
-    placeMarket = async function(instId, side, ov){
+    placeMarket = async function(instId, side, strategy){
+      const ov = strategy?.ov;
       const effectiveStopMarginPct = effectiveStopLossMarginPct(ov, SPEC.slPctMargin);
       const effectiveOrderOv = { ...(ov || {}), slPctMargin: effectiveStopMarginPct };
       const px = MARKET.tick[instId]?.lastPrice || 0;
       if (px<=0) return { ok:false, reason:"noPrice" };
 
+      /* Force le gate AVANT tout sizing. Sans ce rafraichissement, un plafond
+         canary de 5 % reste en cache jusqu'a dix secondes alors que l'etat
+         vient d'etre revoque ou ramene a 1 %. */
+      const initialAuthority = captureEntryAuthority(instId, strategy);
+      if (!AI.on || !initialAuthority.allowed || !initialAuthority.instrumentAllowed) {
+        return { ok:false, reason:"entryAuthorityRevoked" };
+      }
+
       const port = await loadPortfolio().catch(()=>null);
       if (!reconcilePortfolioForOrder(port)) return { ok:false, reason:"portfolioUnavailable" };
       const availableUSDT = num(port?.balances?.details?.find(d=>String(d.ccy).toUpperCase()==="USDT")?.availBal || 0);
+      const authorityAtSizing = captureEntryAuthority(instId, strategy);
+      if (!AI.on || !authorityAtSizing.allowed || !authorityAtSizing.instrumentAllowed) {
+        return { ok:false, reason:"entryAuthorityRevoked" };
+      }
       if (!canPlaceOrder(instId, side, availableUSDT)) return { ok:false, reason:"cannotPlace" };
 
       /* Sizing sur le budget restant (marge plafonnee + risque au stop, surconsommation des
@@ -2906,7 +3216,7 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
          Ainsi une place libérée se re-remplit immédiatement, même si le reliquat
          est inférieur à une marge pleine. */
       const s  = positionSizing(AI.equityUSDT, effectiveStopMarginPct);
-      const restant = Math.max(0, MAX_RISK_PCT * AI.equityUSDT - usedMarginNow());
+      const restant = Math.max(0, s.riskFrac * AI.equityUSDT - usedMarginNow());
       let marge = Math.min(s.perTradeUSDT, restant * 0.98, availableUSDT * 0.95);
       /* La garde de correlation. Douze perles, presque toutes des longs
          sur altcoins : trois longs ouverts ne sont pas trois paris, c'est
@@ -2938,7 +3248,46 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
       if (marge < plancher) return { ok:false, reason:"budgetEpuise" };
       const qty = qtyFromUSDT(instId, marge);
       if (qty<=0) return { ok:false, reason:"noQty" };
+      const tick0 = MARKET.tick[instId] || {};
+      const lmtPx = side === 'long' ? (tick0.bidPx || px) : (tick0.askPx || px);
+      let prot = specPrices(instId, side, lmtPx, effectiveOrderOv);
+      const plannedRisk = evaluateEntryStopRisk({
+        side, entryPx:lmtPx, stopPx:prot.sl, qty,
+        contractValue:ctVal(instId), equity:AI.equityUSDT,
+        riskPct:RISK_PER_TRADE_PCT, tickSize:MARKET.meta[instId]?.tickSz,
+      });
+      if (!plannedRisk.allowed) return { ok:false, reason:"riskBudgetAfterLot" };
       if (!__shouldPlace(instId, side)) return { ok:false, reason:"dedup" };
+
+      const entryAuthorityStillValid = (riskEntryPx = lmtPx, riskStopPx = prot.sl) => {
+        if (!AI.on || tierBreach() || AI.algoCleanupInProgress) return false;
+        const current = captureEntryAuthority(instId, strategy);
+        if (!current.allowed || !current.instrumentAllowed
+            || current.fingerprint !== authorityAtSizing.fingerprint) return false;
+        const currentSizing = positionSizing(AI.equityUSDT, effectiveStopMarginPct);
+        const currentBudget = currentSizing.riskFrac * AI.equityUSDT;
+        const exactStopRisk = evaluateEntryStopRisk({
+          side, entryPx:riskEntryPx, stopPx:riskStopPx, qty,
+          contractValue:ctVal(instId), equity:AI.equityUSDT,
+          riskPct:RISK_PER_TRADE_PCT, tickSize:MARKET.meta[instId]?.tickSz,
+        });
+        const exactMargin = evaluateEntryMarginBudget({
+          entryPx:riskEntryPx,
+          qty,
+          contractValue:ctVal(instId),
+          leverage:DEFAULT_LEVERAGE,
+          reservedMargin:marge,
+          perTradeMargin:currentSizing.perTradeUSDT,
+          totalUsedMargin:usedMarginNow(),
+          totalMarginBudget:currentBudget,
+        });
+        return Number.isFinite(currentBudget) && currentBudget > 0
+          && currentSizing.perTradeUSDT > 0
+          && marge * effectiveStopMarginPct <= currentSizing.riskBudget + 1e-9
+          && exactMargin.allowed
+          && exactStopRisk.allowed
+          && usedMarginNow() <= currentBudget + 1e-9;
+      };
 
       /* Réservation synchrone du budget (pas d'await entre le calcul du reliquat et
          ici) : un signal concurrent verra ce budget comme consommé. Libérée dans le
@@ -2949,12 +3298,10 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
       try{
         AI.inflight++; setHealth("orders",{ inflight:AI.inflight });
 
+        if (!entryAuthorityStillValid()) throw new Error("ENTRY_AUTHORITY_REVOKED");
         const levR = await okxPOST("/api/v5/account/set-leverage",{ instId, lever:String(DEFAULT_LEVERAGE), mgnMode:"isolated", ...(isHedge() ? { posSide: side } : {}) });
         if (levR?.code != "0") log("[LEV_WARN]", instId, JSON.stringify(levR).slice(0,120));
 
-        const tick0 = MARKET.tick[instId] || {};
-        const lmtPx = side === 'long' ? (tick0.bidPx || px) : (tick0.askPx || px);
-        let prot = specPrices(instId, side, lmtPx, effectiveOrderOv);
         const clOrdId = hermesClientId("entry");
         let common = {
           instId, tdMode:"isolated",
@@ -2979,8 +3326,6 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
         let partialProtectionFailed = false;
         const provisionalProtectionIds = [];
         let lim = null;
-        const entryAuthorityStillValid = () => !!AI.on && liveGateStatus(true).allowed
-          && !tierBreach() && !AI.algoCleanupInProgress;
         if (!entryAuthorityStillValid()) throw new Error("ENTRY_AUTHORITY_REVOKED");
         setOrderIntent(instId, { phase:"maker-submit", clOrdId, side, qty:String(qty), createdAt:Date.now() });
         try {
@@ -3175,6 +3520,7 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
             }],
           };
           const marketClOrdId = hermesClientId("market");
+          if (!entryAuthorityStillValid(marketReferencePx, prot.sl)) throw new Error("ENTRY_AUTHORITY_REVOKED");
           setOrderIntent(instId, { phase:"market-submit", clOrdId:marketClOrdId, ordId:null });
           try { res = await okxPOST('/api/v5/trade/order', {
             ...common,
@@ -3271,6 +3617,21 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
           riskPct:RISK_PER_TRADE_PCT,
           tickSize:MARKET.meta[instId]?.tickSz,
         });
+        /* La cotation pre-submit borne le risque attendu, mais un ordre market
+           peut etre rempli plus loin. Refaire le compte avant d'ajouter la
+           position remplace exactement la reservation courante par la marge
+           du fill; sinon usedMarginNow compterait ensuite les deux. */
+        const sizingAtFill = positionSizing(AI.equityUSDT, effectiveStopMarginPct);
+        const finalMarginBudget = evaluateEntryMarginBudget({
+          entryPx:filledPx,
+          qty:Number(filledQty),
+          contractValue:ctVal(instId),
+          leverage:DEFAULT_LEVERAGE,
+          reservedMargin:marge,
+          perTradeMargin:sizingAtFill.perTradeUSDT,
+          totalUsedMargin:usedMarginNow(),
+          totalMarginBudget:sizingAtFill.riskFrac * AI.equityUSDT,
+        });
 
         AI.counters.ordersPlaced++; setHealth("orders",{ placed:AI.counters.ordersPlaced, status:"OK", info:"placed" });
 
@@ -3342,6 +3703,11 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
           await emergencyFlattenEntry("unprotected-partial-fill");
           throw new Error("PARTIAL_FILL_UNPROTECTED");
         }
+        if (!finalMarginBudget.allowed) {
+          log("[ENTRY_MARGIN_BUDGET]", instId, JSON.stringify(finalMarginBudget));
+          await emergencyFlattenEntry("entry-margin-budget-exceeded");
+          throw new Error("ENTRY_MARGIN_BUDGET_EXCEEDED");
+        }
         if (!stopRisk.allowed) {
           log("[ENTRY_STOP_RISK]", instId, JSON.stringify(stopRisk));
           await emergencyFlattenEntry("entry-stop-risk-exceeded");
@@ -3363,7 +3729,7 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
 
         return { ok:true, res };
       }catch(e){
-        if (/OUTCOME_UNKNOWN|CANCEL_UNCONFIRMED|PARTIAL_FILL_UNPROTECTED|ENTRY_STOP_RISK_EXCEEDED/.test(String(e.message || ""))) {
+        if (/OUTCOME_UNKNOWN|CANCEL_UNCONFIRMED|PARTIAL_FILL_UNPROTECTED|ENTRY_MARGIN_BUDGET_EXCEEDED|ENTRY_STOP_RISK_EXCEEDED/.test(String(e.message || ""))) {
           setTimeout(() => { try { globalThis.__hermesEnsureProtections?.().catch(()=>{}); } catch {} }, 1000);
         }
         if (String(e.message||"") !== "OKX reject"){
@@ -3559,7 +3925,7 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
     /* Le gating onCandleClose du moteur generique vivait ici ; parti
        avec lui. Les entrees passent par __hermesEntre, appele par
        HERMES15 avec les sorties propres a chaque strategie. */
-    globalThis.__hermesEntre = (instId, side, ov) => placeMarket(instId, side, ov);
+    globalThis.__hermesEntre = (instId, side, strategy) => placeMarket(instId, side, strategy);
     log("[LIVE_SIM_GATE_V2] actif");
   }catch(e){
     log("[LIVE_SIM_GATE_V2_ERR]", e.message);
@@ -3637,12 +4003,10 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
   }
   chargerRoster();
   setInterval(chargerRoster, 60 * 1000);
-  // La page du laboratoire veut savoir ce que le moteur JOUE en ce
-  // moment — qui n'est pas toujours ce que le fichier dit (repli du
-  // 31/08 tant que le chercheur n'a rien ecrit, dernier roster valide
-  // si le fichier devient illisible).
+  // La page du laboratoire distingue le candidat volatil du roster approuve
+  // que le moteur peut réellement évaluer. Il n'existe aucun repli implicite.
   globalThis.__hermes15Roster = () => ({
-    source: rosterCharge ? "chercheur" : "aucun-fail-closed",
+    source: rosterCharge ? "roster-approuve" : "aucun-fail-closed",
     strats: Object.fromEntries(Object.entries(STRATS).map(([k, v]) => [k, { sig: v.sig, ov: v.ov }])),
   });
 
@@ -3655,6 +4019,7 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
   const GUET = {};
   function expliquerGarde(instId) {
     if (!AI.on) return "moteur";
+    if (!Array.isArray(MARKET.entryUniverse) || !MARKET.entryUniverse.includes(instId)) return "horsTop30";
     if (AI.openPositions[instId]) return "enPosition";
     const sizing = positionSizing(AI.equityUSDT);
     if (currentOpenCount() >= Math.min(MAX_POSITIONS_GLOBAL, sizing.maxPositions)) return "place";
@@ -3718,7 +4083,7 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
         if (!AI.on) { log("[H15] signal", instId, side, "(AI.off, ignoré)"); continue; }
         if (!canPlaceOrder(instId, side)) continue;
         log("[H15] signal", instId, side, "stratégie", cfg.sig);
-        const res = await globalThis.__hermesEntre(instId, side, cfg.ov);
+        const res = await globalThis.__hermesEntre(instId, side, cfg);
         if (!res?.ok) { log("[H15] entrée refusée", instId, res?.reason || ""); GUET[instId].refus = res?.reason || null; }
         } catch (e) { log("[H15_ERR]", instId, e.message); }
         await new Promise(r => setTimeout(r, 300));

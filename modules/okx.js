@@ -106,6 +106,34 @@ function request(method, path, { qs, body } = {}){
 }
 
 async function okxGET(path, params){ return request("GET",  path, { qs: params }); }
-async function okxPOST(path, body){  return request("POST", path, { body }); }
+const LEGACY_REDUCE_ONLY_CREATIONS = new Set([
+  "/api/v5/trade/order",
+  "/api/v5/trade/order-algo",
+  "/api/v5/trade/batch-orders",
+]);
+const LEGACY_CANCELLATIONS = new Set([
+  "/api/v5/trade/cancel-order",
+  "/api/v5/trade/cancel-batch-orders",
+  "/api/v5/trade/cancel-algos",
+]);
+function assertLegacyTradeMutationAllowed(method, targetPath, body){
+  if(String(method).toUpperCase()!=="POST") return;
+  const route=String(targetPath||"").split("?",1)[0];
+  if(!route.startsWith("/api/v5/trade/")) return;
+  if(LEGACY_CANCELLATIONS.has(route)) return;
+  if(LEGACY_REDUCE_ONLY_CREATIONS.has(route)){
+    const rows=Array.isArray(body)?body:[body];
+    if(rows.length && rows.every((row)=>row?.reduceOnly===true)) return;
+  }
+  const error = new Error(LEGACY_REDUCE_ONLY_CREATIONS.has(route)
+    ? "LEGACY_REAL_ENTRY_DISABLED_REDUCE_ONLY_REQUIRED"
+    : "LEGACY_TRADE_MUTATION_DISABLED_USE_APP_MAIN_GATED_EXECUTOR");
+  error.code = "LEGACY_ENTRY_DISABLED";
+  throw error;
+}
+async function okxPOST(path, body){
+  assertLegacyTradeMutationAllowed("POST", path, body);
+  return request("POST", path, { body });
+}
 
-module.exports = { okxGET, okxPOST };
+module.exports = { okxGET, okxPOST, assertLegacyTradeMutationAllowed };

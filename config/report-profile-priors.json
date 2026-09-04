@@ -1,0 +1,60 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "title": "Profils Optimises Top100 Movers x20",
+    "sha256": "460ee15da1a2e816303d96f908bf05762fe4b4de3ee55bbcf1b33a70ac42fc0b",
+    "snapshotDate": "2026-09-04",
+    "historicalCutoff": "2026-08-31",
+    "venue": "Binance USD-M",
+    "usage": "hypothesis-priors-only"
+  },
+  "reportedAggregate": {
+    "contracts": 100,
+    "individualProfiles": 88,
+    "globalFallbacks": 12,
+    "oosTrades": 1665,
+    "oosWinRate": 0.6925,
+    "medianProfitFactor": 1.523,
+    "medianReturn": 0.0941,
+    "medianDrawdown": 0.1297,
+    "profitableAssetRate": 0.701
+  },
+  "signalPriors": {
+    "bar": "30m",
+    "confirmedRegimeBar": "1h",
+    "families": ["pullback", "breakout", "momentum", "reversion", "hybrid"],
+    "fastEma": [13, 21, 34],
+    "slowEma": [55, 89],
+    "baselineEma": [200],
+    "regimeFastEma": [50],
+    "regimeSlowEma": [200],
+    "lookback": [8, 12, 16, 20, 24, 32],
+    "adx": [12, 16, 20, 24, 28, 32],
+    "rsiLong": [32, 36, 50, 52, 55, 58],
+    "supertrendFactor": [1.8, 2.2, 2.8, 3.2],
+    "volumeRatio": [0, 0.8, 1],
+    "atrMinPct": [0, 0.1, 0.2, 0.3],
+    "cooldownBars": [3, 6, 12, 18],
+    "bollingerStd": [1.8, 2, 2.2]
+  },
+  "exitPriorsAtLeverage20": {
+    "stopRoePct": [-25],
+    "takeProfitRoePct": [40, 60, 80, 100, 120, 160],
+    "trailActivationRoePct": [8, 10, 12, 15, 20, 30, 40],
+    "trailDistanceRoePct": [3, 5, 6],
+    "maximumHoldHours": [6, 12, 24, 48]
+  },
+  "knownLimitations": [
+    "static-mover-snapshot-selected-after-the-historical-cutoff",
+    "historical-universe-not-reconstructed-point-in-time",
+    "venue-mismatch-binance-versus-okx",
+    "funding-not-included",
+    "fixed-two-tick-slippage",
+    "portfolio-capacity-and-correlations-not-simulated-jointly",
+    "many-symbol-level-oos-samples-have-fewer-than-20-trades",
+    "large-symbol-specific-search-family-without-process-level-multiplicity-control",
+    "profit-factor-99-values-occur-when-no-loss-is-observed",
+    "leverage-20-and-five-stops-can-lose-about-13.5-percent-before-model-error"
+  ],
+  "admissionRule": "Every prior is a new trial. It may enter shadow only after the complete OKX point-in-time process passes the signed profitability gate."
+}

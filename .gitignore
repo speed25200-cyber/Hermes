@@ -1,6 +1,6 @@
 # Jamais dans le depot : larchive dorigine portait TROIS fichiers
 # denvironnement avec de vraies cles OKX de production, et ils sont
-# partis dans un commit pousse sur un depot public avant detre retires.
+# partis dans un commit pousse sur un depot prive avant detre retires.
 .env
 .env.*
 !.env.example
@@ -28,3 +28,8 @@ config.local.json
 /config/approved-roster.json
 # Cle publique de promotion propre au deploiement (la cle privee reste en CI).
 /config/evidence-public-key.pem
+/config/monitoring-public-key.pem
+# Autorites quantitatives publiques propres au deploiement/offline. Les cles
+# privees restent exclusivement chez les jobs d'attestation independants.
+/config/quant-execution-attestation-public-key.pem
+/config/quant-cycle-ledger-attestation-public-key.pem

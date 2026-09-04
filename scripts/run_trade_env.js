@@ -1,5 +1,10 @@
 ﻿(async function(){
   try{
+    throw Object.assign(
+      new Error("LEGACY_REAL_ENTRY_DISABLED_USE_APP_MAIN_GATED_EXECUTOR"),
+      { code: "LEGACY_ENTRY_DISABLED" },
+    );
+    /* istanbul ignore next -- documentation morte conservee sans voie ordre */
     const path = require("path");
     const fs   = require("fs");
 

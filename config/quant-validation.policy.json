@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "requiredHorizonsDays": [365, 730, 1095],
+  "universe": {
+    "venue": "OKX",
+    "instrumentType": "SWAP",
+    "quoteCurrency": "USDT",
+    "topN": 30,
+    "rankingMetric": "absolute-log-return",
+    "rankingWindowMs": 86400000,
+    "liquidityWindowMs": 86400000,
+    "minQuoteVolume": 5000000,
+    "maxSpreadBps": 15,
+    "minimumEligible": 30,
+    "rebalanceMs": 3600000,
+    "barMs": 300000,
+    "maxEndpointStalenessMs": 600000,
+    "minimumListingAgeMs": 7776000000,
+    "minimumTimeToDelistMs": 604800000,
+    "requiredInstrumentCategory": "1",
+    "requiredInstrumentState": "live",
+    "requiredRuleType": "normal",
+    "requireSpotHedge": true,
+    "minRosterCoverageRate": 1
+  },
+  "walkForward": {
+    "minimumTrainingMs": 15552000000,
+    "outerTestMs": 2592000000,
+    "outerStepMs": 2592000000,
+    "innerMinimumTrainingMs": 7776000000,
+    "innerValidationMs": 2592000000,
+    "innerStepMs": 2592000000,
+    "labelHorizonMs": 604800000,
+    "purgeMs": 604800000,
+    "embargoMs": 604800000
+  },
+  "costs": {
+    "requiredGrossPnlBasis": "fill-to-fill",
+    "makerFeeRate": 0.0002,
+    "takerFeeRate": 0.0005,
+    "fallbackHalfSpreadBps": 1,
+    "fallbackSlippageBps": 2,
+    "fallbackImpactBps": 1,
+    "fallbackLatencyBps": 1,
+    "fallbackFundingCostQuote": 0,
+    "fallbackBorrowCostQuote": 0,
+    "fallbackRejectionCostQuote": 0,
+    "fallbackLiquidationCostQuote": 0,
+    "maxFeeSnapshotStalenessMs": 2678400000,
+    "stressMultiplier": 2,
+    "requireObservedSpread": true,
+    "requireObservedLiquidity": true,
+    "requireObservedSlippage": true,
+    "requireObservedImpact": true,
+    "requireObservedLatency": true,
+    "requireObservedFunding": true,
+    "requireObservedBorrow": true,
+    "requireObservedLiquidation": true,
+    "requireObservedPartialFills": true,
+    "requireObservedRejections": true
+  },
+  "statistics": {
+    "nullReplications": 9999,
+    "bootstrapReplications": 9999,
+    "spaBootstrapReplications": 9999,
+    "realityCheckReplications": 9999,
+    "blockLength": 12,
+    "blockLengthSensitivity": [6, 12, 24, 48],
+    "cscvSlices": 8,
+    "minModelMatrixCoverageRate": 1,
+    "familywiseAlpha": 0.01,
+    "netConfidence": 0.99,
+    "costStressConfidence": 0.95,
+    "multipleTestingMethod": "bonferroni-upper-bound-over-complete-trial-ledger"
+  },
+  "gates": {
+    "minimumTradesPerHorizon": 1500,
+    "minimumProfitableFoldRate": 0.7,
+    "maximumProfitConcentration": 0.1,
+    "maximumDrawdownPct": 0.1,
+    "minimumProfitFactor": 1.1,
+    "maximumPbo": 0.1,
+    "minimumDeflatedSharpeProbability": 0.99,
+    "maximumSpaPValue": 0.01,
+    "maximumRealityCheckPValue": 0.01,
+    "maximumTop5ProfitConcentration": 0.5,
+    "maximumBasketProfitConcentration": 0.25,
+    "maximumYearProfitConcentrationByHorizon": {
+      "365": 1,
+      "730": 0.75,
+      "1095": 0.6
+    },
+    "minimumEffectiveTradingDayRate": 0.23,
+    "minimumIndependentBasketsPerYear": 34,
+    "requireNetLower99AboveZero": true,
+    "requireCostStressLower95AboveZero": true
+  },
+  "lifecycle": {
+    "minimumShadowDays": 90,
+    "minimumShadowTrades": 100,
+    "requireVerifiedEvidenceSignatureForEligibility": true,
+    "requireVerifiedApprovalSignatureForEligibility": true
+  },
+  "attestations": {
+    "executionAndProcess": {
+      "publicKeySpkiSha256": "UNCONFIGURED",
+      "executionSignatureDomain": "hermes-quant-execution-attribution-v1",
+      "processSignatureDomain": "hermes-quant-process-replay-v1"
+    },
+    "cycleLedger": {
+      "publicKeySpkiSha256": "UNCONFIGURED",
+      "signatureDomain": "hermes-quant-cycle-ledger-v1",
+      "hashChainDomain": "hermes-quant-cycle-ledger-hash-chain-v1"
+    }
+  }
+}

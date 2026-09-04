@@ -596,7 +596,8 @@ if (typeof okxTradeOrderWithGuards_phaseA !== "function") {
             algoClOrdId: __newHermesClientId("trail"),
             sz: String(b.sz || ""),
             callbackRatio: String(callback),
-            activePx: String(activePx)
+            activePx: String(activePx),
+            reduceOnly: true
           };
           if (!algo.sz) {
             try { const nb = (typeof normalizeTradeOrderBody === "function") ? await normalizeTradeOrderBody(b) : b;
@@ -656,13 +657,8 @@ if (typeof closePositionWithCleanup !== 'function') {
       const mode = (typeof __ph2_getPosMode === "function") ? await __ph2_getPosMode() : null;
       if (mode==="long_short_mode" && posSide) order.posSide = posSide;
     } catch(_) {}
-    try {
-      order.reduceOnly = true;
-      return await okxTradeOrderWithGuards(order);
-    } catch(e) {
-      try { delete order.reduceOnly; return await okxTradeOrderWithGuards(order); }
-      catch(e2){ throw e2; }
-    }
+    order.reduceOnly = true;
+    return await okxTradeOrderWithGuards(order);
   }
   module.exports.closePositionWithCleanup = closePositionWithCleanup;
 }

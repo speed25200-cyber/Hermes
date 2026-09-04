@@ -1,12 +1,9 @@
 # Deploy Hermes to the VPS over SSH, from a GitHub runner.
 #
-# Authentication (either works):
-#   - VPS_PASSWORD repository secret, or
-#   - root_password workflow input (bootstrap convenience).
-# First-login handling: Hetzner marks the emailed root password as expired.
-# The resolve step detects this, performs the forced change over a forced
-# TTY, and rotates to "<original>.Hermes1" — subsequent runs try both forms
-# automatically, so the original password remains the only thing to know.
+# Authentication: VPS_PASSWORD repository secret only. A workflow input is
+# persisted in run metadata and is therefore forbidden for credentials.
+# The exact current password must live in that secret. The workflow never
+# derives, rotates or persists a credential supplied through run metadata.
 #
 # Etapes : rsync du depot vers /root/hermes, puis deploy/install.sh.
 #
@@ -25,9 +22,6 @@ name: Deploy Hermes to VPS
 on:
   workflow_dispatch:
     inputs:
-      root_password:
-        description: "Root password (optional if VPS_PASSWORD secret is set)"
-        required: false
       paquet:
         description: "Paquet chiffre portant les lignes OKX (base64). Vide = ne rien poser."
         required: false
@@ -121,72 +115,29 @@ jobs:
     env:
       VPS: ${{ vars.VPS_HOST || '178.104.191.79' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Install ssh tooling
         run: sudo apt-get update -qq && sudo apt-get -y -qq install sshpass rsync
 
-      - name: Resolve SSH access (handles first-login password change)
+      - name: Resolve SSH access
         env:
-          PW_INPUT: ${{ inputs.root_password }}
           PW_SECRET: ${{ secrets.VPS_PASSWORD }}
         run: |
-          PW="${PW_INPUT:-$PW_SECRET}"
+          set -eu
+          PW="$PW_SECRET"
           if [ -z "$PW" ]; then
-            echo "::error::no credentials: set the VPS_PASSWORD secret or pass root_password input"
+            echo "::error::no credentials: set the VPS_PASSWORD repository secret"
             exit 1
           fi
-          ALT="${PW}.Hermes1"
           echo "::add-mask::$PW"
-          echo "::add-mask::$ALT"
+          export SSHPASS="$PW"
           SSHOPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
-          try() { timeout 25 sshpass -p "$1" ssh $SSHOPTS "root@$VPS" "echo __ok__" 2>/dev/null | grep -q __ok__; }
-          if try "$PW"; then
-            CUR="$PW"; echo "auth: original password works"
-          elif try "$ALT"; then
-            CUR="$ALT"; echo "auth: rotated password works"
-          else
-            echo "auth: attempting forced expired-password change (pexpect)..."
-            pip install -q pexpect
-            python3 - "$VPS" "$PW" "$ALT" <<'PYEOF'
-          import sys, pexpect
-          host, pw, alt = sys.argv[1], sys.argv[2], sys.argv[3]
-          c = pexpect.spawn(
-              f"ssh -tt -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15 root@{host}",
-              encoding="utf-8", timeout=40)
-          c.logfile_read = None  # never echo remote output (may contain prompts)
-          sent_new = 0
-          while True:
-              i = c.expect([
-                  r"[Pp]assword:",                  # 0 login or current password
-                  r"[Cc]urrent.*password.*?:",      # 1 current password (chauthtok)
-                  r"[Nn]ew.*password.*?:",          # 2 new password (and retype)
-                  r"[#$]\s*$",                      # 3 shell prompt -> done
-                  pexpect.EOF,                      # 4
-              ])
-              if i in (0, 1):
-                  c.sendline(pw)
-              elif i == 2:
-                  c.sendline(alt); sent_new += 1
-              elif i == 3:
-                  c.sendline("exit")
-                  c.expect(pexpect.EOF)
-                  break
-              else:
-                  break
-          print(f"dialogue done (new password sent {sent_new}x)")
-          PYEOF
-            sleep 3
-            if try "$ALT"; then
-              CUR="$ALT"; echo "auth: password rotated successfully"
-            elif try "$PW"; then
-              CUR="$PW"; echo "auth: original password still valid"
-            else
-              echo "::error::cannot authenticate to $VPS with any known form"
-              exit 1
-            fi
+          if ! timeout 25 sshpass -e ssh $SSHOPTS "root@$VPS" "echo __ok__" 2>/dev/null | grep -q __ok__; then
+            echo "::error::VPS_PASSWORD is invalid, expired, or SSH is unavailable; update the repository secret"
+            exit 1
           fi
-          echo "SSHPASS=$CUR" >> "$GITHUB_ENV"
+          echo "SSHPASS=$SSHPASS" >> "$GITHUB_ENV"
 
       - name: Copy repository to VPS
         run: |
@@ -210,6 +161,9 @@ jobs:
             --exclude '/logs' --exclude '/runtime' \
             --exclude '/config/roster.json' --exclude '/config/approved-roster.json' \
             --exclude '/config/evidence-public-key.pem' \
+            --exclude '/config/monitoring-public-key.pem' \
+            --exclude '/config/quant-execution-attestation-public-key.pem' \
+            --exclude '/config/quant-cycle-ledger-attestation-public-key.pem' \
             --exclude '/banc' --exclude '/recherche' \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             ./ "root@$VPS:/root/hermes/"
@@ -353,7 +307,7 @@ jobs:
           sshpass -e ssh -o StrictHostKeyChecking=accept-new \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=10 \
             "root@$VPS" \
-            "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first HERMES_UNIVERSE_SIZE=50 node deploy/chercher_perles.js"
+            "cd /root/hermes && NODE_OPTIONS=--dns-result-order=ipv4first node deploy/chercher_perles.js"
 
       # Un mois de bougies ne contient pas de retournement de marche, et
       # le premier passage du banc l'a montre : 87 % du temps en
