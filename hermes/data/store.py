@@ -223,19 +223,27 @@ class DataStore:
             if fl:
                 candles.taker_buy = map_last_to_bars(candles.ts, [(t, b) for t, b, _ in fl])
                 candles.taker_sell = map_last_to_bars(candles.ts, [(t, s) for t, _, s in fl])
-            mk = self.conn.execute(
-                "SELECT ts, px FROM mark_px WHERE inst=? AND bar=? ORDER BY ts",
-                (inst, bar),
-            ).fetchall()
+            mk = self._px_rows("mark_px", inst, bar)
             if mk:
                 candles.mark = map_last_to_bars(candles.ts, mk, fallback=candles.c)
-            ix = self.conn.execute(
-                "SELECT ts, px FROM index_px WHERE inst=? AND bar=? ORDER BY ts",
-                (inst, bar),
-            ).fetchall()
+            ix = self._px_rows("index_px", inst, bar)
             if ix:
                 candles.index = map_last_to_bars(candles.ts, ix, fallback=candles.c)
         return candles
+
+    def _px_rows(self, table: str, inst: str, bar: str) -> list[tuple]:
+        """Mark/index closes for `bar`; when the series was collected at a
+        finer bar (OKX serves 15m history), those rows are mapped onto the
+        requested grid by last observation instead of being ignored."""
+        rows = self.conn.execute(
+            f"SELECT ts, px FROM {table} WHERE inst=? AND bar=? ORDER BY ts",
+            (inst, bar),
+        ).fetchall()
+        if rows:
+            return rows
+        return self.conn.execute(
+            f"SELECT ts, px FROM {table} WHERE inst=? ORDER BY ts", (inst,),
+        ).fetchall()
 
     def close(self) -> None:
         self.conn.close()
