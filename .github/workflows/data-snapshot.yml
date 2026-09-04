@@ -45,6 +45,11 @@ jobs:
             days: "1825"
             bars: "1H"
             branch: okx-data-snapshot-1h-5y
+          - name: 5y-1H-lite          # candles + funding only: fast
+            days: "1825"
+            bars: "1H"
+            micro: "0"
+            branch: okx-data-snapshot-1h-5y-lite
     steps:
       - uses: actions/checkout@v4
 
@@ -59,6 +64,7 @@ jobs:
         env:
           DAYS: ${{ inputs.days || matrix.days }}
           BARS: ${{ inputs.bars || matrix.bars }}
+          MICRO: ${{ matrix.micro || '1' }}
         run: |
           python - <<'PY'
           import os, time
@@ -83,11 +89,12 @@ jobs:
                   fetch_funding(client, store, inst, days, log=print)
               except Exception as exc:
                   print(f"{inst} funding: FAILED {type(exc).__name__}: {exc}")
-              try:
-                  fetch_microstructure(client, store, inst, "15m",
-                                       days=min(days, 180), log=print)
-              except Exception as exc:
-                  print(f"{inst} micro: FAILED {type(exc).__name__}: {exc}")
+              if os.environ.get("MICRO", "1") == "1":
+                  try:
+                      fetch_microstructure(client, store, inst, "15m",
+                                           days=min(days, 180), log=print)
+                  except Exception as exc:
+                      print(f"{inst} micro: FAILED {type(exc).__name__}: {exc}")
               print(f"--- {inst} done ({time.time() - t0:.0f}s)")
           PY
 
