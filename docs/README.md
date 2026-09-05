@@ -6,6 +6,7 @@ projet.
 | Document | Ce qu'il contient |
 |---|---|
 | [`avantage.md`](avantage.md) | **Le rapport de mesure.** Ce que le système gagne ou perd, établi sur douze mois d'archives avec témoins et contrôles. À lire en premier : tout le reste en découle. |
+| [`direction.md`](direction.md) | **La direction.** Pré-inscription puis mesure des stratégies « à la mode » sur 134 contrats (profils du papier *Top 100 movers x20*, flux, positionnement, volatilité, transversal), ce qui marche, comment construire Hermes et ce qu'il ne faut pas faire. |
 | [`juge.md`](juge.md) | **Le juge honnête.** La procédure qui décide ce que le moteur a le droit de trader, et la porte du hasard qui a retiré huit perles sur onze. |
 | [`regime.md`](regime.md) | **L'état du marché.** La couche de régime, ce qu'elle mesure, et pourquoi elle n'est pas câblée. |
 | [`../recherche/jepa/README.md`](../recherche/jepa/README.md) | Le carnet Colab d'entraînement d'un JEPA sur les bougies, livré et non branché. |
@@ -43,11 +44,13 @@ avant que la réponse soit lisible : environ deux ans.
 | `banc/scene-details.js` | la console rejouée sur fixtures, avec Chromium | `node banc/scene-details.js` |
 | `banc/epreuve_hors_echantillon.js` | l'hypothèse pré-inscrite : gelée, conforme au document, correctement coupée | `node banc/epreuve_hors_echantillon.js` |
 | `banc/epreuve_ampleur.js` | la mesure de largeur retrouve-t-elle la loi en √N là où l'effet existe, et pas ailleurs | `node banc/epreuve_ampleur.js` |
+| `banc/epreuve_movers.js` | les indicateurs sont-ils causaux, les sorties exactes, l'univers du jour aveugle au futur, un effet planté retrouvé et détruit par le nul | `node banc/epreuve_movers.js` |
 | `banc/epreuve_taille.js` | la taille envoyée à OKX est-elle un multiple exact du lot, sur tous les pas | `node banc/epreuve_taille.js` |
 | `deploy/banc_regime.js` | le filtre par état sur le roster en place | entrée `banc_regime` du workflow |
 | `deploy/banc_chercheur.js` | le procédé de sélection, en glissade sur un an | entrée `banc_chercheur` |
 | `deploy/banc_transversal.js` | le classement entre instruments | entrée `transversal` |
 | `deploy/hors_echantillon.js` | l'hypothèse du 2 septembre, sur les seules données postérieures | entrée `hors_echantillon` |
+| `deploy/banc_movers.js` | le papier des movers et six familles de flux / positionnement contre leur nul, test de famille compris | entrée `movers_banc` |
 | `deploy/ampleur.js` | la loi en √N sur cent instruments : l'avantage grandit-il comme la largeur l'exige | entrée `ampleur` |
 | `deploy/diagnostic_taille.js` | refait le calcul de taille sur les vrais lots OKX (aucun ordre placé) | entrée `taille` |
 
