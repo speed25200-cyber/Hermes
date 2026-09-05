@@ -127,7 +127,7 @@ futur, qu'un effet planté est retrouvé, et **que le nul le détruit**.
 
 ## Résultats — mesure du 2026-09-05
 
-Fenêtre 2024-08-31 → 2026-08-31. 134 instruments avec histoire, dont 134 avec le flux acheteur (klines v2), 56 avec les metrics, 56 avec la base. Frais 0.05 % et glissement 0.01 % par exécution, funding accumulé. 20 répliques, blocs de 12 bougies de 30 min. Durée 173 s.
+Fenêtre 2024-08-31 → 2026-08-31. 134 instruments avec histoire, dont 134 avec le flux acheteur (klines v2), 134 avec les metrics, 134 avec la base. Frais 0.05 % et glissement 0.01 % par exécution, funding accumulé. 20 répliques, blocs de 12 bougies de 30 min. Durée 217 s.
 
 ### H1 — le papier « Top 100 movers x20 »
 
@@ -138,7 +138,7 @@ Fenêtre 2024-08-31 → 2026-08-31. 134 instruments avec histoire, dont 134 avec
 | profit factor | 1.35 | 1.00 | 1.00 |
 | brut / trade | 0.236 % | 0.111 % | 0.108 % |
 | net / trade | 0.126 % | 0.001 % | -0.002 % |
-| t brut / t net | 17.53 / 9.36 | 4.37 / 0.05 | 75.72 / -1.38 |
+| t brut / t net | 17.53 / 9.36 | 4.37 / 0.05 | 75.72 / -1.43 |
 | percentile du nul (t net) | 100e | 10e | — |
 
 Le papier annonce 69,25 % de gain et un PF médian de 1,52 en OOS. Ici, sur toute la fenêtre : WR 73.5 %, PF 1.35. Le nul — mêmes règles, mêmes contrats privés de leur mémoire — donne un taux de gain médian de **69.0 %** et un PF médian de **1.03**. Le hasard produit le même taux de gain : c'est la forme des sorties (stop à 1,25 %, cibles à 2–8 %) qui le fabrique, pas la prédiction.
@@ -148,7 +148,7 @@ Par famille, sur leur propre contrat :
 | famille | trades | WR | PF | net / trade | t brut | t net |
 |---|---|---|---|---|---|---|
 | breakout | 3125 | 71.8 % | 1.23 | 0.089 % | 10.06 | 4.50 |
-| momentum | 1109 | 77.7 % | 1.55 | 0.165 % | 8.76 | 5.26 |
+| momentum | 1109 | 77.7 % | 1.55 | 0.165 % | 8.76 | 5.24 |
 | pullback | 1416 | 75.0 % | 1.55 | 0.183 % | 10.32 | 6.44 |
 | reversion | 115 | 67.0 % | 1.09 | 0.038 % | 1.52 | 0.39 |
 | hybrid | 807 | 72.9 % | 1.35 | 0.130 % | 5.94 | 3.22 |
@@ -163,65 +163,65 @@ Toutes les cellules, y compris les mauvaises. Percentile : le t net réel dans l
 
 | cellule | trades / périodes | WR | brut / trade | net / trade | t brut | t net | nul médian | percentile |
 |---|---|---|---|---|---|---|---|---|
-| xs_dOI@24h | 118 | — | 0.223 % | 0.149 % | 1.30 | 0.87 | -0.47 | 90e |
-| xs_base@24h | 119 | — | 0.207 % | 0.146 % | 1.15 | 0.81 | -0.56 | 80e |
-| xs_taker@24h | 119 | — | 0.138 % | 0.064 % | 0.87 | 0.40 | -0.56 | 85e |
-| atr_expansion_con@24h | 11161 | 50.9 % | 0.121 % | 0.001 % | 1.22 | 0.01 | -0.88 | 75e |
-| ofi_momentum@24h | 18737 | 49.2 % | 0.117 % | -0.004 % | 2.24 | -0.08 | -2.88 | 100e |
+| xs_dOI@24h | 697 | — | 0.116 % | 0.023 % | 1.57 | 0.30 | -1.54 | 95e |
+| atr_expansion_con@24h | 11161 | 50.9 % | 0.121 % | 0.004 % | 1.22 | 0.04 | -0.90 | 75e |
 | xs_retour24_rev@24h | 697 | — | 0.082 % | -0.010 % | 0.98 | -0.12 | -1.88 | 100e |
-| squeeze_court@24h | 6668 | 46.5 % | 0.031 % | -0.087 % | 0.29 | -0.84 | 0.04 | 0e |
-| financement_contr@24h | 3967 | 47.6 % | -0.131 % | -0.124 % | -0.98 | -0.92 | 0.05 | 10e |
-| xs_financement@24h | 697 | — | 0.012 % | -0.053 % | 0.25 | -1.07 | -1.64 | 85e |
-| squeeze_long@24h | 7244 | 53.1 % | -0.000 % | -0.123 % | -0.00 | -1.20 | -2.54 | 100e |
-| taker_contrarien@24h | 10659 | 50.9 % | 0.024 % | -0.095 % | 0.35 | -1.42 | -3.10 | 95e |
+| ofi_momentum@24h | 18737 | 49.2 % | 0.117 % | -0.006 % | 2.24 | -0.12 | -2.86 | 100e |
+| financement_contr@24h | 5471 | 47.3 % | -0.146 % | -0.089 % | -1.06 | -0.64 | 0.16 | 20e |
+| squeeze_court@24h | 15547 | 46.1 % | 0.057 % | -0.047 % | 0.79 | -0.65 | -0.08 | 5e |
 | xs_ofi24@24h | 697 | — | -0.007 % | -0.094 % | -0.11 | -1.45 | -1.79 | 70e |
-| financement_contr@4h | 11528 | 47.5 % | 0.030 % | -0.066 % | 0.86 | -1.90 | -4.51 | 95e |
-| cvd_confirmation@24h | 19277 | 48.3 % | 0.001 % | -0.119 % | 0.01 | -1.97 | -2.69 | 90e |
-| oi_momentum@24h | 9464 | 46.8 % | -0.052 % | -0.174 % | -0.62 | -2.07 | -2.85 | 75e |
+| xs_financement@24h | 697 | — | -0.041 % | -0.108 % | -0.65 | -1.73 | -1.80 | 60e |
+| cvd_confirmation@24h | 19277 | 48.2 % | 0.001 % | -0.121 % | 0.01 | -1.99 | -2.71 | 90e |
 | xs_retour24_mom@24h | 697 | — | -0.082 % | -0.173 % | -0.98 | -2.08 | -1.47 | 40e |
-| gros_comptes_contr@24h | 7913 | 49.5 % | -0.057 % | -0.170 % | -0.70 | -2.09 | -1.71 | 40e |
-| taker_momentum@24h | 10659 | 46.4 % | -0.024 % | -0.145 % | -0.35 | -2.18 | -0.76 | 5e |
-| atr_expansion_mom@24h | 11161 | 46.7 % | -0.121 % | -0.241 % | -1.22 | -2.43 | -2.66 | 65e |
-| base_contrarien@24h | 10091 | 48.9 % | -0.091 % | -0.203 % | -1.25 | -2.80 | -2.12 | 20e |
-| breakout_donchian@24h | 22992 | 47.0 % | -0.036 % | -0.158 % | -0.64 | -2.80 | -3.64 | 90e |
-| cvd_divergence@24h | 24182 | 50.9 % | -0.025 % | -0.142 % | -0.50 | -2.84 | -1.88 | 5e |
-| squeeze_court@4h | 12234 | 47.3 % | 0.008 % | -0.110 % | 0.22 | -2.97 | -2.95 | 45e |
-| squeeze_long@4h | 13811 | 50.1 % | 0.008 % | -0.113 % | 0.22 | -3.23 | -6.26 | 100e |
-| atr_expansion_mom@4h | 24592 | 46.3 % | 0.011 % | -0.109 % | 0.36 | -3.73 | -6.50 | 100e |
-| atr_expansion_con@4h | 24592 | 48.3 % | -0.011 % | -0.131 % | -0.36 | -4.45 | -2.64 | 5e |
-| ofi_contrarien@24h | 18737 | 48.1 % | -0.117 % | -0.236 % | -2.24 | -4.50 | -2.31 | 0e |
-| oi_momentum@4h | 22889 | 45.9 % | 0.004 % | -0.116 % | 0.17 | -4.50 | -9.80 | 100e |
-| cvd_confirmation@4h | 39467 | 44.9 % | 0.024 % | -0.096 % | 1.28 | -5.21 | -7.13 | 100e |
-| base_contrarien@4h | 23807 | 47.0 % | 0.004 % | -0.115 % | 0.17 | -5.37 | -7.25 | 100e |
-| taker_contrarien@4h | 24642 | 47.5 % | 0.021 % | -0.098 % | 1.27 | -5.90 | -7.92 | 100e |
-| gros_comptes_contr@4h | 20581 | 46.7 % | -0.020 % | -0.138 % | -0.86 | -6.04 | -4.56 | 20e |
-| squeeze_court@1h | 25279 | 46.0 % | 0.005 % | -0.115 % | 0.32 | -7.73 | -12.86 | 100e |
-| breakout_donchian@4h | 48358 | 43.6 % | -0.016 % | -0.137 % | -0.97 | -8.03 | -11.67 | 100e |
-| ofi_contrarien@4h | 45279 | 47.1 % | 0.004 % | -0.116 % | 0.27 | -8.34 | -9.47 | 90e |
-| squeeze_long@1h | 29941 | 47.4 % | 0.013 % | -0.107 % | 1.02 | -8.42 | -16.30 | 100e |
-| taker_momentum@4h | 24642 | 44.1 % | -0.021 % | -0.142 % | -1.27 | -8.50 | -6.24 | 5e |
-| ofi_momentum@4h | 45279 | 45.7 % | -0.004 % | -0.124 % | -0.27 | -8.94 | -9.90 | 90e |
-| atr_expansion_mom@1h | 71528 | 43.9 % | 0.020 % | -0.100 % | 2.07 | -10.07 | -15.85 | 100e |
-| cvd_divergence@4h | 57137 | 49.1 % | -0.041 % | -0.160 % | -2.90 | -11.37 | -7.44 | 0e |
-| financement_contr@1h | 43105 | 43.4 % | 0.003 % | -0.111 % | 0.36 | -12.26 | -19.07 | 100e |
-| base_contrarien@1h | 33874 | 43.7 % | -0.012 % | -0.131 % | -1.17 | -12.87 | -16.81 | 100e |
-| oi_momentum@1h | 54413 | 43.2 % | -0.009 % | -0.129 % | -0.91 | -13.23 | -25.18 | 100e |
-| atr_expansion_con@1h | 71528 | 46.0 % | -0.020 % | -0.140 % | -2.07 | -14.20 | -11.38 | 0e |
+| xs_base@24h | 697 | — | -0.067 % | -0.145 % | -0.97 | -2.10 | -1.55 | 30e |
+| taker_contrarien@24h | 23840 | 51.3 % | 0.019 % | -0.104 % | 0.42 | -2.35 | -4.62 | 100e |
+| atr_expansion_mom@24h | 11161 | 46.7 % | -0.121 % | -0.244 % | -1.22 | -2.46 | -2.65 | 65e |
+| gros_comptes_contr@24h | 17697 | 49.9 % | -0.038 % | -0.150 % | -0.68 | -2.68 | -2.35 | 50e |
+| breakout_donchian@24h | 22992 | 47.0 % | -0.036 % | -0.158 % | -0.64 | -2.81 | -3.67 | 90e |
+| cvd_divergence@24h | 24182 | 51.0 % | -0.025 % | -0.141 % | -0.50 | -2.82 | -1.88 | 5e |
+| squeeze_long@24h | 16638 | 52.9 % | -0.078 % | -0.210 % | -1.05 | -2.83 | -3.95 | 100e |
+| financement_contr@4h | 15456 | 47.2 % | -0.016 % | -0.103 % | -0.45 | -2.87 | -4.48 | 90e |
+| taker_momentum@24h | 23840 | 46.1 % | -0.019 % | -0.136 % | -0.42 | -3.05 | -1.09 | 0e |
+| xs_taker@24h | 697 | — | -0.066 % | -0.162 % | -1.31 | -3.25 | -1.61 | 10e |
+| oi_momentum@24h | 21823 | 47.0 % | -0.078 % | -0.200 % | -1.28 | -3.31 | -4.04 | 75e |
+| atr_expansion_mom@4h | 24592 | 46.3 % | 0.011 % | -0.110 % | 0.36 | -3.75 | -6.49 | 100e |
+| base_contrarien@24h | 22527 | 48.8 % | -0.087 % | -0.196 % | -1.76 | -3.96 | -2.89 | 20e |
+| atr_expansion_con@4h | 24592 | 48.3 % | -0.011 % | -0.130 % | -0.36 | -4.43 | -2.65 | 5e |
+| ofi_contrarien@24h | 18737 | 48.1 % | -0.117 % | -0.234 % | -2.24 | -4.46 | -2.32 | 0e |
+| cvd_confirmation@4h | 39467 | 44.9 % | 0.024 % | -0.097 % | 1.28 | -5.23 | -7.13 | 100e |
+| squeeze_court@4h | 28852 | 46.7 % | -0.018 % | -0.134 % | -0.75 | -5.63 | -4.62 | 5e |
+| oi_momentum@4h | 53827 | 46.2 % | 0.021 % | -0.100 % | 1.20 | -5.80 | -14.14 | 100e |
+| squeeze_long@4h | 32609 | 50.4 % | -0.029 % | -0.151 % | -1.21 | -6.35 | -9.87 | 100e |
+| base_contrarien@4h | 52845 | 47.4 % | 0.019 % | -0.098 % | 1.34 | -6.77 | -10.53 | 100e |
+| breakout_donchian@4h | 48358 | 43.6 % | -0.016 % | -0.137 % | -0.97 | -8.04 | -11.68 | 100e |
+| ofi_contrarien@4h | 45279 | 47.1 % | 0.004 % | -0.116 % | 0.27 | -8.32 | -9.47 | 90e |
+| taker_contrarien@4h | 55514 | 47.9 % | 0.018 % | -0.102 % | 1.58 | -8.84 | -11.57 | 100e |
+| ofi_momentum@4h | 45279 | 45.7 % | -0.004 % | -0.124 % | -0.27 | -8.96 | -9.90 | 85e |
+| gros_comptes_contr@4h | 45941 | 46.8 % | -0.027 % | -0.145 % | -1.76 | -9.49 | -7.15 | 0e |
+| atr_expansion_mom@1h | 71528 | 43.9 % | 0.020 % | -0.100 % | 2.07 | -10.10 | -15.85 | 100e |
+| cvd_divergence@4h | 57137 | 49.1 % | -0.041 % | -0.160 % | -2.90 | -11.35 | -7.43 | 0e |
+| taker_momentum@4h | 55514 | 44.1 % | -0.018 % | -0.138 % | -1.58 | -11.97 | -9.34 | 5e |
+| financement_contr@1h | 57368 | 43.6 % | -0.008 % | -0.120 % | -0.85 | -12.99 | -20.28 | 100e |
+| squeeze_court@1h | 59391 | 45.6 % | -0.009 % | -0.128 % | -1.01 | -13.93 | -19.81 | 100e |
+| atr_expansion_con@1h | 71528 | 46.0 % | -0.020 % | -0.140 % | -2.07 | -14.18 | -11.37 | 0e |
+| squeeze_long@1h | 71525 | 48.1 % | -0.001 % | -0.122 % | -0.12 | -14.25 | -24.89 | 100e |
 | cvd_confirmation@1h | 67319 | 40.6 % | -0.005 % | -0.126 % | -0.65 | -14.97 | -14.00 | 10e |
-| taker_contrarien@1h | 32240 | 42.9 % | 0.011 % | -0.109 % | 1.53 | -14.99 | -16.41 | 90e |
 | breakout_donchian@1h | 72625 | 41.2 % | -0.009 % | -0.129 % | -1.05 | -15.10 | -22.78 | 100e |
-| gros_comptes_contr@1h | 58249 | 43.0 % | 0.000 % | -0.119 % | 0.04 | -17.33 | -14.91 | 0e |
-| taker_momentum@1h | 32240 | 40.4 % | -0.011 % | -0.131 % | -1.53 | -18.08 | -16.28 | 0e |
-| cvd_divergence@1h | 99540 | 47.0 % | -0.007 % | -0.127 % | -1.20 | -21.41 | -22.18 | 75e |
-| ofi_contrarien@1h | 119476 | 43.9 % | 0.008 % | -0.111 % | 1.99 | -26.04 | -31.09 | 100e |
-| ofi_momentum@1h | 119476 | 41.4 % | -0.008 % | -0.129 % | -1.99 | -30.07 | -30.81 | 70e |
+| base_contrarien@1h | 74702 | 44.0 % | -0.005 % | -0.124 % | -0.70 | -17.00 | -25.09 | 100e |
+| oi_momentum@1h | 128978 | 43.6 % | 0.004 % | -0.116 % | 0.67 | -18.45 | -38.27 | 100e |
+| cvd_divergence@1h | 99540 | 47.0 % | -0.007 % | -0.127 % | -1.20 | -21.40 | -22.18 | 75e |
+| taker_contrarien@1h | 72752 | 43.5 % | 0.009 % | -0.111 % | 1.79 | -22.84 | -24.24 | 90e |
+| ofi_contrarien@1h | 119476 | 43.9 % | 0.008 % | -0.111 % | 1.99 | -26.03 | -31.08 | 100e |
+| taker_momentum@1h | 72752 | 40.7 % | -0.009 % | -0.129 % | -1.79 | -26.40 | -23.53 | 0e |
+| gros_comptes_contr@1h | 129919 | 43.2 % | -0.006 % | -0.126 % | -1.29 | -26.50 | -22.20 | 0e |
+| ofi_momentum@1h | 119476 | 41.4 % | -0.008 % | -0.129 % | -1.99 | -30.08 | -30.80 | 70e |
 
-**Test de famille (Westfall-Young, maxT, 52 cellules)** : meilleure cellule réelle xs_dOI@24h, t 0.87 ; médiane des maxima des répliques 0.85 ; le meilleur t réel bat **55 %** des maxima de répliques. Sous le seuil de 95 % : rien n'est démontré au niveau de la famille.
+**Test de famille (Westfall-Young, maxT, 52 cellules)** : meilleure cellule réelle xs_dOI@24h, t 0.3 ; médiane des maxima des répliques 0.72 ; le meilleur t réel bat **30 %** des maxima de répliques. Sous le seuil de 95 % : rien n'est démontré au niveau de la famille.
 
 ### Application des règles écrites d'avance
 
 - Règle 1 (cellule retenue : t net > 2, percentile ≥ 95, famille ≥ 95 %) : **aucune cellule retenue**.
-- Règle 2 (le papier) : (a) ordre de grandeur reproduit — oui (WR 73.5 %, PF 1.35) ; (b) bat 95 % du nul — oui (100e) ; (c) t net > 0 en transfert — non (-1.38). **Le papier n'est pas crédité.**
+- Règle 2 (le papier) : (a) ordre de grandeur reproduit — oui (WR 73.5 %, PF 1.35) ; (b) bat 95 % du nul — oui (100e) ; (c) t net > 0 en transfert — non (-1.43). **Le papier n'est pas crédité.**
 - Règle 3 : **la grille échoue au test de famille : aucune de ces stratégies n'entre dans Hermes.**
 
 ### Lecture — pourquoi t = 9,36 n'est pas une preuve, et ce qui l'est
@@ -252,7 +252,7 @@ jour-là, avaient le plus bougé sur 24 h, sans regarder l'avenir — fait
 1904 trades pour 0,001 % net par trade, t 0,05, 10e percentile de son
 nul. Les 88 profils transportés sur les autres movers — mêmes règles,
 mêmes sorties, autre contrat — font 525 304 trades pour −0,002 % net,
-t −1,38. Le t brut de 75,7 sur cette colonne dit seulement que la forme
+t −1,43. Le t brut de 75,7 sur cette colonne dit seulement que la forme
 des sorties (stop serré, cibles larges, trail) produit une espérance
 brute positive de 0,108 % par trade sur du bruit, systématiquement ;
 les 0,11 % de coûts la mangent entièrement. Ce que les profils savent
@@ -270,20 +270,27 @@ cellules à 1 h et 4 h sont toutes négatives après coûts, souvent à
 t < −5 : à ces horizons, l'espérance brute d'un signal de carnet ou de
 flux (OFI, CVD, taker, OI, base, squeeze, Donchian, expansion d'ATR) est
 comprise entre −0,04 % et +0,02 % par trade, pour 0,11 % de coûts. À
-24 h, trois cellules transversales ressortent à t 0,8–0,9 (dOI, base,
-taker) sur 118 périodes : la meilleure bat 55 % des maxima des
-répliques. C'est exactement ce qu'on attend d'une grille de 52 essais
-sur du bruit. Deux réserves de puissance, à lever à la prochaine
-mesure : les metrics (OI, taker, gros comptes) ne couvraient que 56 des
-134 instruments, et 118 périodes journalières ne peuvent pas révéler un
-t > 2 pour un avantage de la taille de ceux vus ici. La mesure sera
-refaite avec les 134 instruments ; les règles de décision ne changent
-pas d'ici là.
+24 h, aucune cellule n'a un t net supérieur à 0,3 ; la meilleure
+(classement transversal par variation d'intérêt ouvert, 697 périodes)
+bat 30 % des maxima des répliques. C'est exactement ce qu'on attend
+d'une grille de 52 essais sur du bruit.
+
+**Ce que la mesure complète a corrigé.** Une première passe, faite
+avec les metrics de 56 instruments sur 134, montrait trois cellules
+transversales à t 0,8–0,9 sur 118 périodes (dOI, base, taker) et un test
+de famille à 55 %. Avec les 134 instruments et 697 périodes, ces trois
+cellules tombent à t 0,30, −2,10 et −3,25. Les cellules qui
+frémissaient étaient celles qui avaient le moins de données : c'est la
+signature du bruit, et la raison pour laquelle ce document n'a écrit
+aucun verdict avant que la mesure soit complète. Les cellules qui ne
+dépendent pas des metrics (flux, volatilité, Donchian) n'ont bougé que
+de quelques centièmes de t entre les deux passes : ce qui a changé,
+c'est uniquement ce qui manquait de données.
 
 **Ce que dit la famille breakout/momentum/pullback à t 4–6 sur leur
 contrat.** Ces familles sont celles que le papier a le plus optimisées
 (77 des 88 profils). Que leurs t soient les plus hauts *dans la fenêtre
-d'ajustement* et que la même famille transportée fasse t −1,38 est la
+d'ajustement* et que la même famille transportée fasse t −1,43 est la
 preuve la plus directe qu'il s'agit de l'ajustement.
 
 **Verdict, par les règles écrites avant la mesure.** Aucune cellule
@@ -466,8 +473,8 @@ signal qui marche » : il n'y en a pas de démontré. Elle est celle-ci.
   cela, aucun avantage petit ne survit, et les avantages sont petits.
 
 - **Des primes lentes, mesurées longtemps, plutôt que des bougies
-  rapides.** Toutes les cellules à 1 h et 4 h sont négatives ; les
-  seules qui ne le sont pas sont à 24 h et sous-alimentées. Le
+  rapides.** Toutes les cellules à 1 h et 4 h sont négatives, et à
+  24 h aucune ne dépasse t 0,3 une fois les données complètes. Le
   financement transversal reste l'hypothèse pré-inscrite
   (`avantage.md`, verdict mi-2028). On ne la remplace pas ; on attend
   qu'elle ait le nombre de périodes qu'il lui faut, et on ne lit pas le
