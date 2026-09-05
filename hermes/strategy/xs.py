@@ -24,7 +24,7 @@ from __future__ import annotations
 import numpy as np
 
 from .. import features as F
-from ..data.store import BARS_PER_YEAR, Candles
+from ..data.store import BAR_MS, BARS_PER_YEAR, Candles
 
 # parameter grids searched by the XS research gate (small on purpose: few
 # trials keep the deflated-Sharpe penalty low and the strategy honest).
@@ -82,11 +82,15 @@ MOM_SKIP_FRAC = 0.05
 # every family, and adds zero trials to the deflated-Sharpe penalty.
 REBALANCE_BAND_FRAC = 0.25
 
-# rebalance cadence (hours): a weekly-horizon ranking re-traded every hour
-# is a fee mill (>1x equity per day on a 40-name book). Books are re-struck
-# once a day at 00:00 UTC — the textbook cadence for weekly momentum — and
-# held in between. Design constant, not searched.
-REBALANCE_EVERY_HOURS = 24
+# rebalance cadence (hours) per family: a weekly-horizon ranking re-traded
+# every hour is a fee mill (>1x equity per day on a 40-name book). Slow
+# books (carry, momentum, basis, crowding) are re-struck once a day — the
+# textbook cadence for weekly momentum — and held in between; the intraday
+# families keep their bar cadence (their horizon IS hours). Design
+# constants, not searched.
+REBALANCE_HOURS = {"carry": 24, "mom": 24, "basis": 24, "crowd": 24,
+                   "rev": 1, "lead": 1, "flow": 1}
+REBALANCE_EVERY_HOURS = 24   # default for unknown kinds
 
 # genome signal name -> scoring kind
 XS_KINDS = {"funding_xs": "carry", "xs_mom": "mom", "xs_rev": "rev",
@@ -304,8 +308,12 @@ def xs_positions(
     # eat high-frequency families alive, without touching the signal itself.
     # A name leaving the investable set is flattened at once.
     band = REBALANCE_BAND_FRAC * max_w
-    every_ms = int(REBALANCE_EVERY_HOURS * 3_600_000)
-    rebalance = (common % every_ms) == 0 if every_ms > 0 else np.ones(n, dtype=bool)
+    every_ms = int(REBALANCE_HOURS.get(kind, REBALANCE_EVERY_HOURS) * 3_600_000)
+    if every_ms > BAR_MS.get(bar, 0) and n:
+        period = np.asarray(common, dtype=np.int64) // every_ms
+        rebalance = np.concatenate(([True], period[1:] != period[:-1]))  # first bar of each period
+    else:
+        rebalance = np.ones(n, dtype=bool)
     held = np.zeros(len(insts))
     out = np.empty_like(w)
     for t in range(n):
