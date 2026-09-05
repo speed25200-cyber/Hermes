@@ -72,6 +72,14 @@ on:
         description: "Relever l'hypothese pre-inscrite du 2 septembre sur les seules donnees posterieures"
         required: false
         default: "false"
+      movers:
+        description: "Telecharger l'histoire des 136 movers (klines v2 avec flux acheteur, metrics, base) — a relancer jusqu'a ce que tout soit present"
+        required: false
+        default: "false"
+      movers_banc:
+        description: "Mesurer les strategies movers, flux, positionnement, transversal et le papier x20 (data/movers.json)"
+        required: false
+        default: "false"
       ampleur:
         description: "Elargir a cent instruments et tester la loi en racine(N) : le sharpe grandit-il comme la largeur l'exige ?"
         required: false
@@ -421,6 +429,29 @@ jobs:
             -o ServerAliveInterval=30 -o ServerAliveCountMax=40 \
             "root@$VPS" \
             "cd /root/hermes && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=1400' TRANSVERSAL_MOIS_MIN='${{ inputs.mois }}' node deploy/banc_transversal.js"
+
+      # La recherche sur les movers. Deux etapes separees parce que la
+      # premiere est longue et reprend la ou elle s'arrete : les klines
+      # doivent etre retelechargees (format v2, avec le volume acheteur
+      # agressif qui permet le CVD sans un tick), et les metrics sont un
+      # fichier par jour et par instrument. Chaque relance ne prend que
+      # ce qui manque. La mesure elle-meme tient en quelques minutes une
+      # fois les donnees la.
+      - name: Telecharger l'histoire des movers
+        if: ${{ inputs.movers == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=60 \
+            "root@$VPS" \
+            "cd /root/hermes && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=1400' BANC_UNIVERS_FICHIER=recherche/movers/univers.json HISTOIRE_MOIS=24 HISTOIRE_BUDGET_S=1100 node deploy/histoire_longue.js && NODE_OPTIONS='--dns-result-order=ipv4first' BANC_UNIVERS_FICHIER=recherche/movers/univers.json HISTOIRE_MOIS=24 EXTRA_METRICS_JOURS=730 EXTRA_BUDGET_S=900 node deploy/histoire_extra.js && du -sh data/cache-long data/extra"
+
+      - name: Mesurer les strategies movers
+        if: ${{ inputs.movers_banc == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=120 \
+            "root@$VPS" \
+            "cd /root/hermes && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=1500' node deploy/banc_movers.js"
 
       # Le suivi hors echantillon. Le banc transversal a vu ses vingt et
       # une cellules avant de conclure, et paie cette liberte par une

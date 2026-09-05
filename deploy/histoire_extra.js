@@ -73,6 +73,18 @@ function telecharger(chemin) {
    change sans que le script meure. */
 function reperer(lignes, estValeur) {
   const echant = lignes.filter((l) => l && /\d/.test(l)).slice(0, 30).map((l) => l.split(","));
+/* Un fichier d'univers l'emporte sur la liste : la recherche sur les
+   movers en a besoin d'un large (une centaine), et une variable
+   d'environnement de cette taille n'est pas lisible dans un workflow. */
+function universDepuisFichier(defaut) {
+  const f = process.env.BANC_UNIVERS_FICHIER;
+  if (!f) return defaut;
+  try { const j = JSON.parse(fs.readFileSync(path.isAbsolute(f) ? f : path.join(RACINE, f), "utf8"));
+        const l = Array.isArray(j) ? j : j.instruments; if (Array.isArray(l) && l.length) return l; } catch {}
+  console.log(`[EXTRA] univers ${f} illisible : liste par defaut`);
+  return defaut;
+}
+const UNIVERS_EFFECTIF = universDepuisFichier(UNIVERS);
   if (!echant.length) return null;
   const nCol = Math.max(...echant.map((c) => c.length));
   let iTs = -1, iVal = -1;
@@ -101,7 +113,75 @@ function lire(texte, estValeur) {
   return out.sort((a, b) => a[0] - b[0]);
 }
 
-async function serie(sym, mois, chemin, estValeur) {
+/* La cloture d'une kline. L'indice de prime (base perpetuel/indice) est
+   publie sous forme de klines : la valeur qui compte est la cloture, et
+   le lecteur generique prendrait la premiere colonne plausible — l'open. */
+function lireClotureKline(texte) {
+  const out = [];
+  for (const l of texte.split("\n")) {
+    const c = l.split(","); let ts = Number(c[0]); const v = Number(c[4]);
+    if (!Number.isFinite(ts) || !Number.isFinite(v)) continue;
+    if (ts > 1e14) ts = Math.floor(ts / 1000);
+    out.push([ts, v]);
+  }
+  return out.sort((a, b) => a[0] - b[0]);
+}
+
+/* Les « metrics » Binance : un fichier par JOUR, huit colonnes, avec un
+   horodatage en texte (« 2026-07-15 00:05:00 ») et non en millisecondes.
+   On garde : interet ouvert (contrats), sa valeur en USDT, ratio
+   long/short des gros comptes (par comptes puis par positions), ratio
+   long/short global, ratio volume taker achat/vente. Cinq minutes. */
+const METRICS_COLS = ["sum_open_interest", "sum_open_interest_value", "count_toptrader_long_short_ratio",
+                      "sum_toptrader_long_short_ratio", "count_long_short_ratio", "sum_taker_long_short_vol_ratio"];
+function lireMetrics(texte) {
+  const lignes = texte.split("\n").filter(Boolean);
+  if (!lignes.length) return [];
+  const tete = lignes[0].split(",").map((x) => x.trim());
+  const idx = METRICS_COLS.map((n) => tete.indexOf(n));
+  const iTs = tete.indexOf("create_time");
+  if (iTs < 0 || idx.some((i) => i < 0)) return [];
+  const out = [];
+  for (let k = 1; k < lignes.length; k++) {
+    const c = lignes[k].split(",");
+    const ts = Date.parse(String(c[iTs]).trim().replace(" ", "T") + "Z");
+    if (!Number.isFinite(ts)) continue;
+    const vals = idx.map((i) => Number(c[i]));
+    if (vals.some((v) => !Number.isFinite(v))) continue;
+    out.push([ts, ...vals]);
+  }
+  return out.sort((a, b) => a[0] - b[0]);
+}
+
+/* Les jours d'archive : chaque jour est un fichier, on les prend par
+   paquets de huit en parallele — un seul a la file, ce serait trois
+   heures pour cinquante instruments sur deux ans. */
+function joursAvant(n) {
+  const out = []; const d = new Date(); d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - 2);               // la veille n'est pas toujours publiee
+  for (let i = 0; i < n; i++) { out.push(d.toISOString().slice(0, 10)); d.setUTCDate(d.getUTCDate() - 1); }
+  return out.reverse();
+}
+const jourDe = (rows) => { const s = new Set(); for (const r of rows || []) s.add(new Date(r[0]).toISOString().slice(0, 10)); return s; };
+
+async function serieJours(sym, jours, chemin, lecteur, parallele) {
+  const rows = []; const vides = []; let absents = 0;
+  const P = parallele || 8;
+  for (let i = 0; i < jours.length; i += P) {
+    const lot = jours.slice(i, i + P);
+    const res = await Promise.all(lot.map(async (j) => {
+      try { const b = await telecharger(chemin(sym, j)); if (!b) return { j, r: null };
+            return { j, r: lecteur(ouvrirZip(b).toString("utf8")) }; }
+      catch { return { j, r: null }; }
+    }));
+    for (const { j, r } of res) { if (!r || !r.length) { absents++; vides.push(j); } else rows.push(...r); }
+  }
+  const vus = new Set(); const propre = [];
+  for (const k of rows.sort((a, b) => a[0] - b[0])) if (!vus.has(k[0])) { vus.add(k[0]); propre.push(k); }
+  return { rows: propre, absents, vides };
+}
+
+async function serie(sym, mois, chemin, estValeur, lecteur) {
   const rows = [];
   let absents = 0;
   const vides = [];                               // les mois qui n'ont rien rendu
@@ -110,7 +190,7 @@ async function serie(sym, mois, chemin, estValeur) {
     try { brut = await telecharger(chemin(sym, m)); } catch { absents++; vides.push(m); continue; }
     if (!brut) { absents++; vides.push(m); continue; }
     try {
-      const r = lire(ouvrirZip(brut).toString("utf8"), estValeur);
+      const r = lecteur ? lecteur(ouvrirZip(brut).toString("utf8")) : lire(ouvrirZip(brut).toString("utf8"), estValeur);
       if (r.length) rows.push(...r); else vides.push(m);
     } catch { absents++; vides.push(m); }
   }
@@ -184,17 +264,26 @@ async function main() {
   fs.mkdirSync(DEST, { recursive: true });
   const BUDGET_MS = Number(process.env.EXTRA_BUDGET_S || 900) * 1000;
   const depart = Date.now();
-  console.log(`[EXTRA] ${UNIVERS.length} instruments, ${mois.length} mois (${mois[0]} → ${mois[mois.length - 1]}), budget ${(BUDGET_MS / 60000).toFixed(0)} min`);
+  console.log(`[EXTRA] ${UNIVERS_EFFECTIF.length} instruments, ${mois.length} mois (${mois[0]} → ${mois[mois.length - 1]}), budget ${(BUDGET_MS / 60000).toFixed(0)} min`);
 
   const OI = process.env.EXTRA_OI === "1";
+  /* La prime (base) est mensuelle et legere ; les metrics sont
+     journalieres et nombreuses. EXTRA_METRICS_JOURS=0 les laisse de
+     cote ; 730 en demande deux ans, par paquets, avec reprise. */
+  const METRICS_JOURS = Number(process.env.EXTRA_METRICS_JOURS || 0);
+  const jours = METRICS_JOURS > 0 ? joursAvant(METRICS_JOURS) : [];
+  const PRIME = process.env.EXTRA_PRIME !== "0";
   let faits = 0, sautes = 0;
-  for (const instId of UNIVERS) {
+  for (const instId of UNIVERS_EFFECTIF) {
     const deja = lireExistant(instId) || {};
     const mFin = manquants(mois, deja.financement, deja.moisAbsents);
     const mOi = OI ? manquants(mois, deja.interetOuvert, deja.moisAbsentsOi) : [];
-    if (!mFin.length && !mOi.length) { sautes++; continue; }
+    const mPrime = PRIME ? manquants(mois, deja.prime, deja.moisAbsentsPrime) : [];
+    const jVus = jourDe(deja.metrics), jAbs = new Set(deja.joursAbsentsMetrics || []);
+    const jMet = jours.filter((j) => !jVus.has(j) && !jAbs.has(j));
+    if (!mFin.length && !mOi.length && !mPrime.length && !jMet.length) { sautes++; continue; }
     if (Date.now() - depart > BUDGET_MS) {
-      console.log(`[EXTRA] budget epuise : ${faits} telecharges, ${sautes} deja presents, ${UNIVERS.length - faits - sautes} restants.`);
+      console.log(`[EXTRA] budget epuise : ${faits} telecharges, ${sautes} deja presents, ${UNIVERS_EFFECTIF.length - faits - sautes} restants.`);
       console.log(`[EXTRA] relancer cette etape reprendra la ou elle s'arrete.`);
       break;
     }
@@ -220,18 +309,33 @@ async function main() {
       ? await serie(sym, mOi, (s, m) => `/data/futures/um/monthly/metrics/${s}/${s}-metrics-${m}.zip`, (v) => v > 1000)
       : { rows: [], absents: 0, vides: [] };
 
+    const prime = mPrime.length
+      ? await serie(sym, mPrime, (s, m) => `/data/futures/um/monthly/premiumIndexKlines/${s}/5m/${s}-5m-${m}.zip`, null, lireClotureKline)
+      : { rows: [], absents: 0, vides: [] };
+    const met = jMet.length
+      ? await serieJours(sym, jMet, (s, j) => `/data/futures/um/daily/metrics/${s}/${s}-metrics-${j}.zip`, lireMetrics)
+      : { rows: [], absents: 0, vides: [] };
+
     const financement = fusionner(deja.financement, fin.rows);
     const interetOuvert = OI ? fusionner(deja.interetOuvert, oi.rows) : (deja.interetOuvert || []);
     const garder = (ancien, vides) => [...new Set([...(ancien || []), ...vides.filter(absentPourDeBon)])].sort();
+    /* Un jour est absent pour de bon apres 4 jours : les archives
+       journalieres paraissent avec un ou deux jours de retard. */
+    const garderJours = (ancien, vides) => [...new Set([...(ancien || []), ...vides.filter((j) => Date.now() - Date.parse(j + "T00:00:00Z") > 4 * 86400e3)])].sort();
     const paquet = { instId, financement, interetOuvert,
+                     prime: fusionner(deja.prime, prime.rows),
+                     metrics: fusionner(deja.metrics, met.rows),
+                     metricsColonnes: ["ts", ...METRICS_COLS],
                      moisAbsents: garder(deja.moisAbsents, fin.vides),
-                     moisAbsentsOi: OI ? garder(deja.moisAbsentsOi, oi.vides) : (deja.moisAbsentsOi || []) };
+                     moisAbsentsOi: OI ? garder(deja.moisAbsentsOi, oi.vides) : (deja.moisAbsentsOi || []),
+                     moisAbsentsPrime: garder(deja.moisAbsentsPrime, prime.vides),
+                     joursAbsentsMetrics: garderJours(deja.joursAbsentsMetrics, met.vides) };
     const tmp = path.join(DEST, instId + ".tmp");
     fs.writeFileSync(tmp, JSON.stringify(paquet));
     fs.renameSync(tmp, path.join(DEST, instId + ".json"));
     console.log(`  ${nom.padEnd(6)} ${String(mFin.length).padStart(2)} mois demandes · financement ${String(financement.length).padStart(5)} points` +
       (financement.length ? ` (${new Date(financement[0][0]).toISOString().slice(0, 10)} → ${new Date(financement[financement.length - 1][0]).toISOString().slice(0, 10)})` : " — absent") +
-      ` · +${fin.rows.length} nouveaux` +
+      ` · +${fin.rows.length} nouveaux · prime ${String(paquet.prime.length).padStart(6)} · metrics ${String(paquet.metrics.length).padStart(7)} (+${met.rows.length}, ${met.absents} jours absents)` +
       ` · interet ouvert ${OI ? String(interetOuvert.length).padStart(6) + " points" : "non demande"}` +
       ` · ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   }
@@ -239,4 +343,4 @@ async function main() {
 }
 
 if (require.main === module) main().catch((e) => { console.error("[EXTRA] echec :", e.message); process.exit(1); });
-module.exports = { reperer, lire, manquants, fusionner, absentPourDeBon, moisDe };
+module.exports = { reperer, lire, manquants, fusionner, absentPourDeBon, moisDe, lireMetrics, lireClotureKline, joursAvant, METRICS_COLS };

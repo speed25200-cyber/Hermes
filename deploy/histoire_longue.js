@@ -41,7 +41,14 @@ const HOTE = "data.binance.vision";
 /* Le nom Binance d'un instrument OKX : BTC-USDT-SWAP -> BTCUSDT. Les
    instruments qui n'existent pas chez Binance rendront un 404, traité
    comme un mois absent — sans bruit, sans arrêt. */
-const nomBinance = (instId) => instId.replace("-USDT-SWAP", "") + "USDT";
+/* Correspondance OKX -> Binance. Le plus souvent le suffixe suffit ;
+   quelques memecoins sont cotes en lots de mille chez Binance, et
+   quelques contrats OKX (OKB, actions tokenisees) n'existent pas chez
+   Binance — ils restent sans histoire et le banc les ecarte. */
+const TABLE_BINANCE = { BONK: "1000BONKUSDT", PEPE: "1000PEPEUSDT", SHIB: "1000SHIBUSDT", FLOKI: "1000FLOKIUSDT",
+                        LUNC: "1000LUNCUSDT", XEC: "1000XECUSDT", SATS: "1000SATSUSDT", RATS: "1000RATSUSDT",
+                        CAT: "1000CATUSDT", WHY: "1000WHYUSDT", CHEEMS: "1000CHEEMSUSDT", X: "1000XUSDT" };
+const nomBinance = (instId) => { const b = instId.replace("-USDT-SWAP", ""); return TABLE_BINANCE[b] || b + "USDT"; };
 
 function telecharger(chemin) {
   return new Promise((ok, ko) => {
@@ -97,7 +104,17 @@ function lireCsv(texte) {
     if (ts > 1e14) ts = Math.floor(ts / 1000);     // microsecondes
     const o = +c[1], h = +c[2], l = +c[3], cl = +c[4], v = +c[5];
     if (!(o > 0 && h > 0 && l > 0 && cl > 0)) continue;
-    out.push([ts, o, h, l, cl, v]);
+    /* Les klines Binance portent, au-dela d'OHLCV, le volume en devise de
+       cotation (7), le nombre de transactions (8) et le VOLUME ACHETEUR
+       AGRESSIF en base (9). Cette derniere colonne est le delta de flux
+       d'ordres : 2*tb - v = achats agressifs - ventes agressives, ce que
+       les traders appellent CVD une fois cumule. Elle rend inutile le
+       telechargement des ticks (418 Mo par mois pour BTC) et rend moot la
+       classification de Lee-Ready, qui n'existe que pour deviner le
+       cote agresseur quand l'echange ne le donne pas.
+       Les indices 0..5 ne changent pas : tout le code existant tient. */
+    const qv = c.length > 9 ? +c[7] : NaN, n = c.length > 9 ? +c[8] : NaN, tb = c.length > 9 ? +c[9] : NaN;
+    out.push(Number.isFinite(tb) ? [ts, o, h, l, cl, v, qv, n, tb] : [ts, o, h, l, cl, v]);
   }
   return out;
 }
@@ -121,7 +138,10 @@ async function unSymbole(instId, mois) {
   let bougies = [];
   let telecharges = 0, depuisCache = 0, absents = 0;
   for (const m of mois) {
-    const fichier = path.join(dossier, `${sym}-${m}.json`);
+    /* v2 : les fichiers par mois de la premiere version n'ont que six
+       colonnes ; on les ignore et l'on retelecharge une fois, plutot que
+       de servir un cache qui n'a pas la colonne demandee. */
+    const fichier = path.join(dossier, `${sym}-${m}.v2.json`);
     if (fs.existsSync(fichier)) {
       try { bougies.push(...JSON.parse(fs.readFileSync(fichier, "utf8"))); depuisCache++; continue; } catch {}
     }
@@ -180,6 +200,13 @@ const UNIVERS_BANC = (process.env.BANC_UNIVERS ||
 async function main() {
   const mois = moisAvant(MOIS_MAX);
   let liste = [...UNIVERS_BANC];
+  /* Un fichier d'univers l'emporte : la recherche sur les movers en a
+     besoin d'un large (136 instruments), illisible en variable. */
+  if (process.env.BANC_UNIVERS_FICHIER) {
+    try { const f = process.env.BANC_UNIVERS_FICHIER; const j = JSON.parse(fs.readFileSync(path.isAbsolute(f) ? f : path.join(RACINE, f), "utf8"));
+          const l = Array.isArray(j) ? j : j.instruments; if (Array.isArray(l) && l.length) { liste = [...l]; console.log(`[HISTOIRE] univers : ${f} (${liste.length} instruments)`); } }
+    catch (e) { console.log(`[HISTOIRE] univers fichier illisible (${e.message}) : liste par defaut`); }
+  }
   try {
     const r = JSON.parse(fs.readFileSync(ROSTER, "utf8"));
     for (const id of Object.keys(r.perles || {})) if (!liste.includes(id)) liste.push(id);
@@ -220,4 +247,4 @@ async function main() {
 }
 
 if (require.main === module) main().catch((e) => { console.error("[HISTOIRE] echec :", e.message); process.exit(1); });
-module.exports = { ouvrirZip, lireCsv, nomBinance, moisAvant, CACHE_LONG, telecharger, HOTE };
+module.exports = { ouvrirZip, lireCsv, nomBinance, moisAvant, CACHE_LONG, telecharger, HOTE, TABLE_BINANCE };
