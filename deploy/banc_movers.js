@@ -77,27 +77,36 @@ function sma(x, n) {
     if (i >= n - 1 && c === n) out[i] = s / n; }
   return out;
 }
+/* RSI, ATR et DMI en lissage de Wilder. Un etat qui accumule NaN reste
+   NaN pour toujours : sur la machine, la fenetre commence la veille du
+   premier jour de donnees, et 48 bougies vides au depart ont rendu
+   toutes les series d'indicateurs NaN — zero trade sur 134 instruments,
+   silencieusement. On ne fait donc avancer l'etat que sur deux bougies
+   consecutives FINIES ; un trou rend NaN ce jour-la et rien d'autre. */
 function rsi(c, n) {
-  const out = new Float64Array(c.length).fill(NaN); let g = 0, p = 0;
-  for (let i = 1; i < c.length; i++) { const d = c[i] - c[i - 1]; const up = d > 0 ? d : 0, dn = d < 0 ? -d : 0;
-    if (i <= n) { g += up / n; p += dn / n; if (i === n) out[i] = p === 0 ? 100 : 100 - 100 / (1 + g / p); continue; }
+  const out = new Float64Array(c.length).fill(NaN); let g = 0, p = 0, k = 0;
+  for (let i = 1; i < c.length; i++) { const a = c[i - 1], b = c[i]; if (!Number.isFinite(a) || !Number.isFinite(b)) continue;
+    const d = b - a; const up = d > 0 ? d : 0, dn = d < 0 ? -d : 0; k++;
+    if (k <= n) { g += up / n; p += dn / n; if (k === n) out[i] = p === 0 ? 100 : 100 - 100 / (1 + g / p); continue; }
     g = (g * (n - 1) + up) / n; p = (p * (n - 1) + dn) / n; out[i] = p === 0 ? 100 : 100 - 100 / (1 + g / p); }
   return out;
 }
 function trAtr(h, l, c, n) {
-  const atr = new Float64Array(c.length).fill(NaN); let a = 0;
-  for (let i = 1; i < c.length; i++) { const tr = Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1]));
-    if (i <= n) { a += tr / n; if (i === n) atr[i] = a; continue; } a = (a * (n - 1) + tr) / n; atr[i] = a; }
+  const atr = new Float64Array(c.length).fill(NaN); let a = 0, k = 0;
+  for (let i = 1; i < c.length; i++) { if (!Number.isFinite(c[i - 1]) || !Number.isFinite(h[i]) || !Number.isFinite(l[i])) continue;
+    const tr = Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1])); k++;
+    if (k <= n) { a += tr / n; if (k === n) atr[i] = a; continue; } a = (a * (n - 1) + tr) / n; atr[i] = a; }
   return atr;
 }
 function dmi(h, l, c, n) {
   const pdi = new Float64Array(c.length).fill(NaN), mdi = new Float64Array(c.length).fill(NaN), adx = new Float64Array(c.length).fill(NaN);
-  let sTR = 0, sP = 0, sM = 0, ax = NaN, cntDx = 0, sDx = 0;
+  let sTR = 0, sP = 0, sM = 0, ax = NaN, cntDx = 0, sDx = 0, k = 0;
   for (let i = 1; i < c.length; i++) {
+    if (!Number.isFinite(c[i - 1]) || !Number.isFinite(h[i]) || !Number.isFinite(l[i]) || !Number.isFinite(h[i - 1]) || !Number.isFinite(l[i - 1])) continue;
     const up = h[i] - h[i - 1], dn = l[i - 1] - l[i];
     const pdm = up > dn && up > 0 ? up : 0, mdm = dn > up && dn > 0 ? dn : 0;
-    const tr = Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1]));
-    if (i <= n) { sTR += tr; sP += pdm; sM += mdm; if (i < n) continue; }
+    const tr = Math.max(h[i] - l[i], Math.abs(h[i] - c[i - 1]), Math.abs(l[i] - c[i - 1])); k++;
+    if (k <= n) { sTR += tr; sP += pdm; sM += mdm; if (k < n) continue; }
     else { sTR = sTR - sTR / n + tr; sP = sP - sP / n + pdm; sM = sM - sM / n + mdm; }
     const p = sTR > 0 ? 100 * sP / sTR : 0, m = sTR > 0 ? 100 * sM / sTR : 0; pdi[i] = p; mdi[i] = m;
     const dx = (p + m) > 0 ? 100 * Math.abs(p - m) / (p + m) : 0;
@@ -108,12 +117,12 @@ function dmi(h, l, c, n) {
 }
 function supertrend(h, l, c, n, f) {
   const atr = trAtr(h, l, c, n); const dir = new Int8Array(c.length); const ligne = new Float64Array(c.length).fill(NaN);
-  let up = NaN, dn = NaN, d = 1;
-  for (let i = 0; i < c.length; i++) { if (!Number.isFinite(atr[i])) continue;
+  let up = NaN, dn = NaN, d = 1, prev = NaN;
+  for (let i = 0; i < c.length; i++) { if (!Number.isFinite(atr[i]) || !Number.isFinite(c[i])) continue;
     const m = (h[i] + l[i]) / 2; let bu = m + f * atr[i], bl = m - f * atr[i];
-    if (Number.isFinite(dn) && c[i - 1] > dn) bl = Math.max(bl, dn); if (Number.isFinite(up) && c[i - 1] < up) bu = Math.min(bu, up);
+    if (Number.isFinite(dn) && prev > dn) bl = Math.max(bl, dn); if (Number.isFinite(up) && prev < up) bu = Math.min(bu, up);
     if (d === 1 && c[i] < bl) d = -1; else if (d === -1 && c[i] > bu) d = 1;
-    up = bu; dn = bl; dir[i] = d; ligne[i] = d === 1 ? bl : bu; }
+    up = bu; dn = bl; dir[i] = d; ligne[i] = d === 1 ? bl : bu; prev = c[i]; }
   return { dir, ligne };
 }
 /* Extremum glissant sur les N bougies PRECEDENTES (la courante exclue :
@@ -212,7 +221,7 @@ function coutAR(fund, duree, sens) { return 2 * (FRAIS + GLISSEMENT) + sens * (N
 
 /* ============================ statistiques ============================ */
 function stats(trades) {
-  const n = trades.length; if (n < 5) return { n, moy: 0, sd: 0, t: 0, wr: 0, pf: 0, brut: 0, net: 0, moyBrut: 0 };
+  const n = trades.length; if (n < 5) return { n, moy: 0, sd: 0, t: 0, wr: 0, pf: 0, brut: 0, net: 0, moyBrut: 0, tBrut: 0 };
   const moy = (a) => a.reduce((u, x) => u + x, 0) / a.length;
   const nets = trades.map((t) => t.net), bruts = trades.map((t) => t.brut);
   const m = moy(nets), sd = Math.sqrt(nets.reduce((u, x) => u + (x - m) ** 2, 0) / (n - 1));
@@ -294,23 +303,27 @@ function signalProfil(B, car, reg, pr, i) {
 function sortir(P5, debut5, sens, entree, pr) {
   const sl = pr.sl_prix_pct / 100, tp = pr.tp_prix_pct / 100, act = pr.act_prix_pct / 100, dist = pr.dist_prix_pct / 100;
   const maxBars = Math.round(pr.duree_max_h * 12);
-  let meilleur = entree, suiveur = NaN, vus = 0;
+  let meilleur = entree, suiveur = NaN, vus = 0, derniere = NaN;
   for (let k = 1; k <= maxBars && debut5 + k < P5.n; k++) {
-    const hi = P5.h[debut5 + k], lo = P5.l[debut5 + k]; if (!Number.isFinite(hi)) continue; vus++;
-    if (sens === 1) {
-      if (lo <= entree * (1 - sl)) return { prix: entree * (1 - sl), bars: k, raison: "sl" };
-      if (Number.isFinite(suiveur) && lo <= suiveur) return { prix: suiveur, bars: k, raison: "trail" };
-      if (hi >= entree * (1 + tp)) return { prix: entree * (1 + tp), bars: k, raison: "tp" };
-      if (hi > meilleur) meilleur = hi; if (meilleur >= entree * (1 + act)) suiveur = meilleur * (1 - dist);
-    } else {
-      if (hi >= entree * (1 + sl)) return { prix: entree * (1 + sl), bars: k, raison: "sl" };
-      if (Number.isFinite(suiveur) && hi >= suiveur) return { prix: suiveur, bars: k, raison: "trail" };
-      if (lo <= entree * (1 - tp)) return { prix: entree * (1 - tp), bars: k, raison: "tp" };
-      if (lo < meilleur) meilleur = lo; if (meilleur <= entree * (1 - act)) suiveur = meilleur * (1 + dist);
-    }
-    if (k === maxBars) return { prix: P5.c[debut5 + k], bars: k, raison: "temps" };
+    const hi = P5.h[debut5 + k], lo = P5.l[debut5 + k];
+    if (Number.isFinite(hi)) { vus++; derniere = P5.c[debut5 + k];
+      if (sens === 1) {
+        if (lo <= entree * (1 - sl)) return { prix: entree * (1 - sl), bars: k, raison: "sl" };
+        if (Number.isFinite(suiveur) && lo <= suiveur) return { prix: suiveur, bars: k, raison: "trail" };
+        if (hi >= entree * (1 + tp)) return { prix: entree * (1 + tp), bars: k, raison: "tp" };
+        if (hi > meilleur) meilleur = hi; if (meilleur >= entree * (1 + act)) suiveur = meilleur * (1 - dist);
+      } else {
+        if (hi >= entree * (1 + sl)) return { prix: entree * (1 + sl), bars: k, raison: "sl" };
+        if (Number.isFinite(suiveur) && hi >= suiveur) return { prix: suiveur, bars: k, raison: "trail" };
+        if (lo <= entree * (1 - tp)) return { prix: entree * (1 - tp), bars: k, raison: "tp" };
+        if (lo < meilleur) meilleur = lo; if (meilleur <= entree * (1 - act)) suiveur = meilleur * (1 + dist);
+      } }
+    /* La sortie temps tombe sur la derniere cloture connue, meme si la
+       bougie exacte manque : un trou de cinq minutes ne doit pas laisser
+       une position ouverte pour toujours. */
+    if (k === maxBars) return vus ? { prix: derniere, bars: k, raison: "temps" } : null;
   }
-  return vus ? null : null;
+  return null;                                     // fin des donnees : pas de sortie mesurable
 }
 /* Rejoue un profil sur un instrument. `dansUnivers(i)` dit si le contrat
    est eligible a la bougie i (toujours vrai pour « son propre contrat »). */
@@ -322,7 +335,7 @@ function rejouerProfil(B, P5, t0, fund, pr, dansUnivers) {
     if (i <= occupeJusqua || i <= cooldown) continue; if (dansUnivers && !dansUnivers(i)) continue;
     const s = signalProfil(B, car, reg, pr, i); if (!s) continue;
     const entree = B.c[i] * (1 + s * GLISSEMENT); const debut5 = (i + 1) * 6 - 1;   // derniere bougie 5 min de la bougie 30 min du signal
-    const ex = sortir(P5, debut5, s, entree, pr); if (!ex) break;
+    const ex = sortir(P5, debut5, s, entree, pr); if (!ex) continue;   // chemin manquant : on saute ce signal, pas l'instrument
     const brut = s * (ex.prix / entree - 1); const duree = ex.bars * B5;
     trades.push({ i, sens: s, brut, net: brut - coutAR(fund[i], duree, s) + 2 * GLISSEMENT * 0 , raison: ex.raison, duree });
     // le glissement a l'entree est deja dans le prix ; on compte le second a la sortie via coutAR (2 executions) : on retire donc celui de l'entree pour ne pas le compter deux fois
@@ -478,6 +491,7 @@ function main() {
     vrai.transfertTrades.push({ cle: pr.cle, trades: transf }); }
   if (global) for (let k = 0; k < inst.length; k++) vrai.globalTrades = vrai.globalTrades.concat(rejouerProfil(inst[k].B, inst[k].P5, t0, inst[k].M.fund, global, dansTopMov(k)));
   const tousPropres = vrai.propres.flatMap((p) => p.trades), stP = stats(tousPropres);
+  { const bruts = vrai.propres.filter((p) => p.trades.length); console.log(`  ${vrai.propres.length} profils rejoues, ${bruts.length} avec au moins un trade ; instruments sans flux ni indicateur finis : ${inst.filter((x) => !Number.isFinite(communs(x.B).adx[Math.min(x.B.c.length - 1, 5000)])).length}`); }
   console.log(`  88 profils sur leur PROPRE contrat, toute la fenetre, funding et couts inclus : ${stP.n} trades · WR ${(100 * stP.wr).toFixed(1)} % · PF ${stP.pf.toFixed(2)} · moy/trade brut ${(100 * stP.moyBrut).toFixed(3)} % net ${(100 * stP.moy).toFixed(3)} % · t ${stP.t.toFixed(2)}`);
   const stG = stats(vrai.globalTrades);
   console.log(`  profil GLOBAL sur l'univers causal des movers : ${stG.n} trades · WR ${(100 * stG.wr).toFixed(1)} % · PF ${stG.pf.toFixed(2)} · moy/trade net ${(100 * stG.moy).toFixed(3)} % · t ${stG.t.toFixed(2)}`);
@@ -494,7 +508,7 @@ function main() {
     const r = evaluerFlux(x.B, x.M.fund, S, dansTopVol(k)); for (const c of Object.keys(r)) (cellules[c] = cellules[c] || []).push(...r[c]); }
   /* ---- 3. transversal ---- */
   const xs = evaluerXS(inst, U, quot, nJours, K_XS);
-  const statsXS = (per) => { const n = per.length; if (n < 10) return { n, moy: 0, t: 0, net: 0, brut: 0, sharpe: 0 }; const m = per.reduce((u, p) => u + p.net, 0) / n; const sd = Math.sqrt(per.reduce((u, p) => u + (p.net - m) ** 2, 0) / (n - 1)); return { n, moy: m, t: sd > 0 ? m / (sd / Math.sqrt(n)) : 0, net: per.reduce((u, p) => u + p.net, 0), brut: per.reduce((u, p) => u + p.brut, 0), sharpe: sd > 0 ? m / sd : 0 }; };
+  const statsXS = (per) => { const n = per.length; if (n < 10) return { n, moy: 0, t: 0, tBrut: 0, net: 0, brut: 0, sharpe: 0 }; const m = per.reduce((u, p) => u + p.net, 0) / n; const sd = Math.sqrt(per.reduce((u, p) => u + (p.net - m) ** 2, 0) / (n - 1)); const mb = per.reduce((u, p) => u + p.brut, 0) / n; const sdb = Math.sqrt(per.reduce((u, p) => u + (p.brut - mb) ** 2, 0) / (n - 1)); return { n, moy: m, t: sd > 0 ? m / (sd / Math.sqrt(n)) : 0, tBrut: sdb > 0 ? mb / (sdb / Math.sqrt(n)) : 0, net: per.reduce((u, p) => u + p.net, 0), brut: per.reduce((u, p) => u + p.brut, 0), sharpe: sd > 0 ? m / sd : 0 }; };
 
   /* ---- le nul : tout rejouer sur des repliques melangees ---- */
   console.log(`[MOVERS] nul : ${TIRAGES} repliques (prix par blocs de ${BLOC_BARRES} bougies, flux permute independamment)…`);

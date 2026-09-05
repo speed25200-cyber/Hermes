@@ -122,8 +122,28 @@ verifier("aucune incoherence ROE -> prix a x20", P.meta.incoherences_roe_prix.le
 // un profil se rejoue sans erreur sur l'instrument fabrique
 const prof = P.profils.find((q) => q.type === "individuel" && q.famille === "pullback");
 const tr = M.rejouerProfil(instruments[0].B, instruments[0].P5, t0, instruments[0].M.fund, prof, null);
-verifier("un profil du papier se rejoue de bout en bout", Array.isArray(tr), String(tr && tr.length));
+verifier("un profil du papier se rejoue de bout en bout et PRODUIT des trades", Array.isArray(tr) && tr.length > 0, String(tr && tr.length));
 verifier("chaque trade porte une raison de sortie connue", tr.every((q) => ["sl", "tp", "trail", "temps"].includes(q.raison)));
+
+/* --- 7. un instrument qui commence APRES t0 ------------------------------- */
+console.log("7. Un prefixe vide empoisonne-t-il les indicateurs ?");
+/* Sur la machine, la fenetre commence la veille du premier jour de
+   donnees : 48 bougies NaN au depart. Les lissages de Wilder (RSI, ATR,
+   DMI) accumulaient ce NaN pour toujours, et 134 instruments ont rendu
+   zero trade en silence. Ici l'instrument commence 20 jours apres t0. */
+const tard = fabriquer(777, false).filter((r) => r[0] >= t0 + 20 * 86400e3);
+const Bt = M.barres30(tard, t0, nBar), P5t = M.chemin5(tard, t0, N5);
+const Kc = { rsi: M.rsi(Bt.c, 14), atr: M.trAtr(Bt.h, Bt.l, Bt.c, 14), adx: M.dmi(Bt.h, Bt.l, Bt.c, 14).adx, st: M.supertrend(Bt.h, Bt.l, Bt.c, 10, 2).dir, e: M.ema(Bt.c, 200) };
+const fin = Bt.c.length - 10;
+verifier("RSI fini apres le trou de depart", Number.isFinite(Kc.rsi[fin]), String(Kc.rsi[fin]));
+verifier("ATR fini", Number.isFinite(Kc.atr[fin])); verifier("ADX fini", Number.isFinite(Kc.adx[fin])); verifier("Supertrend defini", Kc.st[fin] !== 0); verifier("EMA finie", Number.isFinite(Kc.e[fin]));
+verifier("les indicateurs restent NaN DANS le trou (pas de valeur inventee)", Number.isNaN(Kc.rsi[10 * 48]) && Number.isNaN(Kc.atr[10 * 48]));
+// une bougie manquante au milieu ne rend pas la suite NaN
+const Bm2 = { ...Bt, c: Float32Array.from(Bt.c), h: Float32Array.from(Bt.h), l: Float32Array.from(Bt.l) }; Bm2.c[3000] = NaN; Bm2.h[3000] = NaN; Bm2.l[3000] = NaN;
+verifier("un trou isole ne casse pas la suite", Number.isFinite(M.rsi(Bm2.c, 14)[3100]) && Number.isFinite(M.dmi(Bm2.h, Bm2.l, Bm2.c, 14).adx[3100]));
+const trT = M.rejouerProfil(Bt, P5t, t0, new Float32Array(nBar).fill(0), P.profils.find((q) => q.type === "individuel" && q.famille === "breakout"), null);
+verifier("un profil du papier produit des trades sur cet instrument tardif", trT.length > 0, String(trT.length));
+verifier("aucun trade avant le debut des donnees", trT.every((q) => q.i >= 20 * 48));
 
 console.log(echecs === 0 ? "\nEPREUVE DES MOVERS : verte." : `\nEPREUVE DES MOVERS : ${echecs} echec(s).`);
 process.exit(echecs === 0 ? 0 : 1);

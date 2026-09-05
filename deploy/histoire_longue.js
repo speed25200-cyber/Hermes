@@ -50,9 +50,12 @@ const TABLE_BINANCE = { BONK: "1000BONKUSDT", PEPE: "1000PEPEUSDT", SHIB: "1000S
                         CAT: "1000CATUSDT", WHY: "1000WHYUSDT", CHEEMS: "1000CHEEMSUSDT", X: "1000XUSDT" };
 const nomBinance = (instId) => { const b = instId.replace("-USDT-SWAP", ""); return TABLE_BINANCE[b] || b + "USDT"; };
 
+/* Une connexion TLS par requete coutait plus que le fichier lui-meme :
+   l'agent garde les connexions ouvertes et les reutilise. */
+const AGENT = new https.Agent({ keepAlive: true, maxSockets: 48, maxFreeSockets: 48, timeout: 60000 });
 function telecharger(chemin) {
   return new Promise((ok, ko) => {
-    https.get({ host: HOTE, path: chemin, family: 4,
+    https.get({ host: HOTE, path: chemin, family: 4, agent: AGENT,
                 headers: { "User-Agent": "hermes-histoire" }, timeout: 60000 }, (r) => {
       if (r.statusCode === 404) { r.resume(); return ok(null); }
       if (r.statusCode !== 200) { r.resume(); return ko(new Error("HTTP " + r.statusCode)); }
@@ -169,7 +172,13 @@ async function unSymbole(instId, mois) {
   try { const v = JSON.parse(fs.readFileSync(path.join(CACHE_LONG, instId + ".json"), "utf8")); if (Array.isArray(v)) ancien = v; } catch {}
   if (!bougies.length && !ancien.length) return { instId, bougies: 0, telecharges, depuisCache, absents };
   const vus = new Set(); const propre = [];
-  for (const k of [...ancien, ...bougies].sort((a, b) => a[0] - b[0])) if (!vus.has(k[0])) { vus.add(k[0]); propre.push(k); }
+  /* A date egale, la ligne la plus RICHE gagne : les caches v1 n'ont que
+     six colonnes, les v2 en ont neuf (volume acheteur). La premiere
+     version gardait la premiere venue — l'ancienne — et trente et un
+     instruments ont ainsi perdu leur flux malgre le retelechargement. */
+  const parTs = new Map();
+  for (const k of [...ancien, ...bougies]) { const d = parTs.get(k[0]); if (!d || k.length > d.length) parTs.set(k[0], k); }
+  for (const k of [...parTs.values()].sort((a, b) => a[0] - b[0])) { vus.add(k[0]); propre.push(k); }
   fs.mkdirSync(CACHE_LONG, { recursive: true });
   const tmp = path.join(CACHE_LONG, instId + ".tmp");
   fs.writeFileSync(tmp, JSON.stringify(propre));

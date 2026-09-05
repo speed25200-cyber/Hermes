@@ -70,9 +70,10 @@ function universDepuisFichier(defaut) {
 }
 const UNIVERS_EFFECTIF = universDepuisFichier(UNIVERS);
 
+const AGENT = new https.Agent({ keepAlive: true, maxSockets: 48, maxFreeSockets: 48, timeout: 60000 });
 function telecharger(chemin) {
   return new Promise((ok, ko) => {
-    https.get({ host: HOTE, path: chemin, family: 4, headers: { "User-Agent": "hermes-extra" }, timeout: 60000 }, (r) => {
+    https.get({ host: HOTE, path: chemin, family: 4, agent: AGENT, headers: { "User-Agent": "hermes-extra" }, timeout: 60000 }, (r) => {
       if (r.statusCode === 404) { r.resume(); return ok(null); }
       if (r.statusCode !== 200) { r.resume(); return ko(new Error("HTTP " + r.statusCode)); }
       const m = []; r.on("data", (c) => m.push(c)); r.on("end", () => ok(Buffer.concat(m)));
