@@ -38,9 +38,18 @@ jobs:
 
       - name: Resolve SSH access
         env:
-          PW_INPUT: ${{ inputs.root_password }}
           PW_SECRET: ${{ secrets.VPS_PASSWORD }}
         run: |
+          # Les entrees de workflow_dispatch se lisent dans le FICHIER
+          # DEVENEMENT du runner, jamais dans env: ni par ${{ }} dans le
+          # script. Le runner imprime le bloc env: et le texte du script
+          # AVANT la premiere commande — donc avant tout masque. Cest
+          # ainsi que le mot de passe root a fini en clair dans lentete
+          # de chaque run depuis la creation de ce workflow (verifie le
+          # 5 septembre 2026, ligne « PW_INPUT: ... »). Un secret de
+          # depot est masque doffice ; une entree ne lest jamais.
+          PW_INPUT=$(jq -r '.inputs.root_password // empty' "$GITHUB_EVENT_PATH")
+          if [ -n "$PW_INPUT" ]; then echo "::add-mask::$PW_INPUT"; fi
           PW="${PW_INPUT:-$PW_SECRET}"
           [ -z "$PW" ] && { echo "::error::no credentials"; exit 1; }
           ALT="${PW}.Hermes1"
