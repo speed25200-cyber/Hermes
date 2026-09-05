@@ -98,3 +98,21 @@ Sharpe of 1.96; 1.54 at taker + 2 bps), hourly reversal / lead-lag families
 are no longer charged as default trials (Sharpe −4 to −13 after costs on
 every universe), and the decisive test is the five-year broad-universe run
 below.
+
+### Run D — same universe as C, **final protocol**
+(6 holdout trials, gross-exposure floor, daily re-strike of slow books,
+momentum grid 1/2/4 weeks × one cap, families charged: momentum only —
+carry lacks funding history)
+
+* Evolution: 1,099 rules in 7 min, **PBO = 0.35**, median holdout Sharpe
+  of the in-sample winner 0.90. Holdout contenders: a vol-gated
+  time-series momentum rule reaches Sharpe 0.63 (DSR 0.25, 3/4 folds) —
+  not enough; the rest fail. **0 panel rules deployed.**
+* **Cross-sectional 1-week momentum, daily re-strike**: holdout Sharpe
+  **1.91, DSR 0.75, max drawdown 8.6%, 3/3 folds** → deploys. Book check
+  passes (single strategy).
+
+Deployable set on three years of broad-universe data: one market-neutral
+book. Its calendar-year record (2023 −1.1 / 2024 +0.8 / 2025 0.0 / 2026
++2.1 at protocol costs, daily re-strike) is the reason the risk engine, the
+leverage governor and the autonomous retirement rule exist.
