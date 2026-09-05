@@ -69,7 +69,10 @@ DEFAULTS: dict[str, Any] = {
         "max_pbo": 0.5,              # CSCV probability of backtest overfitting cap
         "pbo_blocks": 10,
         "max_deployed": 4,           # max strategies live at once
-        "xs_families": ["funding_xs", "xs_mom", "xs_rev", "xs_lead"],
+        # hourly reversal / lead-lag books are fee mills on real data (IS
+        # Sharpe -4 to -13 after costs on every universe tried); they stay
+        # available but are not charged as trials by default
+        "xs_families": ["funding_xs", "xs_mom"],
         "refresh_hours": 168,        # re-run research weekly
         "refresh_hours_empty": 24,   # ...but daily while nothing is deployed:
                                      # the hunt escalates instead of sleeping

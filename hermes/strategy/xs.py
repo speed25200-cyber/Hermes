@@ -82,6 +82,12 @@ MOM_SKIP_FRAC = 0.05
 # every family, and adds zero trials to the deflated-Sharpe penalty.
 REBALANCE_BAND_FRAC = 0.25
 
+# rebalance cadence (hours): a weekly-horizon ranking re-traded every hour
+# is a fee mill (>1x equity per day on a 40-name book). Books are re-struck
+# once a day at 00:00 UTC — the textbook cadence for weekly momentum — and
+# held in between. Design constant, not searched.
+REBALANCE_EVERY_HOURS = 24
+
 # genome signal name -> scoring kind
 XS_KINDS = {"funding_xs": "carry", "xs_mom": "mom", "xs_rev": "rev",
             "xs_lead": "lead", "xs_basis": "basis", "xs_flow": "flow",
@@ -292,16 +298,23 @@ def xs_positions(
     warm = max(lb, 200, hours_to_bars(LEAD_BETA_HOURS, bar) if kind == "lead" else 0)
     w[:, :warm] = 0.0
 
-    # no-trade band (hysteresis): hold the current position until the target
-    # drifts at least band away — kills the per-bar churn that lets costs
-    # eat high-frequency families alive, without touching the signal itself
+    # no-trade band (hysteresis) + daily cadence: the book is re-struck only
+    # at rebalance bars, and even then a name only moves when its target
+    # drifts at least `band` away — kills the per-bar churn that lets costs
+    # eat high-frequency families alive, without touching the signal itself.
+    # A name leaving the investable set is flattened at once.
     band = REBALANCE_BAND_FRAC * max_w
+    every_ms = int(REBALANCE_EVERY_HOURS * 3_600_000)
+    rebalance = (common % every_ms) == 0 if every_ms > 0 else np.ones(n, dtype=bool)
     held = np.zeros(len(insts))
     out = np.empty_like(w)
     for t in range(n):
         tgt = w[:, t]
-        move = np.abs(tgt - held) >= band
-        held = np.where(move, tgt, held)
+        if rebalance[t]:
+            move = np.abs(tgt - held) >= band
+            held = np.where(move, tgt, held)
+        else:
+            held = np.where(present[:, t], held, 0.0)
         out[:, t] = held
     return common, insts, {inst: out[k] for k, inst in enumerate(insts)}
 

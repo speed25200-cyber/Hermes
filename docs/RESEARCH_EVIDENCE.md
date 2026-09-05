@@ -71,3 +71,30 @@ Consequences applied to the protocol: holdout trials cut to 6, the
 momentum grid reduced to the three documented horizons (1/2/4 weeks) with
 a single cap, a gross-exposure floor of 10%, and the broad-universe
 snapshot extended to five years so the holdout reaches ~1.75 years.
+
+### Run C — top-42 liquid perpetuals, 3 years, 1H, **causal membership**
+(a name is investable at bar *t* only if it ranked top-30 by trailing
+30-day quote volume at *t*)
+
+* Evolution: 1,089 rules, **PBO = 0.55** → disqualified (borderline; the
+  panel rules that top the in-sample ranking are volatility-gated ridge
+  predictors with tiny exposure).
+* **Cross-sectional 1-week momentum** (best of the grid in-sample):
+  holdout Sharpe **2.08**, DSR 0.53, max drawdown 8.7%, 3/3 folds
+  positive → passes every gate → *would deploy*.
+
+Anatomy and stress of that book (hourly re-strike, protocol costs):
+~17 names long / ~18 short, gross 1.1× equity, **turnover 1.06× equity
+per day**. Sharpe by cost assumption: zero cost 2.78 → maker-blend 2.06 →
+taker + 2 bps 1.35 → taker + 5 bps 0.32. By calendar year (1-week
+lookback): 2023 −0.13, 2024 +1.43, 2025 −0.70, 2026 +2.68. The holdout is
+carried by the 2026 momentum regime; the 4-week variant is flat-to-negative
+out of sample. This is a real but regime-dependent, cost-sensitive premium
+— exactly the kind of edge a book must own in small size with fast risk-off.
+
+Consequences: cross-sectional books are now **re-struck once a day** at
+00:00 UTC (turnover 1.06 → 0.64 per day at a nearly unchanged holdout
+Sharpe of 1.96; 1.54 at taker + 2 bps), hourly reversal / lead-lag families
+are no longer charged as default trials (Sharpe −4 to −13 after costs on
+every universe), and the decisive test is the five-year broad-universe run
+below.

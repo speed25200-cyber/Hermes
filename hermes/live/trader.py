@@ -141,6 +141,36 @@ class Registry:
         return f"{s.inst}:{s.genome.gid}"
 
 
+def align_to_reference(candles_by_inst: dict[str, Candles],
+                       leader_inst: str | None) -> dict[str, Candles]:
+    """Book-level rules must see every name at the SAME bar. Names are
+    refreshed one after another, so for a moment some carry the new hour
+    and others do not; without this, a name missing the newest bar would
+    look absent, be dropped from the book for one cycle and re-entered the
+    next — pure churn. Reference = the leader's last bar (else the median
+    last bar); names with bars beyond it are truncated, names more than
+    one bar behind it are treated as stale and left out."""
+    if not candles_by_inst:
+        return {}
+    lasts = {i: int(c.ts[-1]) for i, c in candles_by_inst.items() if len(c)}
+    if not lasts:
+        return {}
+    if leader_inst in lasts:
+        ref = lasts[leader_inst]
+    else:
+        ref = int(np.median(list(lasts.values())))
+    bar_ms = BAR_MS.get(next(iter(candles_by_inst.values())).bar, 3_600_000)
+    out = {}
+    for inst, c in candles_by_inst.items():
+        if not len(c):
+            continue
+        m = int(np.searchsorted(c.ts, ref, side="right"))
+        if m == 0 or int(c.ts[m - 1]) < ref - bar_ms:
+            continue
+        out[inst] = c if m == len(c) else c.slice(0, m)
+    return out
+
+
 def _membership_cfg(cfg: Config) -> tuple[int | None, int]:
     u = cfg.get("universe") or {}
     top_n = u.get("top_n") if u.get("auto", False) else None
@@ -460,11 +490,12 @@ class Trader:
         # ---- compute per-strategy target positions --------------------------
         leader_inst = self.cfg["instruments"][0] if self.cfg["instruments"] else None
         per_strategy: dict[str, dict[str, float]] = {}
+        aligned = align_to_reference(candles_by_inst, leader_inst)
         for s in self.registry.strategies:
             sid = self.registry.sid(s)
             from ..strategy.xs import XS_KINDS, xs_positions
             if s.inst == PANEL_INST:
-                eligible = {i: c for i, c in candles_by_inst.items()
+                eligible = {i: c for i, c in aligned.items()
                             if len(c) >= 600}
                 top_n, memb_bars = _membership_cfg(self.cfg)
                 book = panel_live_book(eligible, s.genome, leader_inst,
@@ -474,7 +505,7 @@ class Trader:
                     self.last_positions[sid] = book
                 continue
             if s.genome.signal in XS_KINDS:
-                eligible = {i: c for i, c in candles_by_inst.items()
+                eligible = {i: c for i, c in aligned.items()
                             if len(c) >= 600}
                 top_n, memb_bars = _membership_cfg(self.cfg)
                 _, _, pos_map = xs_positions(eligible, s.genome.params,

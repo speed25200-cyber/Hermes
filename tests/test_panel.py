@@ -266,3 +266,21 @@ def test_panel_zeroes_positions_outside_membership():
     assert out.any()
     assert np.all(P[out] == 0.0)
     assert p.n_present.max() <= 2
+
+
+def test_align_to_reference_truncates_and_drops_stale():
+    from hermes.live.trader import align_to_reference
+    data = _universe(n=1000, seed=12)
+    lead = data["SYNA-USDT-SWAP"]
+    ahead = data["SYNB-USDT-SWAP"]
+    # SYNC is one bar behind the leader (still fine), LATE is three bars behind (stale)
+    data["SYNC-USDT-SWAP"] = data["SYNC-USDT-SWAP"].slice(0, 999)
+    data["LATE-USDT-SWAP"] = data["LATE-USDT-SWAP"].slice(0, len(data["LATE-USDT-SWAP"]) - 3)
+    # leader truncated so SYNB is "ahead" by one bar
+    data["SYNA-USDT-SWAP"] = lead.slice(0, 999)
+    out = align_to_reference(data, "SYNA-USDT-SWAP")
+    ref = int(data["SYNA-USDT-SWAP"].ts[-1])
+    assert "LATE-USDT-SWAP" not in out
+    assert int(out["SYNB-USDT-SWAP"].ts[-1]) == ref
+    assert int(out["SYNC-USDT-SWAP"].ts[-1]) == ref
+    assert len(out["SYNB-USDT-SWAP"]) == len(ahead) - 1
