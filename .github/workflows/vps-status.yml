@@ -9,6 +9,10 @@ on:
       root_password:
         description: "Root password (optional if VPS_PASSWORD secret is set)"
         required: false
+      show_dashboard_url:
+        description: "Print the full dashboard URL including the access key (private repo logs only)"
+        required: false
+        default: "false"
 
 jobs:
   status:
@@ -34,6 +38,14 @@ jobs:
           if try "$PW"; then CUR="$PW"; elif try "$ALT"; then CUR="$ALT"; else
             echo "::error::cannot authenticate"; exit 1; fi
           echo "SSHPASS=$CUR" >> "$GITHUB_ENV"
+
+      - name: Dashboard URL (on request)
+        if: ${{ inputs.show_dashboard_url == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            k=$(grep "^HERMES_DASH_TOKEN=" /root/hermes/.env | tail -1 | cut -d= -f2-)
+            echo "DASHBOARD_URL=http://'"$VPS"':8899/?key=$k"
+          '
 
       - name: Status report
         run: |
