@@ -41,8 +41,8 @@ jobs:
           PW_SECRET: ${{ secrets.VPS_PASSWORD }}
         run: |
           # Les entrees de workflow_dispatch se lisent dans le FICHIER
-          # DEVENEMENT du runner, jamais dans env: ni par ${{ }} dans le
-          # script. Le runner imprime le bloc env: et le texte du script
+          # DEVENEMENT du runner, jamais dans env: ni par une expression
+          # GitHub interpolee dans le script. Le runner imprime le bloc env: et le texte du script
           # AVANT la premiere commande — donc avant tout masque. Cest
           # ainsi que le mot de passe root a fini en clair dans lentete
           # de chaque run depuis la creation de ce workflow (verifie le
