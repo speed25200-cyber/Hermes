@@ -369,9 +369,10 @@ def run_research(candles_by_inst: dict[str, Candles], cfg: Config, log,
                 min_oos_sharpe=r["min_oos_sharpe"], min_dsr=r["min_dsr"],
                 max_oos_drawdown=float(r.get("max_oos_drawdown", 0.35)),
                 log=log, leader=leader_inst, families=fams,
-                top_n=top_n, membership_bars=memb_bars)
+                top_n=top_n, membership_bars=memb_bars,
+                mode=str(r.get("xs_mode", "ensemble")))
             all_survivors.extend(xs_survivors)
-            total_trials += xs_total_trials(fams, bar)
+            total_trials += xs_total_trials(fams, bar, str(r.get("xs_mode", "ensemble")))
             log(f"research XS: {len(xs_survivors)} portfolio strategies deployed")
 
     # ---- the deployed set must work as a book ----------------------------

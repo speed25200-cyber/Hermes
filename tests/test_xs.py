@@ -127,7 +127,9 @@ def test_xs_reversal_finds_mean_reverting_shocks():
     fee, slip = effective_costs({"taker_fee_bps": 5, "maker_fee_bps": 2,
                                  "slippage_bps": 2, "prefer_maker": True,
                                  "maker_miss_rate": 0.3})
-    out = research_xs(uni, fee_bps=fee, slip_bps=slip, log=None)
+    # select mode: the planted half-life matches one grid horizon; the
+    # ensemble (which also carries the 4h fee mill) is a different question
+    out = research_xs(uni, fee_bps=fee, slip_bps=slip, log=None, mode="select")
     revs = [s for s in out if s.genome.signal == "xs_rev"]
     assert len(revs) == 1
     assert revs[0].oos_stats["sharpe"] >= 0.5
@@ -186,3 +188,20 @@ def test_basis_positions_causal():
     assert pa
     for inst in insts:
         np.testing.assert_allclose(pa[inst][:5400], pb[inst][:5400], atol=1e-10)
+
+
+def test_ensemble_book_is_average_of_members():
+    from hermes.strategy.xs import xs_positions
+    uni = make_universe(seed=7)
+    common, insts, ens = xs_positions(uni, {"lookbacks": [200, 400], "max_w": 0.25},
+                                      kind="carry")
+    _, _, a = xs_positions(uni, {"lookback": 200, "max_w": 0.25}, kind="carry")
+    _, _, b = xs_positions(uni, {"lookback": 400, "max_w": 0.25}, kind="carry")
+    for inst in insts:
+        np.testing.assert_allclose(ens[inst], 0.5 * (a[inst] + b[inst]), atol=1e-12)
+
+
+def test_ensemble_mode_charges_one_trial_per_family():
+    from hermes.research.xs import xs_total_trials
+    assert xs_total_trials(("funding_xs", "xs_mom"), "1H", "ensemble") == 2
+    assert xs_total_trials(("funding_xs", "xs_mom"), "1H", "select") == 6

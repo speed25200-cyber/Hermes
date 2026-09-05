@@ -213,7 +213,29 @@ def xs_positions(
     pos[i] is the exposure decided at the close of common bar i. The book is
     dollar-neutral (weights sum to ~0) and inverse-vol scaled, with per-name
     weights capped at params["max_w"].
+
+    params["lookbacks"] (a list) builds the ENSEMBLE book: the equal-weight
+    average of one book per lookback. Averaging over the documented horizon
+    range removes the in-sample choice of a single lookback — a choice that
+    is mostly noise between near-equivalent configs — so the family is one
+    trial, not a grid.
     """
+    lbs = params.get("lookbacks")
+    if lbs:
+        books = []
+        common = insts = None
+        for lb in lbs:
+            one = dict(params)
+            one.pop("lookbacks", None)
+            one["lookback"] = int(lb)
+            common, insts, pos = xs_positions(
+                candles_map, one, kind=kind, vol_target=vol_target,
+                leader=leader, top_n=top_n, membership_bars=membership_bars)
+            if not pos:
+                return common, insts, {}
+            books.append(pos)
+        ens = {i: np.mean([b[i] for b in books], axis=0) for i in insts}
+        return common, insts, ens
     insts = sorted(candles_map)
     if len(insts) < 4:
         return np.array([], dtype=np.int64), insts, {}

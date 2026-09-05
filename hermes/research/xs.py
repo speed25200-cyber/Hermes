@@ -41,8 +41,12 @@ DEFAULT_XS_FAMILIES = ("funding_xs", "xs_mom", "xs_rev", "xs_lead")
 XS_TOTAL_TRIALS = sum(len(xs_grid(k, "15m")) for _, k, _ in XS_FAMILIES)
 
 
-def xs_total_trials(families, bar: str) -> int:
+def xs_total_trials(families, bar: str, mode: str = "ensemble") -> int:
+    """Trials charged to the Deflated Sharpe: one per family in ensemble
+    mode (no parameter is selected), every grid config in select mode."""
     fam = set(families)
+    if mode == "ensemble":
+        return sum(1 for name, _, _ in XS_FAMILIES if name in fam)
     return sum(len(xs_grid(k, bar)) for name, k, _ in XS_FAMILIES if name in fam)
 
 
@@ -101,6 +105,7 @@ def _validate_family(
     n_trials: int = XS_TOTAL_TRIALS,
     top_n: int | None = None,
     membership_bars: int = 720,
+    mode: str = "ensemble",
 ) -> ValidatedStrategy | None:
     insts = sorted(candles_map)
     bar = candles_map[insts[0]].bar
@@ -113,25 +118,47 @@ def _validate_family(
             out[inst] = c.slice(int(n * a), int(n * b))
         return out
 
-    # ---- in-sample grid search ----------------------------------------
     is_map = slice_map(0.0, is_fraction)
-    best = None
-    for params in grid:
+    if mode == "ensemble":
+        # ---- one book per family: the equal-weight ensemble of the grid.
+        # No parameter is chosen in-sample, so the family is a single trial;
+        # in-sample profitability is still required (a sanity floor, not a
+        # selection).
+        params = {"lookbacks": [g["lookback"] for g in grid],
+                  "max_w": grid[0]["max_w"]}
         common, _, pos = xs_positions(is_map, params, kind=kind, leader=leader,
                                       top_n=top_n, membership_bars=membership_bars)
         if not pos:
-            continue
-        rets = portfolio_backtest(is_map, pos, common, fee_bps, slip_bps)
-        sh = metrics.sharpe(rets, bpy)
+            return None
+        sh_is = metrics.sharpe(portfolio_backtest(is_map, pos, common, fee_bps,
+                                                  slip_bps), bpy)
         if log:
-            log(f"xs IS [{name}]: {params} sharpe={sh:.2f}")
-        if best is None or sh > best[0]:
-            best = (sh, params)
-    if best is None or best[0] <= 0:
-        if log:
-            log(f"xs research [{name}]: no config profitable in-sample, "
-                f"rejecting")
-        return None
+            log(f"xs IS [{name}]: ensemble {params['lookbacks']} sharpe={sh_is:.2f}")
+        if sh_is <= 0:
+            if log:
+                log(f"xs research [{name}]: ensemble not profitable in-sample, "
+                    f"rejecting")
+            return None
+        best = (sh_is, params)
+    else:
+        # ---- in-sample grid search (select mode) ---------------------------
+        best = None
+        for params in grid:
+            common, _, pos = xs_positions(is_map, params, kind=kind, leader=leader,
+                                          top_n=top_n, membership_bars=membership_bars)
+            if not pos:
+                continue
+            rets = portfolio_backtest(is_map, pos, common, fee_bps, slip_bps)
+            sh = metrics.sharpe(rets, bpy)
+            if log:
+                log(f"xs IS [{name}]: {params} sharpe={sh:.2f}")
+            if best is None or sh > best[0]:
+                best = (sh, params)
+        if best is None or best[0] <= 0:
+            if log:
+                log(f"xs research [{name}]: no config profitable in-sample, "
+                    f"rejecting")
+            return None
 
     # ---- out-of-sample validation (embargoed, warm-started) -----------
     _, params = best
@@ -195,16 +222,18 @@ def research_xs(
     families=DEFAULT_XS_FAMILIES,
     top_n: int | None = None,
     membership_bars: int = 720,
+    mode: str = "ensemble",
 ) -> list[ValidatedStrategy]:
     """Run the selected XS families through the gate; return the survivors.
-    The Deflated Sharpe is charged for every config of every family run."""
+    The Deflated Sharpe is charged for every trial actually run: one per
+    family in ensemble mode, every grid config in select mode."""
     if len(candles_map) < 4:
         if log:
             log("xs research: needs >= 4 instruments, skipping")
         return []
     bar = next(iter(candles_map.values())).bar
     fam = set(families)
-    n_trials = max(xs_total_trials(fam, bar), 1)
+    n_trials = max(xs_total_trials(fam, bar, mode), 1)
     out: list[ValidatedStrategy] = []
     for name, kind, need in XS_FAMILIES:
         if name not in fam:
@@ -221,7 +250,7 @@ def research_xs(
                              is_fraction, embargo_bars, min_oos_sharpe,
                              min_dsr, max_oos_drawdown, n_folds, log,
                              leader=leader, n_trials=n_trials, top_n=top_n,
-                             membership_bars=membership_bars)
+                             membership_bars=membership_bars, mode=mode)
         if s is not None:
             out.append(s)
     return out

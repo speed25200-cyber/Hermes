@@ -116,3 +116,54 @@ Deployable set on three years of broad-universe data: one market-neutral
 book. Its calendar-year record (2023 −1.1 / 2024 +0.8 / 2025 0.0 / 2026
 +2.1 at protocol costs, daily re-strike) is the reason the risk engine, the
 leverage governor and the autonomous retirement rule exist.
+
+### Run E — top-42 liquid perpetuals, **five years**, causal membership, final protocol
+(holdout = 2024-09 → 2026-09, 15,293 bars ≈ 1.75 years; 16–29 names
+investable at any time from 2021 on)
+
+* Evolution: 1,087 rules, **PBO = 0.53** → disqualified.
+* Cross-sectional momentum, in-sample selection picked the 2-week lookback
+  (IS Sharpe 0.72 vs 0.60 for 1-week — a coin flip): holdout Sharpe 0.33,
+  DSR 0.19, 2/3 folds → reject. **Deployed: 0.**
+
+Diagnostic on the same holdout, every lookback (DSR charged for 3):
+
+| lookback | IS | holdout Sharpe | DSR | PSR | max DD | folds | 2021 | 2022 | 2023 | 2024 | 2025 | 2026 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 week | 0.62 | **1.03** | 0.70 | 0.91 | 23.5% | 2/3 | +2.15 | +0.58 | −0.47 | +1.43 | +0.55 | +1.80 |
+| 2 weeks | 0.45 | 0.33 | 0.34 | 0.67 | 22.2% | 2/3 | +0.36 | +1.32 | −0.28 | +0.27 | +0.49 | +0.07 |
+| 4 weeks | −0.11 | −0.18 | 0.14 | 0.41 | 32.4% | 1/3 | +2.01 | −0.15 | −0.46 | −0.53 | +0.43 | −1.09 |
+
+The 1-week book is positive in five of six calendar years — the documented
+crypto momentum premium, alive among liquid mid-caps — but the in-sample
+choice between near-equivalent lookbacks is noise, and it picked the wrong
+one. Choosing a lookback by looking at the holdout would be exactly the
+overfitting the protocol exists to prevent.
+
+**Protocol change (made after this run, recorded here):** cross-sectional
+families are now **ensembles** — one book per family, the equal-weight
+average of its documented horizons (1/2/4 weeks for momentum) — so no
+parameter is selected in-sample and each family is one trial. Ensemble on
+the same holdout: Sharpe 0.50 (0.25 at taker costs), DSR 0.56, max DD
+14.8%, 2/4 folds, positive in five of six years, turnover 0.33× equity per
+day. **It fails the gate** (Sharpe floor 0.7, fold majority) and nothing
+deploys — an honest verdict: the premium is real but thin after costs at
+this breadth.
+
+## Where this leaves the engine
+
+* On public price data alone, no rule in Hermes' space clears a
+  survivorship-controlled, multiple-testing-corrected, cost-inclusive
+  holdout on five years of the liquid OKX universe. The engine deploys
+  nothing and hunts daily; the bar does not move.
+* The most credible candidate is 1-week cross-sectional momentum among
+  liquid mid-caps (five of six years positive, Sharpe ~1 on the holdout,
+  ~0.5 as a horizon ensemble). It is in the search and will deploy the day
+  it clears the gate on fresh data — which is how it should be.
+* The structural premium the literature ranks first — **funding carry** —
+  is not testable yet: OKX serves three months of funding history. The
+  engine stores every payment from now on; the carry family becomes
+  testable after ~4 months of accumulation, automatically.
+* Breadth is the lever that changed the picture (PBO 0.79 → 0.35–0.55,
+  momentum Sharpe 0.2 → 1.0): the live universe is the majors plus the
+  top-40 by volume, re-resolved at every pass, with causal membership.
