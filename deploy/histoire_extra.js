@@ -57,6 +57,19 @@ const UNIVERS = process.env.EXTRA_LARGE === "1"
   ? require(path.join(__dirname, "histoire_1h.js")).UNIVERS
   : TRENTE;
 
+/* Un fichier d'univers l'emporte sur la liste : la recherche sur les
+   movers en a besoin d'un large (une centaine), et une variable
+   d'environnement de cette taille n'est pas lisible dans un workflow. */
+function universDepuisFichier(defaut) {
+  const f = process.env.BANC_UNIVERS_FICHIER;
+  if (!f) return defaut;
+  try { const j = JSON.parse(fs.readFileSync(path.isAbsolute(f) ? f : path.join(RACINE, f), "utf8"));
+        const l = Array.isArray(j) ? j : j.instruments; if (Array.isArray(l) && l.length) return l; } catch {}
+  console.log(`[EXTRA] univers ${f} illisible : liste par defaut`);
+  return defaut;
+}
+const UNIVERS_EFFECTIF = universDepuisFichier(UNIVERS);
+
 function telecharger(chemin) {
   return new Promise((ok, ko) => {
     https.get({ host: HOTE, path: chemin, family: 4, headers: { "User-Agent": "hermes-extra" }, timeout: 60000 }, (r) => {
@@ -73,18 +86,6 @@ function telecharger(chemin) {
    change sans que le script meure. */
 function reperer(lignes, estValeur) {
   const echant = lignes.filter((l) => l && /\d/.test(l)).slice(0, 30).map((l) => l.split(","));
-/* Un fichier d'univers l'emporte sur la liste : la recherche sur les
-   movers en a besoin d'un large (une centaine), et une variable
-   d'environnement de cette taille n'est pas lisible dans un workflow. */
-function universDepuisFichier(defaut) {
-  const f = process.env.BANC_UNIVERS_FICHIER;
-  if (!f) return defaut;
-  try { const j = JSON.parse(fs.readFileSync(path.isAbsolute(f) ? f : path.join(RACINE, f), "utf8"));
-        const l = Array.isArray(j) ? j : j.instruments; if (Array.isArray(l) && l.length) return l; } catch {}
-  console.log(`[EXTRA] univers ${f} illisible : liste par defaut`);
-  return defaut;
-}
-const UNIVERS_EFFECTIF = universDepuisFichier(UNIVERS);
   if (!echant.length) return null;
   const nCol = Math.max(...echant.map((c) => c.length));
   let iTs = -1, iVal = -1;
@@ -166,7 +167,7 @@ const jourDe = (rows) => { const s = new Set(); for (const r of rows || []) s.ad
 
 async function serieJours(sym, jours, chemin, lecteur, parallele) {
   const rows = []; const vides = []; let absents = 0;
-  const P = parallele || 8;
+  const P = parallele || 12;
   for (let i = 0; i < jours.length; i += P) {
     const lot = jours.slice(i, i + P);
     const res = await Promise.all(lot.map(async (j) => {
@@ -266,6 +267,7 @@ async function main() {
   const depart = Date.now();
   console.log(`[EXTRA] ${UNIVERS_EFFECTIF.length} instruments, ${mois.length} mois (${mois[0]} → ${mois[mois.length - 1]}), budget ${(BUDGET_MS / 60000).toFixed(0)} min`);
 
+  const A_BLANC = process.env.EXTRA_DRY === "1";   // lister le travail, ne rien telecharger
   const OI = process.env.EXTRA_OI === "1";
   /* La prime (base) est mensuelle et legere ; les metrics sont
      journalieres et nombreuses. EXTRA_METRICS_JOURS=0 les laisse de
@@ -282,6 +284,7 @@ async function main() {
     const jVus = jourDe(deja.metrics), jAbs = new Set(deja.joursAbsentsMetrics || []);
     const jMet = jours.filter((j) => !jVus.has(j) && !jAbs.has(j));
     if (!mFin.length && !mOi.length && !mPrime.length && !jMet.length) { sautes++; continue; }
+    if (A_BLANC) { console.log(`  ${instId.padEnd(18)} a prendre : financement ${mFin.length} mois · prime ${mPrime.length} mois · metrics ${jMet.length} jours`); faits++; continue; }
     if (Date.now() - depart > BUDGET_MS) {
       console.log(`[EXTRA] budget epuise : ${faits} telecharges, ${sautes} deja presents, ${UNIVERS_EFFECTIF.length - faits - sautes} restants.`);
       console.log(`[EXTRA] relancer cette etape reprendra la ou elle s'arrete.`);

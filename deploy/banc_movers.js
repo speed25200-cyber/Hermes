@@ -37,7 +37,7 @@
    grille. Les couts : 0,05 % par execution, glissement declare, et le
    funding accumule sur la duree de detention.
 
-   Ne lit que data/cache-long, data/extra, recherche/. Ecrit
+   Ne lit que data/cache-long, data/extra, config/movers/. Ecrit
    data/movers.json. Ne branche rien.
    ============================================================================ */
 "use strict";
@@ -48,8 +48,8 @@ const JUGE = require(path.join(RACINE, "modules", "juge.js"));
 
 const CACHE = path.join(RACINE, "data", "cache-long");
 const EXTRA = path.join(RACINE, "data", "extra");
-const UNIVERS_FICHIER = path.join(RACINE, "recherche", "movers", "univers.json");
-const PAPIER = path.join(RACINE, "recherche", "papier", "profils.json");
+const UNIVERS_FICHIER = path.join(RACINE, "config", "movers", "univers.json");
+const PAPIER = path.join(RACINE, "config", "movers", "papier_profils.json");
 
 /* ---- parametres declares ---- */
 const FRAIS = Number(process.env.MOVERS_FRAIS || 0.0005);        // par execution (taker)

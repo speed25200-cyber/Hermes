@@ -137,41 +137,28 @@ async function unSymbole(instId, mois) {
   fs.mkdirSync(dossier, { recursive: true });
   let bougies = [];
   let telecharges = 0, depuisCache = 0, absents = 0;
+  const fichierDe = (m) => path.join(dossier, `${sym}-${m}.v2.json`);
+  /* v2 : les fichiers par mois de la premiere version n'ont que six
+     colonnes ; on les ignore et l'on retelecharge une fois. */
+  const aPrendre = [];
   for (const m of mois) {
-    /* v2 : les fichiers par mois de la premiere version n'ont que six
-       colonnes ; on les ignore et l'on retelecharge une fois, plutot que
-       de servir un cache qui n'a pas la colonne demandee. */
-    const fichier = path.join(dossier, `${sym}-${m}.v2.json`);
-    if (fs.existsSync(fichier)) {
-      try { bougies.push(...JSON.parse(fs.readFileSync(fichier, "utf8"))); depuisCache++; continue; } catch {}
-    }
-    let brut;
-    try {
-      brut = await telecharger(`/data/futures/um/monthly/klines/${sym}/5m/${sym}-5m-${m}.zip`);
-    } catch (e) { absents++; continue; }
-    if (!brut) { absents++; continue; }
-    let rows;
-    try { rows = lireCsv(ouvrirZip(brut).toString("utf8")); }
-    catch (e) { absents++; continue; }
-    if (!rows.length) { absents++; continue; }
-    fs.writeFileSync(fichier, JSON.stringify(rows));
-    bougies.push(...rows);
-    telecharges++;
+    const fichier = fichierDe(m);
+    if (fs.existsSync(fichier)) { try { bougies.push(...JSON.parse(fs.readFileSync(fichier, "utf8"))); depuisCache++; continue; } catch {} }
+    aPrendre.push(m);
   }
-  /* CE QUI EST DEJA SUR DISQUE RESTE.
-
-     Ce fichier etait RECONSTRUIT a partir des seuls mois demandes. Une
-     passe lancee avec HISTOIRE_MOIS=12 sur un cache qui en portait
-     vingt-quatre le raccourcissait donc de moitie, sans un mot — et
-     avec lui la fenetre d'apprentissage sur laquelle repose l'hypothese
-     pre-inscrite. Les fichiers par mois survivaient, si bien que rien
-     n'etait perdu pour de bon ; mais entre-temps les bancs lisaient une
-     histoire deux fois plus courte en la croyant complete.
-
-     On fusionne desormais avec l'existant. Une passe courte complete,
-     elle ne tronque plus. */
-  let ancien = [];
-  try { const v = JSON.parse(fs.readFileSync(path.join(CACHE_LONG, instId + ".json"), "utf8")); if (Array.isArray(v)) ancien = v; } catch {}
+  if (process.env.HISTOIRE_DRY === "1") return { instId, bougies: 0, telecharges: 0, depuisCache, absents: 0, aPrendre: aPrendre.length, aBlanc: true };
+  /* Six mois a la fois : en serie, vingt-quatre mois prenaient vingt-huit
+     secondes par instrument, soit plus d'une heure pour cent trente-six. */
+  const P = 6;
+  for (let i = 0; i < aPrendre.length; i += P) {
+    const lot = aPrendre.slice(i, i + P);
+    const res = await Promise.all(lot.map(async (m) => {
+      let brut; try { brut = await telecharger(`/data/futures/um/monthly/klines/${sym}/5m/${sym}-5m-${m}.zip`); } catch { return { m, rows: null }; }
+      if (!brut) return { m, rows: null };
+      try { const rows = lireCsv(ouvrirZip(brut).toString("utf8")); return { m, rows: rows.length ? rows : null }; } catch { return { m, rows: null }; }
+    }));
+    for (const { m, rows } of res) { if (!rows) { absents++; continue; } fs.writeFileSync(fichierDe(m), JSON.stringify(rows)); bougies.push(...rows); telecharges++; }
+  }
   if (!bougies.length && !ancien.length) return { instId, bougies: 0, telecharges, depuisCache, absents };
   const vus = new Set(); const propre = [];
   for (const k of [...ancien, ...bougies].sort((a, b) => a[0] - b[0])) if (!vus.has(k[0])) { vus.add(k[0]); propre.push(k); }
@@ -236,6 +223,7 @@ async function main() {
     const t0 = Date.now();
     try {
       const r = await unSymbole(instId, mois);
+      if (r.aBlanc) { console.log(`  ${instId.replace("-USDT-SWAP", "").padEnd(10)} a blanc : ${r.depuisCache} mois en cache, ${r.aPrendre} a prendre`); continue; }
       console.log(`  ${instId.replace("-USDT-SWAP", "").padEnd(10)} ${String(r.bougies).padStart(7)} bougies` +
         (r.bougies ? ` du ${r.du} au ${r.au}` : " — aucune donnee (instrument absent de Binance ?)") +
         ` | ${r.telecharges} mois telecharges, ${r.depuisCache} en cache, ${r.absents} absents, ${((Date.now() - t0) / 1000).toFixed(1)} s`);

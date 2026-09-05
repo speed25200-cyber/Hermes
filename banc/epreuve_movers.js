@@ -113,7 +113,7 @@ verifier("les hauts restent au-dessus des clotures apres melange", (() => { for 
 
 /* --- 6. le papier --------------------------------------------------------- */
 console.log("6. Le papier est-il lu sans perte ?");
-const P = JSON.parse(fs.readFileSync(path.join(RACINE, "recherche", "papier", "profils.json"), "utf8"));
+const P = JSON.parse(fs.readFileSync(path.join(RACINE, "config", "movers", "papier_profils.json"), "utf8"));
 verifier("100 profils, 88 individuels, 12 globaux", P.profils.length === 100 && P.meta.n_individuels === 88 && P.meta.n_globaux === 12);
 verifier("un seul profil global, pullback 21/55", P.meta.profil_global_unique && P.meta.profil_global.famille === "pullback" && P.meta.profil_global.fast === 21);
 verifier("le WR OOS recalcule depuis les annexes est celui annonce (69,25 %)", Math.abs(P.meta.oos_wr_pct_recalcule - 69.25) < 0.01);

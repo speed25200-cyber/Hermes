@@ -443,7 +443,7 @@ jobs:
           sshpass -e ssh -o StrictHostKeyChecking=accept-new \
             -o ServerAliveInterval=30 -o ServerAliveCountMax=60 \
             "root@$VPS" \
-            "cd /root/hermes && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=1400' BANC_UNIVERS_FICHIER=recherche/movers/univers.json HISTOIRE_MOIS=24 HISTOIRE_BUDGET_S=1100 node deploy/histoire_longue.js && NODE_OPTIONS='--dns-result-order=ipv4first' BANC_UNIVERS_FICHIER=recherche/movers/univers.json HISTOIRE_MOIS=24 EXTRA_METRICS_JOURS=730 EXTRA_BUDGET_S=900 node deploy/histoire_extra.js && du -sh data/cache-long data/extra"
+            "cd /root/hermes && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=1400' BANC_UNIVERS_FICHIER=config/movers/univers.json HISTOIRE_MOIS=24 HISTOIRE_BUDGET_S=1100 node deploy/histoire_longue.js && NODE_OPTIONS='--dns-result-order=ipv4first' BANC_UNIVERS_FICHIER=config/movers/univers.json HISTOIRE_MOIS=24 EXTRA_METRICS_JOURS=730 EXTRA_BUDGET_S=900 node deploy/histoire_extra.js && du -sh data/cache-long data/extra"
 
       - name: Mesurer les strategies movers
         if: ${{ inputs.movers_banc == 'true' }}
