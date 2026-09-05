@@ -32,14 +32,14 @@ from ..data.store import BARS_PER_YEAR, Candles
 # so the same economic horizons are searched whatever the data frequency.
 _GRID_HOURS = {
     "carry": (24, 72, 168),        # funding EWMA: 1d / 3d / 1w
-    "mom":   (168, 336, 672, 1344, 2016),   # 1 / 2 / 4 / 8 / 12 weeks
+    "mom":   (168, 336, 672),      # 1 / 2 / 4 weeks (the documented horizons)
     "rev":   (4, 12, 24),          # 4h / 12h / 1d
     "lead":  (2, 4, 8),            # leader-move window
     "basis": (12, 24, 48),
     "flow":  (4, 12, 24),
     "crowd": (4, 12, 24),
 }
-_MAX_W = (0.15, 0.25)
+_MAX_W = (0.2,)                     # one cap: fewer trials, honest DSR
 
 
 def bars_per_hour(bar: str) -> float:

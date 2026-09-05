@@ -61,7 +61,7 @@ DEFAULTS: dict[str, Any] = {
         "seed": None,
         "is_fraction": 0.65,         # fraction of history used in-sample
         "embargo_bars": 72,          # 3 days of 1H — must exceed max ML horizon (48)
-        "top_k": 10,                 # rules tested on the holdout (= DSR trials)
+        "top_k": 6,                  # rules tested on the holdout (= DSR trials)
         "min_oos_sharpe": 0.7,       # OOS annualised Sharpe required to deploy
         "min_dsr": 0.5,              # P(true SR > expected max of top_k noise trials)
         "max_oos_drawdown": 0.30,

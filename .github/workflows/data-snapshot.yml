@@ -62,6 +62,12 @@ jobs:
             micro: "0"
             universe: "60"
             branch: okx-data-snapshot-top60-1h-3y-qv
+          - name: top60-5y-1H-qv      # full history per name (majors reach 2021)
+            days: "1825"
+            bars: "1H"
+            micro: "0"
+            universe: "60"
+            branch: okx-data-snapshot-top60-1h-5y-qv
     steps:
       - uses: actions/checkout@v4
 

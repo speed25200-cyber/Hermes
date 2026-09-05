@@ -88,6 +88,7 @@ def validate_panel(
     fold_embargo: int = 48,
     max_per_family: int = 2,
     extra_trials: int = 0,
+    min_gross: float = 0.10,
     log=None,
 ) -> list[ValidatedStrategy]:
     """Score the best in-sample rules on the embargoed panel holdout.
@@ -122,17 +123,21 @@ def validate_panel(
         st["n_trials_charged"] = n_trials
         consistent, label, _ = _fold_consistency(oos, bpy, n_folds, fold_embargo)
         st["oos_folds_positive"] = label
+        oos_gross = float(np.nanmean(np.nansum(np.abs(np.nan_to_num(
+            panel.book(P)[:, oos_start:])), axis=0)))
+        st["oos_gross_exposure"] = oos_gross
         verdict = (
             st["sharpe"] >= min_oos_sharpe
             and st["dsr"] >= min_dsr
             and st["max_drawdown"] <= max_oos_drawdown
             and consistent
+            and oos_gross >= min_gross
         )
         if log:
             log(f"  OOS panel {g.gid} {g.describe()}: sharpe={st['sharpe']:.2f} "
                 f"dsr={st['dsr']:.3f} psr={st['psr']:.3f} "
                 f"mdd={st['max_drawdown']:.1%} folds+={label} "
-                f"gross={gross:.2f} -> {'DEPLOY' if verdict else 'reject'}")
+                f"gross={oos_gross:.2f} -> {'DEPLOY' if verdict else 'reject'}")
         if verdict:
             survivors.append(ValidatedStrategy(
                 genome=g, inst=PANEL_INST, bar=panel.bar,

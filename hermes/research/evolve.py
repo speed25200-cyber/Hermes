@@ -27,6 +27,10 @@ from ..strategy.signals import compute_position
 from .panel import Panel
 
 
+# minimum mean gross exposure (equity units) for a panel rule to count
+MIN_GROSS_EXPOSURE = 0.10
+
+
 @dataclass
 class Candidate:
     genome: Genome
@@ -83,6 +87,10 @@ class PanelEvaluator:
         stats = metrics.summarize(rets, eq, self.bpy, turnover, 1)
         stats["gross_exposure"] = gross
         fit = _window_fitness(rets, turnover, self.bpy)
+        # a rule that is almost always flat is not a strategy: its Sharpe
+        # comes from a handful of sparse bets and cannot fund a book
+        if gross < MIN_GROSS_EXPOSURE:
+            fit = -1e9
         return fit, stats, rets.astype(np.float32)
 
 
