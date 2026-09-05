@@ -167,7 +167,7 @@ const jourDe = (rows) => { const s = new Set(); for (const r of rows || []) s.ad
 
 async function serieJours(sym, jours, chemin, lecteur, parallele) {
   const rows = []; const vides = []; let absents = 0;
-  const P = parallele || 12;
+  const P = parallele || 40;   // borne par la latence, pas le debit : 730 requetes par instrument
   for (let i = 0; i < jours.length; i += P) {
     const lot = jours.slice(i, i + P);
     const res = await Promise.all(lot.map(async (j) => {
