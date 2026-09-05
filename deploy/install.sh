@@ -72,7 +72,21 @@ echo "=== 5. environnement ==="
 # proprietaire dehors de sa propre console.
 set +x
 touch "$ENV_FILE"; chmod 600 "$ENV_FILE"
-if ! grep -q "^HERMES_DASH_TOKEN=" "$ENV_FILE" 2>/dev/null; then
+# Remise dune cle CONNUE. Le 5 septembre 2026, un deploiement etranger a
+# rsync le depot sans exclure /.env : le fichier est parti, et
+# linstalleur qui a suivi en a forge une cle neuve. Le proprietaire
+# sest retrouve dehors de sa propre console, et le paquet chiffre des
+# cles OKX — qui souvre avec cette cle-la — ne souvrait plus.
+#
+# La valeur arrive par lENVIRONNEMENT, posee par le workflow depuis
+# lentree standard : jamais en argument (un argument se lit dans la
+# liste des processus le temps que la commande vive), et jamais
+# imprimee — xtrace est coupe sur tout ce bloc.
+if [ -n "${HERMES_DASH_TOKEN_POSE:-}" ]; then
+  sed -i "/^HERMES_DASH_TOKEN=/d" "$ENV_FILE"
+  echo "HERMES_DASH_TOKEN=$HERMES_DASH_TOKEN_POSE" >> "$ENV_FILE"
+  echo "  cle de tableau de bord REMISE (celle fournie ; jamais dans le journal)"
+elif ! grep -q "^HERMES_DASH_TOKEN=" "$ENV_FILE" 2>/dev/null; then
   echo "HERMES_DASH_TOKEN=$(openssl rand -hex 16)" >> "$ENV_FILE"
   echo "  cle de tableau de bord creee (dans $ENV_FILE, jamais dans le journal)"
 else

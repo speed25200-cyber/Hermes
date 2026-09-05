@@ -32,6 +32,10 @@ on:
         description: "Paquet chiffre portant les lignes OKX (base64). Vide = ne rien poser."
         required: false
         default: ""
+      jeton:
+        description: "Remettre une cle de console CONNUE dans le .env (masquee ; vide = conserver celle en place)"
+        required: false
+        default: ""
       demarrer:
         description: "Demarrer le moteur apres la pose des cles"
         required: false
@@ -213,9 +217,19 @@ jobs:
             ./ "root@$VPS:/root/hermes/"
 
       - name: Run installer
+        env:
+          JETON: ${{ inputs.jeton }}
         run: |
-          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
-            "bash /root/hermes/deploy/install.sh"
+          # La cle de console, si on en remet une, voyage par lentree
+          # standard et devient une variable denvironnement sur la
+          # machine. Ni argument de commande — visible dans ps le temps
+          # que la commande vive — ni interpolation dans ce script —
+          # visible dans ce journal. Le masque est une ceinture de plus :
+          # la valeur ne devrait apparaitre nulle part, et si elle
+          # apparaissait quand meme, elle serait remplacee par ***.
+          if [ -n "$JETON" ]; then echo "::add-mask::$JETON"; fi
+          printf '%s' "$JETON" | sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+            'J=$(cat); HERMES_DASH_TOKEN_POSE="$J" bash /root/hermes/deploy/install.sh'
 
       # --- Pose des cles OKX -------------------------------------------
       #
