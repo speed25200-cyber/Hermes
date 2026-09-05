@@ -159,6 +159,14 @@ async function unSymbole(instId, mois) {
     }));
     for (const { m, rows } of res) { if (!rows) { absents++; continue; } fs.writeFileSync(fichierDe(m), JSON.stringify(rows)); bougies.push(...rows); telecharges++; }
   }
+  /* CE QUI EST DEJA SUR DISQUE RESTE. Une passe courte (HISTOIRE_MOIS=12
+     sur un cache de vingt-quatre) completait autrefois le fichier en le
+     RECONSTRUISANT : il perdait la moitie de son histoire sans un mot,
+     et la fenetre d'apprentissage de l'hypothese pre-inscrite avec. On
+     fusionne avec l'existant : une passe courte complete, elle ne
+     tronque plus. Le banc epreuve_hors_echantillon garde cette ligne. */
+  let ancien = [];
+  try { const v = JSON.parse(fs.readFileSync(path.join(CACHE_LONG, instId + ".json"), "utf8")); if (Array.isArray(v)) ancien = v; } catch {}
   if (!bougies.length && !ancien.length) return { instId, bougies: 0, telecharges, depuisCache, absents };
   const vus = new Set(); const propre = [];
   for (const k of [...ancien, ...bougies].sort((a, b) => a[0] - b[0])) if (!vus.has(k[0])) { vus.add(k[0]); propre.push(k); }
