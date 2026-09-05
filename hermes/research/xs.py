@@ -41,9 +41,11 @@ DEFAULT_XS_FAMILIES = ("funding_xs", "xs_mom", "xs_rev", "xs_lead")
 XS_TOTAL_TRIALS = sum(len(xs_grid(k, "15m")) for _, k, _ in XS_FAMILIES)
 
 
-def xs_total_trials(families, bar: str, mode: str = "ensemble") -> int:
+def xs_total_trials(families, bar: str, mode: str = "holdout") -> int:
     """Trials charged to the Deflated Sharpe: one per family in ensemble
-    mode (no parameter is selected), every grid config in select mode."""
+    mode (no parameter is selected), every grid config otherwise (select:
+    picked in-sample; holdout: every config faces the holdout, exactly like
+    the panel gate's contenders)."""
     fam = set(families)
     if mode == "ensemble":
         return sum(1 for name, _, _ in XS_FAMILIES if name in fam)
@@ -105,7 +107,7 @@ def _validate_family(
     n_trials: int = XS_TOTAL_TRIALS,
     top_n: int | None = None,
     membership_bars: int = 720,
-    mode: str = "ensemble",
+    mode: str = "holdout",
 ) -> ValidatedStrategy | None:
     insts = sorted(candles_map)
     bar = candles_map[insts[0]].bar
@@ -119,6 +121,7 @@ def _validate_family(
         return out
 
     is_map = slice_map(0.0, is_fraction)
+    contenders: list[dict] = []
     if mode == "ensemble":
         # ---- one book per family: the equal-weight ensemble of the grid.
         # No parameter is chosen in-sample, so the family is a single trial;
@@ -139,7 +142,31 @@ def _validate_family(
                 log(f"xs research [{name}]: ensemble not profitable in-sample, "
                     f"rejecting")
             return None
-        best = (sh_is, params)
+        contenders = [params]
+    elif mode == "holdout":
+        # ---- every grid config is a holdout contender, exactly like the
+        # panel gate: the in-sample Sharpe is a sanity floor (> 0), the
+        # choice is made on the holdout and the Deflated Sharpe is charged
+        # for the whole grid — which is precisely the "best of N trials"
+        # situation the DSR was built for. Choosing between near-equivalent
+        # horizons in-sample is noise; charging for them is not.
+        for params in grid:
+            common, _, pos = xs_positions(is_map, params, kind=kind, leader=leader,
+                                          top_n=top_n, membership_bars=membership_bars)
+            if not pos:
+                continue
+            sh = metrics.sharpe(portfolio_backtest(is_map, pos, common, fee_bps,
+                                                   slip_bps), bpy)
+            if log:
+                log(f"xs IS [{name}]: {params} sharpe={sh:.2f}"
+                    + ("" if sh > 0 else " (not a contender)"))
+            if sh > 0:
+                contenders.append(params)
+        if not contenders:
+            if log:
+                log(f"xs research [{name}]: no config profitable in-sample, "
+                    f"rejecting")
+            return None
     else:
         # ---- in-sample grid search (select mode) ---------------------------
         best = None
@@ -159,9 +186,31 @@ def _validate_family(
                 log(f"xs research [{name}]: no config profitable in-sample, "
                     f"rejecting")
             return None
+        contenders = [best[1]]
 
+    survivors: list[ValidatedStrategy] = []
+    for params in contenders:
+        s = _holdout_one(name, params, kind, candles_map, fee_bps, slip_bps,
+                         is_fraction, embargo_bars, min_oos_sharpe, min_dsr,
+                         max_oos_drawdown, n_folds, log, leader, n_trials,
+                         top_n, membership_bars)
+        if s is not None:
+            survivors.append(s)
+    if not survivors:
+        return None
+    # several configs of one family may pass: keep the best holdout Sharpe
+    # (the DSR already paid for the choice)
+    return max(survivors, key=lambda s: s.oos_stats["sharpe"])
+
+
+def _holdout_one(name, params, kind, candles_map, fee_bps, slip_bps, is_fraction,
+                 embargo_bars, min_oos_sharpe, min_dsr, max_oos_drawdown,
+                 n_folds, log, leader, n_trials, top_n, membership_bars
+                 ) -> ValidatedStrategy | None:
+    insts = sorted(candles_map)
+    bar = candles_map[insts[0]].bar
+    bpy = BARS_PER_YEAR[bar]
     # ---- out-of-sample validation (embargoed, warm-started) -----------
-    _, params = best
     common_full, _, pos_full = xs_positions(candles_map, params, kind=kind,
                                             leader=leader, top_n=top_n,
                                             membership_bars=membership_bars)
@@ -202,8 +251,9 @@ def _validate_family(
     genome = Genome(signal=name, params=dict(params),
                     vol_target=0.15, max_lev=1.0)
     st["top_n"] = top_n
+    is_sh = metrics.sharpe(rets_full[:max(oos_start - embargo_bars, 1)], bpy)
     return ValidatedStrategy(genome=genome, inst=XS_INST, bar=bar,
-                             is_stats={"sharpe": best[0]}, oos_stats=st,
+                             is_stats={"sharpe": float(is_sh)}, oos_stats=st,
                              oos_rets=oos)
 
 
@@ -222,7 +272,7 @@ def research_xs(
     families=DEFAULT_XS_FAMILIES,
     top_n: int | None = None,
     membership_bars: int = 720,
-    mode: str = "ensemble",
+    mode: str = "holdout",
 ) -> list[ValidatedStrategy]:
     """Run the selected XS families through the gate; return the survivors.
     The Deflated Sharpe is charged for every trial actually run: one per

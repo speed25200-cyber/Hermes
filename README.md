@@ -109,6 +109,14 @@ State written by an earlier engine version (rules validated under another
 protocol, paper books from another risk regime) is archived automatically
 on start-up, never reused.
 
+**Evidence on real data** (`docs/RESEARCH_EVIDENCE.md`): on five years of
+the liquid OKX universe with causal membership, the gate deploys one book —
+1-week cross-sectional momentum among the 30 most-traded perpetuals
+(holdout Sharpe 1.03, DSR 0.52, max drawdown 23%, positive in five of six
+years) — and rejects everything else, including every directional rule the
+evolutionary search proposed (PBO 0.5–0.8). Funding carry becomes testable
+once ~4 months of funding history have accumulated.
+
 ## Quickstart
 
 ```bash

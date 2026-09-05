@@ -43,6 +43,13 @@ chasse : une RÈGLE appliquée à tout l'univers (majeurs + top-40 perpétuels
 Les seuils de validation ne se règlent pas à la baisse. Jamais. Un passage
 de recherche qui ne déploie rien est un verdict, pas une panne.
 
+Preuves sur données réelles (`docs/RESEARCH_EVIDENCE.md`) : sur 5 ans de
+l'univers liquide OKX, une seule règle passe la porte — le **momentum
+cross-sectionnel à 1 semaine** parmi les 30 perpétuels les plus traités
+(Sharpe holdout 1,03, DSR 0,52, drawdown max 23 %, positif 5 années sur 6).
+C'est ce que le moteur déploiera en paper à la première passe sur le VPS,
+si les données fraîches le confirment.
+
 Le bureau intraday (horloges 1 m–15 m, flux L2) est **désactivé** : son
 « holdout » unique n'a aucun contrôle de tests multiples et son économie
 après frais n'est pas prouvée. Il reste dans le code pour la recherche.

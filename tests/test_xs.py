@@ -205,3 +205,4 @@ def test_ensemble_mode_charges_one_trial_per_family():
     from hermes.research.xs import xs_total_trials
     assert xs_total_trials(("funding_xs", "xs_mom"), "1H", "ensemble") == 2
     assert xs_total_trials(("funding_xs", "xs_mom"), "1H", "select") == 6
+    assert xs_total_trials(("funding_xs", "xs_mom"), "1H", "holdout") == 6

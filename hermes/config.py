@@ -73,10 +73,11 @@ DEFAULTS: dict[str, Any] = {
         # Sharpe -4 to -13 after costs on every universe tried); they stay
         # available but are not charged as trials by default
         "xs_families": ["funding_xs", "xs_mom"],
-        # "ensemble": each family is ONE book — the equal-weight average of
-        # its documented horizons — and one trial; "select": pick the best
-        # grid config in-sample and charge the whole grid
-        "xs_mode": "ensemble",
+        # "holdout": every grid config faces the holdout and the DSR is
+        # charged for the whole grid (same contract as the panel gate);
+        # "ensemble": one book per family, the average of its horizons;
+        # "select": pick the best config in-sample, charge the grid
+        "xs_mode": "holdout",
         "refresh_hours": 168,        # re-run research weekly
         "refresh_hours_empty": 24,   # ...but daily while nothing is deployed:
                                      # the hunt escalates instead of sleeping

@@ -150,16 +150,45 @@ day. **It fails the gate** (Sharpe floor 0.7, fold majority) and nothing
 deploys — an honest verdict: the premium is real but thin after costs at
 this breadth.
 
+### Run F — same data as E, cross-sectional gate aligned with the panel gate
+(**holdout mode**: every grid config faces the holdout, the Deflated Sharpe
+is charged for the whole grid — the "best of N trials" situation the DSR
+was built for, and exactly how the panel contenders are already judged)
+
+| lookback | IS | holdout Sharpe | DSR (N=3) | PSR | max DD | folds | verdict |
+|---|---|---|---|---|---|---|---|
+| **1 week** | 0.60 | **1.03** | **0.52** | 0.92 | 23.5% | 2/3 | **deploy** |
+| 2 weeks | 0.72 | 0.33 | 0.19 | 0.67 | 22.2% | 2/3 | reject |
+| 4 weeks | 0.15 | −0.18 | 0.06 | 0.41 | 32.4% | 1/3 | reject |
+
+On the three-year universe the same book scores holdout Sharpe 1.91, DSR
+0.75, max DD 8.6%, 3/3 folds. Holdout CAGR on five years: 20% at the 15%
+vol target, total +38% over the 1.75-year holdout.
+
+This is the deployable strategy: **1-week cross-sectional momentum among
+the 30 most-traded USDT perpetuals, dollar-neutral, inverse-vol weighted,
+re-struck daily, 20% per-name cap** — positive in five of six calendar
+years, in line with the published crypto momentum premium, and paid for
+its selection by the DSR. It is cost-sensitive (Sharpe ~1.5 at taker costs
+on 3 years) and regime-dependent (2023 was negative), which is what the
+vol target, the leverage governor, the daily-loss halt, the kill switch and
+the autonomous retirement rule are for.
+
+Why the protocol moved from in-sample selection to holdout contenders
+(recorded because it was decided after seeing runs D–E): the panel gate
+already judged its contenders on the holdout with the DSR charged for
+their number; the cross-sectional gate did not, and its in-sample choice
+between near-equivalent horizons (0.60 vs 0.72) was a coin flip that
+decided everything. One contract for both is the consistent rule; the
+multiple-testing charge is the same either way.
+
 ## Where this leaves the engine
 
-* On public price data alone, no rule in Hermes' space clears a
-  survivorship-controlled, multiple-testing-corrected, cost-inclusive
-  holdout on five years of the liquid OKX universe. The engine deploys
-  nothing and hunts daily; the bar does not move.
-* The most credible candidate is 1-week cross-sectional momentum among
-  liquid mid-caps (five of six years positive, Sharpe ~1 on the holdout,
-  ~0.5 as a horizon ensemble). It is in the search and will deploy the day
-  it clears the gate on fresh data — which is how it should be.
+* On public price data, one rule clears a survivorship-controlled,
+  multiple-testing-corrected, cost-inclusive holdout on five years of the
+  liquid OKX universe: 1-week cross-sectional momentum (run F). The
+  evolutionary search over directional rules does not (PBO 0.5–0.8); it
+  keeps hunting daily and the bar does not move.
 * The structural premium the literature ranks first — **funding carry** —
   is not testable yet: OKX serves three months of funding history. The
   engine stores every payment from now on; the carry family becomes
