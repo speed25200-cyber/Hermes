@@ -20,13 +20,38 @@ on:
       root_password:
         description: "Root password (optional if VPS_PASSWORD secret is set)"
         required: false
+  # engine branches deploy themselves on push — but only once the
+  # VPS_PASSWORD secret exists (Settings > Secrets > Actions); without it
+  # the run is skipped, never failed
+  push:
+    branches: ["main", "claude/hermes-autonomous-strategy-engine-*"]
+    paths-ignore: ["docs/**", "README.md", "ios/**"]
 
 concurrency:
   group: vps-deploy
   cancel-in-progress: false
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.c.outputs.go }}
+    steps:
+      - id: c
+        env:
+          HAS_SECRET: ${{ secrets.VPS_PASSWORD != '' }}
+          HAS_INPUT: ${{ inputs.root_password != '' }}
+        run: |
+          if [ "$HAS_SECRET" = "true" ] || [ "$HAS_INPUT" = "true" ]; then
+            echo "go=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=0" >> "$GITHUB_OUTPUT"
+            echo "::notice::no VPS credential (set the VPS_PASSWORD secret or pass root_password) — deploy skipped"
+          fi
+
   deploy:
+    needs: check
+    if: needs.check.outputs.go == '1'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:

@@ -76,6 +76,34 @@ l'ancienne (registre, livre papier, kill switch) est archivé dans
    `OKX_SIMULATED=1`, puis un capital minime avec `max_gross_leverage`
    réduit. Augmenter uniquement sur preuves durables.
 
+## Mise en ligne du moteur v2 (à faire une fois)
+
+Le mot de passe root du VPS n'est stocké nulle part dans le dépôt (les
+mises en ligne précédentes le saisissaient à la main). Deux façons :
+
+1. **Recommandé** — poser une fois le secret `VPS_PASSWORD` (Settings →
+   Secrets and variables → Actions → New repository secret). Dès lors,
+   chaque push sur `main` ou sur une branche `claude/hermes-autonomous-
+   strategy-engine-*` déploie tout seul, et le workflow « Deploy Hermes to
+   VPS » peut être lancé sans rien saisir.
+2. Actions → « Deploy Hermes to VPS » → *Run workflow* → branche
+   `claude/hermes-autonomous-strategy-engine-v65fme` → renseigner
+   `root_password`.
+
+Ce que fait la mise en ligne : rsync du dépôt, retrait des unités du
+moteur Node précédent (`hermes-perles.*`), installation des unités
+Python (`hermes`, `hermes-research`, `hermes-dashboard`), puis
+`hermes-research` (backfill 5 ans de l'univers dynamique ≈ 1 h, recherche
+≈ 30 min) qui relance le moteur en paper. L'état de l'ancien moteur est
+archivé dans `state/archive-v*/`. Vérifier ensuite avec « VPS status ».
+
+**Attention** : le moteur Node actuellement en place trade en réel
+(clés OKX présentes dans `/root/hermes/.env`, ~8 USDT d'équité). La mise en
+ligne l'arrête ; ses positions ouvertes éventuelles ne sont pas fermées
+par Hermes — vérifier le compte OKX. Le moteur v2 démarre en **paper** et
+n'envoie aucun ordre réel tant que `hermes.service` n'est pas passé en
+`--mode live`.
+
 ## Sécurité de l'accès
 
 - Le mot de passe root circule aujourd'hui en entrée de workflow (masqué
