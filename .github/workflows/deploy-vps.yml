@@ -80,6 +80,10 @@ on:
         description: "Mesurer les strategies movers, flux, positionnement, transversal et le papier x20 (data/movers.json)"
         required: false
         default: "false"
+      movers_verdict:
+        description: "Rapatrier le verdict des movers (data/movers.json du VPS) dans config/movers/resultats.json et le committer sur la branche"
+        required: false
+        default: "false"
       ampleur:
         description: "Elargir a cent instruments et tester la loi en racine(N) : le sharpe grandit-il comme la largeur l'exige ?"
         required: false
@@ -128,6 +132,10 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # contents: write ne sert qu'a l'etape « Rapatrier le verdict des
+    # movers », qui committe un fichier de resultats sur la branche.
+    permissions:
+      contents: write
     # Une premiere passe froide sur cinquante instruments peut approcher la demi-heure.
     timeout-minutes: 45
     env:
@@ -452,6 +460,29 @@ jobs:
             -o ServerAliveInterval=30 -o ServerAliveCountMax=120 \
             "root@$VPS" \
             "cd /root/hermes && NODE_OPTIONS='--dns-result-order=ipv4first --max-old-space-size=4000' node deploy/banc_movers.js && echo '=== MOVERS_JSON_DEBUT ===' && cat data/movers.json && echo '=== MOVERS_JSON_FIN ==='"
+
+      # Le verdict fait 86 Ko de JSON : imprime dans le journal, il ne
+      # peut etre recopie qu'a la main, avec les erreurs que cela
+      # suppose. Le runner le rapatrie tel quel et le committe sur la
+      # branche qui a lance le run ; le rapport se regenere ensuite avec
+      # deploy/rapport_movers.js sans qu'aucun chiffre ne passe par un
+      # clavier. Le fichier ne contient que des statistiques agregees.
+      - name: Rapatrier le verdict des movers
+        if: ${{ inputs.movers_banc == 'true' || inputs.movers_verdict == 'true' }}
+        run: |
+          sshpass -e scp -o StrictHostKeyChecking=accept-new \
+            "root@$VPS:/root/hermes/data/movers.json" config/movers/resultats.json
+          node -e "const d=require('./config/movers/resultats.json'); console.log('[VERDICT]', d.genere, d.instruments, 'instruments,', d.cellules.length, 'cellules, metrics', d.avecMetrics, ', duree', d.duree_s, 's')"
+          if git diff --quiet -- config/movers/resultats.json; then
+            echo "[VERDICT] identique a celui deja commis : rien a pousser"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add config/movers/resultats.json
+          git commit -q -m "Verdict des movers rapatrie du VPS (run ${GITHUB_RUN_NUMBER})" \
+            -m "Mesure du $(node -p "require('./config/movers/resultats.json').genere") sur $(node -p "require('./config/movers/resultats.json').instruments") instruments, produite par deploy/banc_movers.js ; le fichier est copie tel quel, sans recopie."
+          git push origin "HEAD:${GITHUB_REF_NAME}"
 
       # Le suivi hors echantillon. Le banc transversal a vu ses vingt et
       # une cellules avant de conclure, et paie cette liberte par une
