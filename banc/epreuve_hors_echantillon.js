@@ -236,8 +236,15 @@ verifier("un vieux mois l'est",
    lui la fenetre d'apprentissage de l'hypothese. On verifie ici que la
    fusion est bien celle du code, pas celle du commentaire. */
 const srcL = fs.readFileSync(path.join(RACINE, "deploy", "histoire_longue.js"), "utf8");
+/* Deux marqueurs, a distance libre : la relecture de l'existant et sa
+   fusion avec le nouveau. Une fenetre de 400 caracteres rougissait des
+   qu'un commentaire s'allongeait — un controle qui depend de la prose
+   n'en est pas un. */
 verifier("les bougies deja en cache sont relues avant d'ecrire",
-  /let ancien = \[\];[\s\S]{0,400}\[\.\.\.ancien, \.\.\.bougies\]/.test(srcL));
+  /let ancien = \[\];/.test(srcL) && /\[\.\.\.ancien, \.\.\.bougies\]/.test(srcL)
+  && srcL.indexOf("let ancien = [];") < srcL.indexOf("[...ancien, ...bougies]"));
+verifier("a date egale, la ligne la plus riche gagne (v2 sur v1)",
+  /k\.length > d\.length/.test(srcL));
 verifier("plus aucun tri qui ignore l'existant",
   !/for \(const k of bougies\.sort/.test(srcL));
 
