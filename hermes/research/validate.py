@@ -102,18 +102,25 @@ def validate_panel(
     if panel.n - oos_start < 300:
         raise ValueError("not enough OOS data to validate (need >= 300 bars)")
     bpy = panel.bpy
-    n_trials = max(top_k + extra_trials, 1)
-    survivors: list[ValidatedStrategy] = []
-    tested = 0
+    # the holdout contenders: best in-sample rules, at most `max_per_family`
+    # per family, and never a rule the search itself discarded (fitness
+    # sentinel) — those are not trials, they are dead genomes
+    contenders: list[Candidate] = []
     family_seen: dict[str, int] = {}
     for cand in candidates:
-        if tested >= top_k or len(survivors) >= max_deployed:
+        if len(contenders) >= top_k:
             break
         g = cand.genome
-        if family_seen.get(g.signal, 0) >= max_per_family:
+        if cand.fitness <= -1e8 or family_seen.get(g.signal, 0) >= max_per_family:
             continue
         family_seen[g.signal] = family_seen.get(g.signal, 0) + 1
-        tested += 1
+        contenders.append(cand)
+    n_trials = max(len(contenders) + extra_trials, 1)
+    survivors: list[ValidatedStrategy] = []
+    for cand in contenders:
+        if len(survivors) >= max_deployed:
+            break
+        g = cand.genome
         P = panel.positions(g)
         rets, turnover, gross = panel.book_returns(P, fee_bps, slip_bps)
         oos = rets[oos_start:]
