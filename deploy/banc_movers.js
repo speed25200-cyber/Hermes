@@ -116,8 +116,20 @@ function supertrend(h, l, c, n, f) {
     up = bu; dn = bl; dir[i] = d; ligne[i] = d === 1 ? bl : bu; }
   return { dir, ligne };
 }
-function rollMax(x, n) { const out = new Float64Array(x.length).fill(NaN); for (let i = n; i < x.length; i++) { let m = -Infinity; for (let j = i - n; j < i; j++) if (x[j] > m) m = x[j]; out[i] = m; } return out; } // sur les N PRECEDENTES
-function rollMin(x, n) { const out = new Float64Array(x.length).fill(NaN); for (let i = n; i < x.length; i++) { let m = Infinity; for (let j = i - n; j < i; j++) if (x[j] < m) m = x[j]; out[i] = m; } return out; }
+/* Extremum glissant sur les N bougies PRECEDENTES (la courante exclue :
+   c'est ce qui rend une cassure de Donchian testable sans lire la bougie
+   qui casse). Deque monotone, O(n) : la version naive en O(n*N) etait
+   appelee douze mille fois par le test de transfert. */
+function rollExt(x, n, signe) {
+  const out = new Float64Array(x.length).fill(NaN); const dq = new Int32Array(x.length); let tete = 0, fin = 0;
+  for (let i = 0; i < x.length; i++) {
+    if (i >= n) { while (tete < fin && dq[tete] < i - n) tete++; if (tete < fin) out[i] = x[dq[tete]]; }
+    const v = x[i]; if (!Number.isFinite(v)) continue;
+    while (tete < fin && signe * x[dq[fin - 1]] <= signe * v) fin--; dq[fin++] = i;
+  }
+  return out;
+}
+const rollMax = (x, n) => rollExt(x, n, 1), rollMin = (x, n) => rollExt(x, n, -1);
 function stdev(x, n) {
   const out = new Float64Array(x.length).fill(NaN); let s = 0, q = 0, c = 0;
   for (let i = 0; i < x.length; i++) { const v = x[i]; if (Number.isFinite(v)) { s += v; q += v * v; c++; }
@@ -356,7 +368,11 @@ function famillesFlux(B, M) {
     financement_contr: zFund ? (i) => zFund[i] > 2 ? -1 : zFund[i] < -2 ? 1 : 0 : null,
     base_contrarien:   zPrime ? (i) => zPrime[i] > 2 ? -1 : zPrime[i] < -2 ? 1 : 0 : null,
   };
-  return { S, quotidien: { ofi24, ret48, dOi, fund: M.fund, taker: M.taker, prime: M.prime, qv: B.qv } };
+  /* Le transversal ne lit qu'une valeur par jour, a la derniere bougie :
+     on n'emporte que celle-la. Garder les tableaux 30 min entiers pour
+     136 instruments coutait 230 Mo pour rien. */
+  const nJ = Math.floor(n / 48); const jour = (arr) => { if (!arr) return null; const o = new Float32Array(nJ).fill(NaN); for (let d = 1; d < nJ; d++) o[d] = arr[d * 48 - 1]; return o; };
+  return { S, quotidien: { ofi24: jour(ofi24), ret48: jour(ret48), dOi: jour(dOi), fund: jour(M.fund), taker: jour(M.taker), prime: jour(M.prime) } };
 }
 const HORIZONS = [2, 8, 48];   // bougies de 30 min : 1 h, 4 h, 24 h
 
@@ -392,9 +408,9 @@ function universCausaux(inst, t0, nJours, nBar) {
 /* ============================ transversal quotidien ============================ */
 function evaluerXS(inst, U, quot, nJours, K) {
   const cellules = {}; const N = inst.length;
-  const signaux = { xs_ofi24: (k, d) => quot[k].ofi24[d * 48 - 1], xs_retour24_mom: (k, d) => quot[k].ret48[d * 48 - 1], xs_retour24_rev: (k, d) => -quot[k].ret48[d * 48 - 1],
-                    xs_dOI: (k, d) => quot[k].dOi[d * 48 - 1], xs_financement: (k, d) => quot[k].fund ? -quot[k].fund[d * 48 - 1] : NaN,
-                    xs_taker: (k, d) => quot[k].taker ? -quot[k].taker[d * 48 - 1] : NaN, xs_base: (k, d) => quot[k].prime ? -quot[k].prime[d * 48 - 1] : NaN };
+  const signaux = { xs_ofi24: (k, d) => quot[k].ofi24[d], xs_retour24_mom: (k, d) => quot[k].ret48[d], xs_retour24_rev: (k, d) => -quot[k].ret48[d],
+                    xs_dOI: (k, d) => quot[k].dOi[d], xs_financement: (k, d) => quot[k].fund ? -quot[k].fund[d] : NaN,
+                    xs_taker: (k, d) => quot[k].taker ? -quot[k].taker[d] : NaN, xs_base: (k, d) => quot[k].prime ? -quot[k].prime[d] : NaN };
   for (const nom of Object.keys(signaux)) { const periodes = []; let prec = new Map();
     for (let d = 31; d + 1 < nJours; d++) { const cand = [];
       for (let k = 0; k < N; k++) { if (!U.topVol[k * nJours + d]) continue; const s = signaux[nom](k, d); const c0 = inst[k].B.o[d * 48], c1 = inst[k].B.c[(d + 1) * 48 - 1];
