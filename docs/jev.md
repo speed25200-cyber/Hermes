@@ -181,10 +181,14 @@ calibration après vingt-quatre heures d'observation.
   `deploy/install.sh`). Journal : `journalctl -u hermes -f | grep JEV`.
 - Page : bloc « Jev — décisions à la minute » (mode, appels, latence,
   coût, verdict, coupe-circuit, dernières décisions). API : `POST /api/jev-etat`.
-- Banc : workflow « Deploy Hermes to VPS », entrée `banc_jev` = nombre de
-  jours. Calibration : entrée `calibration_jev`.
-- Passer au réel : entrée `jev_reel=true` **après** un verdict positif.
-  Jamais l'inverse.
+- Banc : workflow « VPS status », entrée `banc_jev` = nombre de jours.
+  Calibration : entrée `calibration_jev=true`. (« Deploy » est à la
+  limite des vingt-cinq entrées qu'autorise GitHub.)
+- Passer au réel : « VPS status », entrée `jev_reel=true` **après** un
+  verdict positif. Jamais l'inverse.
+- La clé TypeSafe arrive sur la machine par le secret de dépôt
+  `TYPESAFE_AI_API_KEY`, posé dans le `.env` par l'installateur à chaque
+  déploiement.
 
 ## Ce qu'il ne faut pas faire
 

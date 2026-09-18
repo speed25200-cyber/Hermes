@@ -23,6 +23,20 @@ on:
         description: "Poser les cles OKX sur le serveur depuis les secrets du depot (mettre oui)"
         required: false
         default: ""
+      # Les commandes Jev vivent ici et non dans « Deploy » : ce dernier
+      # est a la limite des vingt-cinq entrees quautorise GitHub.
+      banc_jev:
+        description: "Jev : rejouer l'histoire 1 min par le banc et ecrire config/jev_verdict.json sur la machine (la porte du reel). Nombre de jours ; vide = ne pas lancer."
+        required: false
+        default: ""
+      calibration_jev:
+        description: "Jev : relire le journal des decisions et imprimer la calibration (aucune ecriture). Mettre true."
+        required: false
+        default: ""
+      jev_reel:
+        description: "Jev : poser HERMES_JEV_REEL dans le .env (true) ou le retirer (false) et relancer le service. Le reel exige AUSSI le verdict du banc."
+        required: false
+        default: ""
 
 jobs:
   status:
@@ -155,8 +169,49 @@ jobs:
                 "bash /tmp/poser_cles.sh"
           fi
 
+      # --- Jev -----------------------------------------------------------
+      #
+      # Le banc tourne SUR LE VPS : cest la seule machine qui joint a la
+      # fois OKX et api.typesafe.ai, et cest la quest le cache. Il ecrit
+      # config/jev_verdict.json sur la machine ; le moteur le relit chaque
+      # minute. Le verdict nest PAS rapatrie dans le depot : il vaut pour
+      # une machine, une fenetre, une signature de questions.
+      - name: Jev — rejouer le banc 1 min
+        if: ${{ inputs.banc_jev }}
+        run: |
+          JOURS=$(jq -r '.inputs.banc_jev // empty' "$GITHUB_EVENT_PATH")
+          printf '%s\n' "$JOURS" | sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            IFS= read -r JOURS
+            cd /root/hermes
+            set -a; . ./.env; set +a
+            HERMES_BANC_JOURS="$JOURS" HERMES_UNIVERSE_SIZE=50 node deploy/banc_jev_1m.js --confirmer 2>&1 | tail -80
+            echo "=== verdict ==="; cat config/jev_verdict.json 2>/dev/null | head -40 || echo "(aucun verdict ecrit)"
+          '
+
+      - name: Jev — calibration sur le journal des decisions
+        if: ${{ inputs.calibration_jev == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            cd /root/hermes && node deploy/calibration_jev.js 2>&1 | tail -60
+          '
+
+      - name: Jev — poser ou retirer le reel
+        if: ${{ inputs.jev_reel }}
+        run: |
+          R=$(jq -r '.inputs.jev_reel // empty' "$GITHUB_EVENT_PATH")
+          case "$R" in true|1) R=1 ;; false|0) R=0 ;; *) echo "::error::jev_reel doit valoir true ou false"; exit 1 ;; esac
+          printf '%s\n' "$R" | sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            IFS= read -r R
+            E=/root/hermes/.env
+            sed -i "/^HERMES_JEV_REEL=/d" "$E"
+            if [ "$R" = "1" ]; then echo "HERMES_JEV_REEL=1" >> "$E"; echo "HERMES_JEV_REEL=1 pose"; else echo "HERMES_JEV_REEL retire"; fi
+            systemctl restart hermes && sleep 6
+            echo "=== mode annonce par le moteur ==="
+            journalctl -u hermes -n 200 --no-pager | grep -E "\[JEV\] (mode|actif)" | tail -3
+          '
+
       - name: Status report
-        if: ${{ !inputs.lien && !inputs.poser_cles }}
+        if: ${{ !inputs.lien && !inputs.poser_cles && !inputs.banc_jev && !inputs.calibration_jev && !inputs.jev_reel }}
         run: |
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
             bash -s < deploy/etat.sh
