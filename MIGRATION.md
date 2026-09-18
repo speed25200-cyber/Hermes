@@ -45,10 +45,42 @@ qu'il n'y en avait aucune.
 
 ## Avant de lancer
 
-1. Vérifiez **directement sur OKX** qu'aucune position n'est ouverte, et fermez ce qui doit l'être.
-2. L'effacement est **irréversible**. Si vous voulez garder quoi que ce soit de l'ancien Hermes,
-   copiez-le d'abord.
-3. Lancez le workflow avec `migrer=true` et `confirmer=EFFACER`. Le profil par défaut est `paper`.
+### 1. Enregistrer les deux secrets, dans CE dépôt
+
+*Settings → Secrets and variables → Actions → New repository secret* :
+
+| Secret | Contenu |
+| --- | --- |
+| `VPS_PASSWORD` | mot de passe root de la machine |
+| `TYPESAFE_API_KEY` | clé JEV (TypeSafe) |
+
+Ils ne vont **ni dans le code, ni dans une entrée du formulaire de lancement**. Une valeur saisie
+dans `workflow_dispatch` reste affichée dans la page du run et dans ses métadonnées : l'y coller
+reviendrait à la publier. Le workflow les fait voyager par l'entrée standard, une ligne chacun, et
+jamais par la ligne de commande — les arguments d'un processus sont lisibles par tout utilisateur de
+la machine et finissent dans l'historique du shell distant.
+
+### 2. Choisir `migrer`
+
+- **Machine neuve** (rien à effacer) : `migrer=false`. C'est le cas courant, et il évite de prendre
+  l'habitude de taper `EFFACER`.
+- **Machine portant réellement l'ancien Hermes** : `migrer=true` et `confirmer=EFFACER`, après avoir
+  vérifié **directement sur OKX** qu'aucune position n'est ouverte et fermé ce qui devait l'être.
+  L'effacement est **irréversible** : copiez d'abord ce que vous voulez garder.
+
+Le profil par défaut est `paper` : aucune clé OKX requise, LIVE désactivé.
+
+### 3. Faire tourner les secrets ensuite
+
+Un mot de passe ou une clé qui a transité par une conversation, un courriel ou une capture d'écran
+doit être considéré comme **exposé**. Une fois la plateforme installée :
+
+1. changez le mot de passe root, puis n'accédez plus à la machine que par clé SSH ;
+2. faites tourner la clé TypeSafe depuis la console du fournisseur ;
+3. mettez les nouvelles valeurs dans les secrets Actions, et nulle part ailleurs.
+
+Le mot de passe de la machine est le secret le plus puissant du déploiement : il donne le serveur
+entier, et donc tous les secrets qu'il porte.
 
 ## Après la migration
 
