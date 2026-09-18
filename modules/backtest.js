@@ -55,7 +55,10 @@ function serieSignaux(sig, c5) {
      frais   taux taker par jambe sur le notionnel (défaut 0,0005)
    Une seule position à la fois — le vivant refuse la ré-entrée sur un
    symbole déjà ouvert. */
-function simuler({ c5, signaux, sortie, lev = 15, frais = 0.0005 }) {
+function simuler({ c5, signaux, sortie, lev = 15, frais = 0.0005, pasMs = 300000 }) {
+  /* pasMs : la duree d'une bougie. 5 m par defaut, comme le vivant des
+     perles ; le banc Jev passe 60000 pour rejouer des bougies 1 m avec
+     EXACTEMENT les memes regles de sortie. */
   const trades = [];
   const tp = sortie.tpPctMargin / lev;
   const sl = sortie.slPctMargin / lev;
@@ -106,7 +109,7 @@ function simuler({ c5, signaux, sortie, lev = 15, frais = 0.0005 }) {
         }
         // 4. L'échéance : au close de la bougie où elle tombe. Le vivant
         //    ferme dès que now >= holdUntil — l'égalité déclenche.
-        if (ts + 300000 >= pos.ts + sortie.holdMs) { sortiePx = c5[i][4]; raison = "hold"; }
+        if (ts + pasMs >= pos.ts + sortie.holdMs) { sortiePx = c5[i][4]; raison = "hold"; }
       }
 
       if (sortiePx) {

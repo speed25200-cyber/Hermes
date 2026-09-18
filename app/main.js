@@ -132,7 +132,9 @@ const HEALTH = {
     aiEngine:   { status: "OK",    info: "off", on: false, lastToggle: 0 },
     orders:     { status: "OK",    info: "idle", placed: 0, errors: 0, inflight: 0 },
     stops:      { status: "OK",    info: "idle", placed: 0, be: 0, trail: 0 },
-    portfolio:  { status: "OK",    info: "idle", lastOk: 0, lastErr: 0 }
+    portfolio:  { status: "OK",    info: "idle", lastOk: 0, lastErr: 0 },
+    coupeCircuit: { status: "OK",  info: "ferme", ouvert: false, perteJourPct: 0, seuilPct: 0 },
+    jev:        { status: "OK",    info: "inactif", mode: "inactif", appels: 0, erreurs: 0, latenceP50: null, coutJourUsd: 0 }
   },
   ts: tsISO()
 };
@@ -194,6 +196,27 @@ const OKX = {
   SIMULATED: (String(process.env.OKX_SIMULATED || "").toLowerCase() === "true")
 };
 log("[ENV] OKX key:", !!OKX.KEY, "secret:", !!OKX.SECRET, "pass:", !!OKX.PASS, "sim:", OKX.SIMULATED);
+
+/* ===== La source des decisions, et le coupe-circuit =====
+
+   HERMES_STRATEGIE choisit qui propose les entrees :
+     hermes15   le roster de perles sur bougies 5 m (le comportement d'avant)
+     jev1m      le decideur Jev sur bougies 1 m (modules/decideur_jev.js)
+     les-deux   les deux a la fois — sur un meme compte, elles se disputent
+                les places ; ce n'est pas un defaut, c'est un choix a assumer
+   Quelle que soit la source, TOUT passe par les memes gardes (canPlaceOrder,
+   positionSizing, GATE V2, protections sur OKX). Une source ne fait que
+   proposer.
+
+   Le coupe-circuit journalier est lu par canPlaceOrder, donc par toutes
+   les sources. Il ne depend pas d'AI.on : un moteur qu'on rallume apres
+   une mauvaise journee retrouve le circuit ouvert. */
+const STRATEGIE = String(process.env.HERMES_STRATEGIE || "hermes15").toLowerCase();
+const STRAT_H15 = STRATEGIE === "hermes15" || STRATEGIE === "les-deux";
+const STRAT_JEV = STRATEGIE === "jev1m" || STRATEGIE === "les-deux";
+const { CoupeCircuit } = require(path.join(ROOT, "modules", "coupe_circuit.js"));
+const COUPE = new CoupeCircuit({ fichier: path.join(ROOT, "runtime", "coupe_circuit.json") });
+log("[ENV] strategie:", STRATEGIE, "| coupe-circuit:", (100 * COUPE.seuilPct).toFixed(1) + " % par jour UTC");
 
 /* === UI runtime mode (auto: file/localhost => full, public => viewer) === */
 let UI_RUNTIME_MODE = "full";
@@ -849,6 +872,7 @@ function __shouldPlace(instId, side){
 /* === ORDER DEDUP HELPER END === */
 function canPlaceOrder(instId, side, availableUSDT = Infinity) {
   if (!AI.on) return false;
+  if (!COUPE.verdict().entreesPermises) return false;   // la journee a deja dit non
   if (AI.inflight >= MAX_ORDERS_INFLIGHT) return false;
   if (perSymbolCooldown(instId)) return false;
 
@@ -1160,6 +1184,28 @@ async function portfolioLoop() {
       AI.equityUSDT = num(port.balances?.totalEq || AI.equityUSDT);
       refreshTier();
       try { rapportAccessibilite(); } catch {}
+
+      /* Le coupe-circuit journalier. Releve a chaque lecture d'equite ;
+         il ne s'ouvre que sur une lecture REUSSIE (port.error est nul),
+         parce qu'une equite lue a zero sur une panne reseau est
+         exactement ce qui verrouillait l'ancien kill-switch pour de bon. */
+      if (!port.error) {
+        const avant = COUPE.verdict().ouvert;
+        const v = COUPE.relever(AI.equityUSDT);
+        setHealth("coupeCircuit", { status: v.ouvert ? "WARN" : "OK", info: v.ouvert ? "OUVERT — plus d'entree aujourd'hui" : `ferme · perte du jour ${(100 * v.perteJourPct).toFixed(2)} %`,
+                                    ouvert: v.ouvert, perteJourPct: v.perteJourPct, seuilPct: v.seuilPct, equiteDebut: v.equiteDebut, plancher: v.plancher, jour: v.jour });
+        if (v.ouvert && !avant) {
+          log("[COUPE-CIRCUIT] OUVERT :", v.motif);
+          logAIEvent({ event: "GUARD", reason: "coupeCircuit", motif: v.motif, equity: AI.equityUSDT, live: true });
+          broadcastAILog({ ts: tsISO(), event: "GUARD", info: "Coupe-circuit journalier ouvert : " + v.motif });
+          /* Fermer les positions est un choix du proprietaire, pas du
+             module : par defaut on cesse d'entrer et on laisse les
+             protections d'OKX faire leur travail. */
+          if (String(process.env.HERMES_COUPE_CIRCUIT_FERMER || "0") === "1" && typeof globalThis.__hermesFermerTout === "function") {
+            globalThis.__hermesFermerTout("coupe-circuit").catch((e) => log("[COUPE-CIRCUIT] fermeture en erreur", e.message));
+          }
+        }
+      }
       // Sans await : la fraicheur des protections vaut moins que la
       // regularite de cette boucle, qui synchronise aussi les positions.
       chargerAlgosEnCours().catch(() => {});
@@ -2945,6 +2991,7 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
   const GUET = {};
   function expliquerGarde(instId) {
     if (!AI.on) return "moteur";
+    if (!COUPE.verdict().entreesPermises) return "coupe-circuit";
     if (AI.openPositions[instId]) return "enPosition";
     const sizing = positionSizing(AI.equityUSDT);
     if (currentOpenCount() >= Math.min(MAX_POSITIONS_GLOBAL, sizing.maxPositions)) return "place";
@@ -2959,6 +3006,7 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
     return null;
   }
   globalThis.__hermes15Guet = () => GUET;
+  globalThis.__hermesExpliquerGarde = expliquerGarde;   // le decideur Jev nomme ses refus dans les memes termes
 
   const lastClosed = {};   // instId -> ts de la dernière bougie 5m traitée
   /* Les évaluateurs vivent dans modules/signaux.js, partagés avec le
@@ -3004,10 +3052,13 @@ process.on("unhandledRejection", (e) => log("[UNHANDLED]", (e && e.stack) || Str
       await new Promise(r => setTimeout(r, 300));
     }
   }
-  setInterval(() => { poll().catch(() => {}); }, 20 * 1000);
+  if (STRAT_H15) setInterval(() => { poll().catch(() => {}); }, 20 * 1000);
+  else log("[HERMES15] en veille : HERMES_STRATEGIE=" + STRATEGIE + " — le roster reste charge, il ne propose plus d'entree");
 
   /* Sortie de secours temporelle (12 h / 24 h selon la stratégie) : ferme au marché
-     une position qui a dépassé sa durée max — comme dans les tests. */
+     une position qui a dépassé sa durée max — comme dans les tests.
+     Elle tourne quelle que soit la source : une position Jev porte aussi
+     son holdUntil, plus court. */
   setInterval(async () => {
     for (const [instId, p] of Object.entries(AI.openPositions)) {
       if (!p.holdUntil || Date.now() < p.holdUntil) continue;
@@ -3136,3 +3187,214 @@ try {
    passait des ordres reels sur la formule de l'ancienne strategie —
    nourrie par le moteur generique, supprime le meme jour. Les
    fichiers d'etude restent dans lab_vagues/. */
+
+/* ============================================================================
+   JEV 1 MIN — la source de decisions a la minute.
+
+   Le decideur (modules/decideur_jev.js) ecoute les bougies 1 m closes
+   (modules/bougies1m.js), fabrique un etat (modules/etat_jev.js), pose les
+   trois questions figees a Jev en un appel, et PROPOSE un sens. Ce bloc
+   fait le reste, et rien de plus : il verifie les memes gardes que
+   HERMES15, et il entre par __hermesEntre — le GATE V2, avec TP/SL
+   attaches a l'ordre sur OKX et le trailing. Une position Jev est une
+   position comme les autres pour tout ce qui la protege.
+
+   Trois modes, et le mode se lit au boot dans le journal :
+
+     observation  decisions journalisees, AUCUN ordre. C'est le defaut sur
+                  un compte reel tant que le banc n'a pas ecrit un verdict.
+     demo         OKX_SIMULATED=true : ordres sur le compte de demonstration
+                  d'OKX (x-simulated-trading). De vrais ordres, du faux argent.
+     reel         HERMES_JEV_REEL=1 ET config/jev_verdict.json porte
+                  autorise:true, ecrit par deploy/banc_jev_1m.js. Les deux ;
+                  l'un sans l'autre est une observation.
+
+   « Pas de verdict = pas de reel » est la regle du depot depuis le 2
+   septembre (« pas de perle = pas de trade »). Elle s'applique a Jev
+   comme aux perles : aucune couche ne cree un avantage qui n'existe pas
+   en dessous d'elle, et un modele qu'on n'a pas mesure sur NOS donnees
+   n'est pas un avantage, c'est une hypothese.
+   ============================================================================ */
+(() => {
+  /* Fermer TOUTES les positions au marche, reduceOnly. L'outil du
+     coupe-circuit (HERMES_COUPE_CIRCUIT_FERMER=1) et de l'arret
+     d'urgence. Une position que l'exchange ne connait plus est ignoree
+     par OKX (51169) : ce n'est pas une erreur, c'est deja fait. */
+  globalThis.__hermesFermerTout = async function (motif) {
+    const ids = Object.keys(AI.openPositions);
+    if (!ids.length) return { fermees: 0 };
+    let fermees = 0;
+    for (const instId of ids) {
+      const p = AI.openPositions[instId];
+      try {
+        const body = { instId, tdMode: "isolated", side: p.side === "long" ? "sell" : "buy",
+                       ordType: "market", sz: String(Math.abs(p.qty || 0)), reduceOnly: true };
+        if (isHedge()) body.posSide = p.side;
+        const r = await okxPOST("/api/v5/trade/order", body);
+        const ok = r?.code == "0" && (r?.data?.[0]?.sCode == "0" || r?.data?.[0]?.ordId);
+        log("[FERMER-TOUT]", motif, instId, ok ? "OK" : JSON.stringify(r?.data?.[0] || r).slice(0, 120));
+        if (ok) { fermees++; delete AI.openPositions[instId]; }
+      } catch (e) { log("[FERMER-TOUT_ERR]", instId, e.message); }
+    }
+    broadcastAILog({ ts: tsISO(), event: "TRADE_EXIT", info: `fermeture generale (${motif}) : ${fermees}/${ids.length}` });
+    return { fermees, total: ids.length };
+  };
+
+  if (!STRAT_JEV) {
+    setHealth("jev", { status: "OK", info: "inactif (HERMES_STRATEGIE=" + STRATEGIE + ")", mode: "inactif" });
+    log("[JEV] inactif — HERMES_STRATEGIE=" + STRATEGIE);
+    return;
+  }
+
+  const { MagasinBougies1m } = require(path.join(ROOT, "modules", "bougies1m.js"));
+  const { DecideurJev } = require(path.join(ROOT, "modules", "decideur_jev.js"));
+  const REGIME = require(path.join(ROOT, "modules", "regime.js"));
+  const ETAT_JEV = require(path.join(ROOT, "modules", "etat_jev.js"));
+
+  const HORIZON_MIN = Number(process.env.HERMES_JEV_HORIZON_MIN || 15);
+  /* Les sorties d'une position Jev, en % de la MARGE comme partout dans le
+     GATE V2 (pct ÷ levier = pct de prix). Un horizon de quinze minutes ne
+     se protege pas avec le stop a -30 % de marge des perles a douze
+     heures : a x15 c'est -2 % de prix, quatre fois le mouvement qu'on
+     vise. Les valeurs ci-dessous font TP +1 % / SL -0,67 % de prix a x15,
+     et une echeance a deux horizons. Ce sont des reglages, et le banc les
+     rejoue tels quels. */
+  const OV_JEV = {
+    tpPctMargin: Number(process.env.HERMES_JEV_TP_PCT || 0.15),
+    slPctMargin: Number(process.env.HERMES_JEV_SL_PCT || 0.10),
+    trailActPctMargin: Number(process.env.HERMES_JEV_TRAIL_ACT_PCT || 0.05),
+    trailCbPctMargin: Number(process.env.HERMES_JEV_TRAIL_CB_PCT || 0.03),
+    holdMs: Number(process.env.HERMES_JEV_HOLD_MIN || 2 * HORIZON_MIN) * 60000,
+  };
+
+  /* Le verdict du banc : relu chaque minute, jamais mis en cache plus
+     longtemps — un fichier qu'on retire doit couper le reel a la minute. */
+  const VERDICT_FICHIER = path.join(ROOT, "config", "jev_verdict.json");
+  let verdict = { autorise: false, lu: false };
+  function lireVerdict() {
+    try {
+      const j = JSON.parse(fs.readFileSync(VERDICT_FICHIER, "utf8"));
+      // Le verdict ne vaut que pour LES questions qui l'ont produit.
+      const memeSignature = !j.signature || j.signature === ETAT_JEV.SIGNATURE;
+      verdict = { ...j, autorise: j.autorise === true && memeSignature, lu: true, signatureValide: memeSignature };
+    } catch { verdict = { autorise: false, lu: false }; }
+  }
+  lireVerdict(); setInterval(lireVerdict, 60 * 1000);
+
+  let modeSignale = "";
+  function mode() {
+    let m = "observation", pourquoi = "";
+    if (OKX.SIMULATED) m = "demo";
+    else if (process.env.HERMES_JEV_REEL === "1") {
+      if (verdict.autorise) m = "reel";
+      else pourquoi = !verdict.lu ? "HERMES_JEV_REEL=1 mais aucun verdict (config/jev_verdict.json) : le banc n'a pas autorise"
+                    : (verdict.signatureValide === false ? "verdict ecrit pour d'autres questions (signature differente)" : "verdict present, autorise:false");
+    } else pourquoi = "HERMES_JEV_REEL absent";
+    const cle = m + "|" + pourquoi;
+    if (cle !== modeSignale) { modeSignale = cle; log("[JEV] mode", m, pourquoi ? "— " + pourquoi : ""); }
+    return m;
+  }
+
+  const magasin = new MagasinBougies1m({ journal: log });
+  let rechargements = {};
+  magasin.on("trou", ({ instId, de, a }) => {
+    // Un trou dans la serie : on recharge par REST, au plus une fois par
+    // minute et par instrument. Le flux continue pendant ce temps.
+    const t = rechargements[instId] || 0;
+    if (Date.now() - t < 60000) return;
+    rechargements[instId] = Date.now();
+    log("[JEV] trou de", Math.round((a - de) / 60000), "min sur", instId, "-> rechargement");
+    magasin.precharger(instId).catch((e) => log("[JEV] rechargement rate", instId, e.message));
+  });
+
+  /* Le regime de marche, sur 5 m de BTC et ETH comme partout ailleurs
+     (modules/regime.js veut 288 bougies 5 m + 2). Deux requetes toutes
+     les cinq minutes. */
+  const regime = { etat: null, force: null, ts: 0 };
+  async function bougies5m(instId) {
+    const r = await axios.get(OKX.REST_BASE + "/api/v5/market/candles?instId=" + instId + "&bar=5m&limit=300", { timeout: 10000 });
+    return (r.data?.data || []).slice(1).map((c) => [+c[0], +c[1], +c[2], +c[3], +c[4], +c[5]]).reverse();
+  }
+  async function rafraichirRegime() {
+    try {
+      const [btc, eth] = await Promise.all([bougies5m("BTC-USDT-SWAP"), bougies5m("ETH-USDT-SWAP").catch(() => null)]);
+      const r = REGIME.etatMaintenant(btc, eth);
+      regime.etat = r.etat; regime.force = r.force; regime.ts = Date.now();
+    } catch (e) { log("[JEV] regime indisponible", e.message); }
+  }
+  rafraichirRegime(); setInterval(rafraichirRegime, 5 * 60 * 1000);
+
+  function contexte(instId) {
+    const sizing = positionSizing(AI.equityUSDT);
+    const placeLibre = currentOpenCount() < Math.min(MAX_POSITIONS_GLOBAL, sizing.maxPositions);
+    const libre = !AI.openPositions[instId] && placeLibre;
+    return {
+      tick: MARKET.tick[instId] || {},
+      regime: regime.etat ? { etat: regime.etat, force: regime.force } : null,
+      autorise: { long: libre, short: libre },
+      fraisTaker: typeof MARKET.fees.taker === "number" ? MARKET.fees.taker : 0.0005,
+    };
+  }
+
+  const decideur = new DecideurJev({ magasin, contexte, journal: log, horizonMin: HORIZON_MIN,
+                                     fichierJournal: path.join(DATADIR, "jev-decisions.jsonl") });
+
+  let observations = 0;
+  decideur.on("decision", async (d) => {
+    const m = mode();
+    const ligne = { ts: tsISO(), event: "JEV_DECISION", instId: d.instId, symbol: d.instId.replace("-USDT-SWAP", ""), side: d.sens,
+                    pLong: d.pLong, pShort: d.pShort, pDepasse: d.pDepasse, conviction: d.conviction, latenceMs: d.latenceMs, mode: m, live: m === "reel" };
+    logAIEvent(ligne);
+    broadcastAILog(ligne);
+    if (!AI.on) { log("[JEV] decision", d.instId, d.sens, "(moteur a l'arret, ignoree)"); return; }
+    if (m === "observation") {
+      if (observations++ % 20 === 0) log(`[JEV] observation : ${d.sens} ${d.instId} (${d.motif}) — aucun ordre tant que le banc n'a pas autorise`);
+      return;
+    }
+    const garde = typeof globalThis.__hermesExpliquerGarde === "function" ? globalThis.__hermesExpliquerGarde(d.instId) : null;
+    if (garde) { log("[JEV] entree refusee :", garde, d.instId); return; }
+    if (!canPlaceOrder(d.instId, d.sens)) { log("[JEV] entree refusee (canPlaceOrder)", d.instId); return; }
+    log(`[JEV] entree ${d.sens} ${d.instId} — ${d.motif} — mode ${m}`);
+    const res = await globalThis.__hermesEntre(d.instId, d.sens, OV_JEV);
+    if (!res?.ok) log("[JEV] entree non executee", d.instId, res?.reason || res?.error || "");
+  });
+  decideur.on("budget", () => broadcastAILog({ ts: tsISO(), event: "INFO", info: `Jev : budget du jour atteint (${decideur.budgetUsdJour} USD), plus de decision jusqu'a demain UTC` }));
+
+  /* Les abonnements suivent l'univers, plus les instruments en position
+     (qui ne quittent jamais l'univers, mais on ne depend pas de cette
+     regle ici). L'univers n'est connu qu'apres createWindow : on attend. */
+  async function synchroniserAbonnements() {
+    const voulus = new Set([...(MARKET.universe || []), ...Object.keys(AI.openPositions)]);
+    if (!voulus.size) return;
+    const neufs = [...voulus].filter((i) => !magasin.abonnes.has(i));
+    const partis = [...magasin.abonnes].filter((i) => !voulus.has(i));
+    if (neufs.length) { const n = await magasin.suivre(neufs); log(`[JEV] ${n} instrument(s) suivi(s) en 1 m (${magasin.abonnes.size} au total)`); }
+    if (partis.length) { magasin.oublier(partis); log("[JEV] ne suit plus :", partis.map((s) => s.replace("-USDT-SWAP", "")).join(", ")); }
+  }
+  setTimeout(() => synchroniserAbonnements().catch((e) => log("[JEV] abonnements", e.message)), 15000);
+  setInterval(() => synchroniserAbonnements().catch((e) => log("[JEV] abonnements", e.message)), 60 * 1000);
+
+  /* Sante et diffusion vers la page, toutes les cinq secondes. */
+  function charge() {
+    const e = decideur.etat();
+    const ages = {};
+    for (const id of magasin.abonnes) { const a = magasin.age(id); ages[id] = Number.isFinite(a) ? Math.round(a / 1000) : null; }
+    return { ...e, mode: mode(), verdict, sorties: OV_JEV, coupeCircuit: COUPE.verdict(),
+             flux: { abonnes: magasin.abonnes.size, ages, stats: magasin.stats }, regime: { ...regime } };
+  }
+  setInterval(() => {
+    try {
+      const c = charge();
+      const s = c.stats;
+      const tauxErr = s.appels ? s.erreurs / s.appels : 0;
+      let status = "OK", info = `${c.mode} · ${s.reponses} reponses · p50 ${c.latence.p50 == null ? "—" : c.latence.p50 + " ms"} · ${c.budget.coutUsd.toFixed(3)} $ aujourd'hui`;
+      if (s.appels > 10 && tauxErr > 0.3) { status = "WARN"; info = `taux d'echec ${(100 * tauxErr).toFixed(0)} % — ` + info; }
+      if (magasin.abonnes.size && [...magasin.abonnes].every((id) => magasin.age(id) > 180000)) { status = "FAULT"; info = "flux 1 m muet depuis 3 min — " + info; }
+      setHealth("jev", { status, info, mode: c.mode, appels: s.appels, erreurs: s.erreurs, latenceP50: c.latence.p50, coutJourUsd: c.budget.coutUsd });
+      for (const w of BrowserWindow.getAllWindows() || []) w.webContents.send("jev-tick", c);
+    } catch (e) { log("[JEV] diffusion", e.message); }
+  }, 5000);
+  ipcMain.handle("jev-etat", async () => ({ ok: true, ...charge() }));
+
+  log(`[JEV] actif — mode ${mode()} | horizon ${HORIZON_MIN} min | sorties ${JSON.stringify(OV_JEV)} | questions ${ETAT_JEV.SIGNATURE} | budget ${decideur.budgetUsdJour} $/jour | latence max ${decideur.latenceMaxMs} ms`);
+})();
