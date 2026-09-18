@@ -30,3 +30,9 @@ config.local.json
 # partie d aucune version.
 __pycache__/
 *.pyc
+
+# Ecrit par le banc Jev SUR la machine (deploy/banc_jev_1m.js) : c'est la
+# porte du reel, et elle vaut pour une machine, une fenetre et une
+# signature de questions. Le deployer depuis le depot autoriserait le reel
+# avec un verdict d'ailleurs.
+/config/jev_verdict.json

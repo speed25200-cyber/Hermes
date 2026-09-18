@@ -145,7 +145,7 @@ jobs:
           sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" "mkdir -p /root/hermes"
           sshpass -e rsync -az --delete \
             --exclude '/.git' --exclude '/.env' --exclude '/node_modules' \
-            --exclude '/data' --exclude '/logs' --exclude '/runtime/*.json' --exclude '/config/roster.json' \
+            --exclude '/data' --exclude '/logs' --exclude '/runtime/*.json' --exclude '/config/roster.json' --exclude '/config/jev_verdict.json' \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
             ./ "root@$VPS:/root/hermes/"
 

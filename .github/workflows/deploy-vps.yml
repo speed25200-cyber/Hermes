@@ -247,7 +247,7 @@ jobs:
           # ecraserait le verdict le plus recent.
           sshpass -e rsync -az --delete \
             --exclude '/.git' --exclude '/state' --exclude '/data' \
-            --exclude '/.env' --exclude '/node_modules' \
+            --exclude '/.env' --exclude '/node_modules' --exclude '/config/jev_verdict.json' \
             --exclude '/logs' --exclude '/runtime' \
             --exclude '/config/roster.json' --exclude '/banc' --exclude '/recherche' \
             -e "ssh -o StrictHostKeyChecking=accept-new" \
