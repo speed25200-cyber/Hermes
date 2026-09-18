@@ -731,7 +731,7 @@ $("tuiles").addEventListener("keydown", (e) => {
 // Chaque module connu a sa cle de traduction ; un module inconnu garde
 // son nom technique, qui vaut mieux quun trou.
 const NOMS = (k) => {
-  const connu = ["wsPublic", "wsPrivate", "rest", "dataFlow", "strategy", "aiEngine", "orders", "stops", "portfolio"];
+  const connu = ["wsPublic", "wsPrivate", "rest", "dataFlow", "strategy", "aiEngine", "orders", "stops", "portfolio", "coupeCircuit", "jev"];
   return connu.includes(k) ? t("sante." + k) : k;
 };
 function rendreSante() {
@@ -740,7 +740,7 @@ function rendreSante() {
   const z = $("z-sante");
   if (!cles.length) { z.innerHTML = `<div class="vide" style="padding:26px">${ech(t("sante.attente"))}</div>`; return; }
   let ok = 0;
-  const CONNUS = ["wsPublic", "wsPrivate", "rest", "dataFlow", "strategy", "aiEngine", "orders", "stops", "portfolio"];
+  const CONNUS = ["wsPublic", "wsPrivate", "rest", "dataFlow", "strategy", "aiEngine", "orders", "stops", "portfolio", "coupeCircuit", "jev"];
   z.innerHTML = cles.map((k, i) => {
     const v = m[k] || {};
     const s = String(v.status || "").toUpperCase();
@@ -859,6 +859,46 @@ rafraichir._n = -1;
 /* ===== branchements ===== */
 
 api.surSante((h) => { E.sante = h || {}; rendreSante(); });
+
+/* ===== Jev ===== */
+E.jev = null;
+function rendreJev() {
+  const j = E.jev;
+  const bloc = $("bloc-jev");
+  if (!bloc) return;
+  if (!j || !j.mode || j.mode === "inactif") { bloc.hidden = true; return; }
+  bloc.hidden = false;
+  const s = j.stats || {}, l = j.latence || {}, b = j.budget || {}, cc = j.coupeCircuit || {}, v = j.verdict || {}, fx = j.flux || {};
+  const ms = (x) => (x == null ? "—" : Math.round(x) + " ms");
+  const verdict = v.lu === false ? t("jev.verdict.aucun") : (v.autorise ? t("jev.verdict.oui") : t("jev.verdict.non"));
+  const agesMax = Math.max(0, ...Object.values(fx.ages || {}).filter((x) => x != null));
+  $("z-jev-etat").innerHTML =
+      `<span class="jev-mode ${ech(j.mode)}">${ech(t("jev.mode." + j.mode))}</span>`
+    + `<span>${ech(t("jev.horizon"))} <b>${ech(j.horizonMin)} min</b></span>`
+    + `<span>${ech(t("jev.appels"))} <b>${ech(s.appels || 0)}</b> · ${ech(t("jev.reponses"))} <b>${ech(s.reponses || 0)}</b>`
+    + (s.erreurs ? ` · <span class="alerte">${ech(t("jev.erreurs"))} ${ech(s.erreurs)}</span>` : "")
+    + (s.tardives ? ` · ${ech(t("jev.tardives"))} ${ech(s.tardives)}` : "") + `</span>`
+    + `<span>${ech(t("jev.latence"))} <b>${ech(ms(l.p50))}</b> / ${ech(ms(l.p95))}</span>`
+    + `<span>${ech(t("jev.cout"))} <b>${ech(nf(Number(b.coutUsd) || 0, 3))} $</b> / ${ech(nf(Number(b.plafondUsd) || 0, 0))} $</span>`
+    + `<span>${ech(t("jev.flux"))} <b>${ech(fx.abonnes || 0)}</b>${agesMax > 120 ? ` · <span class="alerte">${ech(t("jev.fluxmuet", { s: agesMax }))}</span>` : ""}</span>`
+    + `<span>${ech(t("jev.verdict"))} <b>${ech(verdict)}</b></span>`
+    + `<span>${ech(t("jev.coupe"))} ${cc.ouvert ? `<span class="alerte">${ech(t("jev.coupe.ouvert"))}</span>` : `<b>${ech(t("jev.coupe.ferme", { p: nf(100 * (Number(cc.perteJourPct) || 0), 2), s: nf(100 * (Number(cc.seuilPct) || 0), 1) }))}</b>`}</span>`
+    + `<span style="color:var(--texte-3)">${ech(t("jev.questions"))} ${ech(j.signature || "—")}</span>`;
+  const z = $("z-jev");
+  const d = Array.isArray(j.dernieres) ? j.dernieres : [];
+  $("n-jev").textContent = t("jev.compte", { n: s.entreesProposees || 0 });
+  if (!d.length) { z.innerHTML = `<div class="vide" style="padding:22px">${ech(t("jev.aucune"))}</div>`; return; }
+  z.innerHTML = d.slice(0, 14).map((x) => {
+    const h = x.ts ? new Date(x.ts).toLocaleTimeString(Langues.locale(), { hour12: false }) : "--:--:--";
+    const c = x.sens === "long" ? "e-in" : x.sens === "short" ? "e-out" : "";
+    const sym = String(x.instId || "").replace("-USDT-SWAP", "");
+    const p = (v) => (v == null ? "—" : nf(100 * v, 0) + " %");
+    return `<div class="jl ${c}"><span class="t">${ech(h)}</span>`
+      + `<span class="e ${c}">${ech(sym)} ${ech(x.sens ? x.sens.toUpperCase() : "·")}</span>`
+      + `<span class="d">L ${ech(p(x.pLong))} · S ${ech(p(x.pShort))} · ${ech(t("jev.depasse"))} ${ech(p(x.pDepasse))} · ${ech(t("jev.conviction"))} ${ech(x.conviction == null ? "—" : x.conviction)} · ${ech(ms(x.latenceMs))}${x.motif ? " · " + ech(x.motif) : ""}</span></div>`;
+  }).join("");
+}
+api.on("jev-tick", (j) => { E.jev = j || null; rendreJev(); });
 api.subscribe((l) => { if (!l) return; E.journal.push(l); if (E.journal.length > 600) E.journal.shift(); rendreJournal(); });
 api.surLien((s) => { E.relie = !!(s && s.relie); rendreEntete(); });
 

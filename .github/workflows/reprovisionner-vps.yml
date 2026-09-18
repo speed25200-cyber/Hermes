@@ -1,0 +1,198 @@
+# Reprovisionner le VPS : sauvegarder, EFFACER, reinstaller.
+#
+# Ce workflow fait ce que « Deploy Hermes to VPS » ne fait jamais : il
+# retire tout ce qui touche a Hermes sur la machine — le dossier
+# /root/hermes, les unites systemd hermes*, les restes de lancien moteur
+# Python — et reinstalle depuis le depot, a neuf.
+#
+# Il ne le fait quapres avoir SAUVEGARDE, hors du dossier efface, ce qui
+# nexiste nulle part ailleurs que sur cette machine :
+#   - /root/hermes/.env          les cles OKX, la cle de console, la cle TypeSafe
+#   - config/roster.json         le verdict du chercheur de perles
+#   - runtime/                   coupe-circuit, pic dequite
+#   - data/                      journaux de decisions, caches (Jev, 1 m, 5 m)
+# Le README le dit : les cles vivent SUR LA MACHINE, jamais dans le depot.
+# Un effacement sans sauvegarde les perdrait pour de bon.
+#
+# Deux gardes : lentree `confirmer` doit valoir exactement SUPPRIMER, et
+# le workflow sarrete si la sauvegarde nest pas verifiee (tar -t) avant
+# deffacer quoi que ce soit.
+#
+# Rappel GitHub : un workflow_dispatch ne se declenche que depuis la
+# branche par defaut. Ce fichier doit y etre fusionne pour apparaitre
+# dans longlet Actions.
+
+name: Reprovisionner le VPS
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmer:
+        description: "Taper SUPPRIMER pour effacer Hermes de la machine (apres sauvegarde) et reinstaller"
+        required: true
+        default: ""
+      root_password:
+        description: "Root password (optional if VPS_PASSWORD secret is set)"
+        required: false
+      restaurer:
+        description: "Restaurer .env (cles OKX, console, TypeSafe), roster, runtime et data depuis la sauvegarde"
+        required: false
+        default: "true"
+      jev_reel:
+        description: "Poser HERMES_JEV_REEL (true) ou le retirer (false). Vide = garder ce que la sauvegarde dit. Le reel exige AUSSI le verdict du banc."
+        required: false
+        default: ""
+      demarrer:
+        description: "Demarrer le moteur a la fin"
+        required: false
+        default: "false"
+
+concurrency:
+  group: vps-deploy
+  cancel-in-progress: false
+
+jobs:
+  reprovisionner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      VPS: ${{ vars.VPS_HOST || '178.104.191.79' }}
+    steps:
+      - name: La garde
+        run: |
+          C=$(jq -r '.inputs.confirmer // empty' "$GITHUB_EVENT_PATH")
+          if [ "$C" != "SUPPRIMER" ]; then
+            echo "::error::lentree confirmer doit valoir exactement SUPPRIMER — rien na ete fait"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Install ssh tooling
+        run: sudo apt-get update -qq && sudo apt-get -y -qq install sshpass rsync
+
+      - name: Resolve SSH access
+        env:
+          PW_SECRET: ${{ secrets.VPS_PASSWORD }}
+        run: |
+          PW_INPUT=$(jq -r '.inputs.root_password // empty' "$GITHUB_EVENT_PATH")
+          if [ -n "$PW_INPUT" ]; then echo "::add-mask::$PW_INPUT"; fi
+          PW="${PW_INPUT:-$PW_SECRET}"
+          [ -z "$PW" ] && { echo "::error::no credentials"; exit 1; }
+          ALT="${PW}.Hermes1"
+          echo "::add-mask::$PW"; echo "::add-mask::$ALT"
+          SSHOPTS="-o StrictHostKeyChecking=accept-new -o ConnectTimeout=15"
+          try() { timeout 25 sshpass -p "$1" ssh $SSHOPTS "root@$VPS" "echo __ok__" 2>/dev/null | grep -q __ok__; }
+          if try "$PW"; then CUR="$PW"; elif try "$ALT"; then CUR="$ALT"; else
+            echo "::error::cannot authenticate (lancer dabord « Deploy Hermes to VPS », qui gere le premier login)"; exit 1; fi
+          echo "SSHPASS=$CUR" >> "$GITHUB_ENV"
+
+      - name: 1. Sauvegarder ce qui nexiste que sur la machine
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            set -e
+            mkdir -p /root/sauvegardes
+            H=$(date -u +%Y%m%dT%H%M%SZ)
+            F=/root/sauvegardes/hermes-$H.tar.gz
+            if [ -d /root/hermes ]; then
+              cd /root
+              # Chaque chemin est optionnel : une machine deja vide ne fait pas echouer la sauvegarde.
+              L=""
+              for p in hermes/.env hermes/config/roster.json hermes/config/jev_verdict.json hermes/runtime hermes/data hermes/logs; do [ -e "$p" ] && L="$L $p"; done
+              if [ -n "$L" ]; then
+                tar czf "$F" $L
+                tar tzf "$F" > /dev/null   # la sauvegarde se relit, sinon on ne touche a rien
+                echo "sauvegarde : $F ($(du -h "$F" | cut -f1))"
+                tar tzf "$F" | sed "s/^/   /" | head -40
+                sha256sum "$F"
+                grep -q "^OKX_API_KEY=.\+" hermes/.env 2>/dev/null && echo "   cles OKX : presentes dans la sauvegarde" || echo "   cles OKX : ABSENTES du .env (rien a restaurer)"
+                grep -q "^TYPESAFE_AI_API_KEY=.\+" hermes/.env 2>/dev/null && echo "   cle TypeSafe : presente" || echo "   cle TypeSafe : absente (le secret du depot la posera)"
+              else
+                echo "rien a sauvegarder dans /root/hermes"
+              fi
+            else
+              echo "/root/hermes absent : rien a sauvegarder"
+            fi
+            # On garde les cinq dernieres sauvegardes.
+            ls -1t /root/sauvegardes/hermes-*.tar.gz 2>/dev/null | tail -n +6 | xargs -r rm -f
+            echo "sauvegardes conservees :"; ls -la /root/sauvegardes/ 2>/dev/null || true
+          '
+
+      - name: 2. Effacer Hermes de la machine
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            echo "=== services ==="
+            for u in $(systemctl list-unit-files --no-legend "hermes*" 2>/dev/null | awk "{print \$1}"); do
+              systemctl disable --now "$u" >/dev/null 2>&1 || true
+              rm -f "/etc/systemd/system/$u"
+              echo "  $u retire"
+            done
+            systemctl daemon-reload
+            pkill -f "node app/main.js" 2>/dev/null || true
+            pkill -f "hermes" 2>/dev/null || true
+            echo "=== dossiers ==="
+            for d in /root/hermes /root/hermes_v4 /root/hermes-v4 /root/HERMES_V4_LIVE /opt/hermes; do
+              [ -e "$d" ] && { rm -rf "$d"; echo "  $d efface"; }
+            done
+            rm -rf /root/.npm/_cacache 2>/dev/null || true
+            echo "=== ce qui reste ==="
+            ls -la /root | sed "s/^/   /"
+            df -h / | tail -1
+          '
+
+      - name: 3. Copier le depot
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" "mkdir -p /root/hermes"
+          sshpass -e rsync -az --delete \
+            --exclude '/.git' --exclude '/.env' --exclude '/node_modules' \
+            --exclude '/data' --exclude '/logs' --exclude '/runtime/*.json' --exclude '/config/roster.json' \
+            -e "ssh -o StrictHostKeyChecking=accept-new" \
+            ./ "root@$VPS:/root/hermes/"
+
+      - name: 4. Restaurer depuis la sauvegarde
+        if: ${{ inputs.restaurer == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            F=$(ls -1t /root/sauvegardes/hermes-*.tar.gz 2>/dev/null | head -1)
+            if [ -z "$F" ]; then echo "aucune sauvegarde : rien a restaurer (le .env sera cree neuf par linstalleur)"; exit 0; fi
+            cd /root && tar xzf "$F"
+            chmod 600 /root/hermes/.env 2>/dev/null || true
+            echo "restaure depuis $F :"; tar tzf "$F" | sed "s/^/   /" | head -20
+          '
+
+      - name: 5. Installer
+        env:
+          TYPESAFE_SECRET: ${{ secrets.TYPESAFE_AI_API_KEY }}
+        run: |
+          JEV_REEL=$(jq -r '.inputs.jev_reel // empty' "$GITHUB_EVENT_PATH")
+          case "$JEV_REEL" in true|1) JEV_REEL=1 ;; false|0) JEV_REEL=0 ;; *) JEV_REEL="" ;; esac
+          # Trois lignes sur lentree standard : jeton (vide = conserver ou
+          # creer), cle TypeSafe (secret, masque), reel Jev.
+          printf '%s\n%s\n%s\n' "" "$TYPESAFE_SECRET" "$JEV_REEL" | sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+            'IFS= read -r J; IFS= read -r K; IFS= read -r R; HERMES_DASH_TOKEN_POSE="$J" TYPESAFE_AI_API_KEY_POSE="$K" HERMES_JEV_REEL_POSE="$R" bash /root/hermes/deploy/install.sh'
+
+      - name: 6. Demarrer le moteur
+        if: ${{ inputs.demarrer == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            TOK=$(grep "^HERMES_DASH_TOKEN=" /root/hermes/.env | tail -1 | cut -d= -f2-)
+            [ -z "$TOK" ] && { echo "!! pas de jeton dans le .env"; exit 1; }
+            r=$({
+              echo "url = \"http://127.0.0.1:8899/api/toggle-ai?key=$TOK\""
+              echo "request = \"POST\""
+              echo "header = \"Content-Type: application/json\""
+              echo "data = {\"arg\":true}"
+            } | curl -s --max-time 20 --noproxy "*" --config -)
+            printf "%s" "$r" | grep -q "\"active\":true" && echo "  le moteur est DEMARRE" || { echo "  !! pas de confirmation : $r"; exit 1; }
+          '
+
+      - name: Etat final
+        if: always()
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            echo "=== service ==="; systemctl is-active hermes || true
+            echo "=== journal (Jev, coupe-circuit, strategie) ==="
+            journalctl -u hermes -n 400 --no-pager 2>/dev/null | grep -E "\[ENV\]|\[JEV\]|COUPE|\[1M\]|\[HERMES15\]|\[SERVEUR\]" | tail -25 || true
+            echo "=== .env (noms des cles seulement) ==="
+            cut -d= -f1 /root/hermes/.env 2>/dev/null | sed "s/^/   /" || echo "   (pas de .env)"
+          '

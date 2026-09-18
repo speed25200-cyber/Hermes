@@ -1253,6 +1253,28 @@ tbody tr:hover { background: var(--surface-2); }
 
   <section class="tuiles" id="tuiles"></section>
 
+  <!-- Jev : la source de decisions a la minute. Cache tant que le moteur
+       ne l'a pas annoncee (HERMES_STRATEGIE) : une page qui montre un
+       panneau vide pour une source inactive raconte une fausse histoire. -->
+  <section class="bloc" id="bloc-jev" hidden>
+    <style>
+      .jev-etat { display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 10px 18px 8px; font-size: 12.5px; color: var(--texte-2); align-items: baseline; }
+      .jev-etat b { color: var(--texte); font-weight: 500; font-family: var(--num); letter-spacing: -0.02em; }
+      .jev-mode { padding: 2px 9px; border-radius: 7px; background: var(--surface-2); font-weight: 500; color: var(--texte); }
+      .jev-mode.reel { background: var(--long); color: #071a0d; }
+      .jev-mode.demo { background: #c9a254; color: #171204; }
+      .jev-etat .alerte { color: var(--short); font-weight: 500; }
+      .jev-liste .jl .e { min-width: 130px; }
+    </style>
+    <div class="bloc-tete">
+      <h2 data-l="jev.titre">Jev — décisions à la minute</h2><span class="compte" id="n-jev">—</span>
+    </div>
+    <div class="bloc-corps">
+      <div class="jev-etat" id="z-jev-etat"></div>
+      <div class="journal jev-liste" id="z-jev"></div>
+    </div>
+  </section>
+
   <section class="bloc">
     <div class="bloc-tete">
       <h2 data-l="pos.titre">Positions</h2><span class="compte" id="n-pos">—</span>

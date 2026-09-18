@@ -37,6 +37,18 @@ d'être lues avant de toucher au moteur :
 3. Ce qui brille sur une époque meurt souvent sur l'autre. D'où la
    règle des trois fenêtres, désormais obligatoire.
 
+## Jev : la décision à la minute (18 septembre 2026)
+
+Le moteur a une seconde source de décisions, choisie par
+`HERMES_STRATEGIE` : le décideur **Jev** (TypeSafe AI) sur bougies d'une
+minute. Il propose ; tout passe par les mêmes gardes et le même GATE V2
+que les perles. Trois modes — observation, démo, réel — et le réel exige
+**à la fois** `HERMES_JEV_REEL=1` et un verdict positif du banc
+(`deploy/banc_jev_1m.js` → `config/jev_verdict.json`). Le coupe-circuit
+journalier, absent jusqu'ici, est branché sur le chemin d'entrée de
+toutes les sources. Tout est dans [`docs/jev.md`](docs/jev.md), y
+compris ce qui n'a pas encore pu être mesuré.
+
 ## Comment c'est fait
 
     app/          la page et le processus principal
@@ -88,6 +100,9 @@ Ce qui décide réellement :
 | part du capital engageable | `HERMES_MAX_RISK_PCT` | 0,90 (coussin de 10 %) |
 | équité sous laquelle rien n'est tenté | `HERMES_MIN_EQUITY_USDT` | 5 |
 | plancher / plafond de marge par trade | `HERMES_MARGIN_MIN` / `HERMES_MARGIN_MAX` | 1 / 200 |
+| source des entrées | `HERMES_STRATEGIE` | `hermes15` (le VPS pose `jev1m`) |
+| coupe-circuit journalier | `HERMES_COUPE_CIRCUIT_PCT` | 0,05 |
+| réel pour Jev (avec le verdict du banc) | `HERMES_JEV_REEL` | absent |
 
 Les seuils de sortie sont la constante `SPEC` d'`app/main.js` :
 take-profit à +80 % de la marge, stop à −30 %, armement du trail à

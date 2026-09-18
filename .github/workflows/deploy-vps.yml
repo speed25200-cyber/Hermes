@@ -124,6 +124,18 @@ on:
         description: "Jours entre deux reselections dans le banc du procede (21 par defaut, 7 = plus proche du vivant)"
         required: false
         default: "21"
+      jev_reel:
+        description: "Jev : poser HERMES_JEV_REEL dans le .env (true) ou le retirer (false). Vide = ne rien changer. Le reel exige AUSSI le verdict du banc."
+        required: false
+        default: ""
+      banc_jev:
+        description: "Jev : rejouer l'histoire 1 min par le banc et ecrire config/jev_verdict.json (la porte du reel). Nombre de jours, vide = ne pas lancer."
+        required: false
+        default: ""
+      calibration_jev:
+        description: "Jev : relire le journal des decisions et imprimer la calibration (aucune ecriture)"
+        required: false
+        default: "false"
 
 concurrency:
   group: vps-deploy
@@ -242,11 +254,17 @@ jobs:
             ./ "root@$VPS:/root/hermes/"
 
       - name: Run installer
+        env:
+          # Un secret de depot est masque doffice dans tous les journaux ;
+          # il voyage jusquau serveur par lentree standard, comme le jeton.
+          TYPESAFE_SECRET: ${{ secrets.TYPESAFE_AI_API_KEY }}
         run: |
           # Meme regle que pour le mot de passe : lentree jeton se lit
           # dans le fichier devenement, pas dans env: — placee la, elle
           # a ete imprimee en clair dans lentete de letape (run 201).
           JETON=$(jq -r '.inputs.jeton // empty' "$GITHUB_EVENT_PATH")
+          JEV_REEL=$(jq -r '.inputs.jev_reel // empty' "$GITHUB_EVENT_PATH")
+          case "$JEV_REEL" in true|1) JEV_REEL=1 ;; false|0) JEV_REEL=0 ;; *) JEV_REEL="" ;; esac
           # La cle de console, si on en remet une, voyage par lentree
           # standard et devient une variable denvironnement sur la
           # machine. Ni argument de commande — visible dans ps le temps
@@ -255,8 +273,11 @@ jobs:
           # la valeur ne devrait apparaitre nulle part, et si elle
           # apparaissait quand meme, elle serait remplacee par ***.
           if [ -n "$JETON" ]; then echo "::add-mask::$JETON"; fi
-          printf '%s' "$JETON" | sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
-            'J=$(cat); HERMES_DASH_TOKEN_POSE="$J" bash /root/hermes/deploy/install.sh'
+          # Trois lignes sur lentree standard : jeton, cle TypeSafe, reel
+          # Jev. Une ligne vide = « ne rien changer ». Lues une par une
+          # cote serveur, jamais en argument.
+          printf '%s\n%s\n%s\n' "$JETON" "$TYPESAFE_SECRET" "$JEV_REEL" | sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" \
+            'IFS= read -r J; IFS= read -r K; IFS= read -r R; HERMES_DASH_TOKEN_POSE="$J" TYPESAFE_AI_API_KEY_POSE="$K" HERMES_JEV_REEL_POSE="$R" bash /root/hermes/deploy/install.sh'
 
       # --- Pose des cles OKX -------------------------------------------
       #
@@ -348,6 +369,33 @@ jobs:
               echo "  !! le moteur na pas confirme son demarrage"
               exit 1
             fi
+          '
+
+      # --- Jev -----------------------------------------------------------
+      #
+      # Le banc tourne SUR LE VPS : cest la seule machine qui joint a la
+      # fois OKX et api.typesafe.ai, et cest la quest le cache. Il ecrit
+      # config/jev_verdict.json sur la machine ; le moteur le relit chaque
+      # minute. Le verdict nest PAS rapatrie dans le depot : il vaut pour
+      # une machine, une fenetre, une signature de questions.
+      - name: Jev — rejouer le banc 1 min
+        if: ${{ inputs.banc_jev != '' }}
+        env:
+          JOURS: ${{ inputs.banc_jev }}
+        run: |
+          printf '%s\n' "$JOURS" | sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            IFS= read -r JOURS
+            cd /root/hermes
+            set -a; . ./.env; set +a
+            HERMES_BANC_JOURS="$JOURS" HERMES_UNIVERSE_SIZE=50 node deploy/banc_jev_1m.js --confirmer 2>&1 | tail -80
+            echo "=== verdict ==="; cat config/jev_verdict.json 2>/dev/null | head -40 || echo "(aucun verdict ecrit)"
+          '
+
+      - name: Jev — calibration sur le journal des decisions
+        if: ${{ inputs.calibration_jev == 'true' }}
+        run: |
+          sshpass -e ssh -o StrictHostKeyChecking=accept-new "root@$VPS" '
+            cd /root/hermes && node deploy/calibration_jev.js 2>&1 | tail -60
           '
 
       # always() : cest quand une etape a echoue quon a le plus besoin

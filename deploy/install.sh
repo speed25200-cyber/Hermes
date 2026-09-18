@@ -92,6 +92,23 @@ elif ! grep -q "^HERMES_DASH_TOKEN=" "$ENV_FILE" 2>/dev/null; then
 else
   echo "  cle de tableau de bord conservee"
 fi
+# La cle TypeSafe (Jev), meme mecanique que la cle de console : par
+# lenvironnement, jamais en argument, jamais imprimee.
+if [ -n "${TYPESAFE_AI_API_KEY_POSE:-}" ]; then
+  sed -i "/^TYPESAFE_AI_API_KEY=/d" "$ENV_FILE"
+  echo "TYPESAFE_AI_API_KEY=$TYPESAFE_AI_API_KEY_POSE" >> "$ENV_FILE"
+  echo "  cle TypeSafe (Jev) REMISE (jamais dans le journal)"
+elif grep -q "^TYPESAFE_AI_API_KEY=.\+" "$ENV_FILE" 2>/dev/null; then
+  echo "  cle TypeSafe (Jev) presente"
+else
+  echo "  AUCUNE cle TypeSafe dans $ENV_FILE : le decideur Jev ne rendra aucun avis"
+fi
+# Le reel pour Jev est un DOUBLE tour : cette ligne ET un verdict du banc
+# (config/jev_verdict.json, autorise:true). Lun sans lautre = observation.
+if [ -n "${HERMES_JEV_REEL_POSE:-}" ]; then
+  sed -i "/^HERMES_JEV_REEL=/d" "$ENV_FILE"
+  if [ "$HERMES_JEV_REEL_POSE" = "1" ]; then echo "HERMES_JEV_REEL=1" >> "$ENV_FILE"; echo "  HERMES_JEV_REEL=1 pose (le reel attend encore le verdict du banc)"; else echo "  HERMES_JEV_REEL retire : Jev en observation ou demo"; fi
+fi
 if grep -q "^OKX_API_KEY=.\+" "$ENV_FILE" 2>/dev/null; then
   echo "  cles OKX presentes"
 else
@@ -117,6 +134,13 @@ Environment=NODE_ENV=production
 Environment=HERMES_PORT=8899
 Environment=HERMES_HOST=0.0.0.0
 Environment=HERMES_UNIVERSE_SIZE=50
+# La source des decisions : Jev a la minute (demande du proprietaire, 18
+# septembre 2026). Le roster de perles reste charge mais ne propose plus
+# d'entree ; HERMES_STRATEGIE=les-deux les fait cohabiter. Le mode de Jev
+# (observation, demo, reel) se lit dans le journal au demarrage et sur la
+# page : il depend de OKX_SIMULATED, de HERMES_JEV_REEL dans le .env, et
+# du verdict ecrit par deploy/banc_jev_1m.js.
+Environment=HERMES_STRATEGIE=jev1m
 # Le pilotage, demande explicitement par le proprietaire.
 #
 # Le defaut du code est « lecture seule », et ce defaut est le bon :
