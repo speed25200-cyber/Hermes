@@ -1,6 +1,6 @@
 """End-to-end research run: data -> dataset -> walk-forward -> evaluation -> final model -> report.
 
-Every run is appended to a trial ledger (``reports/trials.jsonl``). The number of distinct configurations
+Every run is recorded in a trial ledger (``reports/trials/``, one file per run). The number of distinct configurations
 ever evaluated feeds the Deflated Sharpe Ratio: trying many ideas on the same history is not free, and the
 ledger makes that cost explicit instead of forgotten.
 """
@@ -47,14 +47,23 @@ def config_hash(cfg: HermesConfig) -> str:
     return hashlib.sha256(json.dumps(d, sort_keys=True).encode()).hexdigest()[:12]
 
 
+def _ledger_records(ledger: Path) -> list[dict[str, object]]:
+    """Trial records: one JSON file per run in the ledger directory (parallel jobs never conflict), plus the
+    legacy ``trials.jsonl`` next to it if present."""
+    recs: list[dict[str, object]] = []
+    files = sorted(ledger.glob("*.json")) if ledger.is_dir() else []
+    legacy = ledger.with_suffix(".jsonl") if ledger.suffix != ".jsonl" else ledger
+    lines = legacy.read_text().splitlines() if legacy.exists() else []
+    for text in [f.read_text() for f in files] + lines:
+        try:
+            recs.append(json.loads(text))
+        except ValueError:
+            continue
+    return recs
+
+
 def ledger_trials(ledger: Path, current: str) -> int:
-    seen = {current}
-    if ledger.exists():
-        for line in ledger.read_text().splitlines():
-            try:
-                seen.add(json.loads(line)["config_hash"])
-            except (ValueError, KeyError):
-                continue
+    seen = {current} | {str(r.get("config_hash")) for r in _ledger_records(ledger) if r.get("config_hash")}
     return len(seen)
 
 
@@ -114,7 +123,7 @@ def run_research(
     panel: Panel | None = None,
     n_null: int | None = None,
     workers: int | None = None,
-    ledger: str | Path | None = "reports/trials.jsonl",
+    ledger: str | Path | None = "reports/trials",
     save_model: bool = True,
     resume: bool = True,
 ) -> tuple[Evaluation, WalkForwardResult, Dataset]:
@@ -158,7 +167,7 @@ def run_research(
         )
         bundle.save(out / "model")
     if ledger is not None:
-        Path(ledger).parent.mkdir(parents=True, exist_ok=True)
+        Path(ledger).mkdir(parents=True, exist_ok=True)
         rec = {
             "date": datetime.now(UTC).isoformat(timespec="seconds"),
             "config_hash": chash,
@@ -168,8 +177,8 @@ def run_research(
             "ic_h": {k: round(float(v["ic_mean"]), 4) for k, v in ev.ic.items() if k.startswith("h")},  # type: ignore[index]
             "promoted": ev.promoted,
         }
-        with open(ledger, "a", encoding="utf-8") as fh:
-            fh.write(json.dumps(rec) + "\n")
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+        (Path(ledger) / f"{stamp}-{chash}.json").write_text(json.dumps(rec) + "\n")
     log.info("research done in %.0fs, promoted=%s", time.time() - t0, ev.promoted)
     return ev, wf, ds
 

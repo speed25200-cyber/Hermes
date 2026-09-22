@@ -247,7 +247,7 @@ def evaluate(
 
     # --- robustness & null backtests (parallel) ---------------------------------------------------------
     _CTX.update({"ds": ds, "wf": wf, "cfg": cfg, "start": start})
-    grid = grid or [{"holding_horizon": h, "cost_aversion": ca} for h in (4, 8, 24) for ca in (0.5, 1.0, 2.0)]
+    grid = grid or [{"holding_horizon": h, "cost_aversion": ca} for h in cfg.labels.horizons for ca in (0.5, 1.0, 2.0)]
     jobs: list[tuple[str, int | dict[str, object]]] = [("null", s) for s in range(n_null)]
     jobs += [("grid", g) for g in grid]
     jobs += [("costx2", {}), ("lag1", {})]

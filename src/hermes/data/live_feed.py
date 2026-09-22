@@ -18,23 +18,37 @@ import httpx
 import numpy as np
 import pandas as pd
 
+from hermes.config import BAR_MINUTES
+from hermes.data.intrabar import intrabar_aggregates
 from hermes.data.panel import BAR_TO_OFFSET, Panel, clean_panel
 
 log = logging.getLogger(__name__)
 
 FAPI = "https://fapi.binance.com"
-MS = {"15m": 900_000, "30m": 1_800_000, "1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000}
+
+
+def bar_ms(bar: str) -> int:
+    return BAR_MINUTES[bar] * 60_000
 
 
 class BinanceLiveFeed:
     def __init__(
-        self, bar: str = "1h", history_bars: int = 2400, client: httpx.AsyncClient | None = None, concurrency: int = 6
+        self,
+        bar: str = "15m",
+        history_bars: int = 2880,
+        client: httpx.AsyncClient | None = None,
+        concurrency: int = 6,
+        intrabar_minutes: int = 0,
     ):
+        """``intrabar_minutes`` > 0 also keeps that much 1-minute history to compute the intrabar fields."""
         self.bar = bar
         self.history_bars = history_bars
+        self.intrabar_minutes = intrabar_minutes if BAR_MINUTES[bar] > 1 else 0
         self.http = client or httpx.AsyncClient(base_url=FAPI, timeout=15.0)
         self.sem = asyncio.Semaphore(concurrency)
         self.frames: dict[str, pd.DataFrame] = {}
+        self.m1: dict[str, pd.DataFrame] = {}
+        self._daily: tuple[str, pd.DataFrame, pd.DataFrame] | None = None
         self.last_update = 0.0
 
     async def close(self) -> None:
@@ -63,9 +77,11 @@ class BinanceLiveFeed:
         rows.sort(key=lambda x: -x[1])
         return [s for s, _ in rows[:n]]
 
-    async def _klines(self, kind: str, symbol: str, start_ms: int | None, limit: int) -> pd.DataFrame:
+    async def _klines(
+        self, kind: str, symbol: str, start_ms: int | None, limit: int, interval: str | None = None
+    ) -> pd.DataFrame:
         path = "/fapi/v1/klines" if kind == "klines" else "/fapi/v1/premiumIndexKlines"
-        params: dict[str, object] = {"symbol": symbol, "interval": self.bar, "limit": limit}
+        params: dict[str, object] = {"symbol": symbol, "interval": interval or self.bar, "limit": limit}
         if start_ms is not None:
             params["startTime"] = start_ms
         rows = await self._get(path, params)
@@ -100,8 +116,57 @@ class BinanceLiveFeed:
         idx = ts.ceil(off) - off
         return pd.Series([float(r["fundingRate"]) for r in rows], index=idx).groupby(level=0).sum()
 
+    async def _history(self, kind: str, symbol: str, start: int, interval: str) -> pd.DataFrame:
+        step = bar_ms(interval) if interval != "1d" else 86_400_000
+        now_ms = int(time.time() * 1000)
+        parts, s = [], start
+        while s < now_ms - step:
+            k = await self._klines(kind, symbol, s, 1500, interval)
+            if k.empty:
+                break
+            parts.append(k)
+            s = int(k.index[-1].value // 1_000_000) + step
+            if len(k) < 1500:
+                break
+        return pd.concat(parts) if parts else pd.DataFrame()
+
+    async def _refresh_m1(self, symbol: str) -> None:
+        have = self.m1.get(symbol)
+        now_ms = int(time.time() * 1000)
+        if have is None or have.empty:
+            k = await self._history("klines", symbol, now_ms - self.intrabar_minutes * 60_000, "1m")
+        else:
+            last = int(have.index[-1].value // 1_000_000)
+            k = await self._history("klines", symbol, last - 120_000, "1m")
+        if k.empty:
+            return
+        merged = k if have is None else pd.concat([have, k])
+        merged = merged[~merged.index.duplicated(keep="last")].sort_index()
+        self.m1[symbol] = merged.iloc[-self.intrabar_minutes :]
+
+    async def daily(self, symbols: list[str], days: int = 150) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Daily quote volume and 'traded' flags (months of history) for the point-in-time universe.
+
+        Refreshed once per UTC day; today's partial row is kept (the universe rule only reads yesterday).
+        """
+        today = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d")
+        if self._daily is not None and self._daily[0] == today and set(symbols) <= set(self._daily[1].columns):
+            return self._daily[1][symbols], self._daily[2][symbols]
+        start = int(time.time() * 1000) - days * 86_400_000
+        res = await asyncio.gather(*(self._history("klines", s, start, "1d") for s in symbols), return_exceptions=True)
+        qv, alive = {}, {}
+        for s, k in zip(symbols, res):
+            if isinstance(k, BaseException) or k.empty:
+                continue
+            qv[s] = k["quote_volume"]
+            alive[s] = k["close"].notna()
+        qdf = pd.DataFrame(qv).sort_index().reindex(columns=symbols)
+        adf = pd.DataFrame(alive).sort_index().reindex(columns=symbols).fillna(False).astype(bool)
+        self._daily = (today, qdf, adf)
+        return qdf, adf
+
     async def _refresh_symbol(self, symbol: str) -> None:
-        step = MS[self.bar]
+        step = bar_ms(self.bar)
         have = self.frames.get(symbol)
         now_ms = int(time.time() * 1000)
         if have is None or have.empty:
@@ -155,6 +220,16 @@ class BinanceLiveFeed:
         frames = {s: self.frames[s] for s in symbols if s in self.frames and len(self.frames[s])}
         if not frames:
             raise RuntimeError("live feed returned no data")
+        if self.intrabar_minutes:
+            res = await asyncio.gather(*(self._refresh_m1(s) for s in frames), return_exceptions=True)
+            for s, r in zip(list(frames), res):
+                if isinstance(r, BaseException):
+                    log.warning("1m feed %s failed: %s", s, r)
+                    continue
+                m1 = self.m1.get(s)
+                if m1 is not None and len(m1):
+                    agg = intrabar_aggregates(m1, self.bar)
+                    frames[s] = frames[s].join(agg, how="left")
         self.last_update = time.time()
         panel = clean_panel(Panel.from_long(frames, self.bar))
         panel.meta["source"] = "binance_live"

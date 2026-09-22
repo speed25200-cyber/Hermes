@@ -104,5 +104,5 @@ def market_alpha_series(
     mu = market_score.rolling(win, min_periods=24).mean()
     sd = market_score.rolling(win, min_periods=24).std()
     z = ((market_score - mu) / sd).clip(-3, 3)
-    mvol = np.sqrt((mkt_return**2).ewm(halflife=72, adjust=False).mean())
+    mvol = np.sqrt((mkt_return**2).ewm(halflife=max(2, bars_per_day), adjust=False).mean())
     return (ic * z * mvol * np.sqrt(H)).fillna(0.0)

@@ -22,6 +22,14 @@ arrondis, stops) → `live` avec `capital_fraction` 0,25, puis augmentation si l
    tourne en arrière-plan (~1 h) et démarre le moteur dès que le premier modèle existe.
 3. Workflow **VPS status** : services, état publié, journaux, derniers rapports.
 
+Sans GitHub Actions (quota épuisé, compte bloqué…), le même déploiement depuis n'importe quel poste
+disposant d'un accès SSH root au VPS :
+
+```bash
+VPS=178.104.191.79 MODE=paper TRAIN=1 bash deploy/deploy.sh
+# demo / live : exporter d'abord OKX_API_KEY, OKX_API_SECRET, OKX_API_PASSPHRASE dans le shell
+```
+
 Sur le VPS :
 
 ```bash
@@ -30,6 +38,13 @@ journalctl -u hermes@paper -f
 cat /opt/hermes/state/paper/status.json   # équité, positions, IC estimé, risque, exécution
 systemctl start hermes-retrain            # réentraîner maintenant (sinon chaque dimanche 02:30 UTC)
 ```
+
+## Tableau de bord
+
+Lecture seule, processus séparé du moteur. Si le secret `HERMES_DASHBOARD_TOKEN` est défini, il est servi
+sur `http://<vps>:8899/?token=<jeton>` (puis un cookie de session) ; sinon il n'écoute que localement
+(`ssh -L 8899:127.0.0.1:8899 root@<vps>` puis `hermes live dashboard`). Il affiche équité, expositions,
+IC estimé, drawdown, part maker, positions, état du risque et événements.
 
 ## Arrêt d'urgence
 
@@ -49,8 +64,8 @@ Même si le processus meurt : les ordres en attente sont annulés par OKX en moi
 
 ```bash
 pip install -e ".[dev]"
-hermes data download -c configs/research.yaml
-hermes research run -c configs/research.yaml --out reports/mon-essai
+hermes data download -c configs/research_15m.yaml
+hermes research run -c configs/research_15m.yaml --out reports/mon-essai
 hermes model install reports/mon-essai/model        # devient le champion
 ```
 

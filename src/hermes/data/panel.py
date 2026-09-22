@@ -24,8 +24,18 @@ import pandas as pd
 PRICE_FIELDS = ("open", "high", "low", "close")
 CORE_FIELDS = (*PRICE_FIELDS, "volume", "quote_volume", "trades", "taker_buy_quote")
 OPTIONAL_FIELDS = ("funding_rate", "premium", "oi_value", "ls_top", "ls_account", "taker_ls_ratio")
+INTRABAR_FIELDS = ("ib_rv", "ib_bv", "ib_rskew", "ib_flow_last", "ib_flow_std", "ib_vwap", "ib_upfrac")
 
-BAR_TO_OFFSET = {"15m": "15min", "30m": "30min", "1h": "1h", "2h": "2h", "4h": "4h", "1d": "1D"}
+BAR_TO_OFFSET = {
+    "1m": "1min",
+    "5m": "5min",
+    "15m": "15min",
+    "30m": "30min",
+    "1h": "1h",
+    "2h": "2h",
+    "4h": "4h",
+    "1d": "1D",
+}
 
 
 @dataclass
@@ -108,7 +118,7 @@ class Panel:
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         for name, df in self.fields.items():
-            df.astype("float64").to_parquet(directory / f"{name}.parquet")
+            df.astype("float32").to_parquet(directory / f"{name}.parquet")
         (directory / "_panel.json").write_text(json.dumps({"bar": self.bar}))
 
     @classmethod
@@ -145,7 +155,7 @@ class Panel:
                     cols[sym] = s.reindex(index)
                 else:
                     cols[sym] = pd.Series(np.nan, index=index)
-            out[name] = pd.DataFrame(cols, index=index, dtype="float64")
+            out[name] = pd.DataFrame(cols, index=index, dtype="float32")
         for name in CORE_FIELDS:
             if name not in out:
                 out[name] = pd.DataFrame(np.nan, index=index, columns=symbols)
@@ -173,6 +183,8 @@ def resample_panel(panel: Panel, bar: str) -> Panel:
     }
     out = {}
     for name, df in panel.fields.items():
+        if name in INTRABAR_FIELDS:
+            continue  # not additive: recomputed from 1-minute data for the new bar (hermes.data.intrabar)
         how = rules.get(name, "last")
         r = df.resample(offset, label="left", closed="left")
         agg = getattr(r, how)(min_count=1) if how in ("sum",) else getattr(r, how)()

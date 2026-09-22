@@ -7,7 +7,8 @@ cd /opt/hermes
 MODE="$(cat /etc/hermes/mode 2>/dev/null || echo paper)"
 OUT="reports/auto/$(date -u +%Y-%m-%d)"
 as_hermes() { runuser -u hermes -- "$@"; }
-as_hermes .venv/bin/hermes research run -c configs/research.yaml --out "$OUT" --n-null 40
+CONFIG="$(cat /etc/hermes/research_config 2>/dev/null || echo configs/research_15m.yaml)"
+as_hermes .venv/bin/hermes research run -c "$CONFIG" --out "$OUT" --n-null 40
 flag() { python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('promoted', False))" "$1"; }
 NEW_PROMOTED=$(flag "$OUT/model/bundle.json")
 CUR=artifacts/models/champion/bundle.json

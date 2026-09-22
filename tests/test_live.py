@@ -15,8 +15,8 @@ from hermes.research.run import train_final
 
 @pytest.mark.slow
 def test_live_decisions_on_paper(cfg_small, tmp_path):
-    panel = make_synthetic_panel(n_assets=12, n_bars=24 * 150, seed=21)
-    ds = build_dataset(panel.iloc(slice(0, 24 * 120)), cfg_small)
+    panel = make_synthetic_panel(n_assets=12, n_bars=96 * 60, bar="15m", seed=21)
+    ds = build_dataset(panel.iloc(slice(0, 96 * 45)), cfg_small)
     bundle = train_final(ds, cfg_small, promoted=False, evaluation={})
     bundle.prior_ic = 0.03  # pretend validation found an edge, to exercise sizing
     bundle.meta["cost_scale"] = 0.3  # and a persistent signal (costs amortised over ~3 horizons)
@@ -25,7 +25,7 @@ def test_live_decisions_on_paper(cfg_small, tmp_path):
     eng = LiveEngine(cfg_small, bundle, None, broker, store, mode="paper")
 
     async def cycle(t):
-        window = panel.iloc(slice(t - 24 * 100, t))
+        window = panel.iloc(slice(t - 96 * 30, t))
         broker.set_prices(window["close"].iloc[-1].dropna().to_dict())
         pos = await broker.positions()
         eq = await broker.equity()
@@ -34,7 +34,7 @@ def test_live_decisions_on_paper(cfg_small, tmp_path):
         return d, await broker.equity()
 
     decisions = []
-    for t in range(24 * 120, 24 * 120 + 30):
+    for t in range(96 * 45, 96 * 45 + 30):
         decisions.append(asyncio.run(cycle(t)))
     d0 = decisions[0][0]
     assert d0.n_members >= 5 and not d0.stale
@@ -57,13 +57,13 @@ def test_live_decisions_on_paper(cfg_small, tmp_path):
 
 @pytest.mark.slow
 def test_live_refuses_unpromoted_bundle_in_live_mode(cfg_small, tmp_path):
-    panel = make_synthetic_panel(n_assets=10, n_bars=24 * 110, seed=22)
-    ds = build_dataset(panel.iloc(slice(0, 24 * 100)), cfg_small)
+    panel = make_synthetic_panel(n_assets=10, n_bars=96 * 50, bar="15m", seed=22)
+    ds = build_dataset(panel.iloc(slice(0, 96 * 40)), cfg_small)
     bundle = train_final(ds, cfg_small, promoted=False, evaluation={})
     bundle.prior_ic = 0.05
     eng = LiveEngine(
         cfg_small, bundle, None, PaperBroker(tmp_path / "a.json", 1e4, 0, 0), StateStore(tmp_path / "s"), mode="live"
     )
-    d = eng.decide(panel.iloc(slice(24 * 10, 24 * 110)), {}, 10_000.0)
+    d = eng.decide(panel.iloc(slice(96 * 10, 96 * 50)), {}, 10_000.0)
     assert all(v == 0 for v in d.targets.values())
     assert any("not promoted" in n for n in d.notes)

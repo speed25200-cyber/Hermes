@@ -8,14 +8,14 @@ from hermes.data.universe import universe_mask
 from hermes.features.library import build_features, cs_rank_gauss
 
 
-def _features(panel, bpd=24):
-    mask = universe_mask(panel, UniverseConfig(top_n=10, min_history_days=5), bpd)
-    return mask, build_features(panel, mask, FeatureConfig(), bpd)
+def _features(panel):
+    mask = universe_mask(panel, UniverseConfig(top_n=10, min_history_days=3))
+    return mask, build_features(panel, mask, FeatureConfig())
 
 
 def test_features_do_not_look_ahead(small_panel):
     """Truncating the future must leave every past feature value unchanged."""
-    cut = 24 * 90
+    cut = 96 * 45
     mask_full, full = _features(small_panel)
     mask_cut, part = _features(small_panel.iloc(slice(0, cut)))
     pd.testing.assert_frame_equal(mask_full.iloc[:cut], mask_cut)
@@ -36,12 +36,15 @@ def test_features_do_not_look_ahead(small_panel):
 
 def test_live_window_parity(small_panel):
     """Features computed on the live lookback window match research features at the decision bar."""
+    from hermes.config import bars_for
+
     cfg = FeatureConfig()
     mask_full, full = _features(small_panel)
     t = len(small_panel.index) - 1
-    window = small_panel.iloc(slice(t + 1 - cfg.max_lookback * 2, t + 1))
-    mask_w = mask_full.iloc[t + 1 - cfg.max_lookback * 2 : t + 1]
-    part = build_features(window, mask_w, cfg, 24)
+    w = 2 * bars_for(cfg.max_lookback_minutes, small_panel.bar) + 8 * bars_for(cfg.vol_halflife_minutes, "15m")
+    window = small_panel.iloc(slice(t + 1 - w, t + 1))
+    mask_w = mask_full.iloc[t + 1 - w : t + 1]
+    part = build_features(window, mask_w, cfg)
     members = mask_full.iloc[t].to_numpy()
     bad = []
     for name in part.frames:

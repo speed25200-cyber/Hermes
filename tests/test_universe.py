@@ -6,18 +6,19 @@ from hermes.data.universe import base_asset, is_excluded, universe_mask
 
 def test_universe_respects_top_n_and_history(small_panel):
     cfg = UniverseConfig(top_n=5, min_history_days=10)
-    m = universe_mask(small_panel, cfg, 24)
+    m = universe_mask(small_panel, cfg)
     assert m.sum(axis=1).max() <= 5
     close = small_panel["close"]
     first = close.notna().idxmax()
     for sym in m.columns:
         members = m.index[m[sym]]
         if len(members):
-            assert (members[0] - first[sym]).total_seconds() >= 10 * 86400 - 3600
+            # Daily resolution: the listing day counts as one day of history.
+            assert (members[0] - first[sym]).total_seconds() >= 9 * 86400
 
 
 def test_delisted_contract_leaves(small_panel):
-    m = universe_mask(small_panel, UniverseConfig(top_n=12, min_history_days=1), 24)
+    m = universe_mask(small_panel, UniverseConfig(top_n=12, min_history_days=1))
     dead = small_panel["close"].isna() & small_panel["close"].ffill().notna()
     assert not (m & dead).any().any()
 
@@ -51,6 +52,6 @@ def test_panel_save_load_roundtrip(small_panel, tmp_path):
     p = small_panel.subset(["BTCUSDT", "ETHUSDT"]).iloc(slice(0, 500))
     p.save(tmp_path / "p")
     q = Panel.load(tmp_path / "p")
-    assert q.bar == "1h" and q.bar_delta.total_seconds() == 3600
+    assert q.bar == "15m" and q.bar_delta.total_seconds() == 900
     np.testing.assert_allclose(q["close"].to_numpy(), p["close"].to_numpy())
     assert q.index.equals(p.index)

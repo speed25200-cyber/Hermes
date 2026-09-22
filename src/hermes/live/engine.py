@@ -142,7 +142,12 @@ class LiveEngine:
 
     # -- decision (pure given inputs; unit-testable offline) ----------------------------------------------
     def decide(
-        self, panel: Panel, positions_notional: dict[str, float], equity: float, now: pd.Timestamp | None = None
+        self,
+        panel: Panel,
+        positions_notional: dict[str, float],
+        equity: float,
+        now: pd.Timestamp | None = None,
+        daily: tuple[pd.DataFrame, pd.DataFrame] | None = None,
     ) -> Decision:
         cfg = self.cfg
         t = len(panel.index) - 1
@@ -150,8 +155,12 @@ class LiveEngine:
         expected = BinanceLiveFeed.last_closed_bar(panel.bar, now) if now is not None else ts
         stale = ts < expected
         d = Decision(ts=str(ts), equity=equity, stale=bool(stale), n_members=0, ic_est=0.0)
-        mask = universe_mask(panel, cfg.data.universe, self.bpd)
-        feats = build_features(panel, mask, cfg.features, self.bpd)
+        # The universe needs months of daily history (liquidity, listing age); the base-bar window is short.
+        if daily is not None:
+            mask = universe_mask(panel, cfg.data.universe, daily_qv=daily[0], daily_alive=daily[1])
+        else:
+            mask = universe_mask(panel, cfg.data.universe)
+        feats = build_features(panel, mask, cfg.features)
         if feats.names != self.bundle.feature_names:
             missing = set(self.bundle.feature_names) - set(feats.names)
             raise RuntimeError(f"feature mismatch with the bundle (missing {sorted(missing)[:5]}...)")
@@ -204,10 +213,11 @@ class LiveEngine:
             cfg.costs, panel["high"], panel["low"], panel["close"], panel["quote_volume"], feats.aux["vol"], self.bpd
         )
         r = (panel["close"] / panel["close"].shift(1) - 1).to_numpy()
-        ewma = EwmaCovariance(len(syms), cfg.portfolio.cov_halflife)
-        for k in range(max(0, t - cfg.portfolio.cov_halflife * 2), t + 1):
+        cov_hl = cfg.days(cfg.portfolio.cov_halflife_days)
+        ewma = EwmaCovariance(len(syms), cov_hl)
+        for k in range(max(0, t - cov_hl * 2), t + 1):
             ewma.update(np.where(mask.iloc[k].to_numpy(), r[k], np.nan))
-        mvar = market_variance(feats.aux["mkt"]["mkt"], cfg.portfolio.cov_halflife // 4).iloc[t]
+        mvar = market_variance(feats.aux["mkt"]["mkt"], max(2, cov_hl // 4)).iloc[t]
         dollars_typ = np.abs(pos_w[idx]).mean() * equity + 1.0 if len(idx) else 1.0
         inp = BookInputs(
             score=np.where(active[idx], z[idx], np.nan),
@@ -254,6 +264,7 @@ class LiveEngine:
         positions = await self.broker.positions()
         symbols = await self.refresh_candidates(list(positions))
         panel = await self.feed.update(symbols)
+        daily = await self.feed.daily(symbols)
         now = pd.Timestamp.now(tz="UTC")
         if isinstance(self.broker, PaperBroker):
             self.broker.set_prices(panel["close"].iloc[-1].dropna().to_dict())
@@ -266,7 +277,7 @@ class LiveEngine:
         equity = await self.broker.equity()
         positions = await self.broker.positions()
         notional = {s: p.notional for s, p in positions.items()}
-        d = self.decide(panel, notional, equity, now=now)
+        d = self.decide(panel, notional, equity, now=now, daily=daily)
         if d.stale:
             await alert(f"données périmées ({d.ts}) : aucune nouvelle prise de risque", "WARNING")
         urgent = self.overlay.state.halted

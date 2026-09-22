@@ -11,9 +11,9 @@ from hermes.risk.overlay import RiskOverlay
 
 @pytest.fixture(scope="module")
 def setup(small_panel):
-    cfg = load_config(None, **{"data.universe.top_n": 10, "data.universe.min_history_days": 5})
-    mask = universe_mask(small_panel, cfg.data.universe, 24)
-    feats = build_features(small_panel, mask, cfg.features, 24)
+    cfg = load_config(None, **{"data.bar": "15m", "data.universe.top_n": 10, "data.universe.min_history_days": 3})
+    mask = universe_mask(small_panel, cfg.data.universe)
+    feats = build_features(small_panel, mask, cfg.features)
     return cfg, mask, feats
 
 
@@ -21,16 +21,16 @@ def test_no_signal_no_trade(small_panel, setup):
     cfg, mask, feats = setup
     score = pd.DataFrame(np.nan, index=mask.index, columns=mask.columns)
     sig = SignalBundle(score, pd.Series(0.0, index=mask.index))
-    bt = run_backtest(small_panel, mask, feats.aux, sig, cfg, start=mask.index[24 * 30])
+    bt = run_backtest(small_panel, mask, feats.aux, sig, cfg, start=mask.index[96 * 20])
     assert bt.stats["turnover"].sum() == 0
     assert np.allclose(bt.returns, 0)
 
 
 def test_perfect_foresight_is_profitable_and_costs_charged(small_panel, setup):
     cfg, mask, feats = setup
-    fwd = (small_panel["close"].shift(-8) / small_panel["close"] - 1).where(mask)
+    fwd = (small_panel["close"].shift(-4) / small_panel["close"] - 1).where(mask)
     sig = SignalBundle(fwd, pd.Series(0.05, index=mask.index))
-    bt = run_backtest(small_panel, mask, feats.aux, sig, cfg, start=mask.index[24 * 30], end=mask.index[-10])
+    bt = run_backtest(small_panel, mask, feats.aux, sig, cfg, start=mask.index[96 * 20], end=mask.index[-10])
     s = bt.summary(cfg.bars_per_year)
     assert s["sharpe_daily"] > 3
     assert s["fees_annual"] > 0 and s["turnover_annual"] > 0

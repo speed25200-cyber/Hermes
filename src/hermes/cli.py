@@ -72,7 +72,7 @@ def research_run(
     out: Path = typer.Option(Path("reports/latest"), "--out", "-o"),
     n_null: int = typer.Option(40, help="Répliques du test nul"),
     workers: int = typer.Option(0, help="Processus parallèles (0 = tous les cœurs)"),
-    ledger: Path = typer.Option(Path("reports/trials.jsonl"), help="Registre des essais (DSR)"),
+    ledger: Path = typer.Option(Path("reports/trials"), help="Registre des essais (un fichier par essai, DSR)"),
     no_model: bool = typer.Option(False, help="Ne pas entraîner le modèle final"),
 ) -> None:
     """Walk-forward complet + évaluation hors échantillon + porte de promotion + rapport."""
@@ -132,11 +132,24 @@ def live_run(
     # The strategy is the bundle's: its features, labels and portfolio settings win over the local file,
     # except for execution, live and risk settings which belong to the operator.
     cfg = bundle.config.model_copy(update={"execution": cfg.execution, "live": cfg.live, "risk": cfg.risk})
+    # Execution must finish well inside one bar: on 1-minute bars the passive phase lasts seconds, not minutes.
+    bar_s = cfg.bar_minutes * 60.0
+    cfg = cfg.model_copy(
+        update={
+            "execution": cfg.execution.model_copy(
+                update={
+                    "maker_timeout_s": min(cfg.execution.maker_timeout_s, 0.15 * bar_s),
+                    "chase_interval_s": max(0.5, min(cfg.execution.chase_interval_s, 0.03 * bar_s)),
+                }
+            )
+        }
+    )
     if mode == "live" and not bundle.promoted and not cfg.live.allow_unpromoted:
         typer.echo("REFUS : ce modèle n'a pas franchi la porte de promotion. Mode réel interdit.", err=True)
         raise typer.Exit(2)
     store = StateStore(cfg.live.state_dir / mode)
-    feed = BinanceLiveFeed(cfg.data.bar, cfg.live.history_bars)
+    ib_minutes = cfg.features.day_minutes + 3 * cfg.bar_minutes + 60 if cfg.data.intrabar else 0
+    feed = BinanceLiveFeed(cfg.data.bar, cfg.days(cfg.live.history_days), intrabar_minutes=ib_minutes)
     if mode == "paper":
         broker = PaperBroker(
             cfg.live.state_dir / mode / "paper_account.json",

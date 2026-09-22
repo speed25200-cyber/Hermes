@@ -93,11 +93,12 @@ _CONTEXTS: dict[tuple[object, ...], _Context] = {}
 def _context(
     panel: Panel, mask: pd.DataFrame, aux: dict[str, pd.DataFrame], cfg: HermesConfig, t0: int, t1: int
 ) -> _Context:
-    key = (id(panel), id(mask), id(aux), t0, t1, cfg.costs, cfg.portfolio.cov_halflife, cfg.bars_per_day)
+    cov_hl = cfg.days(cfg.portfolio.cov_halflife_days)
+    key = (id(panel), id(mask), id(aux), t0, t1, cfg.costs, cov_hl, cfg.bars_per_day)
     if key in _CONTEXTS:
         return _CONTEXTS[key]
     bpd = cfg.bars_per_day
-    lo = max(0, t0 - cfg.portfolio.cov_halflife * 2)
+    lo = max(0, t0 - cov_hl * 2)
     # Only contracts that are universe members at some point of the simulated window can ever be held.
     cols = mask.columns[mask.iloc[lo:t1].to_numpy().any(axis=0)]
     close = panel["close"][cols]
@@ -116,7 +117,7 @@ def _context(
         member=member,
         ivol=aux["ivol"][cols].to_numpy(),
         beta=aux["beta"][cols].to_numpy(),
-        mkt_var=market_variance(aux["mkt"]["mkt"], cfg.portfolio.cov_halflife // 4).to_numpy(),
+        mkt_var=market_variance(aux["mkt"]["mkt"], max(2, cov_hl // 4)).to_numpy(),
         costs=costs,
         day_pos=daily_ret.index.searchsorted(panel.index.floor("D")),
         daily_np=daily_ret.to_numpy(),
@@ -160,8 +161,9 @@ def run_backtest(
     constructor = PortfolioConstructor(pc, bpy, ic_ref if ic_ref is not None else pc.ic_ref)
     overlay = RiskOverlay(cfg.risk)
     N = close.shape[1]
-    ewma = EwmaCovariance(N, pc.cov_halflife)
-    for t in range(max(0, t0 - pc.cov_halflife * 2), t0):
+    cov_hl = cfg.days(pc.cov_halflife_days)
+    ewma = EwmaCovariance(N, cov_hl)
+    for t in range(max(0, t0 - cov_hl * 2), t0):
         ewma.update(np.where(member[t], r[t], np.nan))
 
     w = np.zeros(N)
