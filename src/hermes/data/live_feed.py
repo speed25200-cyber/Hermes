@@ -18,7 +18,7 @@ import httpx
 import numpy as np
 import pandas as pd
 
-from hermes.data.panel import BAR_TO_OFFSET, Panel
+from hermes.data.panel import BAR_TO_OFFSET, Panel, clean_panel
 
 log = logging.getLogger(__name__)
 
@@ -156,7 +156,7 @@ class BinanceLiveFeed:
         if not frames:
             raise RuntimeError("live feed returned no data")
         self.last_update = time.time()
-        panel = Panel.from_long(frames, self.bar)
+        panel = clean_panel(Panel.from_long(frames, self.bar))
         panel.meta["source"] = "binance_live"
         return panel
 

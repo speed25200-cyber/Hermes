@@ -149,6 +149,27 @@ def _market_fold(
     return m.predict(np.nan_to_num(X[test_bars])), corr
 
 
+def _deep_fold(
+    ds: Dataset, pos: np.ndarray, train_bars: np.ndarray, test_bars: np.ndarray, cfg: HermesConfig, warm: object | None
+) -> tuple[object, float, float, np.ndarray, np.ndarray]:
+    """Train the cross-sectional attention network on the fold (warm-started) and score the test block."""
+    from hermes.models.deep import DeepModel
+
+    v = cfg.validation
+    H = max(cfg.labels.horizons)
+    t_end = int(train_bars.max()) + 1
+    val_lo = t_end - v.val_bars
+    core = train_bars[(train_bars < val_lo - H) & (train_bars % v.train_stride == 0)]
+    val = train_bars[(train_bars >= val_lo) & (train_bars % v.train_stride == 0)]
+    m = DeepModel(cfg.model.deep, max_members=cfg.data.universe.top_n)
+    m.fit(ds.X, pos, ds.y, core, val, warm_start=warm)  # type: ignore[arg-type]
+    vrows, vsc, vbars = m.predict(ds.X, pos, val)
+    ok = np.isfinite(ds.y[vrows]) if len(vrows) else np.zeros(0, bool)
+    lcb = ic_lower_bound(vsc[ok], ds.y[vrows][ok], vbars[ok], max(1, H // v.train_stride)) if ok.any() else 0.0
+    rows, sc, _ = m.predict(ds.X, pos, test_bars)
+    return m, float(m.val_ic), lcb, rows, sc
+
+
 def walk_forward_train(ds: Dataset, cfg: HermesConfig) -> WalkForwardResult:
     v = cfg.validation
     H = max(cfg.labels.horizons)
@@ -170,12 +191,27 @@ def walk_forward_train(ds: Dataset, cfg: HermesConfig) -> WalkForwardResult:
     mkt_prior = pd.Series(np.nan, index=index)
     importance = None
     info: list[dict[str, object]] = []
+    deep_prev = None
+    use_deep = cfg.model.deep.enabled
+    if use_deep:
+        from hermes.models import deep as deep_mod
+
+        use_deep = deep_mod.available()
+        if use_deep:
+            pos = deep_mod.build_pos(ds.t_pos, ds.s_pos, ds.n_bars, ds.mask.shape[1])
     for f in folds:
         t_start = time.time()
         models, ics = train_fold_models(ds, f.train, cfg)
         lcbs = {k[5:]: float(models.pop(k)) for k in list(models) if k.startswith("_lcb_")}  # type: ignore[arg-type]
         rows = ds.rows_for(f.test)
         preds = predict_rows(models, ds, rows)
+        if use_deep:
+            dm, dic, dlcb, drows, dsc = _deep_fold(ds, pos, f.train, f.test, cfg, deep_prev)
+            deep_prev = dm
+            ics["deep"], lcbs["deep"] = dic, dlcb
+            p = np.full(len(ds.t_pos), np.nan)
+            p[drows] = dsc
+            preds["deep"] = cs_standardize(p[rows], ds.t_pos[rows])
         weights = _ensemble_weights(ics, cfg.model.ensemble)
         combo = sum(weights[k] * np.nan_to_num(preds[k]) for k in preds)
         ens[rows] = cs_standardize(combo, ds.t_pos[rows])

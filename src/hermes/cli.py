@@ -154,7 +154,7 @@ def live_run(
         broker = OKXBroker(
             client, cfg.execution, syms, cfg.risk.exchange_leverage, cfg.costs.maker_fee, cfg.costs.taker_fee
         )
-    engine = LiveEngine(cfg, bundle, feed, broker, store, mode)
+    engine = LiveEngine(cfg, bundle, feed, broker, store, mode, model_dir=model)
 
     async def _main() -> None:
         if once:

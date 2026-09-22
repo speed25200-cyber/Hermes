@@ -21,6 +21,7 @@ import asyncio
 import logging
 import time
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -67,6 +68,7 @@ class LiveEngine:
         broker: Broker,
         store: StateStore,
         mode: str,
+        model_dir: str | Path | None = None,
     ):
         if mode not in ("paper", "demo", "live"):
             raise ValueError(mode)
@@ -85,6 +87,33 @@ class LiveEngine:
         self.overlay = RiskOverlay(cfg.risk, state)
         self.candidates: list[str] = list(store.get("candidates", []) or [])  # type: ignore[arg-type]
         self.candidates_day = store.get("candidates_day")
+        self.model_dir = Path(model_dir) if model_dir is not None else None
+        self._model_mtime = self._bundle_mtime()
+
+    def _bundle_mtime(self) -> float:
+        if self.model_dir is None or not (self.model_dir / "bundle.json").exists():
+            return 0.0
+        return (self.model_dir / "bundle.json").stat().st_mtime
+
+    def maybe_reload_bundle(self) -> bool:
+        """Hot-swap the champion when the retraining job installed a new one (hashes are verified)."""
+        m = self._bundle_mtime()
+        if not m or m == self._model_mtime or self.model_dir is None:
+            return False
+        try:
+            new = ModelBundle.load(self.model_dir)
+        except (OSError, ValueError) as exc:
+            self.store.event("ERROR", f"new bundle rejected: {exc}")
+            return False
+        if self.mode == "live" and not new.promoted and not self.cfg.live.allow_unpromoted:
+            self.store.event("WARNING", "new bundle not promoted: kept the current one for live trading")
+            self._model_mtime = m
+            return False
+        self.bundle, self._model_mtime = new, m
+        self.store.event(
+            "INFO", f"bundle reloaded ({new.meta.get('config_hash')}, trained to {new.meta.get('train_end')})"
+        )
+        return True
 
     # -- helpers --------------------------------------------------------------------------------------------
     def _save_risk_state(self) -> None:
@@ -207,6 +236,7 @@ class LiveEngine:
     # -- one cycle --------------------------------------------------------------------------------------------
     async def step(self) -> Decision:
         assert self.feed is not None
+        self.maybe_reload_bundle()
         positions = await self.broker.positions()
         symbols = await self.refresh_candidates(list(positions))
         panel = await self.feed.update(symbols)

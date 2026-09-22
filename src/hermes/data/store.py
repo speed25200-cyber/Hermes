@@ -12,7 +12,7 @@ import pandas as pd
 
 from hermes.config import DataConfig
 from hermes.data.binance_archive import BinanceArchive
-from hermes.data.panel import Panel
+from hermes.data.panel import Panel, clean_panel
 from hermes.data.synthetic import make_synthetic_panel
 from hermes.data.universe import candidates_from_daily, is_excluded
 
@@ -67,7 +67,7 @@ def load_panel(cfg: DataConfig, seed: int = 0) -> Panel:
     ).hexdigest()[:10]
     directory = Path(cfg.cache_dir) / "panels" / f"{cfg.bar}_{key}"
     if (directory / "_panel.json").exists():
-        return Panel.load(directory)
+        return clean_panel(Panel.load(directory))
     panel = archive.build_panel(symbols, cfg.bar, start, end, cfg.include_premium, cfg.include_metrics)
     panel.save(directory)
-    return panel
+    return clean_panel(panel)

@@ -176,3 +176,30 @@ def resample_panel(panel: Panel, bar: str) -> Panel:
         agg = getattr(r, how)(min_count=1) if how in ("sum",) else getattr(r, how)()
         out[name] = agg
     return Panel(out, bar=bar, meta=dict(panel.meta))
+
+
+def clean_panel(panel: Panel, max_gap: int = 3) -> Panel:
+    """Fill short *interior* gaps (exchange maintenance, missing archive rows) with a flat bar.
+
+    A missing bar inside a contract's life would otherwise look like a delisting and force an exit and a
+    costly re-entry one bar later. Prices are carried forward for at most ``max_gap`` bars, activity fields
+    are set to zero; leading/trailing gaps (before listing, after delisting) are left untouched.
+    """
+    close = panel["close"]
+    interior = close.ffill().notna() & close.bfill().notna()
+    filled_close = close.ffill(limit=max_gap)
+    fill = close.isna() & interior & filled_close.notna()
+    if not fill.to_numpy().any():
+        return panel
+    fields = dict(panel.fields)
+    fields["close"] = close.where(~fill, filled_close)
+    for name in ("open", "high", "low"):
+        fields[name] = panel[name].where(~fill, fields["close"])
+    for name in ("volume", "quote_volume", "trades", "taker_buy_quote"):
+        fields[name] = panel[name].where(~fill, 0.0)
+    for name in ("premium", "oi_value", "ls_top", "ls_account", "taker_ls_ratio"):
+        if name in fields:
+            fields[name] = panel[name].where(~fill, panel[name].ffill(limit=max_gap))
+    out = Panel(fields, bar=panel.bar, meta=dict(panel.meta))
+    out.meta["filled_bars"] = int(fill.to_numpy().sum())
+    return out
