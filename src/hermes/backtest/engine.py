@@ -70,6 +70,64 @@ class BacktestResult:
         return yearly_breakdown(self.returns, periods_per_year)
 
 
+@dataclass
+class _Context:
+    columns: pd.Index
+    r: np.ndarray
+    fund: np.ndarray
+    member: np.ndarray
+    ivol: np.ndarray
+    beta: np.ndarray
+    mkt_var: np.ndarray
+    costs: CostModel
+    day_pos: np.ndarray
+    daily_np: np.ndarray
+    refs: tuple[object, ...] = ()  # keeps the keyed objects alive so their ids cannot be reused
+
+
+# Heavy per-panel preparation, memoised: the evaluation runs dozens of backtests (null, grid, stress) on the
+# same panel, and forked workers inherit the parent's cache instead of recomputing it.
+_CONTEXTS: dict[tuple[object, ...], _Context] = {}
+
+
+def _context(
+    panel: Panel, mask: pd.DataFrame, aux: dict[str, pd.DataFrame], cfg: HermesConfig, t0: int, t1: int
+) -> _Context:
+    key = (id(panel), id(mask), id(aux), t0, t1, cfg.costs, cfg.portfolio.cov_halflife, cfg.bars_per_day)
+    if key in _CONTEXTS:
+        return _CONTEXTS[key]
+    bpd = cfg.bars_per_day
+    lo = max(0, t0 - cfg.portfolio.cov_halflife * 2)
+    # Only contracts that are universe members at some point of the simulated window can ever be held.
+    cols = mask.columns[mask.iloc[lo:t1].to_numpy().any(axis=0)]
+    close = panel["close"][cols]
+    r = (close / close.shift(1) - 1.0).to_numpy()
+    fund = panel["funding_rate"][cols].fillna(0.0).to_numpy() if "funding_rate" in panel else np.zeros_like(r)
+    member = mask[cols].to_numpy() & close.notna().to_numpy()
+    costs = CostModel.from_panel(
+        cfg.costs, panel["high"][cols], panel["low"][cols], close, panel["quote_volume"][cols], aux["vol"][cols], bpd
+    )
+    daily_close = close.resample("1D").last()
+    daily_ret = daily_close / daily_close.shift(1) - 1.0
+    ctx = _Context(
+        columns=cols,
+        r=r,
+        fund=fund,
+        member=member,
+        ivol=aux["ivol"][cols].to_numpy(),
+        beta=aux["beta"][cols].to_numpy(),
+        mkt_var=market_variance(aux["mkt"]["mkt"], cfg.portfolio.cov_halflife // 4).to_numpy(),
+        costs=costs,
+        day_pos=daily_ret.index.searchsorted(panel.index.floor("D")),
+        daily_np=daily_ret.to_numpy(),
+        refs=(panel, mask, aux),
+    )
+    if len(_CONTEXTS) > 4:
+        _CONTEXTS.clear()
+    _CONTEXTS[key] = ctx
+    return ctx
+
+
 def run_backtest(
     panel: Panel,
     mask: pd.DataFrame,
@@ -89,22 +147,15 @@ def run_backtest(
     t0 = 0 if start is None else int(index.searchsorted(start))
     t1 = len(index) if end is None else int(index.searchsorted(end, side="right"))
 
-    close = panel["close"]
-    r = (close / close.shift(1) - 1.0).to_numpy()
-    fund = panel["funding_rate"].fillna(0.0).to_numpy() if "funding_rate" in panel else np.zeros_like(r)
-    member = mask.to_numpy() & close.notna().to_numpy()
-    z = cs_zscore(signal.score, mask).to_numpy()
-    ivol = aux["ivol"].to_numpy()
-    beta = aux["beta"].to_numpy()
-    mkt_var = market_variance(aux["mkt"]["mkt"], pc.cov_halflife // 4).to_numpy()
+    ctx = _context(panel, mask, aux, cfg, t0, t1)
+    cols = ctx.columns
+    close = panel["close"][cols]
+    r, fund, member, ivol, beta = ctx.r, ctx.fund, ctx.member, ctx.ivol, ctx.beta
+    mkt_var, costs, day_pos, daily_np = ctx.mkt_var, ctx.costs, ctx.day_pos, ctx.daily_np
+    z = cs_zscore(signal.score[cols], mask[cols]).to_numpy()
     ic = signal.ic_est.reindex(index).fillna(0.0).to_numpy()
     malpha = signal.market_alpha.reindex(index).fillna(0.0).to_numpy() if signal.market_alpha is not None else None
     cscale = signal.cost_scale.reindex(index).fillna(1.0).to_numpy() if signal.cost_scale is not None else None
-    costs = CostModel.from_panel(cfg.costs, panel["high"], panel["low"], close, panel["quote_volume"], aux["vol"], bpd)
-    daily_close = close.resample("1D").last()
-    daily_ret = daily_close / daily_close.shift(1) - 1.0
-    day_pos = daily_ret.index.searchsorted(index.floor("D"))  # index of the current day in daily_ret
-    daily_np = daily_ret.to_numpy()
 
     constructor = PortfolioConstructor(pc, bpy, ic_ref if ic_ref is not None else pc.ic_ref)
     overlay = RiskOverlay(cfg.risk)
@@ -177,7 +228,7 @@ def run_backtest(
                     beta=beta[t, idx],
                     mkt_var=float(mkt_var[t]) if np.isfinite(mkt_var[t]) else 1e-4,
                     cost_rate=costs.linear_rate(t, dollars_typ)[idx] * (cscale[t] if cscale is not None else 1.0),
-                    adv=costs.adv.iloc[t].to_numpy()[idx],
+                    adv=costs.adv_at(t)[idx],
                     w0=w[idx],
                     ic=float(ic[t]),
                     market_alpha=float(malpha[t]) if malpha is not None else 0.0,

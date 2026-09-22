@@ -116,6 +116,7 @@ def run_research(
     workers: int | None = None,
     ledger: str | Path | None = "reports/trials.jsonl",
     save_model: bool = True,
+    resume: bool = True,
 ) -> tuple[Evaluation, WalkForwardResult, Dataset]:
     t0 = time.time()
     out = Path(out_dir)
@@ -127,20 +128,34 @@ def run_research(
     panel = panel if panel is not None else load_panel(cfg.data, cfg.seed)
     log.info("panel %s from %s to %s", panel.shape, panel.index[0], panel.index[-1])
     ds = build_dataset(panel, cfg)
-    wf = walk_forward_train(ds, cfg)
+    wf_dir = out / "walkforward"
+    marker = wf_dir / "config_hash"
+    if resume and marker.exists() and marker.read_text() == chash:
+        log.info("resuming from the saved walk-forward in %s", wf_dir)
+        wf = WalkForwardResult.load(wf_dir)
+    else:
+        wf = walk_forward_train(ds, cfg)
+        wf.save(wf_dir)
+        marker.write_text(chash)
+    bundle = train_final(ds, cfg, False, {}) if save_model else None
+    # Training arrays are no longer needed: free them before the forking evaluation.
+    ds.release_training_arrays()
     ev, bt = evaluate(ds, wf, cfg, n_null=n_null, workers=workers)
     elapsed = time.time() - t0
     write_report(out, cfg, ds, wf, ev, bt, chash, elapsed)
-    if save_model:
+    if bundle is not None:
         from hermes.portfolio.alpha import signal_persistence
 
         H = cfg.portfolio.holding_horizon
         persist = signal_persistence(wf.score, H, cfg.bars_per_day * 30).dropna()
-        extra = {
-            "cost_scale": float(persist.iloc[-1]) if len(persist) else 1.0,
-            "market_promoted": bool(ev.tests.get("market_promoted", 0.0)),
-        }
-        bundle = train_final(ds, cfg, ev.promoted, {k: v for k, v in ev.tests.items()}, extra)
+        bundle.meta.update(
+            {
+                "promoted": ev.promoted,
+                "evaluation": dict(ev.tests.items()),
+                "cost_scale": float(persist.iloc[-1]) if len(persist) else 1.0,
+                "market_promoted": bool(ev.tests.get("market_promoted", 0.0)),
+            }
+        )
         bundle.save(out / "model")
     if ledger is not None:
         Path(ledger).parent.mkdir(parents=True, exist_ok=True)

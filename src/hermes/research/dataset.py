@@ -44,6 +44,18 @@ class Dataset:
             sel &= self.t_pos % stride == 0
         return np.nonzero(sel)[0]
 
+    def release_training_arrays(self) -> None:
+        """Free what only training needs before the (forking, memory-hungry) evaluation phase."""
+        self.X = np.empty((0, self.X.shape[1]), dtype=np.float32)
+        self.targets.total.clear()
+        self.feats.aux.pop("r1", None)
+        keep = ("open", "high", "low", "close", "quote_volume", "funding_rate")
+        fields = {k: v for k, v in self.panel.fields.items() if k in keep}
+        # Fields the backtest never reads are aliased (no copy) to satisfy the panel's core-field contract.
+        for k in ("volume", "trades", "taker_buy_quote"):
+            fields[k] = fields["quote_volume"]
+        self.panel = Panel(fields, bar=self.panel.bar, meta=dict(self.panel.meta))
+
     def to_frame(self, values: np.ndarray, rows: np.ndarray | None = None) -> pd.DataFrame:
         """Scatter long-format values back into a (time x symbol) frame."""
         out = np.full(self.mask.shape, np.nan, dtype=np.float64)

@@ -135,9 +135,37 @@ def _run_parallel(
     if workers <= 1 or len(jobs) <= 1:
         return [_bt_job(j) for j in jobs]
     import multiprocessing as mp
+    from concurrent.futures.process import BrokenProcessPool
 
-    with ProcessPoolExecutor(workers, mp_context=mp.get_context("fork")) as ex:
-        return list(ex.map(_bt_job, jobs))
+    done: dict[int, tuple[str, pd.Series, dict[str, float]]] = {}
+    try:
+        with ProcessPoolExecutor(workers, mp_context=mp.get_context("fork")) as ex:
+            futures = {ex.submit(_bt_job, j): i for i, j in enumerate(jobs)}
+            for fut, i in futures.items():
+                try:
+                    done[i] = fut.result()
+                except BrokenProcessPool:
+                    break
+    except BrokenProcessPool:
+        pass
+    missing = [i for i in range(len(jobs)) if i not in done]
+    if missing:
+        # A worker died (typically out of memory): finish the remaining jobs one at a time in this process.
+        log.warning("process pool broken, running %d remaining backtests sequentially", len(missing))
+        for i in missing:
+            done[i] = _bt_job(jobs[i])
+    return [done[i] for i in range(len(jobs))]
+
+
+def _workers_for_memory(per_worker_gb: float = 2.5) -> int:
+    """Parallel backtests that fit in the available memory (Linux; falls back to 2)."""
+    try:
+        with open("/proc/meminfo") as fh:
+            info = {line.split(":")[0]: float(line.split()[1]) for line in fh}
+        avail_gb = info.get("MemAvailable", 0.0) / 1e6
+    except OSError:
+        return 2
+    return max(1, int(avail_gb // per_worker_gb))
 
 
 @dataclass
@@ -175,7 +203,7 @@ def evaluate(
     v = cfg.validation
     bpy = cfg.bars_per_year
     start = wf.oof_start
-    workers = workers or max(1, (os.cpu_count() or 2) - 0)
+    workers = workers or max(1, min(os.cpu_count() or 2, _workers_for_memory()))
     n_null = n_null if n_null is not None else min(v.null_permutations, 40)
 
     # --- forecast quality -------------------------------------------------------------------------------

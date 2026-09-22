@@ -16,14 +16,25 @@ import pandas as pd
 
 
 def rowwise_corr(a: pd.DataFrame, b: pd.DataFrame, min_names: int = 5) -> pd.Series:
-    x = a.where(b.notna())
-    y = b.where(a.notna())
-    xm = x.sub(x.mean(axis=1), axis=0)
-    ym = y.sub(y.mean(axis=1), axis=0)
-    num = (xm * ym).sum(axis=1)
-    den = np.sqrt((xm**2).sum(axis=1) * (ym**2).sum(axis=1))
-    ic = num / den.replace(0, np.nan)
-    return ic.where(x.notna().sum(axis=1) >= min_names)
+    """Per-row Pearson correlation over the columns where both frames are finite (few temporaries)."""
+    b = b.reindex(index=a.index, columns=a.columns)
+    A = a.to_numpy(dtype=np.float64, copy=True)
+    B = b.to_numpy(dtype=np.float64, copy=True)
+    m = np.isfinite(A) & np.isfinite(B)
+    A[~m] = 0.0
+    B[~m] = 0.0
+    n = m.sum(axis=1)
+    with np.errstate(invalid="ignore", divide="ignore"):
+        ma = A.sum(axis=1) / n
+        mb = B.sum(axis=1) / n
+        A -= ma[:, None]
+        B -= mb[:, None]
+        A[~m] = 0.0
+        B[~m] = 0.0
+        num = (A * B).sum(axis=1)
+        den = np.sqrt((A * A).sum(axis=1) * (B * B).sum(axis=1))
+        ic = np.where((den > 0) & (n >= min_names), num / den, np.nan)
+    return pd.Series(ic, index=a.index)
 
 
 def cs_zscore(df: pd.DataFrame, mask: pd.DataFrame | None = None, clip: float = 3.0) -> pd.DataFrame:

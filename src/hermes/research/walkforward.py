@@ -7,9 +7,11 @@ during that fold's test period.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -37,6 +39,37 @@ class WalkForwardResult:
     @property
     def oof_start(self) -> pd.Timestamp:
         return self.score.dropna(how="all").index[0]
+
+    def save(self, directory: str | Path) -> None:
+        d = Path(directory)
+        d.mkdir(parents=True, exist_ok=True)
+        self.score.astype("float32").to_parquet(d / "score.parquet")
+        for k, v in self.model_scores.items():
+            v.astype("float32").to_parquet(d / f"model_{k}.parquet")
+        series = {"prior_ic": self.prior_ic}
+        if self.market_score is not None and self.market_prior_ic is not None:
+            series.update({"market_score": self.market_score, "market_prior_ic": self.market_prior_ic})
+        pd.DataFrame(series).to_parquet(d / "series.parquet")
+        if self.feature_importance is not None:
+            self.feature_importance.to_frame("gain").to_parquet(d / "importance.parquet")
+        (d / "folds.json").write_text(json.dumps(self.folds, indent=1))
+
+    @classmethod
+    def load(cls, directory: str | Path) -> WalkForwardResult:
+        d = Path(directory)
+        score = pd.read_parquet(d / "score.parquet").astype("float64")
+        models = {p.stem[6:]: pd.read_parquet(p).astype("float64") for p in sorted(d.glob("model_*.parquet"))}
+        ser = pd.read_parquet(d / "series.parquet")
+        imp = pd.read_parquet(d / "importance.parquet")["gain"] if (d / "importance.parquet").exists() else None
+        return cls(
+            score=score,
+            model_scores=models,
+            prior_ic=ser["prior_ic"],
+            folds=json.loads((d / "folds.json").read_text()),
+            feature_importance=imp,
+            market_score=ser.get("market_score"),
+            market_prior_ic=ser.get("market_prior_ic"),
+        )
 
 
 def first_valid_bar(ds: Dataset, min_members: int = 8) -> int:
