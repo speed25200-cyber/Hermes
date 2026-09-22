@@ -1,6 +1,0 @@
-{
-  "name": "hermes-banc",
-  "private": true,
-  "description": "Les bancs d'essai. Ce manifeste existe pour une seule raison : sans lui, un « npm install » lance dans ce dossier remonte jusqu'a la racine et inscrit le pilote de navigateur dans les dependances DU MOTEUR, qui part ensuite sur un VPS de deux gigaoctets. C'est arrive une fois. Les outils d'essai vivent ici et n'en sortent pas ; ce dossier est exclu du rsync de deploiement.",
-  "devDependencies": { "playwright-core": "^1.62.1" }
-}

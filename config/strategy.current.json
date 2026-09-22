@@ -1,1 +1,0 @@
-{"bar":"5m","maxOpen":10,"tradeMarginUSDT":20,"leverage":20,"atrVolMinPct":0.0025,"tp":[0.006,0.010],"sl":[0.0035,0.0050],"be":[0.004,0.006],"trail":[0.0022,0.0035],"st_mult":[1.6,2.4],"atrLen":[7,12],"sqz_window":[2,4]}
