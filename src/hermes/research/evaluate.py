@@ -19,7 +19,7 @@ import pandas as pd
 
 from hermes.backtest.engine import BacktestResult, SignalBundle, run_backtest
 from hermes.config import HermesConfig
-from hermes.portfolio.alpha import cs_zscore, estimate_ic, rowwise_corr, signal_persistence
+from hermes.portfolio.alpha import cs_zscore, estimate_ic, market_alpha_series, rowwise_corr, signal_persistence
 from hermes.research.dataset import Dataset
 from hermes.research.walkforward import WalkForwardResult
 from hermes.validation.metrics import cross_sectional_ic, ic_summary
@@ -62,22 +62,10 @@ def make_signal(
 
 
 def market_alpha(market_score: pd.Series, market_prior: pd.Series, ds: Dataset, cfg: HermesConfig) -> pd.Series:
-    """Expected market return over the horizon from the market-timing score (causal IC estimate)."""
     H, _ = holding_target(ds, cfg)
-    y = ds.targets.market[H]
-    known_y = y.shift(H)
-    known_s = market_score.shift(H)
-    win = cfg.bars_per_day * 90
-    rc = known_s.rolling(win, min_periods=win // 3).corr(known_y)
-    n_eff = known_s.notna().rolling(win, min_periods=1).sum() / H
-    k0 = 30.0
-    ic = ((n_eff * rc.fillna(0) + k0 * market_prior.fillna(0)) / (n_eff + k0)).clip(0, 0.2)
-    z = (market_score - market_score.rolling(win, min_periods=24).mean()) / market_score.rolling(
-        win, min_periods=24
-    ).std()
-    mkt = ds.feats.aux["mkt"]["mkt"]
-    mvol = np.sqrt((mkt**2).ewm(halflife=72, adjust=False).mean())
-    return (ic * z.clip(-3, 3) * mvol * np.sqrt(H)).fillna(0.0)
+    return market_alpha_series(
+        market_score, ds.targets.market[H], ds.feats.aux["mkt"]["mkt"], market_prior, H, cfg.bars_per_day
+    )
 
 
 def block_permute(score: pd.DataFrame, mask: pd.DataFrame, seed: int, block_bars: int = 168) -> pd.DataFrame:
@@ -132,7 +120,10 @@ def _bt_job(args: tuple[str, int | dict[str, object]]) -> tuple[str, pd.Series, 
                 }
             )
         score = wf.score.shift(1) if kind == "lag1" else wf.score
-        sig = make_signal(score, ds, wf.prior_ic, c)
+        if kind == "market":
+            sig = make_signal(score, ds, wf.prior_ic, c, wf.market_score, wf.market_prior_ic)
+        else:
+            sig = make_signal(score, ds, wf.prior_ic, c)
     bt = run_backtest(ds.panel, ds.mask, ds.feats.aux, sig, c, start=start)  # type: ignore[arg-type]
     daily = (1 + bt.returns).groupby(bt.returns.index.floor("D")).prod() - 1
     return f"{kind}:{param}", daily, bt.summary(c.bars_per_year)
@@ -205,7 +196,19 @@ def evaluate(
         if ok.sum() > 100:
             c = float(np.corrcoef(ms[ok], my[ok])[0, 1])
             n_ind = ok.sum() / H
-            ic["market_timing"] = {"corr": round(c, 4), "t": round(c * np.sqrt(max(n_ind - 2, 1)), 2)}
+            t_stat = c * np.sqrt(max(n_ind - 2, 1))
+            yearly_c = (
+                pd.concat([ms[ok], my[ok]], axis=1)
+                .groupby(ms[ok].index.year)
+                .apply(lambda g: g.iloc[:, 0].corr(g.iloc[:, 1]))
+            )
+            pos_years = float((yearly_c > 0).mean()) if len(yearly_c) else 0.0
+            ic["market_timing"] = {
+                "corr": round(c, 4),
+                "t": round(float(t_stat), 2),
+                "by_year": {int(k): round(float(v_), 4) for k, v_ in yearly_c.items()},
+                "gate": bool(t_stat >= 2.5 and pos_years >= 0.6),
+            }
 
     # --- main backtest ------------------------------------------------------------------------------------
     sig = make_signal(wf.score, ds, wf.prior_ic, cfg)
@@ -220,6 +223,8 @@ def evaluate(
     jobs: list[tuple[str, int | dict[str, object]]] = [("null", s) for s in range(n_null)]
     jobs += [("grid", g) for g in grid]
     jobs += [("costx2", {}), ("lag1", {})]
+    if wf.market_score is not None:
+        jobs.append(("market", {"beta_neutral": True}))
     results = _run_parallel(jobs, workers)
     null_sr = [sharpe(d.to_numpy(), 365.0) for k, d, _ in results if k.startswith("null")]
     grid_rows, grid_daily = [], {}
@@ -236,6 +241,8 @@ def evaluate(
                 }
             )
             grid_daily[k[5:]] = d
+        elif k.startswith("market"):
+            stress["sharpe_with_market"] = float(s.get("sharpe_daily", np.nan))
         elif k.startswith("costx2"):
             stress["sharpe_costx2"] = float(s.get("sharpe_daily", np.nan))
         elif k.startswith("lag1"):
@@ -307,6 +314,12 @@ def evaluate(
         },
     }
     promoted = all(g["pass"] for g in gate.values())
+    mt = ic.get("market_timing")
+    # The market model may steer net exposure only if it passes its own out-of-sample test AND improves the
+    # promoted cross-sectional book once costs are paid.
+    tests["market_promoted"] = float(
+        bool(isinstance(mt, dict) and mt.get("gate") and stress.get("sharpe_with_market", -np.inf) > sr_d)
+    )
     ev = Evaluation(
         ic=ic,
         summary=summary,

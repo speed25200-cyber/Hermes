@@ -161,6 +161,7 @@ class PortfolioConfig(_Strict):
     cov_min_periods: int = Field(24 * 7, ge=24)
     min_trade_weight: float = Field(0.002, ge=0)
     ic_ref: float = Field(0.03, gt=0, description="IC at which the book reaches its volatility target")
+    min_position_usdt: float = Field(5.0, ge=0, description="Positions smaller than this are not held")
 
 
 class RiskConfig(_Strict):

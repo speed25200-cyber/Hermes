@@ -136,7 +136,10 @@ def run_research(
 
         H = cfg.portfolio.holding_horizon
         persist = signal_persistence(wf.score, H, cfg.bars_per_day * 30).dropna()
-        extra = {"cost_scale": float(persist.iloc[-1]) if len(persist) else 1.0}
+        extra = {
+            "cost_scale": float(persist.iloc[-1]) if len(persist) else 1.0,
+            "market_promoted": bool(ev.tests.get("market_promoted", 0.0)),
+        }
         bundle = train_final(ds, cfg, ev.promoted, {k: v for k, v in ev.tests.items()}, extra)
         bundle.save(out / "model")
     if ledger is not None:

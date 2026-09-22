@@ -121,7 +121,7 @@ def render_markdown(meta: dict, ev: Evaluation, wf: WalkForwardResult) -> str:
         "",
         f"- Source : `{d['source']}`, barres `{d['bar']}`, du {d['start'][:10]} au {d['end'][:10]}.",
         f"- {d['symbols']} contrats ayant figuré dans l'univers point-in-time (≈ {d['avg_universe']:.0f} "
-        f"membres en moyenne), {d['rows']:,} échantillons × {d['features']} variables.".replace(",", " "),
+        f"membres en moyenne), {d['rows']:_} échantillons × {d['features']} variables.".replace("_", " "),
         f"- Hors échantillon à partir du {d['oos_start'][:10]}.",
         "",
         "## Qualité de prédiction (IC transversal de Spearman, cible résiduelle nette du funding)",
@@ -150,10 +150,13 @@ def render_markdown(meta: dict, ev: Evaluation, wf: WalkForwardResult) -> str:
         ]
     if "market_timing" in ev.ic:
         mt = ev.ic["market_timing"]
+        verdict_mt = "franchie" if mt.get("gate") else "non franchie"
         L += [
             "",
-            f"Modèle de direction du marché : corrélation {_num(mt['corr'], 4)} (t ≈ {_num(mt['t'], 1)}). "
-            "Il ne pilote l'exposition nette que s'il franchit sa propre validation.",
+            f"Modèle de direction du marché : corrélation {_num(mt['corr'], 4)} (t ≈ {_num(mt['t'], 1)}), "
+            f"par année {mt.get('by_year', {})} ; porte propre {verdict_mt}. Sharpe du livre avec exposition "
+            f"nette pilotée : {_num(t.get('sharpe_with_market'))} (utilisé en production : "
+            f"{'oui' if t.get('market_promoted') else 'non'}).",
         ]
     L += [
         "",

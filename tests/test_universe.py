@@ -43,3 +43,14 @@ def test_clean_panel_fills_only_short_interior_gaps(small_panel):
     assert q["close"].iloc[100:102, 0].notna().all()
     assert (q["quote_volume"].iloc[100:102, 0] == 0).all()
     assert q["close"].iloc[200:203, 1].notna().all() and q["close"].iloc[203:210, 1].isna().all()
+
+
+def test_panel_save_load_roundtrip(small_panel, tmp_path):
+    from hermes.data.panel import Panel
+
+    p = small_panel.subset(["BTCUSDT", "ETHUSDT"]).iloc(slice(0, 500))
+    p.save(tmp_path / "p")
+    q = Panel.load(tmp_path / "p")
+    assert q.bar == "1h" and q.bar_delta.total_seconds() == 3600
+    np.testing.assert_allclose(q["close"].to_numpy(), p["close"].to_numpy())
+    assert q.index.equals(p.index)

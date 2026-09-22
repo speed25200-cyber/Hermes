@@ -190,6 +190,19 @@ def live_status(state: Path = typer.Option(Path("state/paper"), help="Dossier d'
     typer.echo(p.read_text())
 
 
+@live_app.command("dashboard")
+def live_dashboard(
+    state: Path = typer.Option(Path("state/paper"), help="Dossier d'état du mode"),
+    host: str = typer.Option("127.0.0.1", help="Adresse d'écoute (hors localhost : HERMES_DASHBOARD_TOKEN requis)"),
+    port: int = typer.Option(8899),
+) -> None:
+    """Tableau de bord en lecture seule (équité, positions, risque, événements)."""
+    from hermes.live.dashboard import serve
+
+    typer.echo(f"tableau de bord sur http://{host}:{port}/")
+    serve(state, host, port)
+
+
 @live_app.command("kill")
 def live_kill(state_root: Path = typer.Option(Path("state"))) -> None:
     """Arrêt d'urgence : le moteur aplatit le portefeuille au prochain cycle et s'arrête de trader."""

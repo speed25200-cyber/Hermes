@@ -66,3 +66,32 @@ def signal_persistence(score: pd.DataFrame, horizon: int, window_bars: int, floo
     rho = rowwise_corr(score, score.shift(horizon))
     rho_s = rho.rolling(window_bars, min_periods=max(10, window_bars // 10)).mean()
     return (1.0 - rho_s).clip(lower=floor, upper=1.0).fillna(1.0)
+
+
+def market_alpha_series(
+    market_score: pd.Series,
+    market_target: pd.Series,
+    mkt_return: pd.Series,
+    prior_ic: float | pd.Series,
+    horizon: int,
+    bars_per_day: int,
+    prior_weight_obs: float = 30.0,
+) -> pd.Series:
+    """Expected market return over the horizon from a market-timing score (Grinold, causal IC).
+
+    ``market_target[t]`` is the normalised market return over ``(t, t+h]``; it is only used once realised
+    (shifted by the horizon). The score is z-scored on a trailing 90-day window.
+    """
+    H = horizon
+    win = bars_per_day * 90
+    known_y = market_target.shift(H)
+    known_s = market_score.shift(H)
+    rc = known_s.rolling(win, min_periods=win // 3).corr(known_y)
+    n_eff = known_s.notna().astype(float).rolling(win, min_periods=1).sum() / H
+    prior = prior_ic if isinstance(prior_ic, pd.Series) else pd.Series(prior_ic, index=market_score.index)
+    ic = ((n_eff * rc.fillna(0) + prior_weight_obs * prior.fillna(0)) / (n_eff + prior_weight_obs)).clip(0, 0.2)
+    mu = market_score.rolling(win, min_periods=24).mean()
+    sd = market_score.rolling(win, min_periods=24).std()
+    z = ((market_score - mu) / sd).clip(-3, 3)
+    mvol = np.sqrt((mkt_return**2).ewm(halflife=72, adjust=False).mean())
+    return (ic * z * mvol * np.sqrt(H)).fillna(0.0)

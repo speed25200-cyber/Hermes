@@ -13,6 +13,7 @@ Conventions, relied upon by every other module:
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -108,12 +109,13 @@ class Panel:
         directory.mkdir(parents=True, exist_ok=True)
         for name, df in self.fields.items():
             df.astype("float64").to_parquet(directory / f"{name}.parquet")
-        pd.Series({"bar": self.bar}).to_json(directory / "_panel.json")
+        (directory / "_panel.json").write_text(json.dumps({"bar": self.bar}))
 
     @classmethod
     def load(cls, directory: str | Path) -> Panel:
         directory = Path(directory)
-        bar = pd.read_json(directory / "_panel.json", typ="series")["bar"]
+        # Plain JSON: pandas.read_json would parse "1h" as a timestamp.
+        bar = json.loads((directory / "_panel.json").read_text())["bar"]
         fields = {p.stem: pd.read_parquet(p) for p in sorted(directory.glob("*.parquet"))}
         for df in fields.values():
             if df.index.tz is None:

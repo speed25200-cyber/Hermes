@@ -36,7 +36,7 @@ from hermes.labels.targets import build_targets
 from hermes.live.alerts import alert
 from hermes.live.state import StateStore
 from hermes.models.bundle import ModelBundle
-from hermes.portfolio.alpha import estimate_ic, rowwise_corr, signal_persistence
+from hermes.portfolio.alpha import estimate_ic, market_alpha_series, rowwise_corr, signal_persistence
 from hermes.portfolio.construct import BookInputs, PortfolioConstructor
 from hermes.portfolio.costs import CostModel
 from hermes.portfolio.covariance import EwmaCovariance, market_variance
@@ -161,6 +161,10 @@ class LiveEngine:
         scores = pd.Series(self.bundle.score(X, np.zeros(len(X), dtype=np.int64)), index=members, dtype=float)
         d.scores = {k: round(float(v), 4) for k, v in scores.items() if np.isfinite(v)}
         self.store.add_scores(ts, scores)
+        use_market = bool(self.bundle.meta.get("market_promoted")) and self.bundle.market is not None
+        if use_market:
+            x = np.array([float(feats.market[k].iloc[t]) for k in self.bundle.market_feature_names])
+            self.store.add_scores(ts, pd.Series({"__MKT__": self.bundle.market_score(x)}))
 
         # Realised IC of the live scores -> causal IC estimate (prior = bundle's validation lower bound).
         H = cfg.portfolio.holding_horizon
@@ -169,7 +173,10 @@ class LiveEngine:
         hist = self.store.score_history(ts - pd.Timedelta(days=120))
         ic_est = self.bundle.prior_ic
         cost_scale = float(self.bundle.meta.get("cost_scale", 1.0) or 1.0)  # type: ignore[arg-type]
+        m_alpha = 0.0
+        mkt_hist = None
         if not hist.empty:
+            mkt_hist = hist["__MKT__"].reindex(panel.index) if "__MKT__" in hist else None
             hist = hist.reindex(index=panel.index, columns=panel.symbols)
             ric = rowwise_corr(hist, tgt)
             est = estimate_ic(ric, H, self.bundle.prior_ic, halflife_bars=self.bpd * 30)
@@ -178,6 +185,12 @@ class LiveEngine:
                 cost_scale = float(signal_persistence(hist, H, self.bpd * 30).iloc[t])
         d.ic_est = round(ic_est, 5)
         d.risk["cost_scale"] = round(cost_scale, 3)
+        if use_market and mkt_hist is not None and mkt_hist.notna().sum() > 24:
+            ma = market_alpha_series(
+                mkt_hist, targets.market[H], feats.aux["mkt"]["mkt"], self.bundle.market_prior_ic, H, self.bpd
+            )
+            m_alpha = float(ma.iloc[t]) if np.isfinite(ma.iloc[t]) else 0.0
+        d.risk["market_alpha"] = round(m_alpha, 6)
 
         # Book construction on members plus anything still held.
         syms = panel.symbols
@@ -205,6 +218,7 @@ class LiveEngine:
             adv=costs.adv.iloc[t].to_numpy()[idx],
             w0=pos_w[idx],
             ic=ic_est,
+            market_alpha=m_alpha,
             sample_cov=ewma.matrix(idx),
         )
         book = self.constructor.target(inp, equity)
