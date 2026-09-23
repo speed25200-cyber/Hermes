@@ -217,6 +217,8 @@ def render_markdown(meta: dict, ev: Evaluation, wf: WalkForwardResult) -> str:
         f"Sharpe {_num(t.get('sharpe_lag1'))} ; stops exécutés au pire → Sharpe {_num(t.get('sharpe_stop_worst'))}.",
         f"- **Concentration** : sans ses 5 meilleurs jours, Sharpe {_num(t.get('sharpe_ex_top5'))} et rendement "
         f"annualisé {_pct(t.get('cagr_ex_top5'))}.",
+        f"- **Sans stops catastrophe** (diagnostic) : Sharpe {_num(t.get('sharpe_nostop'))}, rendement annualisé "
+        f"{_pct(t.get('cagr_nostop'))}, drawdown max {_pct(t.get('max_drawdown_nostop'))}.",
         "",
     ]
     if ev.halted_at:
