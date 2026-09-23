@@ -152,7 +152,11 @@ def _run_parallel(
     jobs: list[tuple[str, int | dict[str, object]]], workers: int
 ) -> list[tuple[str, pd.Series, dict[str, float]]]:
     if workers <= 1 or len(jobs) <= 1:
-        return [_bt_job(j) for j in jobs]
+        out = []
+        for i, j in enumerate(jobs):
+            out.append(_bt_job(j))
+            log.info("backtest %d/%d done (%s)", i + 1, len(jobs), out[-1][0])
+        return out
     import multiprocessing as mp
     from concurrent.futures.process import BrokenProcessPool
 
@@ -163,6 +167,7 @@ def _run_parallel(
             for fut, i in futures.items():
                 try:
                     done[i] = fut.result()
+                    log.info("backtest %d/%d done (%s)", len(done), len(jobs), done[i][0])
                 except BrokenProcessPool:
                     break
     except BrokenProcessPool:
