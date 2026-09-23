@@ -101,8 +101,18 @@ function renderNav(D) {
 }
 
 /* ---------------------------------------------------------------- KPIs */
-function kpi(label, value, sub, bar) {
-  return `<div class="kpi"><div class="label">${label}</div><div class="v">${value}</div><div class="s">${sub || "&nbsp;"}</div>${bar != null ? `<div class="bar"><i style="width:${Math.max(0, Math.min(100, bar.w * 100)).toFixed(1)}%;background:${bar.c}"></i></div>` : ""}</div>`;
+function spark(vals, color, fill = true) {
+  const v = vals.filter(fin);
+  if (v.length < 3) return "";
+  const lo = Math.min(...v), hi = Math.max(...v), span = hi - lo || 1, n = v.length - 1;
+  const pts = v.map((x, i) => `${(100 * i / n).toFixed(2)},${(22 - 20 * (x - lo) / span).toFixed(2)}`);
+  const id = "g" + Math.random().toString(36).slice(2, 8);
+  return `<svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none" aria-hidden="true">
+    <defs><linearGradient id="${id}" x1="0" x2="0" y1="0" y2="1"><stop offset="0" style="stop-color:${color};stop-opacity:.28"/><stop offset="1" style="stop-color:${color};stop-opacity:0"/></linearGradient></defs>
+    ${fill ? `<path d="M0,24 L${pts.join(" L")} L100,24 Z" style="fill:url(#${id})"/>` : ""}<polyline points="${pts.join(" ")}" style="fill:none;stroke:${color};stroke-width:1.4;vector-effect:non-scaling-stroke"/></svg>`;
+}
+function kpi(label, value, sub, bar, sp) {
+  return `<div class="kpi"><div class="label">${label}</div><div class="v">${value}</div><div class="s">${sub || "&nbsp;"}</div>${bar != null ? `<div class="bar"><i style="width:${Math.max(0, Math.min(100, bar.w * 100)).toFixed(1)}%;background:${bar.c}"></i></div>` : ""}${sp || ""}</div>`;
 }
 function renderKPIs(D) {
   const el = $("#kpis");
@@ -113,10 +123,14 @@ function renderKPIs(D) {
   const gmax = lim.gross_max || strat.gross_max || 2.5;
   const lv = D.longs.reduce((a, p) => a + p.notional, 0), sv = -D.shorts.reduce((a, p) => a + p.notional, 0);
   el.innerHTML = [
-    kpi("Équité", `${usd(st.equity, 0)}<small>USDT</small>`, fin(D.e0) ? `départ ${usd(D.e0, 0)} USDT` : ""),
-    kpi("P&L total", `<span class="${cls(D.pnl)}">${usd(D.pnl, 2, true)}</span>`, fin(D.pnl) && D.e0 ? `<span class="${cls(D.pnl)}">${pct(D.pnl / D.e0, 2, true)}</span> depuis le départ` : ""),
-    kpi("P&L 24 h", `<span class="${cls(D.pnl24)}">${usd(D.pnl24, 2, true)}</span>`, fin(D.pnl24) && D.pnl24base ? `<span class="${cls(D.pnl24)}">${pct(D.pnl24 / D.pnl24base, 2, true)}</span> sur 24 h` : "moins de 24 h d'historique"),
-    kpi("Drawdown", pct(fin(dd) ? -dd : null, 2), `seuils ${pct(lim.drawdown_soft || strat.drawdown_soft, 0)} · ${pct(hard, 0)}`, {w: (dd || 0) / hard, c: (dd || 0) > (lim.drawdown_soft || 0.1) ? css("--crit") : css("--s1")}),
+    kpi("Équité", `${usd(st.equity, 0)}<small>USDT</small>`, fin(D.e0) ? `départ ${usd(D.e0, 0)} USDT` : "", null,
+      spark(D.eq.filter(r => r.t >= Date.now() - 7 * 864e5).map(r => r.eq), css("--s1"))),
+    kpi("P&L total", `<span class="${cls(D.pnl)}">${usd(D.pnl, 2, true)}</span>`, fin(D.pnl) && D.e0 ? `<span class="${cls(D.pnl)}">${pct(D.pnl / D.e0, 2, true)}</span> depuis le départ` : "", null,
+      spark(D.eq.map(r => r.eq), fin(D.pnl) && D.pnl < 0 ? css("--short") : css("--long"))),
+    kpi("P&L 24 h", `<span class="${cls(D.pnl24)}">${usd(D.pnl24, 2, true)}</span>`, fin(D.pnl24) && D.pnl24base ? `<span class="${cls(D.pnl24)}">${pct(D.pnl24 / D.pnl24base, 2, true)}</span> sur 24 h` : "moins de 24 h d'historique", null,
+      spark(D.eq.filter(r => r.t >= Date.now() - 864e5).map(r => r.eq), fin(D.pnl24) && D.pnl24 < 0 ? css("--short") : css("--long"))),
+    kpi("Drawdown", pct(fin(dd) ? -dd : null, 2), `seuils ${pct(lim.drawdown_soft || strat.drawdown_soft, 0)} · ${pct(hard, 0)}`, {w: (dd || 0) / hard, c: (dd || 0) > (lim.drawdown_soft || 0.1) ? css("--crit") : css("--s1")},
+      ),
     kpi("Exposition", `${num(st.gross, 2)}×<small>brute</small>`, `nette ${num(st.net, 2, true)}× · max ${num(gmax, 1)}×`, {w: (st.gross || 0) / gmax, c: css("--s1")}),
     kpi("Positions", `<span class="up">${D.longs.length}▲</span> <span class="down">${D.shorts.length}▼</span>`, D.pos.length ? `${compact(lv)} long · ${compact(sv)} short` : "livre à plat"),
     kpi("IC estimé", num(st.ic_est, 3), fin(rs.ic) ? `recherche ${num(rs.ic, 3)}` : "pilote la taille"),
@@ -370,6 +384,7 @@ function wireTables(root) {
     const id = th.closest("table").id, k = th.dataset.k, cur = S.sort[id];
     S.sort[id] = {k, dir: cur && cur.k === k && cur.dir === "desc" ? "asc" : "desc"}; render();
   });
+  $$(".brow.click", root).forEach(tr => tr.onclick = () => {S.sym = tr.dataset.sym; S.candles = null; S.fills = null; S.view = "terminal"; store.set("view", "terminal"); render(); loadCandles(); window.scrollTo({top: 0, behavior: "smooth"})});
   $$("tr.click", root).forEach(tr => tr.onclick = () => {S.sym = tr.dataset.sym; S.candles = null; S.fills = null; S.view = "terminal"; store.set("view", "terminal"); render(); loadCandles(); window.scrollTo({top: 0, behavior: "smooth"})});
 }
 
@@ -407,7 +422,7 @@ function vTerminal(D) {
   if (!el.dataset.built) {
     el.innerHTML = `<div class="grid">
       <div class="c8" id="t-chart"></div><div class="c4 stick" id="t-pos"></div>
-      <div class="c8"><div class="panel"><div class="ph"><h2>Équité face à ce que la recherche attend</h2><div class="right" id="t-eq-lg"></div></div>
+      <div class="c8"><div class="panel"><div class="ph"><h2>Équité face à ce que la recherche attend</h2><div class="tfs" id="eq-range">${[["1", "24 h"], ["7", "7 j"], ["30", "30 j"], ["0", "Tout"]].map(([k, l]) => `<button data-days="${k}" aria-pressed="${k === "0"}">${l}</button>`).join("")}</div><div class="right" id="t-eq-lg"></div></div>
         <div class="chart-wrap sm"><div class="lw" id="c-eq"></div><div class="chart-note" id="c-eq-note"></div></div></div></div>
       <div class="c4"><div class="panel"><div class="ph"><h2>Composition du livre</h2><span class="sub">en % du capital</span></div><div class="pb" id="t-book"></div></div></div>
       <div class="c7"><div class="panel"><div class="ph"><h2>Dernières exécutions</h2><span class="sub" id="t-fills-sub"></span></div><div class="tw maxh" id="t-fills"></div></div></div>
@@ -422,7 +437,13 @@ function vTerminal(D) {
   const eqs = equitySpec(D);
   $("#t-eq-lg").innerHTML = legendHTML(eqs.legend);
   $("#c-eq-note").textContent = D.eq.length < 2 ? "La courbe apparaît après deux décisions." : "";
-  lineChart("eq", $("#c-eq"), eqs);
+  const eqc = lineChart("eq", $("#c-eq"), eqs);
+  $$("#eq-range button").forEach(b => b.onclick = () => {
+    $$("#eq-range button").forEach(x => x.setAttribute("aria-pressed", x === b));
+    const days = +b.dataset.days, last = D.eq.length ? D.eq.at(-1).t : Date.now();
+    if (!days || !D.eq.length) eqc.chart.timeScale().fitContent();
+    else eqc.chart.timeScale().setVisibleRange({from: utc(Math.max(D.eq[0].t, last - days * 864e5)), to: utc(last)});
+  });
   $("#t-book").innerHTML = bookComposition(D);
   const F = D.fills.slice(0, 60);
   $("#t-fills-sub").textContent = D.fills.length ? `${D.fills.length} dernières chargées` : "";
@@ -488,6 +509,7 @@ function vPositions(D) {
      <div><div class="label">Stops posés</div><div class="v">${stopsN} / ${D.pos.length}</div><div class="x">un stop catastrophe par position</div></div>
      <div><div class="label">Take-profit</div><div class="v muted">aucun</div><div class="x">sorties par rééquilibrage</div></div>
    </div></div></div>
+   <div class="c12"><div class="panel"><div class="ph"><h2>Contribution au P&L latent</h2><span class="sub">par position, en USDT, au prix de marque</span></div>${contribution(D)}</div></div>
    <div class="c12"><div class="panel"><div class="ph"><h2>Toutes les positions ouvertes</h2><span class="sub">Cliquer une ligne l'ouvre dans le graphique.</span></div>
     <div class="tw">${table("t-pos-all", cols, D.pos, {click: true, sort: {k: "notional", dir: "desc"}, empty: `<b>Livre à plat</b>${flatReason(D)}`})}</div>
     <p class="cap" style="padding:12px 16px 0">Le stop est un ordre stop-marché posé côté bourse à ${num(D.strat.stop_sigmas, 0)} volatilités journalières du prix d'ouverture (entre 3 % et 50 %) : un garde-fou contre les krachs, pas une règle de sortie. La stratégie ne pose pas de take-profit : chaque position vit tant que le modèle la classe parmi les meilleures (ou les pires, pour un short) et le livre est rééquilibré toutes les ${D.barMin * (D.strat.rebalance_every || 1)} minutes.</p></div></div>
@@ -495,6 +517,49 @@ function vPositions(D) {
   wireTables(el);
 }
 
+function contribution(D) {
+  const rows = D.pos.filter(p => fin(p.upnl)).slice().sort((a, b) => b.upnl - a.upnl);
+  if (!rows.length) return '<div class="empty">Aucune position ouverte.</div>';
+  const m = Math.max(1e-9, ...rows.map(p => Math.abs(p.upnl)));
+  return `<div class="bars contrib">${rows.map(p => {const x = 50 * p.upnl / m;
+    return `<div class="brow click" data-sym="${esc(p.symbol)}"><span class="n">${esc(p.symbol)} <span class="side ${p.side}" style="padding:0 4px;margin-left:4px">${p.side === "long" ? "▲" : "▼"}</span></span><span class="t"><span class="b" style="left:${x >= 0 ? 50 : 50 + x}%;width:${Math.abs(x).toFixed(2)}%;background:${x >= 0 ? css("--long") : css("--short")}"></span></span><span class="v ${cls(p.upnl)}">${usd(p.upnl, 2, true)}</span><span class="v ${cls(p.upnl_pct)}">${pct(p.upnl_pct, 2, true)}</span></div>`}).join("")}</div>`;
+}
+function bySymbol(closed) {
+  const by = {};
+  closed.forEach(t => {const b = by[t.symbol] ||= {symbol: t.symbol, pnl: 0, n: 0, w: 0}; b.pnl += t.pnl || 0; b.n += 1; if (t.pnl > 0) b.w += 1});
+  const rows = Object.values(by).sort((a, b) => b.pnl - a.pnl);
+  if (!rows.length) return '<div class="empty">Aucune position fermée pour l\'instant.</div>';
+  const m = Math.max(1e-9, ...rows.map(r => Math.abs(r.pnl)));
+  return `<div class="bars contrib">${rows.map(r => {const x = 50 * r.pnl / m;
+    return `<div class="brow click" data-sym="${esc(r.symbol)}"><span class="n">${esc(r.symbol)}</span><span class="t"><span class="b" style="left:${x >= 0 ? 50 : 50 + x}%;width:${Math.abs(x).toFixed(2)}%;background:${x >= 0 ? css("--long") : css("--short")}"></span></span><span class="v ${cls(r.pnl)}">${usd(r.pnl, 2, true)}</span><span class="v">${r.w}/${r.n}</span></div>`}).join("")}</div>`;
+}
+function calendar(D) {
+  // Daily P&L: last equity of each UTC day against the previous day's (the start equity for the first day).
+  const last = {};
+  D.eq.forEach(r => {last[new Date(r.t).toISOString().slice(0, 10)] = r.eq});
+  const days = Object.keys(last).sort();
+  if (!days.length) return '<div class="empty">Le calendrier se remplit jour après jour.</div>';
+  const pnl = {};
+  days.forEach((d, i) => {pnl[d] = last[d] - (i ? last[days[i - 1]] : (fin(D.e0) ? D.e0 : last[d]))});
+  const m = Math.max(1e-9, ...Object.values(pnl).map(Math.abs));
+  const start = new Date(days[0] + "T00:00:00Z"), end = new Date(days.at(-1) + "T00:00:00Z");
+  start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7));  // back to Monday
+  const cols = [];
+  for (let w = new Date(start); w <= end; w.setUTCDate(w.getUTCDate() + 7)) {
+    const cells = [];
+    for (let k = 0; k < 7; k++) {
+      const d = new Date(w); d.setUTCDate(d.getUTCDate() + k);
+      const key = d.toISOString().slice(0, 10), v = pnl[key];
+      const bg = !fin(v) ? "var(--hover)" : `color-mix(in srgb, ${v >= 0 ? "var(--long)" : "var(--short)"} ${Math.round(18 + 72 * Math.abs(v) / m)}%, var(--panel-2))`;
+      cells.push(`<i style="background:${bg}" title="${key} : ${fin(v) ? usd(v, 2, true) + " USDT" : "—"}"></i>`);
+    }
+    cols.push(`<span class="wk">${cells.join("")}</span>`);
+  }
+  const tot = Object.values(pnl), pos = tot.filter(x => x > 0).length;
+  return `<div class="cal"><span class="dl"><i>L</i><i></i><i>M</i><i></i><i>V</i><i></i><i>D</i></span>${cols.join("")}</div>
+    <div class="cal-foot"><span>${days.length} jours · ${pos} positifs · meilleur <span class="up">${usd(Math.max(...tot), 2, true)}</span> · pire <span class="down">${usd(Math.min(...tot), 2, true)}</span></span>
+    <span class="lg"><span>perte</span><i class="box" style="background:var(--short)"></i><i class="box" style="background:var(--hover)"></i><i class="box" style="background:var(--long)"></i><span>gain</span></span></div>`;
+}
 function vHistory(D) {
   const el = $("#v-history"), T = D.trades, st = T.stats || {};
   const f = S.filt, q = f.q.trim().toUpperCase();
@@ -525,6 +590,8 @@ function vHistory(D) {
     <div><div class="label">Sorties par stop</div><div class="v">${st.n_stops || 0}</div><div class="x">frais payés ${usd(st.fees, 2)}</div></div>
     <div><div class="label">Meilleure · pire</div><div class="v"><span class="up">${usd(st.best, 0, true)}</span> <span class="muted">·</span> <span class="down">${usd(st.worst, 0, true)}</span></div><div class="x">USDT</div></div>
    </div></div></div>
+   <div class="c5"><div class="panel" style="height:100%"><div class="ph"><h2>P&L par jour</h2><span class="sub">équité de fin de journée (UTC) face à la veille</span></div><div class="pb">${calendar(D)}</div></div></div>
+   <div class="c7"><div class="panel" style="height:100%"><div class="ph"><h2>P&L réalisé par contrat</h2><span class="sub">positions fermées, net de frais</span></div>${bySymbol(T.closed || [])}</div></div>
    <div class="c12"><div class="panel"><div class="ph"><h2>Positions fermées</h2><span class="sub">reconstruites des exécutions : de l'ouverture au retour à plat</span>
     <div class="right filters"><input class="search" id="q" placeholder="Filtrer un contrat…" value="${esc(f.q)}" aria-label="Filtrer">
      ${["all", "long", "short"].map(s => `<button class="btn-s" data-side="${s}" aria-pressed="${f.side === s}">${s === "all" ? "Tous" : s === "long" ? "▲ Long" : "▼ Short"}</button>`).join("")}</div></div>
@@ -742,6 +809,13 @@ setInterval(() => {
   const cd = $("#cd"); if (cd && S.snap) {const D = derive(S.snap), every = (D.strat.rebalance_every || 1) * D.barMin * 60000, left = Math.max(0, Math.ceil(Date.now() / every) * every - Date.now());
     cd.textContent = `${Math.floor(left / 60000)}:${two(Math.floor(left / 1000) % 60)}`}
 }, 1000);
+document.addEventListener("keydown", e => {
+  if (e.target.closest("input,select,textarea") || e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = +e.key;
+  if (k >= 1 && k <= VIEWS.length && S.snap && S.snap.status && Object.keys(S.snap.status).length) {S.view = VIEWS[k - 1][0]; store.set("view", S.view); render()}
+  else if (e.key === "t") $("#theme").click();
+});
+$("#kpis").innerHTML = Array.from({length: 8}, () => '<div class="kpi"><div class="skeleton" style="width:40%;height:10px"></div><div class="skeleton" style="width:70%;height:22px;margin-top:10px"></div><div class="skeleton" style="width:55%;height:10px;margin-top:10px"></div></div>').join("");
 setInterval(refresh, 20000);
 setInterval(() => {if (S.view === "terminal" && S.sym) loadCandles()}, 30000);
 document.addEventListener("visibilitychange", () => {if (!document.hidden) refresh()});
