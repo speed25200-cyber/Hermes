@@ -11,7 +11,8 @@ Endpoints (``mode`` is one of ``paper``, ``demo``, ``live``; request values reac
 * ``/api/modes``: which modes have published a state, and how fresh it is;
 * ``/api/snapshot?mode=``: status, equity curve, realised-IC and regime series, latest decision, events,
   executions and the trade history reconstructed from them;
-* ``/api/fills?mode=&symbol=``: one contract's executions (chart markers);
+* ``/api/fills?mode=&symbol=``: one contract's executions;
+* ``/api/trades?mode=&symbol=``: one contract's position episodes (chart markers);
 * ``/api/candles?symbol=&tf=``: Binance USDT-M candles for the price chart (public data, cached).
 """
 
@@ -47,7 +48,8 @@ CSP = (
     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
     "font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
 )
-DUST_USDT = 1.0  # a residual position smaller than this is closed (the paper broker's own threshold)
+DUST_USDT = 0.01  # a residual smaller than this (or than 0.1 % of the episode's size) closes the episode
+DUST_SHARE = 1e-3
 FILL_KEYS = ("id", "ts", "symbol", "side", "qty", "price", "fee", "maker", "notional", "kind", "px_model")
 
 CandleSource = Callable[[str, str, int], list[list[float]]]
@@ -77,14 +79,26 @@ class TradeBook:
         self.last_id = 0
         self.book: dict[str, dict[str, float | str | int]] = {}
         self.closed: list[dict[str, object]] = []
+        self.origin: tuple[object, ...] | None = None  # the store's first execution: identifies the run
+
+    def reset(self) -> None:
+        self.last_id, self.book, self.closed, self.origin = 0, {}, [], None
 
     def update(self, db: Path) -> None:
         with self.lock:
             if not db.exists():
+                self.reset()
                 return
             con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
             con.row_factory = sqlite3.Row
             try:
+                # A store recreated since the last read (state reset) has another first execution, or fewer:
+                # rebuild from scratch.
+                first = con.execute("SELECT id, ts, symbol, side, qty FROM fills ORDER BY id LIMIT 1").fetchone()
+                origin = tuple(first) if first else None
+                if origin != self.origin:
+                    self.reset()
+                    self.origin = origin
                 rows = [dict(r) for r in con.execute("SELECT * FROM fills WHERE id > ? ORDER BY id", (self.last_id,))]
             except sqlite3.OperationalError:
                 rows = []
@@ -125,8 +139,10 @@ class TradeBook:
         pos["exit_qty"] = float(pos["exit_qty"]) + close_q
         pos["fees"] = float(pos["fees"]) + fee * share
         rest = q + dq
-        flipped = (rest > 0) != (q > 0) and abs(rest) * px >= DUST_USDT
-        if not flipped and abs(rest) * px >= DUST_USDT:
+        # Dust relative to the episode: a close split in legs (maker then taker) does not end it after one leg.
+        dust = max(DUST_USDT, DUST_SHARE * float(pos["max_notional"]))
+        flipped = (rest > 0) != (q > 0) and abs(rest) * px >= dust
+        if not flipped and abs(rest) * px >= dust:
             pos["qty"] = rest
             return
         gross, fees = float(pos["realized"]), float(pos["fees"])
@@ -196,7 +212,21 @@ class TradeBook:
         opened = {
             s: {k: p[k] for k in ("side", "opened", "entry", "realized", "fees", "n_fills")} for s, p in book.items()
         }
-        return {"closed": closed[::-1][:n_closed], "open": opened, "stats": stats}
+        by: dict[str, dict[str, float]] = {}
+        for t in closed:
+            b = by.setdefault(str(t["symbol"]), {"pnl": 0.0, "n": 0, "wins": 0})
+            b["pnl"] += float(t["pnl"])  # type: ignore[arg-type]
+            b["n"] += 1
+            b["wins"] += float(t["pnl"]) > 0  # type: ignore[arg-type]
+        return {"closed": closed[::-1][:n_closed], "open": opened, "stats": stats, "by_symbol": by}
+
+    def symbol_view(self, symbol: str) -> dict[str, object]:
+        """Every episode of one contract (the chart's markers), most recent first."""
+        with self.lock:
+            closed = [t for t in self.closed if t["symbol"] == symbol][::-1]
+            p = self.book.get(symbol)
+            opened = {k: p[k] for k in ("side", "opened", "entry", "realized", "fees", "n_fills")} if p else None
+        return {"closed": closed, "open": opened}
 
 
 def reconstruct_trades(fills: list[dict[str, object]]) -> dict[str, object]:
@@ -229,12 +259,15 @@ def mode_summary(root: Path, mode: str) -> dict[str, object]:
             s = json.loads(p.read_text())
         except (OSError, ValueError):
             return out
+        strat = s.get("strategy") or {}
         out.update(
             {
                 "updated": s.get("updated"),
                 "equity": s.get("equity"),
                 "halted": s.get("halted"),
                 "n_positions": len(s.get("positions") or {}),
+                "bar": strat.get("bar"),
+                "rebalance_every": strat.get("rebalance_every"),
             }
         )
     return out
@@ -330,27 +363,31 @@ def make_handler(
     files = _static_files()
     cache = _CandleCache(candles or binance_candles)
     books = {m: TradeBook() for m in MODES}
+    guard = _Throttle()
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "hermes"
         sys_version = ""
+        timeout = 20  # seconds: an idle or slow client cannot hold a thread forever
 
         def log_message(self, fmt: str, *args: object) -> None:  # no access log (URLs may carry the token)
             return
 
         def _authorized(self) -> tuple[bool, bool]:
             if not token:
-                return True, False
+                # Tokenless: localhost only; the Host header must name it too (no DNS rebinding from a website).
+                host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]").lower()
+                return host in ("127.0.0.1", "localhost", "::1"), False
             auth = self.headers.get("Authorization", "")
-            if auth.startswith("Bearer ") and hmac.compare_digest(auth[7:], token):
+            if auth.startswith("Bearer ") and _same(auth[7:], token):
                 return True, False
             cookie = self.headers.get("Cookie", "")
             for part in cookie.split(";"):
                 k, _, v = part.strip().partition("=")
-                if k == "hermes_token" and hmac.compare_digest(v, token):
+                if k == "hermes_token" and _same(v, token):
                     return True, False
             q = parse_qs(urlparse(self.path).query).get("token", [""])[0]
-            if q and hmac.compare_digest(q, token):
+            if q and _same(q, token):
                 return True, True
             return False, False
 
@@ -377,8 +414,13 @@ def make_handler(
             return m if m in MODES else None
 
         def do_GET(self) -> None:
+            ip = self.client_address[0]
+            if guard.blocked(ip):
+                self._send(429, b"too many attempts", "text/plain")
+                return
             ok, from_query = self._authorized()
             if not ok:
+                guard.fail(ip)
                 self._send(401, b"unauthorized", "text/plain")
                 return
             url = urlparse(self.path)
@@ -389,7 +431,10 @@ def make_handler(
                 self.send_response(303)
                 self.send_header("Location", url.path + (f"?{rest}" if rest else ""))
                 self.send_header(
-                    "Set-Cookie", f"hermes_token={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=2592000"
+                    # Lax: a link opened from another app (mail, chat) is a cross-site navigation, which Strict
+                    # would strip of the cookie right after the redirect. The page only serves GET requests.
+                    "Set-Cookie",
+                    f"hermes_token={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000",
                 )
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("Referrer-Policy", "no-referrer")
@@ -421,6 +466,14 @@ def make_handler(
                         self._send(400, b"bad mode or symbol", "text/plain")
                     else:
                         self._json(_finite(symbol_fills(root / mode / "hermes.sqlite3", sym)))
+                elif path == "/api/trades":
+                    mode = self._mode(q)
+                    sym = q.get("symbol", [""])[0]
+                    if mode is None or not SYMBOL.match(sym):
+                        self._send(400, b"bad mode or symbol", "text/plain")
+                    else:
+                        books[mode].update(root / mode / "hermes.sqlite3")
+                        self._json(_finite(books[mode].symbol_view(sym)))
                 elif path == "/api/candles":
                     sym = q.get("symbol", [""])[0]
                     tf = q.get("tf", ["30m"])[0]
@@ -439,6 +492,40 @@ def make_handler(
     return Handler
 
 
+def _same(a: str, b: str) -> bool:
+    """Constant-time comparison that also accepts non-ASCII input (compared as UTF-8 bytes)."""
+    return hmac.compare_digest(a.encode("utf-8", "surrogateescape"), b.encode("utf-8", "surrogateescape"))
+
+
+class _Throttle:
+    """Failed authentications per client address: after ``limit`` in ``window`` seconds, refused for as long."""
+
+    def __init__(self, limit: int = 20, window: float = 300.0):
+        self.limit, self.window = limit, window
+        self.lock = threading.Lock()
+        self.fails: dict[str, list[float]] = {}
+
+    def _recent(self, ip: str, now: float) -> list[float]:
+        return [t for t in self.fails.get(ip, []) if now - t < self.window]
+
+    def fail(self, ip: str) -> None:
+        now = time.time()
+        with self.lock:
+            if len(self.fails) > 4096:
+                self.fails.clear()
+            self.fails[ip] = [*self._recent(ip, now), now]
+
+    def blocked(self, ip: str) -> bool:
+        now = time.time()
+        with self.lock:
+            recent = self._recent(ip, now)
+            if recent:
+                self.fails[ip] = recent
+            else:
+                self.fails.pop(ip, None)
+            return len(recent) >= self.limit
+
+
 def _finite(obj: object) -> object:
     """NaN and infinities become null (strict JSON for the browser)."""
     if isinstance(obj, float):
@@ -448,6 +535,33 @@ def _finite(obj: object) -> object:
     if isinstance(obj, list | tuple):
         return [_finite(v) for v in obj]
     return obj
+
+
+class DashboardServer(ThreadingHTTPServer):
+    """Threaded server with a cap on simultaneous connections: beyond it, new ones are closed at once."""
+
+    daemon_threads = True
+    max_connections = 48
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self._slots = threading.BoundedSemaphore(self.max_connections)
+
+    def process_request(self, request, client_address):  # type: ignore[no-untyped-def]
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):  # type: ignore[no-untyped-def]
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
 
 
 def resolve_root(state: str | Path) -> tuple[Path, str]:
@@ -463,6 +577,10 @@ def serve(state: str | Path, host: str = "127.0.0.1", port: int = 8899, candles:
     token = os.environ.get("HERMES_DASHBOARD_TOKEN") or None
     if host not in ("127.0.0.1", "localhost", "::1") and not token:
         raise SystemExit("refus : exposer le tableau de bord hors de localhost exige HERMES_DASHBOARD_TOKEN")
+    if token and len(token) < 16:
+        print(
+            "attention : HERMES_DASHBOARD_TOKEN court (< 16 caractères) ; en choisir un long et aléatoire", flush=True
+        )
     root, first = resolve_root(state)
-    httpd = ThreadingHTTPServer((host, port), make_handler(root, token, candles, first))
+    httpd = DashboardServer((host, port), make_handler(root, token, candles, first))
     httpd.serve_forever()

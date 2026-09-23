@@ -55,7 +55,7 @@ def test_dashboard_requires_token_and_moves_it_to_a_cookie(server):
     code, _, headers = _get(server + "/?token=s3cret", follow=False)
     assert code == 303 and headers["Location"] == "/"  # the token leaves the address bar
     cookie = headers.get("Set-Cookie", "")
-    assert "hermes_token=s3cret" in cookie and "HttpOnly" in cookie and "SameSite=Strict" in cookie
+    assert "hermes_token=s3cret" in cookie and "HttpOnly" in cookie and "SameSite=Lax" in cookie
     code, body, headers = _get(server + "/", {"Cookie": "hermes_token=s3cret"})
     assert code == 200 and b"app.js" in body
     csp = headers["Content-Security-Policy"]
@@ -141,3 +141,62 @@ def test_old_stores_gain_the_new_fill_columns(tmp_path):
 def test_state_root_or_mode_directory(tmp_path):
     assert resolve_root(tmp_path / "paper") == (tmp_path, "paper")
     assert resolve_root(tmp_path) == (tmp_path, "paper")
+
+
+def test_idle_connections_cannot_exhaust_the_server(tmp_path):
+    import socket
+
+    from hermes.live.dashboard import DashboardServer
+
+    class Small(DashboardServer):
+        max_connections = 3
+
+    httpd = Small(("127.0.0.1", 0), make_handler(tmp_path, "s3cret", _fake_candles))
+    th = threading.Thread(target=httpd.serve_forever, daemon=True)
+    th.start()
+    url = f"http://127.0.0.1:{httpd.server_address[1]}"
+    idle = [socket.create_connection(httpd.server_address) for _ in range(6)]  # silent clients
+    try:
+        # Past the cap, extra connections are closed; the slots come back as soon as clients leave.
+        for s in idle:
+            s.close()
+        import time
+
+        time.sleep(0.3)
+        assert _get(url + "/api/modes", AUTH)[0] == 200
+    finally:
+        httpd.shutdown()
+    assert make_handler(tmp_path, None).timeout == 20
+
+
+def test_auth_edge_cases_and_throttling(server, tmp_path):
+    # Non-ASCII credentials are simply wrong, never a crash.
+    assert _get(server + "/api/modes", {"Authorization": "Bearer caf\u00e9".encode().decode("latin-1")})[0] == 401
+    assert _get(server + "/api/modes", {"Cookie": "hermes_token=\u00e9t\u00e9".encode().decode("latin-1")})[0] == 401
+    # Repeated failures from one address are refused for a while.
+    codes = [_get(server + "/api/modes", {"Authorization": "Bearer nope"})[0] for _ in range(25)]
+    assert codes[0] == 401 and codes[-1] == 429
+    assert _get(server + "/api/modes", AUTH)[0] == 429  # even the right token, until the window passes
+
+
+def test_tokenless_mode_only_answers_to_localhost_names(tmp_path):
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(tmp_path, None, _fake_candles))
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{httpd.server_address[1]}/api/modes"
+    try:
+        assert _get(url)[0] == 200
+        assert _get(url, {"Host": "evil.example:8899"})[0] == 401  # DNS rebinding
+    finally:
+        httpd.shutdown()
+
+
+def test_trade_history_follows_a_reset_store_and_serves_one_contract(server, tmp_path):
+    t = json.loads(_get(server + "/api/trades?mode=paper&symbol=BTCUSDT", AUTH)[1])
+    assert t["open"]["side"] == "long" and t["closed"] == []
+    import shutil
+
+    shutil.rmtree(tmp_path / "paper")
+    store = StateStore(tmp_path / "paper")  # a fresh run: ids restart at 1
+    store.add_fills([Fill("ETHUSDT", "sell", -0.1, 2000.0, 0.0, True, ts=5.0, notional=200.0)])
+    snap = json.loads(_get(server + "/api/snapshot?mode=paper", AUTH)[1])
+    assert set(snap["trades"]["open"]) == {"ETHUSDT"}  # the old run's BTC position is gone

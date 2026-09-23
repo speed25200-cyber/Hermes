@@ -13,7 +13,7 @@ const fin = x => typeof x === "number" && isFinite(x);
 const NF = {};
 const nf = (d, sign) => NF[d + "" + sign] ||= new Intl.NumberFormat("fr-FR", {minimumFractionDigits: d, maximumFractionDigits: d, signDisplay: sign ? "exceptZero" : "auto"});
 const num = (x, d = 2, sign = false) => fin(x) ? nf(d, sign).format(x).replace("-", "−") : "—";
-const pct = (x, d = 1, sign = false) => fin(x) ? num(100 * x, d, sign) + " %" : "—";
+const pct = (x, d = 1, sign = false) => fin(x) ? num(100 * x, d, sign) + "\u00a0%" : "—";
 const usd = (x, d = 0, sign = false) => fin(x) ? num(x, d, sign) : "—";
 const compact = x => {if (!fin(x)) return "—"; const a = Math.abs(x);
   return a >= 1e6 ? num(x / 1e6, 2) + " M" : a >= 1e4 ? num(x / 1e3, 1) + " k" : num(x, 0)};
@@ -29,6 +29,12 @@ const dur = s => {if (!fin(s) || s < 0) return "—"; const m = Math.floor(s / 6
   return d ? `${d} j ${h % 24} h` : h ? `${h} h ${two(m % 60)}` : `${m} min`};
 const sideTag = s => s === "long" ? '<span class="side long">▲ LONG</span>' : '<span class="side short">▼ SHORT</span>';
 const BAR_MIN = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "2h": 120, "4h": 240};
+/* The engine decides at the close of bars whose open time is a multiple of (every x bar) since 1970, and publishes
+   its status only then: the next decision, and the age beyond which it is late, follow that grid. */
+const cadence = (bar, every) => {const b = (BAR_MIN[bar] || 30) * 60000, e = Math.max(1, every || 1) * b;
+  return {b, e, next: Math.ceil((Date.now() - b) / e) * e + b, late: 2 * e + 3 * 60000}};
+const TARGET = {style: "rendement résiduel net des styles", beta: "rendement résiduel (bêta retiré)", mean: "rendement moins la moyenne", none: "rendement brut"};
+const ENSEMBLE = {ic_weighted: "pondéré par l'IC de validation", equal: "poids égaux"};
 const MODE_LABEL = {paper: "Papier", demo: "Démo OKX", live: "Réel"};
 const VIEWS = [["terminal", "Terminal"], ["positions", "Positions"], ["history", "Historique"], ["signals", "Signaux"],
   ["risk", "Risque"], ["model", "Modèle"], ["system", "Système"], ["journal", "Journal"]];
@@ -61,9 +67,10 @@ function derive(snap) {
   const ageMin = st.updated ? (Date.now() - toMs(st.updated)) / 60000 : Infinity;
   const barMin = BAR_MIN[bar] || 30;
   let health = "none";
-  if (st.updated) health = st.halted ? "crit" : ageMin > 2 * barMin + 3 ? "warn" : "good";
+  const cad = cadence(bar, strat.rebalance_every);
+  if (st.updated) health = st.halted ? "crit" : ageMin * 60000 > cad.late ? "warn" : "good";
   const now = Date.now(), dayAgo = eq.filter(r => r.t <= now - 864e5).at(-1);
-  return {st, strat, b, rs, bar, barMin, eq, e0, pos, longs, shorts, capital, ageMin, health,
+  return {st, strat, b, rs, bar, barMin, cad, eq, e0, pos, longs, shorts, capital, ageMin, health,
     pnl: fin(st.equity) && fin(e0) ? st.equity - e0 : null, pnl24: dayAgo && fin(st.equity) ? st.equity - dayAgo.eq : null,
     pnl24base: dayAgo ? dayAgo.eq : null, trades: snap.trades || {closed: [], open: {}, stats: {}},
     decision: snap.decision || null, series: snap.series || {}, events: snap.events || [], fills: snap.fills || []};
@@ -75,21 +82,20 @@ function renderModes() {
   const shown = avail.filter(m => m.mode !== "demo" || m.has_state);
   $("#modes").innerHTML = shown.map(m => {
     const age = m.updated ? (Date.now() - toMs(m.updated)) / 60000 : Infinity;
-    const dot = !m.has_state ? "" : m.halted ? "crit" : age > 75 ? "warn" : "good";
+    const dot = !m.has_state ? "" : m.halted ? "crit" : age * 60000 > cadence(m.bar || "30m", m.rebalance_every).late ? "warn" : "good";
     return `<button role="tab" aria-selected="${m.mode === S.mode}" data-mode="${esc(m.mode)}"><span class="dot ${dot} ${dot === "good" ? "live-pulse" : ""}"></span>${esc(MODE_LABEL[m.mode] || m.mode)}${m.has_state ? "" : '<span class="tag">INACTIF</span>'}</button>`;
   }).join("");
   $$("#modes button").forEach(b => b.onclick = () => {S.mode = b.dataset.mode; store.set("mode", S.mode); S.snap = null; S.sym = null; S.candles = null; S.fills = null; destroyCharts(); refresh()});
 }
 function renderStatus(D) {
   const el = $("#status");
-  if (!D) {el.innerHTML = `<span class="chip"><span class="dot"></span>Aucun moteur dans ce mode</span>`; return}
+  if (!D) {el.innerHTML = `<span class="chip"><span class="dot"></span>Inactif</span>`; return}
   const {st, health, barMin, strat} = D;
   const lab = {good: "Moteur actif", warn: `En retard (${Math.round(D.ageMin)} min)`, crit: "Arrêté", none: "Inactif"}[health];
-  const every = (strat.rebalance_every || 1) * barMin * 60000, next = Math.ceil(Date.now() / every) * every;
-  const left = Math.max(0, next - Date.now());
+  const left = Math.max(0, D.cad.next - Date.now());
   el.innerHTML = `<span class="chip"><span class="dot ${health} ${health === "good" ? "live-pulse" : ""}"></span><b>${esc(lab)}</b>${st.halted && st.halt_reason ? " · " + esc(st.halt_reason) : ""}</span>
    <span class="chip opt">Bougie <b class="num">${st.bar ? hm(toMs(st.bar)) : "—"}</b></span>
-   <span class="chip opt">Prochaine décision <b class="num" id="cd">${Math.floor(left / 60000)}:${two(Math.floor(left / 1000) % 60)}</b></span>
+   <span class="chip opt">Prochaine décision <b class="num" id="cd">${health === "good" ? `${Math.floor(left / 60000)}:${two(Math.floor(left / 1000) % 60)}` : "en attente"}</b></span>
    <span class="chip opt"><b class="num" id="clock">${hm(Date.now())}:${two(new Date().getUTCSeconds())}</b> UTC</span>`;
 }
 function renderNav(D) {
@@ -124,7 +130,7 @@ function renderKPIs(D) {
   const lv = D.longs.reduce((a, p) => a + p.notional, 0), sv = -D.shorts.reduce((a, p) => a + p.notional, 0);
   el.innerHTML = [
     kpi("Équité", `${usd(st.equity, 0)}<small>USDT</small>`, fin(D.e0) ? `départ ${usd(D.e0, 0)} USDT` : "", null,
-      spark(D.eq.filter(r => r.t >= Date.now() - 7 * 864e5).map(r => r.eq), css("--s1"))),
+      spark(D.eq.filter(r => r.t >= Date.now() - 7 * 864e5).map(r => r.eq), css("--accent"))),
     kpi("P&L total", `<span class="${cls(D.pnl)}">${usd(D.pnl, 2, true)}</span>`, fin(D.pnl) && D.e0 ? `<span class="${cls(D.pnl)}">${pct(D.pnl / D.e0, 2, true)}</span> depuis le départ` : "", null,
       spark(D.eq.map(r => r.eq), fin(D.pnl) && D.pnl < 0 ? css("--short") : css("--long"))),
     kpi("P&L 24 h", `<span class="${cls(D.pnl24)}">${usd(D.pnl24, 2, true)}</span>`, fin(D.pnl24) && D.pnl24base ? `<span class="${cls(D.pnl24)}">${pct(D.pnl24 / D.pnl24base, 2, true)}</span> sur 24 h` : "moins de 24 h d'historique", null,
@@ -148,7 +154,7 @@ function lwBase(extra = {}) {
       attributionLogo: true, panes: {separatorColor: css("--line-2"), separatorHoverColor: css("--line-3"), enableResize: true}},
     grid: {vertLines: {color: css("--line")}, horzLines: {color: css("--line")}},
     rightPriceScale: {borderColor: css("--line-2"), scaleMargins: {top: 0.12, bottom: 0.08}},
-    timeScale: {borderColor: css("--line-2"), timeVisible: true, secondsVisible: false, rightOffset: 4},
+    timeScale: {borderColor: css("--line-2"), timeVisible: true, secondsVisible: false, rightOffset: 1},
     crosshair: {mode: LW.CrosshairMode.Normal, vertLine: {color: css("--line-3"), labelBackgroundColor: css("--panel-3"), style: LW.LineStyle.Dashed},
       horzLine: {color: css("--line-3"), labelBackgroundColor: css("--panel-3"), style: LW.LineStyle.Dashed}},
     localization: {locale: "fr-FR"},
@@ -200,7 +206,7 @@ function chartPanel(D) {
 }
 function wireChartPanel(D) {
   $("#allfills").onclick = e => {S.allFills = !S.allFills; e.currentTarget.setAttribute("aria-pressed", S.allFills); store.set("allFills", S.allFills); drawPrice(derive(S.snap))};
-  $("#sym").onchange = e => {S.sym = e.target.value; S.candles = null; S.fills = null; loadCandles(); renderLevels(D); drawPrice(D); markSelected()};
+  $("#sym").onchange = e => {S.sym = e.target.value; S.candles = null; S.fills = null; S.trades = null; loadCandles(); const D2 = derive(S.snap); renderLevels(D2); drawPrice(D2); markSelected()};
   $$("#tfs button").forEach(b => b.onclick = () => {S.tf = b.dataset.tf; store.set("tf", S.tf); $$("#tfs button").forEach(x => x.setAttribute("aria-pressed", x === b)); S.candles = null; loadCandles()});
 }
 function posOf(D, sym) {return D.pos.find(p => p.symbol === sym) || null}
@@ -218,7 +224,7 @@ function renderLevels(D) {
    <div><div class="label">Position</div><div class="v">${sideTag(p.side)} <span class="num">${usd(Math.abs(p.notional), 0)}</span></div><div class="x">${pct(Math.abs(p.weight), 1)} du capital · cible ${usd(Math.abs(p.target), 0)}</div></div>
    <div><div class="label">Entrée</div><div class="v">${price(p.entry)}</div><div class="x">prix moyen</div></div>
    <div><div class="label">Prix actuel</div><div class="v">${price(p.mark)}</div><div class="x ${cls(p.upnl_pct)}">${pct(p.upnl_pct, 2, true)}</div></div>
-   <div><div class="label">P&L latent</div><div class="v ${cls(p.upnl)}">${usd(p.upnl, 2, true)}</div><div class="x">frais d'entrée ${usd(o && o.fees, 2)} · hors funding</div></div>
+   <div><div class="label">P&L latent</div><div class="v ${cls(p.upnl)}">${usd(p.upnl, 2, true)}</div><div class="x">${o && fin(o.realized) && Math.abs(o.realized) > 0.005 ? `réalisé partiel <span class="${cls(o.realized)}">${usd(o.realized, 2, true)}</span> · ` : ""}frais payés ${usd(o && o.fees, 2)}</div></div>
    <div><div class="label">Stop catastrophe</div><div class="v down">${price(p.stop)}</div><div class="x">${fin(p.stop_dist) ? pct(p.stop_dist, 1) + " du prix · " + num(D.strat.stop_sigmas, 0) + " σ jour" : "—"}</div></div>
    <div><div class="label">Take-profit</div><div class="v muted">Aucun</div><div class="x">${opened ? "ouverte il y a " + dur((Date.now() - opened) / 1000) : "sortie par rééquilibrage"}</div></div>`;
 }
@@ -237,9 +243,10 @@ function drawPrice(D) {
       c.s.vol = c.chart.addSeries(LW.HistogramSeries, {priceFormat: {type: "custom", formatter: compact, minMove: 1}, priceLineVisible: false, lastValueVisible: false}, 1);
       try {c.chart.panes()[0].setStretchFactor(4); c.chart.panes()[1].setStretchFactor(1)} catch (e) {/* older API */}
       c.markers = LW.createSeriesMarkers(c.s.candles, []);
+      c.markInfo = new Map();
       c.chart.subscribeCrosshairMove(prm => {
         const d = prm && prm.seriesData ? prm.seriesData.get(c.s.candles) : null;
-        showOHLC(d || c.last);
+        showOHLC(d || c.last, d && prm.time != null ? c.markInfo.get(prm.time) : null);
       });
     },
   });
@@ -265,9 +272,11 @@ function drawPrice(D) {
     if (fin(p.entry)) c.lines.push(c.s.candles.createPriceLine({price: p.entry, color: css("--accent"), lineWidth: 1, lineStyle: LW.LineStyle.Dashed, axisLabelVisible: true, title: `Entrée ${p.side === "long" ? "▲" : "▼"}`}));
     if (fin(p.stop)) c.lines.push(c.s.candles.createPriceLine({price: p.stop, color: css("--crit"), lineWidth: 1, lineStyle: LW.LineStyle.Solid, axisLabelVisible: true, title: `Stop · ${pct(p.stop_dist, 1)} du prix`}));
   }
-  // Markers: each position's opening and closing (stops highlighted); every execution on demand.
+  // Markers without labels (they would pile up): each position's opening and closing, stops highlighted, or
+  // every execution on demand; the details of a candle's markers show next to its prices on hover.
   const step = rows.length > 1 ? rows[1][0] - rows[0][0] : 1800, t0 = rows[0][0], tl = rows.at(-1)[0];
   const snap = ts => {ts = Math.floor(ts); return ts < t0 || ts > tl + step ? null : t0 + Math.floor((ts - t0) / step) * step};
+  const info = new Map(), say = (t, txt) => {(info.get(t) || info.set(t, []).get(t)).push(txt)};
   let marks = [];
   if (S.allFills) {
     const agg = new Map();
@@ -277,37 +286,44 @@ function drawPrice(D) {
       const a = agg.get(key) || {time: bt, side: f.side, stop: f.kind === "stop", usdt: 0};
       a.usdt += Math.abs(f.notional || f.qty * f.price || 0); agg.set(key, a);
     });
-    marks = [...agg.values()].map(a => ({time: a.time, position: a.side === "buy" ? "belowBar" : "aboveBar", shape: a.stop ? "circle" : a.side === "buy" ? "arrowUp" : "arrowDown",
-      color: a.stop ? css("--warn") : a.side === "buy" ? up : dn, text: (a.stop ? "STOP " : "") + (a.side === "buy" ? "+" : "−") + compact(a.usdt), size: 0.8}));
+    marks = [...agg.values()].map(a => {
+      say(a.time, `${a.stop ? "■ stop" : a.side === "buy" ? "▲ achat" : "▼ vente"} ${usd(a.usdt, 0)} USDT`);
+      return {time: a.time, position: a.side === "buy" ? "belowBar" : "aboveBar", shape: a.stop ? "square" : "circle", color: a.stop ? css("--warn") : a.side === "buy" ? up : dn, size: 0.5};
+    });
   } else {
-    const eps = (D.trades.closed || []).filter(t => t.symbol === S.sym);
-    const o = (D.trades.open || {})[S.sym];
-    if (o) eps.push({side: o.side, opened: o.opened, closed: null});
+    const T = S.trades && S.trades.symbol === S.sym ? S.trades.data : {closed: (D.trades.closed || []).filter(t => t.symbol === S.sym), open: (D.trades.open || {})[S.sym]};
+    const eps = (T.closed || []).slice();
+    if (T.open) eps.push({side: T.open.side, opened: T.open.opened, closed: null});
     eps.forEach(t => {
       const L = t.side === "long", ot = snap(t.opened);
-      if (ot != null) marks.push({time: ot, position: L ? "belowBar" : "aboveBar", shape: L ? "arrowUp" : "arrowDown", color: L ? up : dn, text: L ? "LONG" : "SHORT", size: 1.2});
+      if (ot != null) {marks.push({time: ot, position: L ? "belowBar" : "aboveBar", shape: L ? "arrowUp" : "arrowDown", color: L ? up : dn, size: 1.1}); say(ot, `${L ? "▲ ouverture LONG" : "▼ ouverture SHORT"}`)}
       const ct = t.closed ? snap(t.closed) : null;
-      if (ct != null) marks.push({time: ct, position: L ? "aboveBar" : "belowBar", shape: t.exit_kind === "stop" ? "square" : "circle",
-        color: t.exit_kind === "stop" ? css("--warn") : css("--ink-2"), text: (t.exit_kind === "stop" ? "STOP " : "sortie ") + usd(t.pnl, 1, true), size: 0.9});
+      if (ct != null) {
+        marks.push({time: ct, position: L ? "aboveBar" : "belowBar", shape: t.exit_kind === "stop" ? "square" : "circle", color: t.exit_kind === "stop" ? css("--warn") : css("--ink-2"), size: 0.8});
+        say(ct, `${t.exit_kind === "stop" ? "■ stop" : "● sortie"} ${L ? "LONG" : "SHORT"} <span class="${cls(t.pnl)}">${usd(t.pnl, 2, true)}</span>`);
+      }
     });
   }
   marks.sort((a, b) => a.time - b.time);
   c.markers.setMarkers(marks);
+  c.markInfo = info;
   if (c.fitKey !== S.sym + (S.tf || D.bar)) {c.chart.timeScale().fitContent(); c.fitKey = S.sym + (S.tf || D.bar)}
 }
-function showOHLC(d) {
+function showOHLC(d, marks) {
   const el = $("#ohlc"); if (!el || !d || d.open == null) return;
   const ch = d.close / d.open - 1;
-  el.innerHTML = `<span><b>O</b>${price(d.open)}</span><span><b>H</b>${price(d.high)}</span><span><b>B</b>${price(d.low)}</span><span><b>C</b>${price(d.close)}</span><span class="${cls(ch)}">${pct(ch, 2, true)}</span>`;
+  el.innerHTML = `<span><b>O</b>${price(d.open)}</span><span><b>H</b>${price(d.high)}</span><span><b>B</b>${price(d.low)}</span><span><b>C</b>${price(d.close)}</span><span class="${cls(ch)}">${pct(ch, 2, true)}</span>` +
+    (marks && marks.length ? `<span class="mk">${marks.join(" · ")}</span>` : "");
 }
 async function loadCandles() {
   if (!S.sym || !S.snap) return;
-  const sym = S.sym, tf = S.tf || derive(S.snap).bar;
-  const [c, f] = await Promise.all([getJSON(`api/candles?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}`),
-    getJSON(`api/fills?mode=${encodeURIComponent(S.mode)}&symbol=${encodeURIComponent(sym)}`)]);
-  if (sym !== S.sym) return;
+  const sym = S.sym, tf = S.tf || derive(S.snap).bar, q = `mode=${encodeURIComponent(S.mode)}&symbol=${encodeURIComponent(sym)}`;
+  const [c, f, t] = await Promise.all([getJSON(`api/candles?symbol=${encodeURIComponent(sym)}&tf=${encodeURIComponent(tf)}`),
+    getJSON(`api/fills?${q}`), getJSON(`api/trades?${q}`)]);
+  if (sym !== S.sym || tf !== (S.tf || derive(S.snap).bar)) return;  // a later choice won the race
   S.candles = c || {symbol: sym, candles: [], error: "réseau"};
   S.fills = {symbol: sym, rows: f || []};
+  S.trades = {symbol: sym, data: t || {closed: [], open: null}};
   if (S.snap) drawPrice(derive(S.snap));
 }
 
@@ -316,15 +332,22 @@ function lineChart(id, host, spec) {
   const c = chartIn(id, host, {
     options: {rightPriceScale: {borderColor: css("--line-2"), scaleMargins: {top: 0.15, bottom: 0.1}}, localization: {locale: "fr-FR", priceFormatter: spec.fmt}},
     init: c => {
+      c.include = [];
       spec.series.forEach((s, i) => {
-        const def = s.type === "area" ? LW.AreaSeries : s.type === "hist" ? LW.HistogramSeries : LW.LineSeries;
+        const def = s.type === "area" ? LW.AreaSeries : s.type === "hist" ? LW.HistogramSeries : s.type === "under" ? LW.BaselineSeries : LW.LineSeries;
         const o = s.type === "area" ? {lineColor: s.color, topColor: s.color + "40", bottomColor: s.color + "05", lineWidth: 2}
+          : s.type === "under" ? {baseValue: {type: "price", price: 0}, topLineColor: s.color, topFillColor1: "rgba(0,0,0,0)", topFillColor2: "rgba(0,0,0,0)",
+            bottomLineColor: s.color, bottomFillColor1: s.color + "08", bottomFillColor2: s.color + "55", lineWidth: 2}
           : s.type === "hist" ? {color: s.color} : {color: s.color, lineWidth: s.width || 2, lineStyle: s.dash ? LW.LineStyle.Dashed : LW.LineStyle.Solid};
+        // The reference lines (limits, caps) stay in view: the first series' scale includes them.
+        if (i === 0) o.autoscaleInfoProvider = orig => {const r = orig(); if (!r || !c.include.length) return r;
+          r.priceRange.minValue = Math.min(r.priceRange.minValue, ...c.include); r.priceRange.maxValue = Math.max(r.priceRange.maxValue, ...c.include); return r};
         c.s[i] = c.chart.addSeries(def, Object.assign(o, {priceLineVisible: false, lastValueVisible: !s.quiet, crosshairMarkerVisible: !s.quiet, title: s.title || ""}));
       });
       if (spec.tip) attachTip(c, host, spec);
     },
   });
+  c.include = spec.include || [];
   spec.series.forEach((s, i) => c.s[i].setData(dedupe(s.data)));
   c.lines.forEach(([ser, l]) => {try {ser.removePriceLine(l)} catch (e) {/* */}}); c.lines = [];
   (spec.refs || []).forEach(r => c.lines.push([c.s[0], c.s[0].createPriceLine({price: r.y, color: r.color || css("--ink-2"), lineWidth: 1, lineStyle: LW.LineStyle.Dashed, axisLabelVisible: true, title: r.label || ""})]));
@@ -346,13 +369,15 @@ function attachTip(c, host, spec) {
 function legendHTML(items) {return `<div class="lg">${items.map(i => `<span><i class="${i.dash ? "dash" : ""}" style="border-top-color:${i.color}"></i>${esc(i.name)}</span>`).join("")}</div>`}
 
 function equitySpec(D) {
-  const e = D.eq, s1 = css("--s1"), ink2 = css("--ink-2"), band = css("--s1");
+  const e = D.eq, s1 = css("--accent"), ink2 = css("--ink-2"), band = css("--accent");
   const series = [{name: "Équité", color: s1, type: "area", data: e.map(r => ({time: utc(r.t), value: r.eq}))}];
   const legend = [{name: "Équité " + (MODE_LABEL[S.mode] || "").toLowerCase(), color: s1}];
   const rs = D.rs;
   if (e.length > 1 && fin(rs.cagr) && fin(rs.vol) && rs.vol > 0 && fin(D.e0)) {
-    const t0 = e[0].t, yr = t => (t - t0) / (365.25 * 864e5), med = t => D.e0 * Math.pow(1 + rs.cagr, yr(t));
-    const bd = k => t => med(t) * Math.exp(k * rs.vol * Math.sqrt(yr(t)));
+    // Research's return and volatility are the strategy's, on its share of the account (capital_fraction).
+    const f = D.st.capital_fraction || D.strat.capital_fraction || 1;
+    const t0 = e[0].t, yr = t => (t - t0) / (365.25 * 864e5), med = t => D.e0 * (1 + f * (Math.pow(1 + rs.cagr, yr(t)) - 1));
+    const bd = k => t => med(t) + D.e0 * f * k * rs.vol * Math.sqrt(yr(t));
     const grid = e.map(r => r.t);
     series.push({name: "Attendu", color: ink2, dash: true, width: 1, quiet: true, data: grid.map(t => ({time: utc(t), value: med(t)}))});
     [[1, "+1σ"], [-1, "−1σ"], [2, "+2σ"], [-2, "−2σ"]].forEach(([k, n]) => series.push({name: n, color: band + (Math.abs(k) === 1 ? "99" : "55"), dash: true, width: 1, quiet: true, data: grid.map(t => ({time: utc(t), value: bd(k)(t)}))}));
@@ -391,18 +416,24 @@ function wireTables(root) {
 /* ---------------------------------------------------------------- positions list (terminal) */
 function positionsList(D) {
   const maxw = Math.max(0.0001, ...D.pos.map(p => Math.abs(p.weight || 0)));
-  const row = p => `<div class="prow ${p.symbol === S.sym ? "sel" : ""}" data-sym="${esc(p.symbol)}" tabindex="0" role="button" aria-label="${esc(p.symbol)}">
-    <div><div class="sym">${esc(p.symbol)}</div><div class="meta">${sideTag(p.side)} ${pct(Math.abs(p.weight), 1)}</div>
-     <div class="wbar"><i style="width:${(100 * Math.abs(p.weight || 0) / maxw).toFixed(1)}%;background:${p.side === "long" ? css("--long") : css("--short")}"></i></div></div>
-    <div class="r"><div>${usd(Math.abs(p.notional), 0)}</div><div class="meta">entrée ${price(p.entry)}</div></div>
-    <div class="r"><div class="${cls(p.upnl)}">${usd(p.upnl, 2, true)}</div><div class="meta ${cls(p.upnl_pct)}">${pct(p.upnl_pct, 2, true)}</div></div></div>`;
-  const grp = (title, list, side) => {
+  const L = p => p.side === "long";
+  const row = p => `<div class="prow ${p.symbol === S.sym ? "sel" : ""}" data-sym="${esc(p.symbol)}" tabindex="0" role="button" title="entrée ${price(p.entry)} · stop ${price(p.stop)}" aria-label="${esc(p.symbol)} ${L(p) ? "long" : "short"}">
+    <span class="g ${L(p) ? "up" : "down"}">${L(p) ? "▲" : "▼"}</span>
+    <span class="sym">${esc(p.symbol)}<span class="w">${pct(Math.abs(p.weight), 1)}</span></span>
+    <span class="r">${usd(Math.abs(p.notional), 0)}</span>
+    <span class="r"><span class="${cls(p.upnl)}">${usd(p.upnl, 2, true)}</span><small class="${cls(p.upnl_pct)}">${pct(p.upnl_pct, 2, true)}</small></span>
+    <i class="wl" style="width:${(38 * Math.abs(p.weight || 0) / maxw).toFixed(1)}%;background:${L(p) ? css("--long") : css("--short")}"></i></div>`;
+  const grp = (list, side) => {
     const tot = list.reduce((a, p) => a + Math.abs(p.notional), 0), up = list.reduce((a, p) => a + (p.upnl || 0), 0);
-    return `<div class="pgroup"><div class="pgroup-h">${sideTag(side)}<span>${list.length} position${list.length > 1 ? "s" : ""}</span><span class="sum">${usd(tot, 0)} · <span class="${cls(up)}">${usd(up, 2, true)}</span></span></div>${list.map(row).join("") || '<div class="empty" style="padding:10px 16px">Aucune.</div>'}</div>`;
+    return `<div class="pgroup"><div class="pgroup-h">${sideTag(side)}<span>${list.length}</span><span class="sum">${usd(tot, 0)} · <span class="${cls(up)}">${usd(up, 2, true)}</span></span></div>${list.map(row).join("") || '<div class="empty" style="padding:10px 16px">Aucune.</div>'}</div>`;
   };
-  const upnl = D.pos.reduce((a, p) => a + (p.upnl || 0), 0);
-  return `<div class="panel"><div class="ph"><h2>Positions ouvertes</h2><span class="sub">${D.pos.length} · latent <span class="${cls(upnl)}">${usd(upnl, 2, true)}</span></span></div>
-    <div class="plist">${D.pos.length ? grp("Longs", D.longs, "long") + grp("Shorts", D.shorts, "short") : `<div class="empty"><b>Livre à plat</b>${flatReason(D)}</div>`}</div></div>`;
+  const f = S.posFilter || "all", upnl = D.pos.reduce((a, p) => a + (p.upnl || 0), 0);
+  const body = !D.pos.length ? `<div class="empty"><b>Livre à plat</b>${flatReason(D)}</div>`
+    : (f !== "short" ? grp(D.longs, "long") : "") + (f !== "long" ? grp(D.shorts, "short") : "");
+  return `<div class="panel"><div class="ph"><h2>Positions ouvertes</h2><span class="sub">latent <span class="${cls(upnl)}">${usd(upnl, 2, true)}</span></span>
+    <div class="right tfs" id="pfilt">${[["all", `Tous ${D.pos.length}`], ["long", `▲ ${D.longs.length}`], ["short", `▼ ${D.shorts.length}`]].map(([k, l]) => `<button data-f="${k}" aria-pressed="${f === k}">${l}</button>`).join("")}</div></div>
+    <div class="phead"><span></span><span>Contrat</span><span class="r">Taille</span><span class="r">P&L latent</span></div>
+    <div class="plist">${body}</div></div>`;
 }
 function flatReason(D) {
   const ic = D.st.ic_est;
@@ -412,6 +443,7 @@ function flatReason(D) {
 }
 function markSelected() {$$(".prow").forEach(r => r.classList.toggle("sel", r.dataset.sym === S.sym))}
 function wirePositions() {
+  $$("#pfilt button").forEach(b => b.onclick = () => {S.posFilter = b.dataset.f; $("#t-pos").innerHTML = positionsList(derive(S.snap)); wirePositions()});
   $$(".prow").forEach(r => {const go = () => {S.sym = r.dataset.sym; const sel = $("#sym"); if (sel) sel.value = S.sym; S.candles = null; S.fills = null; markSelected(); loadCandles(); renderLevels(derive(S.snap)); drawPrice(derive(S.snap))};
     r.onclick = go; r.onkeydown = e => {if (e.key === "Enter" || e.key === " ") {e.preventDefault(); go()}}});
 }
@@ -424,14 +456,21 @@ function vTerminal(D) {
       <div class="c8" id="t-chart"></div><div class="c4 stick" id="t-pos"></div>
       <div class="c8"><div class="panel"><div class="ph"><h2>Équité face à ce que la recherche attend</h2><div class="tfs" id="eq-range">${[["1", "24 h"], ["7", "7 j"], ["30", "30 j"], ["0", "Tout"]].map(([k, l]) => `<button data-days="${k}" aria-pressed="${k === "0"}">${l}</button>`).join("")}</div><div class="right" id="t-eq-lg"></div></div>
         <div class="chart-wrap sm"><div class="lw" id="c-eq"></div><div class="chart-note" id="c-eq-note"></div></div></div></div>
-      <div class="c4"><div class="panel"><div class="ph"><h2>Composition du livre</h2><span class="sub">en % du capital</span></div><div class="pb" id="t-book"></div></div></div>
+      <div class="c4"><div class="panel"><div class="ph"><h2>Composition du livre</h2><span class="sub">en multiple du capital alloué</span></div><div class="pb" id="t-book"></div></div></div>
       <div class="c7"><div class="panel"><div class="ph"><h2>Dernières exécutions</h2><span class="sub" id="t-fills-sub"></span></div><div class="tw maxh" id="t-fills"></div></div></div>
-      <div class="c5"><div class="panel"><div class="ph"><h2>Événements</h2></div><div class="tw maxh" id="t-ev"></div></div></div></div>`;
+      <div class="c5 stick"><div class="panel"><div class="ph"><h2>Événements</h2></div><div class="tw plist" id="t-ev"></div></div></div></div>`;
     el.dataset.built = "1";
   }
   const chartSlot = $("#t-chart");
   if (!chartSlot.dataset.sym || !$("#c-price")) {chartSlot.innerHTML = chartPanel(D); chartSlot.dataset.sym = "1"; wireChartPanel(D); delete CH.price}
-  else {const sel = $("#sym"); const cur = [...sel.options].map(o => o.value).join(); const want = symbolsFor(D).map(x => x[0]).join(); if (cur !== want) {chartSlot.innerHTML = chartPanel(D); wireChartPanel(D); delete CH.price}}
+  else {
+    const sel = $("#sym"), syms = symbolsFor(D);
+    const key = syms.map(x => x[0] + x[1]).join();
+    if (sel.dataset.key !== key) {  // new symbols or tags: refresh the list, never the chart
+      sel.innerHTML = syms.map(([s, tag]) => `<option value="${esc(s)}" ${s === S.sym ? "selected" : ""}>${esc(s)}${tag ? "  · " + esc(tag) : ""}</option>`).join("");
+      sel.dataset.key = key;
+    }
+  }
   renderLevels(D); drawPrice(D);
   $("#t-pos").innerHTML = positionsList(D); wirePositions();
   const eqs = equitySpec(D);
@@ -445,7 +484,7 @@ function vTerminal(D) {
     else eqc.chart.timeScale().setVisibleRange({from: utc(Math.max(D.eq[0].t, last - days * 864e5)), to: utc(last)});
   });
   $("#t-book").innerHTML = bookComposition(D);
-  const F = D.fills.slice(0, 60);
+  const F = D.fills.slice(0, window.innerWidth < 680 ? 12 : 60);  // the full list is in the History tab
   $("#t-fills-sub").textContent = D.fills.length ? `${D.fills.length} dernières chargées` : "";
   $("#t-fills").innerHTML = fillsTable("tf-fills", F);
   $("#t-ev").innerHTML = eventsHTML(D.events.slice(0, 40));
@@ -454,11 +493,11 @@ function vTerminal(D) {
 function bookComposition(D) {
   const L = D.longs.reduce((a, p) => a + (p.weight || 0), 0), Sx = -D.shorts.reduce((a, p) => a + (p.weight || 0), 0);
   const gmax = (D.st.risk_limits || {}).gross_max || D.strat.gross_max || 2.5, nmax = D.strat.net_max || 0.25;
-  const bar = (label, v, max, color, sub) => `<div class="meter" style="padding:10px 0"><div class="h"><span>${label}</span><span class="v">${pct(v, 1)}</span></div>
+  const bar = (label, v, max, color, sub) => `<div class="meter" style="padding:10px 0"><div class="h"><span>${label}</span><span class="v">${num(v, 2, label.startsWith("Net"))}×</span></div>
     <div class="track"><div class="fill" style="width:${Math.min(100, 100 * Math.abs(v) / max).toFixed(1)}%;background:${color}"></div></div><div class="x">${sub}</div></div>`;
   const r = D.st.risk || {};
   return bar("Longs ▲", L, gmax / 2, css("--long"), `${D.longs.length} contrats`) + bar("Shorts ▼", Sx, gmax / 2, css("--short"), `${D.shorts.length} contrats`)
-    + bar("Net (longs − shorts)", L - Sx, nmax, css("--s2"), `plafond ±${pct(nmax, 0)} · livre neutre au marché (bêta)`)
+    + bar("Net (longs − shorts)", L - Sx, nmax, css("--s2"), `plafond ±${num(nmax, 2)}× · livre neutre au marché (bêta)`)
     + `<div class="kvline" style="display:flex;gap:18px;flex-wrap:wrap;margin-top:6px;font-size:11.5px;color:var(--mute)">
       <span>Budget de risque <b class="num" style="color:var(--ink)">${pct(r.budget, 0)}</b></span><span>ES 1 j <b class="num" style="color:var(--ink)">${pct(r.es_1d, 2)}</b></span>
       <span>Garde de régime <b class="num" style="color:var(--ink)">${fin(r.regime_scale) ? "×" + num(r.regime_scale, 2) : "inactive"}</b></span></div>`;
@@ -472,7 +511,7 @@ function fillsTable(id, rows, limit) {
     {k: "notional", h: "Montant", cl: "num", v: r => r.notional || Math.abs(r.qty * r.price), f: r => usd(r.notional || Math.abs(r.qty * r.price), 2)},
     {k: "fee", h: "Frais", cl: "num", f: r => usd(r.fee, 3)},
     {k: "maker", h: "Type", f: r => r.maker ? '<span class="pill">maker</span>' : '<span class="pill">taker</span>'},
-    {k: "kind", h: "Origine", f: r => r.kind === "stop" ? '<span class="pill warn">stop</span>' : r.kind === "flatten" ? '<span class="pill crit">arrêt</span>' : '<span class="muted">rééquilibrage</span>'},
+    {k: "kind", h: "Origine", f: r => r.kind === "stop" ? '<span class="pill warn">stop</span>' : r.kind === "flatten" ? '<span class="pill crit">arrêt</span>' : r.kind === "external" ? '<span class="pill">hors moteur</span>' : '<span class="muted">rééquilibrage</span>'},
   ], rows, {limit, empty: "Aucune exécution.", sort: {k: "ts", dir: "desc"}});
 }
 function eventsHTML(ev) {
@@ -521,16 +560,14 @@ function contribution(D) {
   const rows = D.pos.filter(p => fin(p.upnl)).slice().sort((a, b) => b.upnl - a.upnl);
   if (!rows.length) return '<div class="empty">Aucune position ouverte.</div>';
   const m = Math.max(1e-9, ...rows.map(p => Math.abs(p.upnl)));
-  return `<div class="bars contrib">${rows.map(p => {const x = 50 * p.upnl / m;
-    return `<div class="brow click" data-sym="${esc(p.symbol)}"><span class="n">${esc(p.symbol)} <span class="side ${p.side}" style="padding:0 4px;margin-left:4px">${p.side === "long" ? "▲" : "▼"}</span></span><span class="t"><span class="b" style="left:${x >= 0 ? 50 : 50 + x}%;width:${Math.abs(x).toFixed(2)}%;background:${x >= 0 ? css("--long") : css("--short")}"></span></span><span class="v ${cls(p.upnl)}">${usd(p.upnl, 2, true)}</span><span class="v ${cls(p.upnl_pct)}">${pct(p.upnl_pct, 2, true)}</span></div>`}).join("")}</div>`;
+  return `<div class="bars contrib"><div class="brow bhead"><span class="n">Contrat</span><span></span><span class="v">USDT</span><span class="v">%</span></div>${rows.map(p => {const x = 50 * p.upnl / m;
+    return `<div class="brow click" data-sym="${esc(p.symbol)}"><span class="n"><span class="g ${p.side === "long" ? "up" : "down"}">${p.side === "long" ? "▲" : "▼"}</span>${esc(p.symbol)}</span><span class="t"><span class="b" style="left:${x >= 0 ? 50 : 50 + x}%;width:${Math.abs(x).toFixed(2)}%;background:${x >= 0 ? css("--long") : css("--short")}"></span></span><span class="v ${cls(p.upnl)}">${usd(p.upnl, 2, true)}</span><span class="v ${cls(p.upnl_pct)}">${pct(p.upnl_pct, 2, true)}</span></div>`}).join("")}</div>`;
 }
-function bySymbol(closed) {
-  const by = {};
-  closed.forEach(t => {const b = by[t.symbol] ||= {symbol: t.symbol, pnl: 0, n: 0, w: 0}; b.pnl += t.pnl || 0; b.n += 1; if (t.pnl > 0) b.w += 1});
-  const rows = Object.values(by).sort((a, b) => b.pnl - a.pnl);
+function bySymbol(T) {
+  const rows = Object.entries(T.by_symbol || {}).map(([s, b]) => ({symbol: s, pnl: b.pnl, n: b.n, w: b.wins})).sort((a, b) => b.pnl - a.pnl);
   if (!rows.length) return '<div class="empty">Aucune position fermée pour l\'instant.</div>';
   const m = Math.max(1e-9, ...rows.map(r => Math.abs(r.pnl)));
-  return `<div class="bars contrib">${rows.map(r => {const x = 50 * r.pnl / m;
+  return `<div class="bars contrib"><div class="brow bhead"><span class="n">Contrat</span><span></span><span class="v">P&L net</span><span class="v">gagnantes</span></div>${rows.map(r => {const x = 50 * r.pnl / m;
     return `<div class="brow click" data-sym="${esc(r.symbol)}"><span class="n">${esc(r.symbol)}</span><span class="t"><span class="b" style="left:${x >= 0 ? 50 : 50 + x}%;width:${Math.abs(x).toFixed(2)}%;background:${x >= 0 ? css("--long") : css("--short")}"></span></span><span class="v ${cls(r.pnl)}">${usd(r.pnl, 2, true)}</span><span class="v">${r.w}/${r.n}</span></div>`}).join("")}</div>`;
 }
 function calendar(D) {
@@ -542,6 +579,12 @@ function calendar(D) {
   const pnl = {};
   days.forEach((d, i) => {pnl[d] = last[d] - (i ? last[days[i - 1]] : (fin(D.e0) ? D.e0 : last[d]))});
   const m = Math.max(1e-9, ...Object.values(pnl).map(Math.abs));
+  if (days.length <= 45) {  // a short history reads better as daily bars than as a mostly empty calendar
+    const m2 = Math.max(1e-9, ...days.map(d => Math.abs(pnl[d])));
+    return `<div class="dbars">${days.map(d => {const v = pnl[d], h = 100 * Math.abs(v) / m2;
+      return `<div class="db" title="${d} : ${usd(v, 2, true)} USDT"><div class="up-h">${v >= 0 ? `<i style="height:${h.toFixed(1)}%;background:var(--long)"></i>` : ""}</div><div class="dn-h">${v < 0 ? `<i style="height:${h.toFixed(1)}%;background:var(--short)"></i>` : ""}</div><span>${d.slice(8)}/${d.slice(5, 7)}</span></div>`}).join("")}</div>
+      <div class="cal-foot"><span>${days.length} jour${days.length > 1 ? "s" : ""} · ${Object.values(pnl).filter(x => x > 0).length} positifs · meilleur <span class="up">${usd(Math.max(...Object.values(pnl)), 2, true)}</span> · pire <span class="down">${usd(Math.min(...Object.values(pnl)), 2, true)}</span></span></div>`;
+  }
   const start = new Date(days[0] + "T00:00:00Z"), end = new Date(days.at(-1) + "T00:00:00Z");
   start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7));  // back to Monday
   const cols = [];
@@ -577,7 +620,7 @@ function vHistory(D) {
     {k: "pnl", h: "P&L net", cl: "num", f: r => `<span class="${cls(r.pnl)}">${usd(r.pnl, 2, true)}</span>`},
     {k: "ret", h: "Rendement", cl: "num", f: r => `<span class="${cls(r.ret)}">${pct(r.ret, 2, true)}</span>`},
     {k: "fees", h: "Frais", cl: "num", f: r => usd(r.fees, 2)},
-    {k: "exit_kind", h: "Sortie par", f: r => r.exit_kind === "stop" ? '<span class="pill warn">stop</span>' : r.exit_kind === "flatten" ? '<span class="pill crit">arrêt</span>' : '<span class="muted">rééquilibrage</span>'},
+    {k: "exit_kind", h: "Sortie par", f: r => r.exit_kind === "stop" ? '<span class="pill warn">stop</span>' : r.exit_kind === "flatten" ? '<span class="pill crit">arrêt</span>' : r.exit_kind === "external" ? '<span class="pill">hors moteur</span>' : '<span class="muted">rééquilibrage</span>'},
   ];
   el.innerHTML = `<div class="grid">
    <div class="c12"><div class="panel"><div class="stats">
@@ -591,12 +634,12 @@ function vHistory(D) {
     <div><div class="label">Meilleure · pire</div><div class="v"><span class="up">${usd(st.best, 0, true)}</span> <span class="muted">·</span> <span class="down">${usd(st.worst, 0, true)}</span></div><div class="x">USDT</div></div>
    </div></div></div>
    <div class="c5"><div class="panel" style="height:100%"><div class="ph"><h2>P&L par jour</h2><span class="sub">équité de fin de journée (UTC) face à la veille</span></div><div class="pb">${calendar(D)}</div></div></div>
-   <div class="c7"><div class="panel" style="height:100%"><div class="ph"><h2>P&L réalisé par contrat</h2><span class="sub">positions fermées, net de frais</span></div>${bySymbol(T.closed || [])}</div></div>
+   <div class="c7"><div class="panel" style="height:100%"><div class="ph"><h2>P&L réalisé par contrat</h2><span class="sub">positions fermées, net de frais</span></div>${bySymbol(T)}</div></div>
    <div class="c12"><div class="panel"><div class="ph"><h2>Positions fermées</h2><span class="sub">reconstruites des exécutions : de l'ouverture au retour à plat</span>
     <div class="right filters"><input class="search" id="q" placeholder="Filtrer un contrat…" value="${esc(f.q)}" aria-label="Filtrer">
      ${["all", "long", "short"].map(s => `<button class="btn-s" data-side="${s}" aria-pressed="${f.side === s}">${s === "all" ? "Tous" : s === "long" ? "▲ Long" : "▼ Short"}</button>`).join("")}</div></div>
     <div class="tw maxh">${table("t-closed", cols, closed, {click: true, sort: {k: "closed", dir: "desc"}, empty: "Aucune position fermée pour l'instant."})}</div></div></div>
-   <div class="c12"><div class="panel"><div class="ph"><h2>Exécutions</h2><span class="sub">${fills.length} (les 1 500 dernières)</span></div>
+   <div class="c12"><div class="panel"><div class="ph"><h2>Exécutions</h2><span class="sub">${num(Math.min(400, fills.length), 0)} plus récentes sur ${num(fills.length, 0)} chargées</span></div>
     <div class="tw maxh">${fillsTable("t-fills-all", fills, 400)}</div></div></div></div>`;
   const qi = $("#q"); qi.oninput = e => {S.filt.q = e.target.value; clearTimeout(qi._t); qi._t = setTimeout(() => {render(); const n = $("#q"); n.focus(); n.setSelectionRange(n.value.length, n.value.length)}, 250)};
   $$("[data-side]", el).forEach(b => b.onclick = () => {S.filt.side = b.dataset.side; render()});
@@ -613,7 +656,7 @@ function vSignals(D) {
   el.innerHTML = `<div class="grid">
    <div class="c7"><div class="panel"><div class="ph"><h2>Classement du modèle à la dernière décision</h2><span class="sub">${rows.length} contrats · ${dec.ts ? dt(dec.ts) + " UTC" : "—"}</span></div>
     <div class="pb" style="padding-bottom:0"><p class="cap">Barres : score du modèle (rendement résiduel attendu sur ${num((D.strat.holding_bars || 48) * D.barMin / 60, 0)} h, standardisé ; vert au-dessus de la moyenne, rouge en dessous). Dernière colonne : poids visé dans le livre. Le livre achète le haut, vend le bas, en neutralisant marché et styles.</p></div>
-    <div class="brow" style="height:20px;color:var(--mute);font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;padding:0 16px"><span>Contrat</span><span style="text-align:center">score</span><span class="v">score</span><span class="v">poids</span></div>
+    <div class="bars" style="padding-bottom:0"><div class="brow bhead"><span class="n">Contrat</span><span style="text-align:center">score (barre)</span><span class="v">score</span><span class="v">poids</span></div></div>
     <div class="bars">${bars || '<div class="empty">Aucune décision enregistrée.</div>'}</div></div></div>
    <div class="c5"><div class="panel"><div class="ph"><h2>Qualité réalisée du classement</h2><span class="sub">IC, moyenne 7 jours</span></div>
     <div class="pb" style="padding-bottom:0">${legendHTML([{name: "Score tradé (lissé)", color: css("--s1")}, {name: "Score brut", color: css("--s2")}, {name: "Score vieux de 24 h", color: css("--s3")}].concat(fin(D.rs.ic) ? [{name: "Recherche", color: css("--ink-2"), dash: true}] : []))}</div>
@@ -649,14 +692,14 @@ function vRisk(D) {
     ${meter("Drawdown depuis le plus haut", dd, hard * 1.1, [{v: soft, l: "réduction " + pct(soft, 0), c: "warn"}, {v: hard, l: "arrêt " + pct(hard, 0), c: "crit"}], v => pct(v, 2), "Au-delà de la réduction, la taille du livre baisse progressivement ; à l'arrêt, tout est fermé et une décision humaine est requise.", dd > soft ? css("--crit") : css("--s1"))}
     ${meter("Perte attendue en queue (ES 97,5 %, 1 jour)", es, esl * 1.5, [{v: esl, l: "limite " + pct(esl, 1), c: "crit"}], v => pct(v, 2), "Au-dessus de la limite, le livre est réduit à proportion (facteur ×" + num(r.es_scale, 2) + ").")}
     ${meter("Exposition brute", D.st.gross, gmax * 1.1, [{v: gmax, l: "plafond " + num(gmax, 1) + "×", c: "crit"}], v => num(v, 2) + "×", "Longs + shorts, en multiple du capital alloué.")}
-    ${meter("Exposition nette", Math.abs(D.st.net || 0), (s.net_max || 0.25) * 1.5, [{v: s.net_max || 0.25, l: "plafond " + pct(s.net_max || 0.25, 0), c: "crit"}], () => num(D.st.net, 2, true) + "×", "Longs − shorts : le livre vise la neutralité au marché (bêta).", css("--s2"))}
+    ${meter("Exposition nette", Math.abs(D.st.net || 0), (s.net_max || 0.25) * 1.5, [{v: s.net_max || 0.25, l: "plafond ±" + num(s.net_max || 0.25, 2) + "×", c: "crit"}], () => num(D.st.net, 2, true) + "×", "Longs − shorts : le livre vise la neutralité au marché (bêta).", css("--s2"))}
     ${meter("Volatilité ex ante (annuelle)", r.ex_ante_vol, (s.vol_target || 0.2) * 1.5, [{v: s.vol_target || 0.2, l: "cible " + pct(s.vol_target || 0.2, 0)}], v => pct(v, 1), "Volatilité prévue du livre par la covariance EWMA ; la cible est atteinte quand l'IC estimé vaut la référence.", css("--s3"))}
     ${meter("Positions", D.pos.length, (s.max_positions || 40) * 1.1, [{v: s.max_positions || 40, l: "max " + (s.max_positions || 40), c: "crit"}], v => num(v, 0), "")}
    </div></div>
    <div class="c6"><div class="panel"><div class="ph"><h2>États et garde-fous</h2></div>
     ${flag(D.st.halted, "Arrêt du moteur", D.st.halted ? esc(D.st.halt_reason || "") : "Déclenché par le drawdown d'arrêt, la perte journalière (" + pct(dl, 0) + ") ou l'interrupteur d'urgence (hermes live kill).")}
     ${flag(r.reduce_only === 1, "Réductions seulement", "Après une perte journalière ou sur données périmées : aucune position ne grossit.")}
-    ${flag(fin(r.regime_scale) && r.regime_scale < 1, "Garde de régime", fin(r.regime_scale) ? "Taille ×" + num(r.regime_scale, 2) + " quand BTC est à plus de " + pct((s.regime_gate || {}).drawdown, 0) + " sous son plus haut de " + ((s.regime_gate || {}).lookback_days || 90) + " j." : "Désactivée pour ce modèle.")}
+    ${flag(fin(r.regime_scale) && r.regime_scale < 1, "Garde de régime", fin(r.regime_scale) ? "Taille ×" + num(r.regime_scale, 2) + " quand BTC est à plus de " + pct((s.regime_gate || {}).drawdown, 0) + " sous son plus haut de " + esc((s.regime_gate || {}).lookback_days || 90) + " j." : "Désactivée pour ce modèle.")}
     ${flag(r.psi_drifted > 0, "Dérive des variables", "PSI max " + num(r.psi_max, 2) + " (alerte au-delà de 0,25) : les données en direct ressemblent-elles à l'entraînement ?")}
     <div class="stats" style="border-top:1px solid var(--line)">
      <div><div class="label">Budget de risque</div><div class="v">${pct(r.budget, 0)}</div><div class="x">selon le drawdown</div></div>
@@ -672,10 +715,10 @@ function vRisk(D) {
      {k: "stop_dist", h: "Distance", cl: "num", f: r => pct(r.stop_dist, 2)},
      {k: "loss", h: "Perte au stop", cl: "num", v: r => r.stop_dist * Math.abs(r.notional), f: r => fin(r.stop_dist) ? `<span class="down">${usd(-r.stop_dist * Math.abs(r.notional), 0)}</span>` : "—"},
    ], D.pos, {click: true, sort: {k: "stop_dist", dir: "asc"}, empty: "Aucune position, donc aucun stop."})}</div></div></div></div>`;
-  lineChart("dd", $("#c-dd"), {series: [{name: "Drawdown", color: css("--short"), type: "area", data: D.eq.map(x => ({time: utc(x.t), value: -(x.dd || 0)}))}],
-    refs: [{y: -soft, label: "réduction", color: css("--warn")}, {y: -hard, label: "arrêt", color: css("--crit")}], fmt: v => pct(v, 1), tip: true});
+  lineChart("dd", $("#c-dd"), {series: [{name: "Drawdown", color: css("--short"), type: "under", data: D.eq.map(x => ({time: utc(x.t), value: -(x.dd || 0)}))}],
+    refs: [{y: -soft, label: "réduction", color: css("--warn")}, {y: -hard, label: "arrêt", color: css("--crit")}], include: [0, -soft], fmt: v => pct(v, 1), tip: true});
   lineChart("ex", $("#c-ex"), {series: [{name: "Brute", color: css("--s1"), data: D.eq.map(x => ({time: utc(x.t), value: x.g}))}, {name: "Nette", color: css("--s2"), data: D.eq.map(x => ({time: utc(x.t), value: x.n}))}],
-    refs: [{y: gmax, label: "plafond", color: css("--crit")}], fmt: v => num(v, 2) + "×", tip: true});
+    refs: [{y: gmax, label: "plafond", color: css("--crit")}], include: [0, gmax], fmt: v => num(v, 2) + "×", tip: true});
   wireTables(el);
 }
 
@@ -717,8 +760,8 @@ function vModel(D) {
       <dt>Identifiant</dt><dd>${esc(b.config_hash || "—")}</dd>
       <dt>Entraîné sur</dt><dd>${esc(String(b.train_start || "").slice(0, 10))} → ${esc(String(b.train_end || "").slice(0, 10))}</dd>
       <dt>Bougie · détention</dt><dd>${esc(D.bar)} · ${dur((D.strat.holding_bars || 48) * D.barMin * 60)}</dd>
-      <dt>Cible</dt><dd>${D.strat.target === "style" ? "rendement résiduel net des styles" : esc(D.strat.target || "—")}</dd>
-      <dt>Ensemble</dt><dd>GBM + ridge (${esc(D.strat.ensemble || "—")})</dd>
+      <dt>Cible</dt><dd>${esc(TARGET[D.strat.target] || D.strat.target || "—")}</dd>
+      <dt>Ensemble</dt><dd>GBM + ridge, ${esc(ENSEMBLE[D.strat.ensemble] || D.strat.ensemble || "—")}</dd>
       <dt>IC a priori</dt><dd>${esc(fin(b.prior_ic) ? num(b.prior_ic, 3) : "borne basse de validation")}</dd>
      </dl></div>
      <div class="card"><h3>Ce que la recherche attend</h3><dl class="kv">
@@ -738,7 +781,7 @@ function vSystem(D) {
   const fresh = D.health;
   el.innerHTML = `<div class="grid"><div class="c12"><div class="panel"><div class="ph"><h2>Chaîne de décision</h2><span class="sub">données → univers → modèle → portefeuille → risque → exécution, toutes les ${D.barMin * (s.rebalance_every || 1)} min</span></div><div class="pb"><div class="cards">
     ${card("Données de marché", fresh, [["Source", "Binance USDT-M (public)"], ["Dernière bougie", st.bar ? dt(st.bar) + " UTC" : "—"], ["Mise à jour", st.updated ? dt(st.updated) + " UTC" : "—"], ["Cycle", fin(st.cycle_s) ? num(st.cycle_s, 1) + " s" : "—"]], "Bougies fermées seulement ; au-delà d'une bougie de retard, le livre ne fait que réduire.")}
-    ${card("Univers", "good", [["Taille", `top ${s.universe_top_n || "—"} par liquidité`], ["Membres à la décision", st.n_members ?? "—"], ["Filtre", s.venue === "okx" ? "listés sur OKX la veille" : "tous"], ["Positionnement", (s.positioning || []).length ? esc(s.positioning.join(", ")) : "non utilisé"]], "Point-in-time : liquidité et ancienneté calculées sur l'historique connu à la date.")}
+    ${card("Univers", "good", [["Taille", `top ${esc(s.universe_top_n || "—")} par liquidité`], ["Membres à la décision", esc(st.n_members ?? "—")], ["Filtre", s.venue === "okx" ? "listés sur OKX la veille" : "tous"], ["Positionnement", (s.positioning || []).length ? esc(s.positioning.join(", ")) : "non utilisé"]], "Point-in-time : liquidité et ancienneté calculées sur l'historique connu à la date.")}
     ${card("Modèle", D.b.promoted ? "good" : "warn", [["Nom", esc(D.rs.name || "—")], ["IC estimé", num(st.ic_est, 3)], ["Promu", D.b.promoted ? "oui" : "non"], ["Funding 8 h", s.funding_per_8h ? "oui" : "non"]], "Taille ∝ IC estimé causalement (réalisé, borne de validation en a priori).")}
     ${card("Portefeuille", "good", [["Cible de vol", pct(s.vol_target, 0)], ["Plafonds brut · net", `${num(s.gross_max, 1)}× · ${pct(s.net_max, 0)}`], ["Poids max", pct(s.weight_max, 0)], ["Neutralité", `${s.beta_neutral ? "bêta" : ""}${s.style_neutral ? " + styles" : ""}`], ["Aversion aux coûts", num(s.cost_aversion, 1)]], "Optimiseur moyenne-variance avec coûts de transaction et zone de non-échange.")}
     ${card("Risque", st.halted ? "crit" : "good", [["Drawdown réduction · arrêt", `${pct(s.drawdown_soft, 0)} · ${pct(s.drawdown_hard, 0)}`], ["Perte jour max", pct(s.daily_loss_limit, 0)], ["ES 1 j max", pct(s.es_limit_daily, 1)], ["Stops", `${num(s.stop_sigmas, 0)} σ jour`]], "Indépendant du modèle et des données : l'arrêt et l'interrupteur d'urgence agissent même si le reste échoue.")}
@@ -762,7 +805,7 @@ function vInactive(mode) {
    <div><span class="mode-badge ${live ? "live" : ""}">${esc(MODE_LABEL[mode] || mode).toUpperCase()} · INACTIF</span>
     <h1>${live ? "Aucun argent réel n'est engagé." : "Aucun moteur ne tourne dans ce mode."}</h1>
     ${live ? `<p>Le mode réel est verrouillé par construction : le moteur refuse de démarrer avec un modèle qui n'a pas franchi <b>tous</b> les critères de la porte de promotion, et l'activer reste une décision humaine explicite.</p>
-    <p>Le modèle actuel est en incubation en papier : il décide toutes les 30 minutes sur les vrais prix, sans argent réel, pour vérifier que son avantage tient sur des données jamais vues.</p>` : `<p>Ce mode n'a encore publié aucun état.</p>`}
+    <p>Le modèle actuel est en incubation en papier : il décide à chaque bougie sur les vrais prix, sans argent réel, pour vérifier que son avantage tient sur des données jamais vues.</p>` : `<p>Ce mode n'a encore publié aucun état.</p>`}
     <ol class="steps">
      <li><span class="n">1</span><span><b>Porte de promotion franchie</b> — Sharpe dégonflé, test nul, surapprentissage, années positives, stress de coûts, de latence et de stops.</span></li>
      <li><span class="n">2</span><span><b>Incubation papier concluante</b> — IC réalisé et courbe d'équité conformes à la recherche (onglet Papier, section Modèle).</span></li>
@@ -806,8 +849,8 @@ $("#theme").onclick = () => {const t = document.documentElement.dataset.theme ==
   const vt = $("#v-terminal"); if (vt) {delete vt.dataset.built; vt.innerHTML = ""} render(); loadCandles()};
 setInterval(() => {
   const c = $("#clock"); if (c) {const d = new Date(); c.textContent = `${two(d.getUTCHours())}:${two(d.getUTCMinutes())}:${two(d.getUTCSeconds())}`}
-  const cd = $("#cd"); if (cd && S.snap) {const D = derive(S.snap), every = (D.strat.rebalance_every || 1) * D.barMin * 60000, left = Math.max(0, Math.ceil(Date.now() / every) * every - Date.now());
-    cd.textContent = `${Math.floor(left / 60000)}:${two(Math.floor(left / 1000) % 60)}`}
+  const cd = $("#cd"); if (cd && S.snap) {const D = derive(S.snap), c = cadence(D.bar, D.strat.rebalance_every), left = Math.max(0, c.next - Date.now());
+    cd.textContent = D.health === "good" ? `${Math.floor(left / 60000)}:${two(Math.floor(left / 1000) % 60)}` : "en attente"}
 }, 1000);
 document.addEventListener("keydown", e => {
   if (e.target.closest("input,select,textarea") || e.metaKey || e.ctrlKey || e.altKey) return;
