@@ -85,3 +85,14 @@ def test_research_run_end_to_end_report_resume_and_compare(cfg_small, tmp_path, 
     _, wf2, _ = run_research(cfg2, out, panel=panel, n_null=2, workers=1, ledger=ledger, save_model=False)
     assert (out / "walkforward" / "training_hash").read_text() == marker
     np.testing.assert_allclose(wf2.score.to_numpy(), wf.score.to_numpy(), rtol=1e-5, atol=1e-6)
+
+
+def test_resume_accepts_a_longer_saved_history_only():
+    from hermes.research.run import _resumable
+
+    saved = "abc:2022-06-01 00:00:00+00:00:2026-08-31 23:45:00+00:00:289"
+    shorter = "abc:2022-06-01 00:00:00+00:00:2026-08-31 22:45:00+00:00:289"
+    assert _resumable(saved, shorter)  # truncated: every fold only saw its own past
+    assert not _resumable(shorter, saved)  # never extended
+    assert not _resumable(saved, shorter.replace(":289", ":288"))
+    assert not _resumable(saved, "xyz" + shorter[3:])
