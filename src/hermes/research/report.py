@@ -209,8 +209,9 @@ def render_markdown(meta: dict, ev: Evaluation, wf: WalkForwardResult) -> str:
     ]
     if ev.halted_at:
         L += [
-            f"> **Arrêt au drawdown dur le {str(ev.halted_at)[:10]}** : le livre ne trade plus ensuite (comme en "
-            "réel, jusqu'à une reprise humaine). Les statistiques ci-dessus incluent ces jours sans activité.",
+            f"> **Livre arrêté par le contrôle de drawdown le {str(ev.halted_at)[:10]}** (arrêt dur, ou budget de "
+            "risque sous 5 % : le coussin de drawdown est épuisé). Il ne trade quasiment plus ensuite, comme en réel "
+            "jusqu'à une reprise humaine ; les statistiques ci-dessus incluent ces jours sans activité.",
             "",
         ]
     nh = ev.nohalt

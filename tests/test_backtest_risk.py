@@ -114,3 +114,12 @@ def test_rebalancing_follows_the_clock_aligned_grid(small_panel, setup):
     assert bt.stats["turnover"][~grid].eq(0).all() and bt.stats["turnover"][grid].gt(0).any()
     # Same grid whatever the backtest's first bar (research and live decide on the same bars).
     assert (bt.stats.index[grid].minute % 60).isin([0]).all()
+
+
+def test_exhausted_drawdown_cushion_is_reported(tmp_path):
+    cfg = RiskConfig(drawdown_soft=0.1, drawdown_hard=0.2, kill_switch_file=tmp_path / "KILL")
+    ov = RiskOverlay(cfg)
+    t = pd.Timestamp("2024-01-01", tz="UTC")
+    ov.observe(t, 100.0)
+    assert not ov.cushion_exhausted(85.0)  # 15% drawdown: half the budget left
+    assert ov.cushion_exhausted(80.2) and not ov.state.halted  # nearly idle, yet never formally halted

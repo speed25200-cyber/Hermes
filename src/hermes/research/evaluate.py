@@ -226,6 +226,14 @@ def positive_year_fraction(daily: pd.Series, min_days: int = 90) -> float:
     return float(((use["prod"] - 1) > 0).mean())
 
 
+def _stopped_at(bt: BacktestResult) -> str | None:
+    """When the main backtest stopped trading: a formal halt, or the drawdown budget falling below 5 %."""
+    halt = next((str(ts) for ts, msg in bt.risk_events if msg.startswith("HALT")), None)
+    low = bt.stats.index[bt.stats["budget"].between(1e-12, 0.05)]
+    exhausted = str(low[0]) if len(low) else None
+    return min((x for x in (halt, exhausted) if x), default=None)
+
+
 @dataclass
 class Evaluation:
     ic: dict[str, object]
@@ -475,7 +483,7 @@ def evaluate(
         promoted=promoted,
         grid=grid_df,
         null_sharpes=[round(x, 3) for x in null_sr],
-        halted_at=next((ts for ts, msg in bt.risk_events if msg.startswith("HALT")), None),
+        halted_at=_stopped_at(bt),
         nohalt=nohalt,
     )
     return ev, bt
