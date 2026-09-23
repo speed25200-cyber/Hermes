@@ -95,3 +95,54 @@ def test_universe_mask_reads_the_panel_venue_field(small_panel):
     m = universe_mask(small_panel.with_fields({"venue_listed": listed}), cfg)
     assert not m[top].any()
     assert np.array_equal(m.sum(axis=1).to_numpy()[-100:], base.sum(axis=1).to_numpy()[-100:])
+
+
+def test_an_unpublished_archive_is_not_cached_as_a_delisting(tmp_path, monkeypatch):
+    import hermes.data.venue as venue
+
+    today = date(2025, 3, 10)
+    monkeypatch.setattr(venue, "_utc_today", lambda: today)
+    published = {"until": date(2025, 3, 8)}  # the archive of the 9th is late
+
+    def okx(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "public/instruments" in url:
+            return httpx.Response(
+                200, json={"data": [{"instId": "BTC-USDT-SWAP", "instCategory": "1", "listTime": "0"}]}
+            )
+        day = date.fromisoformat(url.rsplit("/", 1)[-1][-14:-4])
+        return httpx.Response(200 if day <= published["until"] else 404)
+
+    (tmp_path / "venue").mkdir()
+    (tmp_path / "venue" / "okx_probes.json").write_text('{"BTC-USDT-SWAP|2025-03-05": false}')  # older bug
+    okx = OkxListing(tmp_path, client=httpx.Client(transport=httpx.MockTransport(okx)), workers=2, seed=None)
+    assert "BTC-USDT-SWAP|2025-03-05" not in okx.probes  # a cached "BTC absent" is a leftover: dropped
+    assert okx.archive_end() == date(2025, 3, 8)
+    assert "BTC-USDT-SWAP|2025-03-09" not in okx.probes  # "not published yet" is never remembered
+    published["until"] = date(2025, 3, 9)
+    assert okx.archive_end() == date(2025, 3, 9)
+
+
+def test_offline_catalog_uses_the_newest_snapshot_and_distrusts_unknown_contracts(tmp_path, monkeypatch):
+    import json
+
+    import hermes.data.venue as venue
+
+    monkeypatch.setattr(venue, "_utc_today", lambda: date(2025, 6, 30))
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    old = {"fetched": "2025-01-01", "data": [{"instId": "BTC-USDT-SWAP", "instCategory": "1", "listTime": "0"}]}
+    (seed / "instruments.json").write_text(json.dumps(old))
+    (tmp_path / "venue").mkdir()
+    newer = [{"instId": "BTC-USDT-SWAP", "instCategory": "1", "listTime": "0", "state": "live"}]
+    (tmp_path / "venue" / "okx_instruments_2025-03-01.json").write_text(json.dumps(newer))
+    down = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
+    okx = OkxListing(tmp_path, client=down, workers=2, seed=seed)
+    weeks = pd.date_range("2025-02-05", "2025-06-18", freq="7D")  # the anchored grid (Wednesdays)
+    okx.probes.update({f"NEW-USDT-SWAP|{d.date()}": True for d in weeks})
+    okx.probes.update({f"BTC-USDT-SWAP|{d}": True for d in ("2025-06-25", "2025-02-05")})
+    okx.catalog()
+    assert okx.catalog_date == date(2025, 3, 1)  # the newest of the cached and committed snapshots
+    cal = okx.calendar({"NEWUSDT": (date(2025, 2, 5), date(2025, 6, 20))})
+    assert cal.loc["2025-02-20", "NEWUSDT"]  # traded, and known to the list of March 1st
+    assert not cal.loc["2025-06-18", "NEWUSDT"]  # after that list, its category is unknown: not selectable
