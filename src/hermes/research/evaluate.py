@@ -262,7 +262,7 @@ def evaluate(
     start = wf.oof_start
     # Each worker holds a few (bar x contract) float64 arrays of the backtest window on top of the shared data.
     n_cols = int(ds.mask.iloc[ds.mask.index.searchsorted(start) :].to_numpy().any(axis=0).sum())
-    per_worker = max(1.0, 1.5 * 16 * 8 * len(ds.mask.index) * max(n_cols, 1) / 1e9)
+    per_worker = max(1.0, 1.5 * 10 * 8 * len(ds.mask.index) * max(n_cols, 1) / 1e9)  # ~10 live float64 arrays
     workers = workers or max(1, min(os.cpu_count() or 2, _workers_for_memory(per_worker)))
     log.info("evaluation: %d parallel backtests (%.1f GB each, %d contracts)", workers, per_worker, n_cols)
     n_null = n_null if n_null is not None else min(v.null_permutations, 40)
