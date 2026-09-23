@@ -36,6 +36,7 @@ const VIEWS = [["terminal", "Terminal"], ["positions", "Positions"], ["history",
 const S = {
   mode: store.get("mode", "paper"), view: store.get("view", "terminal"), tf: store.get("tf", null), sym: null,
   modes: [], snap: null, candles: null, fills: null, sort: {}, filt: {side: "all", q: "", lvl: "all"}, loaded: false, sig: "",
+  allFills: store.get("allFills", false),
 };
 document.documentElement.dataset.theme = store.get("theme", "dark");
 
@@ -115,10 +116,10 @@ function renderKPIs(D) {
     kpi("Équité", `${usd(st.equity, 0)}<small>USDT</small>`, fin(D.e0) ? `départ ${usd(D.e0, 0)} USDT` : ""),
     kpi("P&L total", `<span class="${cls(D.pnl)}">${usd(D.pnl, 2, true)}</span>`, fin(D.pnl) && D.e0 ? `<span class="${cls(D.pnl)}">${pct(D.pnl / D.e0, 2, true)}</span> depuis le départ` : ""),
     kpi("P&L 24 h", `<span class="${cls(D.pnl24)}">${usd(D.pnl24, 2, true)}</span>`, fin(D.pnl24) && D.pnl24base ? `<span class="${cls(D.pnl24)}">${pct(D.pnl24 / D.pnl24base, 2, true)}</span> sur 24 h` : "moins de 24 h d'historique"),
-    kpi("Drawdown", pct(fin(dd) ? -dd : null, 2), `réduction ${pct(lim.drawdown_soft || strat.drawdown_soft, 0)} · arrêt ${pct(hard, 0)}`, {w: (dd || 0) / hard, c: (dd || 0) > (lim.drawdown_soft || 0.1) ? css("--crit") : css("--s1")}),
-    kpi("Exposition", `${num(st.gross, 2)}×<small>brute</small>`, `nette ${num(st.net, 2, true)}× · plafond ${num(gmax, 1)}×`, {w: (st.gross || 0) / gmax, c: css("--s1")}),
+    kpi("Drawdown", pct(fin(dd) ? -dd : null, 2), `seuils ${pct(lim.drawdown_soft || strat.drawdown_soft, 0)} · ${pct(hard, 0)}`, {w: (dd || 0) / hard, c: (dd || 0) > (lim.drawdown_soft || 0.1) ? css("--crit") : css("--s1")}),
+    kpi("Exposition", `${num(st.gross, 2)}×<small>brute</small>`, `nette ${num(st.net, 2, true)}× · max ${num(gmax, 1)}×`, {w: (st.gross || 0) / gmax, c: css("--s1")}),
     kpi("Positions", `<span class="up">${D.longs.length}▲</span> <span class="down">${D.shorts.length}▼</span>`, D.pos.length ? `${compact(lv)} long · ${compact(sv)} short` : "livre à plat"),
-    kpi("IC estimé", num(st.ic_est, 3), fin(rs.ic) ? `recherche ${num(rs.ic, 3)} · pilote la taille` : "pilote la taille du livre"),
+    kpi("IC estimé", num(st.ic_est, 3), fin(rs.ic) ? `recherche ${num(rs.ic, 3)}` : "pilote la taille"),
     kpi("Vol ex ante", pct(r.ex_ante_vol, 1), `cible ${pct(strat.vol_target, 0)} par an`, fin(r.ex_ante_vol) && strat.vol_target ? {w: r.ex_ante_vol / strat.vol_target, c: css("--s3")} : null),
   ].join("");
 }
@@ -136,7 +137,7 @@ function lwBase(extra = {}) {
     timeScale: {borderColor: css("--line-2"), timeVisible: true, secondsVisible: false, rightOffset: 4},
     crosshair: {mode: LW.CrosshairMode.Normal, vertLine: {color: css("--line-3"), labelBackgroundColor: css("--panel-3"), style: LW.LineStyle.Dashed},
       horzLine: {color: css("--line-3"), labelBackgroundColor: css("--panel-3"), style: LW.LineStyle.Dashed}},
-    localization: {locale: "fr-FR", priceFormatter: p => price(p)},
+    localization: {locale: "fr-FR"},
     handleScroll: {vertTouchDrag: false},
   }, extra);
 }
@@ -176,6 +177,7 @@ function chartPanel(D) {
     <select class="sym-select" id="sym" aria-label="Contrat">${opts}</select>
     <div class="tfs" id="tfs">${["5m", "15m", "30m", "1h", "4h", "1d"].map(x => `<button aria-pressed="${x === tf}" data-tf="${x}">${x}</button>`).join("")}</div>
     <div class="ohlc" id="ohlc"></div>
+    <button class="btn-s" id="allfills" aria-pressed="${!!S.allFills}" title="Afficher chaque exécution plutôt que les ouvertures et fermetures">Toutes les exécutions</button>
     <div class="right lg" style="margin-left:auto" id="chart-legend"></div>
    </div>
    <div class="chart-wrap"><div class="lw" id="c-price"></div><div class="chart-note" id="c-price-note"></div></div>
@@ -183,6 +185,7 @@ function chartPanel(D) {
   </div>`;
 }
 function wireChartPanel(D) {
+  $("#allfills").onclick = e => {S.allFills = !S.allFills; e.currentTarget.setAttribute("aria-pressed", S.allFills); store.set("allFills", S.allFills); drawPrice(derive(S.snap))};
   $("#sym").onchange = e => {S.sym = e.target.value; S.candles = null; S.fills = null; loadCandles(); renderLevels(D); drawPrice(D); markSelected()};
   $$("#tfs button").forEach(b => b.onclick = () => {S.tf = b.dataset.tf; store.set("tf", S.tf); $$("#tfs button").forEach(x => x.setAttribute("aria-pressed", x === b)); S.candles = null; loadCandles()});
 }
@@ -191,7 +194,7 @@ function renderLevels(D) {
   const el = $("#levels"); if (!el) return;
   const p = posOf(D, S.sym), o = (D.trades.open || {})[S.sym];
   const lg = $("#chart-legend");
-  if (lg) lg.innerHTML = `<span><i style="border-top-color:${css("--accent")}" class="dash"></i>Entrée</span><span><i style="border-top-color:${css("--crit")}"></i>Stop</span><span class="muted">TP : aucun</span>`;
+  if (lg) lg.innerHTML = `<span class="up">▲</span><span class="down" style="margin-left:-10px">▼</span><span>ouverture</span><span>● sortie</span><span class="warnc">■ stop</span><span><i style="border-top-color:${css("--accent")}" class="dash"></i>Entrée</span><span><i style="border-top-color:${css("--crit")}"></i>Stop</span><span class="muted">TP : aucun</span>`;
   if (!p) {
     el.innerHTML = `<div style="grid-column:1/-1"><div class="label">Pas de position sur ${esc(S.sym)}</div><div class="x" style="margin-top:4px">Les flèches montrent les exécutions passées sur ce contrat ; sans position, ni entrée ni stop.</div></div>`;
     return;
@@ -212,8 +215,12 @@ function drawPrice(D) {
     options: {rightPriceScale: {borderColor: css("--line-2"), scaleMargins: {top: 0.1, bottom: 0.05}}},
     init: c => {
       const up = css("--long"), dn = css("--short");
-      c.s.candles = c.chart.addSeries(LW.CandlestickSeries, {upColor: up, downColor: dn, borderUpColor: up, borderDownColor: dn, wickUpColor: up, wickDownColor: dn, priceLineColor: css("--ink-2")});
-      c.s.vol = c.chart.addSeries(LW.HistogramSeries, {priceFormat: {type: "volume"}, priceLineVisible: false, lastValueVisible: false}, 1);
+      c.levels = [];
+      // The entry and the stop stay in view: the price scale always includes them.
+      c.s.candles = c.chart.addSeries(LW.CandlestickSeries, {upColor: up, downColor: dn, borderUpColor: up, borderDownColor: dn, wickUpColor: up, wickDownColor: dn, priceLineColor: css("--ink-2"),
+        autoscaleInfoProvider: original => {const r = original(); if (!r || !c.levels.length) return r;
+          r.priceRange.minValue = Math.min(r.priceRange.minValue, ...c.levels); r.priceRange.maxValue = Math.max(r.priceRange.maxValue, ...c.levels); return r}});
+      c.s.vol = c.chart.addSeries(LW.HistogramSeries, {priceFormat: {type: "custom", formatter: compact, minMove: 1}, priceLineVisible: false, lastValueVisible: false}, 1);
       try {c.chart.panes()[0].setStretchFactor(4); c.chart.panes()[1].setStretchFactor(1)} catch (e) {/* older API */}
       c.markers = LW.createSeriesMarkers(c.s.candles, []);
       c.chart.subscribeCrosshairMove(prm => {
@@ -230,7 +237,7 @@ function drawPrice(D) {
   }
   note.textContent = "";
   const last = rows.at(-1)[4], d = pdec(last);
-  c.s.candles.applyOptions({priceFormat: {type: "price", precision: d, minMove: Math.pow(10, -d)}});
+  c.s.candles.applyOptions({priceFormat: {type: "custom", formatter: x => num(x, d), minMove: Math.pow(10, -d)}});
   const data = rows.map(r => ({time: r[0], open: r[1], high: r[2], low: r[3], close: r[4]}));
   c.s.candles.setData(data);
   const up = css("--long"), dn = css("--short");
@@ -239,23 +246,38 @@ function drawPrice(D) {
   // entry and stop lines
   c.lines.forEach(l => {try {c.s.candles.removePriceLine(l)} catch (e) {/* */}}); c.lines = [];
   const p = posOf(D, S.sym);
+  c.levels = p ? [p.entry, p.stop].filter(fin) : [];
   if (p) {
     if (fin(p.entry)) c.lines.push(c.s.candles.createPriceLine({price: p.entry, color: css("--accent"), lineWidth: 1, lineStyle: LW.LineStyle.Dashed, axisLabelVisible: true, title: `Entrée ${p.side === "long" ? "▲" : "▼"}`}));
-    if (fin(p.stop)) c.lines.push(c.s.candles.createPriceLine({price: p.stop, color: css("--crit"), lineWidth: 1, lineStyle: LW.LineStyle.Solid, axisLabelVisible: true, title: `Stop ${pct(-(p.stop_dist || 0), 1)}`}));
+    if (fin(p.stop)) c.lines.push(c.s.candles.createPriceLine({price: p.stop, color: css("--crit"), lineWidth: 1, lineStyle: LW.LineStyle.Solid, axisLabelVisible: true, title: `Stop · ${pct(p.stop_dist, 1)} du prix`}));
   }
-  // executions as markers, aggregated per candle and direction
+  // Markers: each position's opening and closing (stops highlighted); every execution on demand.
   const step = rows.length > 1 ? rows[1][0] - rows[0][0] : 1800, t0 = rows[0][0], tl = rows.at(-1)[0];
-  const agg = new Map();
-  (S.fills && S.fills.symbol === S.sym ? S.fills.rows : D.fills.filter(f => f.symbol === S.sym)).forEach(f => {
-    const ts = Math.floor(toMs(f.ts) / 1000); if (ts < t0 || ts > tl + step) return;
-    const bt = t0 + Math.floor((ts - t0) / step) * step, key = bt + f.side + (f.kind === "stop" ? "s" : "");
-    const a = agg.get(key) || {time: bt, side: f.side, stop: f.kind === "stop", usdt: 0};
-    a.usdt += Math.abs(f.notional || f.qty * f.price || 0); agg.set(key, a);
-  });
-  const marks = [...agg.values()].sort((a, b) => a.time - b.time).map(a => ({
-    time: a.time, position: a.side === "buy" ? "belowBar" : "aboveBar", shape: a.stop ? "circle" : a.side === "buy" ? "arrowUp" : "arrowDown",
-    color: a.stop ? css("--warn") : a.side === "buy" ? up : dn, text: (a.stop ? "STOP " : "") + (a.side === "buy" ? "+" : "−") + compact(a.usdt), size: 1,
-  }));
+  const snap = ts => {ts = Math.floor(ts); return ts < t0 || ts > tl + step ? null : t0 + Math.floor((ts - t0) / step) * step};
+  let marks = [];
+  if (S.allFills) {
+    const agg = new Map();
+    (S.fills && S.fills.symbol === S.sym ? S.fills.rows : D.fills.filter(f => f.symbol === S.sym)).forEach(f => {
+      const bt = snap(toMs(f.ts) / 1000); if (bt == null) return;
+      const key = bt + f.side + (f.kind === "stop" ? "s" : "");
+      const a = agg.get(key) || {time: bt, side: f.side, stop: f.kind === "stop", usdt: 0};
+      a.usdt += Math.abs(f.notional || f.qty * f.price || 0); agg.set(key, a);
+    });
+    marks = [...agg.values()].map(a => ({time: a.time, position: a.side === "buy" ? "belowBar" : "aboveBar", shape: a.stop ? "circle" : a.side === "buy" ? "arrowUp" : "arrowDown",
+      color: a.stop ? css("--warn") : a.side === "buy" ? up : dn, text: (a.stop ? "STOP " : "") + (a.side === "buy" ? "+" : "−") + compact(a.usdt), size: 0.8}));
+  } else {
+    const eps = (D.trades.closed || []).filter(t => t.symbol === S.sym);
+    const o = (D.trades.open || {})[S.sym];
+    if (o) eps.push({side: o.side, opened: o.opened, closed: null});
+    eps.forEach(t => {
+      const L = t.side === "long", ot = snap(t.opened);
+      if (ot != null) marks.push({time: ot, position: L ? "belowBar" : "aboveBar", shape: L ? "arrowUp" : "arrowDown", color: L ? up : dn, text: L ? "LONG" : "SHORT", size: 1.2});
+      const ct = t.closed ? snap(t.closed) : null;
+      if (ct != null) marks.push({time: ct, position: L ? "aboveBar" : "belowBar", shape: t.exit_kind === "stop" ? "square" : "circle",
+        color: t.exit_kind === "stop" ? css("--warn") : css("--ink-2"), text: (t.exit_kind === "stop" ? "STOP " : "sortie ") + usd(t.pnl, 1, true), size: 0.9});
+    });
+  }
+  marks.sort((a, b) => a.time - b.time);
   c.markers.setMarkers(marks);
   if (c.fitKey !== S.sym + (S.tf || D.bar)) {c.chart.timeScale().fitContent(); c.fitKey = S.sym + (S.tf || D.bar)}
 }
@@ -365,7 +387,7 @@ function positionsList(D) {
   };
   const upnl = D.pos.reduce((a, p) => a + (p.upnl || 0), 0);
   return `<div class="panel"><div class="ph"><h2>Positions ouvertes</h2><span class="sub">${D.pos.length} · latent <span class="${cls(upnl)}">${usd(upnl, 2, true)}</span></span></div>
-    ${D.pos.length ? grp("Longs", D.longs, "long") + grp("Shorts", D.shorts, "short") : `<div class="empty"><b>Livre à plat</b>${flatReason(D)}</div>`}</div>`;
+    <div class="plist">${D.pos.length ? grp("Longs", D.longs, "long") + grp("Shorts", D.shorts, "short") : `<div class="empty"><b>Livre à plat</b>${flatReason(D)}</div>`}</div></div>`;
 }
 function flatReason(D) {
   const ic = D.st.ic_est;
@@ -384,7 +406,7 @@ function vTerminal(D) {
   const el = $("#v-terminal");
   if (!el.dataset.built) {
     el.innerHTML = `<div class="grid">
-      <div class="c8" id="t-chart"></div><div class="c4" id="t-pos"></div>
+      <div class="c8" id="t-chart"></div><div class="c4 stick" id="t-pos"></div>
       <div class="c8"><div class="panel"><div class="ph"><h2>Équité face à ce que la recherche attend</h2><div class="right" id="t-eq-lg"></div></div>
         <div class="chart-wrap sm"><div class="lw" id="c-eq"></div><div class="chart-note" id="c-eq-note"></div></div></div></div>
       <div class="c4"><div class="panel"><div class="ph"><h2>Composition du livre</h2><span class="sub">en % du capital</span></div><div class="pb" id="t-book"></div></div></div>
@@ -517,14 +539,14 @@ function vHistory(D) {
 function vSignals(D) {
   const el = $("#v-signals"), dec = D.decision || {}, sc = dec.scores || {}, w = dec.weights || {};
   const rows = Object.entries(sc).map(([s, v]) => ({symbol: s, score: v, weight: w[s] || 0, target: (dec.targets || {})[s] || 0, pos: (posOf(D, s) || {}).notional || 0})).sort((a, b) => b.score - a.score);
-  const m = Math.max(0.5, ...rows.map(r => Math.abs(r.score))), mw = Math.max(1e-4, ...rows.map(r => Math.abs(r.weight)));
+  const m = Math.max(0.5, ...rows.map(r => Math.abs(r.score)));
   const bars = rows.map(r => {const x = 50 * r.score / m, col = r.score >= 0 ? css("--long") : css("--short");
-    const wx = 50 + 50 * r.weight / mw;
-    return `<div class="brow"><span class="n">${esc(r.symbol)}</span><span class="t"><span class="b" style="left:${x >= 0 ? 50 : 50 + x}%;width:${Math.abs(x).toFixed(2)}%;background:${col}"></span>${r.weight ? `<span class="w" style="left:calc(${wx.toFixed(2)}% - 1px)" title="poids ${pct(r.weight, 1)}"></span>` : ""}</span><span class="v">${num(r.score, 2, true)}</span><span class="v">${r.weight ? pct(r.weight, 1, true) : "—"}</span></div>`}).join("");
+    return `<div class="brow"><span class="n">${esc(r.symbol)}</span><span class="t"><span class="b" style="left:${x >= 0 ? 50 : 50 + x}%;width:${Math.abs(x).toFixed(2)}%;background:${col}"></span></span><span class="v">${num(r.score, 2, true)}</span><span class="v ${cls(r.weight)}">${r.weight ? pct(r.weight, 1, true) : "—"}</span></div>`}).join("");
   const dm = dailyMean(D.series.ic), dmr = dailyMean(D.series.ic_raw), dml = dailyMean(D.series.ic_lag);
   el.innerHTML = `<div class="grid">
    <div class="c7"><div class="panel"><div class="ph"><h2>Classement du modèle à la dernière décision</h2><span class="sub">${rows.length} contrats · ${dec.ts ? dt(dec.ts) + " UTC" : "—"}</span></div>
-    <div class="pb" style="padding-bottom:0"><p class="cap">Barres : score du modèle (rendement résiduel attendu sur ${num((D.strat.holding_bars || 48) * D.barMin / 60, 0)} h, standardisé ; vert au-dessus de la moyenne, rouge en dessous). Trait : poids visé dans le livre. Le livre achète le haut, vend le bas, en neutralisant marché et styles.</p></div>
+    <div class="pb" style="padding-bottom:0"><p class="cap">Barres : score du modèle (rendement résiduel attendu sur ${num((D.strat.holding_bars || 48) * D.barMin / 60, 0)} h, standardisé ; vert au-dessus de la moyenne, rouge en dessous). Dernière colonne : poids visé dans le livre. Le livre achète le haut, vend le bas, en neutralisant marché et styles.</p></div>
+    <div class="brow" style="height:20px;color:var(--mute);font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;padding:0 16px"><span>Contrat</span><span style="text-align:center">score</span><span class="v">score</span><span class="v">poids</span></div>
     <div class="bars">${bars || '<div class="empty">Aucune décision enregistrée.</div>'}</div></div></div>
    <div class="c5"><div class="panel"><div class="ph"><h2>Qualité réalisée du classement</h2><span class="sub">IC, moyenne 7 jours</span></div>
     <div class="pb" style="padding-bottom:0">${legendHTML([{name: "Score tradé (lissé)", color: css("--s1")}, {name: "Score brut", color: css("--s2")}, {name: "Score vieux de 24 h", color: css("--s3")}].concat(fin(D.rs.ic) ? [{name: "Recherche", color: css("--ink-2"), dash: true}] : []))}</div>
@@ -540,7 +562,7 @@ function vSignals(D) {
   $("#c-ic-note").textContent = dm.length < 2 ? "L'IC réalisé apparaît une fois l'horizon écoulé (24 h)." : "";
   const s = (d, c, name, dash) => ({name, color: c, dash, data: roll(d, 7).map(([t, v]) => ({time: utc(t), value: v}))});
   lineChart("ic", $("#c-ic"), {series: [s(dm, css("--s1"), "Tradé"), s(dmr, css("--s2"), "Brut"), s(dml, css("--s3"), "Vieux 24 h")],
-    refs: [{y: 0, label: "0", color: css("--line-3")}].concat(fin(D.rs.ic) ? [{y: D.rs.ic, label: "recherche"}] : []), fmt: v => num(v, 3), tip: true});
+    refs: [{y: 0, label: "", color: css("--line-3")}].concat(fin(D.rs.ic) ? [{y: D.rs.ic, label: "recherche"}] : []), fmt: v => num(v, 3), tip: true});
   wireTables(el);
 }
 

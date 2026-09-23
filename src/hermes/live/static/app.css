@@ -146,7 +146,8 @@ main{max-width:1680px;margin:0 auto;padding:16px 20px 40px}
 .lg i.box{height:9px;width:9px;border:0;border-radius:2px}
 
 /* -- positions list -------------------------------------------------------------------------------------- */
-.plist{max-height:none}
+.plist{overflow:auto;max-height:560px}
+@media (min-width:1281px){.stick{contain:size}.stick>.panel{height:100%;display:flex;flex-direction:column}.stick .plist{flex:1 1 auto;min-height:0;max-height:none}}
 .pgroup{padding:6px 0 4px}
 .pgroup-h{display:flex;align-items:center;gap:8px;padding:8px 16px 6px;font-size:11px;color:var(--mute)}
 .pgroup-h .sum{margin-left:auto;font-family:var(--mono);color:var(--ink-2)}
@@ -201,7 +202,7 @@ td.wrap{white-space:normal;min-width:260px}
 .card{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:13px 14px}
 .card h3{margin:0;font-size:12.5px;font-weight:650;display:flex;align-items:center;gap:8px}
 .card .kv{display:grid;grid-template-columns:auto 1fr;gap:5px 12px;margin-top:10px;font-size:11.5px}
-.card .kv dt{color:var(--mute)}.card .kv dd{margin:0;text-align:right;font-family:var(--mono);color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .kv dt{color:var(--mute)}.card .kv dd{margin:0;text-align:right;font-family:var(--mono);color:var(--ink);overflow-wrap:anywhere}
 .card p{margin:8px 0 0;color:var(--mute);font-size:11.5px}
 .check{display:grid;grid-template-columns:22px minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}
 .check:last-child{border-bottom:0}
@@ -245,7 +246,8 @@ td.wrap{white-space:normal;min-width:260px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 details.tbl summary{cursor:pointer;color:var(--mute);font-size:11.5px;padding:10px 16px}
 @media (max-width:680px){
-  .status .chip.opt,.banner .opt,.brand small{display:none}
+  .status .chip.opt,.banner .opt,.brand small,.brand>div:last-child,.seg .tag{display:none}
+  .status .chip{padding:5px 8px}.status .chip b{font-size:11.5px}
   .seg button{padding:6px 9px}
   .brow{grid-template-columns:92px minmax(0,1fr) 54px 56px}
   .ev{grid-template-columns:1fr;gap:2px}
