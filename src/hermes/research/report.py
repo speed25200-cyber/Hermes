@@ -58,6 +58,8 @@ def write_report(
             "impact": "sum",
             "funding": "sum",
             "gross_pnl": "sum",
+            "pnl_long": "sum",
+            "pnl_short": "sum",
             "n_positions": "mean",
             "ic_est": "mean",
         }
@@ -183,12 +185,17 @@ def render_markdown(meta: dict, ev: Evaluation, wf: WalkForwardResult) -> str:
         "",
         "### Par année",
         "",
-        "| Année | Rendement | Sharpe | Drawdown max |",
-        "|---|---:|---:|---:|",
+        "| Année | Rendement | Sharpe | Drawdown max | P&L jambe acheteuse | P&L jambe vendeuse | Funding | Coûts "
+        "| Rotation |",
+        "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for _, row in ev.yearly.reset_index().iterrows():
+        g = row.get
         L.append(
-            f"| {int(row['year'])} | {_pct(row['return'])} | {_num(row['sharpe'])} | {_pct(row['max_drawdown'])} |"
+            f"| {int(row['year'])} | {_pct(row['return'])} | {_num(row['sharpe'])} | {_pct(row['max_drawdown'])} | "
+            f"{_pct(g('pnl_long', float('nan')))} | {_pct(g('pnl_short', float('nan')))} | "
+            f"{_pct(g('funding', float('nan')))} | {_pct(g('costs', float('nan')))} | "
+            f"{_num(g('turnover', float('nan')), 0)} |"
         )
     L += [
         "",

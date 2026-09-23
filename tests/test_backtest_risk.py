@@ -38,6 +38,7 @@ def test_perfect_foresight_is_profitable_and_costs_charged(small_panel, setup):
     st = bt.stats
     approx = st["gross_pnl"] + st["funding"] - st["fees"] - st["spread"] - st["impact"]
     assert np.allclose(approx, bt.returns, atol=1e-6)
+    assert np.allclose(st["pnl_long"] + st["pnl_short"], st["gross_pnl"], atol=1e-12)  # legs add up
 
 
 def test_drawdown_budget_and_halt(tmp_path):

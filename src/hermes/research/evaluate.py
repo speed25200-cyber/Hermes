@@ -359,6 +359,17 @@ def evaluate(
     summary = bt.summary(bpy)
     daily = (1 + bt.returns).groupby(bt.returns.index.floor("D")).prod() - 1
     yearly = bt.yearly(bpy)
+    st = bt.stats
+    econ = st.groupby(st.index.year).agg(
+        gross_pnl=("gross_pnl", "sum"),
+        pnl_long=("pnl_long", "sum"),
+        pnl_short=("pnl_short", "sum"),
+        funding=("funding", "sum"),
+        turnover=("turnover", "sum"),
+    )
+    econ["costs"] = st[["fees", "spread", "impact"]].sum(axis=1).groupby(st.index.year).sum()
+    if len(yearly):
+        yearly = yearly.join(econ)
 
     # --- robustness & null backtests (parallel) ---------------------------------------------------------
     _CTX.update({"ds": ds, "wf": wf, "cfg": cfg, "start": start})
