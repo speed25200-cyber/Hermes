@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 
 import httpx
 import numpy as np
@@ -25,6 +26,21 @@ from hermes.data.panel import BAR_TO_OFFSET, Panel, clean_panel
 log = logging.getLogger(__name__)
 
 FAPI = "https://fapi.binance.com"
+WEIGHT_BUDGET = 1800  # of Binance's 2400 per minute and IP: headroom for the other processes on the host
+
+
+def kline_weight(limit: int) -> int:
+    """Binance USD-M weight of a klines request."""
+    return 1 if limit < 100 else 2 if limit < 500 else 5 if limit <= 1000 else 10
+
+
+@dataclass
+class DailyHistory:
+    """Closed daily bars from the live feed (today's unfinished bar is never included)."""
+
+    quote_volume: pd.DataFrame
+    alive: pd.DataFrame
+    close: pd.DataFrame
 
 
 def bar_ms(bar: str) -> int:
@@ -48,31 +64,57 @@ class BinanceLiveFeed:
         self.sem = asyncio.Semaphore(concurrency)
         self.frames: dict[str, pd.DataFrame] = {}
         self.m1: dict[str, pd.DataFrame] = {}
-        self._daily: tuple[str, pd.DataFrame, pd.DataFrame] | None = None
+        self._daily: dict[str, pd.DataFrame] = {}
+        self._daily_day = ""
+        self._weight_minute = 0
+        self._weight_used = 0
         self.last_update = 0.0
 
     async def close(self) -> None:
         await self.http.aclose()
 
-    async def _get(self, path: str, params: dict[str, object]) -> list:  # type: ignore[type-arg]
+    async def _get(self, path: str, params: dict[str, object], weight: int = 1) -> list:  # type: ignore[type-arg]
+        """GET with Binance's IP weight budget respected: throttled answers are waited out, never mistaken
+        for an empty result (which would silently truncate a history)."""
         async with self.sem:
-            for attempt in range(4):
+            for attempt in range(6):
+                await self._spend(weight)
                 try:
                     r = await self.http.get(path, params=params)
-                    if r.status_code == 429 or r.status_code == 418:
-                        await asyncio.sleep(5 * (attempt + 1))
-                        continue
-                    r.raise_for_status()
-                    return r.json()  # type: ignore[no-any-return]
                 except httpx.HTTPError:
-                    if attempt == 3:
+                    if attempt == 5:
                         raise
                     await asyncio.sleep(1 + attempt)
-        return []
+                    continue
+                used = r.headers.get("x-mbx-used-weight-1m")
+                if used is not None and used.isdigit():
+                    self._weight_used = max(self._weight_used, int(used))
+                if r.status_code in (418, 429):
+                    retry = r.headers.get("retry-after")
+                    wait = float(retry) if retry and retry.replace(".", "", 1).isdigit() else 5.0 * (attempt + 1)
+                    log.warning("Binance throttled %s (%s): waiting %.0fs", path, r.status_code, wait)
+                    await asyncio.sleep(min(wait, 120.0))
+                    continue
+                if r.status_code >= 500 and attempt < 5:
+                    await asyncio.sleep(1 + attempt)
+                    continue
+                r.raise_for_status()
+                return r.json()  # type: ignore[no-any-return]
+        raise RuntimeError(f"Binance request {path} still throttled after retries")
+
+    async def _spend(self, weight: int) -> None:
+        """Client-side view of the 1-minute weight window; waits for the next window near the limit."""
+        minute = int(time.time() // 60)
+        if minute != self._weight_minute:
+            self._weight_minute, self._weight_used = minute, 0
+        if self._weight_used + weight > WEIGHT_BUDGET:
+            await asyncio.sleep(60.5 - time.time() % 60)
+            self._weight_minute, self._weight_used = int(time.time() // 60), 0
+        self._weight_used += weight
 
     async def top_symbols(self, n: int) -> list[str]:
         """Current most traded USDT perpetuals (24h quote volume)."""
-        data = await self._get("/fapi/v1/ticker/24hr", {})
+        data = await self._get("/fapi/v1/ticker/24hr", {}, weight=40)
         rows = [(d["symbol"], float(d.get("quoteVolume") or 0)) for d in data if d["symbol"].endswith("USDT")]
         rows.sort(key=lambda x: -x[1])
         return [s for s, _ in rows[:n]]
@@ -84,7 +126,7 @@ class BinanceLiveFeed:
         params: dict[str, object] = {"symbol": symbol, "interval": interval or self.bar, "limit": limit}
         if start_ms is not None:
             params["startTime"] = start_ms
-        rows = await self._get(path, params)
+        rows = await self._get(path, params, weight=kline_weight(limit))
         if not rows:
             return pd.DataFrame()
         a = np.array([[float(x) for x in r[:11]] for r in rows])
@@ -144,26 +186,36 @@ class BinanceLiveFeed:
         merged = merged[~merged.index.duplicated(keep="last")].sort_index()
         self.m1[symbol] = merged.iloc[-self.intrabar_minutes :]
 
-    async def daily(self, symbols: list[str], days: int = 150) -> tuple[pd.DataFrame, pd.DataFrame]:
-        """Daily quote volume and 'traded' flags (months of history) for the point-in-time universe.
+    async def daily(self, symbols: list[str], days: int = 200) -> DailyHistory:
+        """Months of closed daily bars (quote volume, traded flag, close) for the universe and the ES check.
 
-        Refreshed once per UTC day; today's partial row is kept (the universe rule only reads yesterday).
+        Fetched once per UTC day and symbol; a symbol whose fetch failed is retried on the next call instead
+        of being cached as 'no history' (which would exclude it for the whole day).
         """
         today = pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%d")
-        if self._daily is not None and self._daily[0] == today and set(symbols) <= set(self._daily[1].columns):
-            return self._daily[1][symbols], self._daily[2][symbols]
-        start = int(time.time() * 1000) - days * 86_400_000
-        res = await asyncio.gather(*(self._history("klines", s, start, "1d") for s in symbols), return_exceptions=True)
-        qv, alive = {}, {}
-        for s, k in zip(symbols, res):
-            if isinstance(k, BaseException) or k.empty:
+        if self._daily_day != today:
+            self._daily, self._daily_day = {}, today
+        missing = [s for s in symbols if s not in self._daily]
+        if missing:
+            start = int(time.time() * 1000) - days * 86_400_000
+            res = await asyncio.gather(
+                *(self._history("klines", s, start, "1d") for s in missing), return_exceptions=True
+            )
+            for s, k in zip(missing, res):
+                if isinstance(k, BaseException):
+                    log.warning("daily history %s failed: %s", s, k)
+                    continue
+                self._daily[s] = k
+        qv, alive, close = {}, {}, {}
+        for s in symbols:
+            k = self._daily.get(s)
+            if k is None or k.empty:
                 continue
-            qv[s] = k["quote_volume"]
-            alive[s] = k["close"].notna()
+            qv[s], alive[s], close[s] = k["quote_volume"], k["close"].notna(), k["close"]
         qdf = pd.DataFrame(qv).sort_index().reindex(columns=symbols)
         adf = pd.DataFrame(alive).sort_index().reindex(columns=symbols).fillna(False).astype(bool)
-        self._daily = (today, qdf, adf)
-        return qdf, adf
+        cdf = pd.DataFrame(close).sort_index().reindex(columns=symbols)
+        return DailyHistory(qdf, adf, cdf)
 
     async def _refresh_symbol(self, symbol: str) -> None:
         step = bar_ms(self.bar)

@@ -47,6 +47,31 @@ def config_hash(cfg: HermesConfig) -> str:
     return hashlib.sha256(json.dumps(d, sort_keys=True).encode()).hexdigest()[:12]
 
 
+TRAINING_VALIDATION_KEYS = (
+    "train_days",
+    "expanding",
+    "test_days",
+    "embargo_minutes",
+    "min_train_days",
+    "val_days",
+    "train_sample_minutes",
+    "recency_halflife_days",
+)
+
+
+def training_hash(cfg: HermesConfig) -> str:
+    """Hash of what the walk-forward *training* depends on (data, features, labels, models, splits).
+
+    A saved walk-forward is reused when only evaluation settings changed (costs, portfolio, risk, gate
+    thresholds): the out-of-sample predictions are the same, only their evaluation differs.
+    """
+    d = json.loads(cfg.model_dump_json())
+    keep = {k: d[k] for k in ("data", "features", "labels", "model", "seed")}
+    keep["data"] = {k: v for k, v in keep["data"].items() if k not in ("cache_dir", "download_workers", "end")}
+    keep["validation"] = {k: d["validation"][k] for k in TRAINING_VALIDATION_KEYS}
+    return hashlib.sha256(json.dumps(keep, sort_keys=True).encode()).hexdigest()[:12]
+
+
 def _ledger_records(ledger: Path) -> list[dict[str, object]]:
     """Trial records: one JSON file per run in the ledger directory (parallel jobs never conflict), plus the
     legacy ``trials.jsonl`` next to it if present."""
@@ -138,14 +163,15 @@ def run_research(
     log.info("panel %s from %s to %s", panel.shape, panel.index[0], panel.index[-1])
     ds = build_dataset(panel, cfg)
     wf_dir = out / "walkforward"
-    marker = wf_dir / "config_hash"
-    if resume and marker.exists() and marker.read_text() == chash:
+    marker = wf_dir / "training_hash"
+    thash = f"{training_hash(cfg)}:{panel.index[0]}:{panel.index[-1]}:{len(panel.symbols)}"
+    if resume and marker.exists() and marker.read_text() == thash:
         log.info("resuming from the saved walk-forward in %s", wf_dir)
         wf = WalkForwardResult.load(wf_dir)
     else:
         wf = walk_forward_train(ds, cfg)
         wf.save(wf_dir)
-        marker.write_text(chash)
+        marker.write_text(thash)
     bundle = train_final(ds, cfg, False, {}) if save_model else None
     # Training arrays are no longer needed: free them before the forking evaluation.
     ds.release_training_arrays()
@@ -183,4 +209,4 @@ def run_research(
     return ev, wf, ds
 
 
-__all__ = ["config_hash", "pd", "run_research", "train_final"]
+__all__ = ["config_hash", "pd", "run_research", "train_final", "training_hash"]

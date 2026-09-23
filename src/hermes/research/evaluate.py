@@ -68,8 +68,8 @@ def market_alpha(market_score: pd.Series, market_prior: pd.Series, ds: Dataset, 
     )
 
 
-def block_permute(score: pd.DataFrame, mask: pd.DataFrame, seed: int, block_bars: int = 168) -> pd.DataFrame:
-    """Null score: within each block, members' scores are reassigned by a random permutation of names.
+def block_permute(score: pd.DataFrame, mask: pd.DataFrame, seed: int, block_bars: int) -> pd.DataFrame:
+    """Null score: within each block (one week), members' scores are reassigned by a random permutation of names.
 
     Preserves each score path's time structure (hence realistic turnover) while destroying its alignment
     with the contract whose return it is supposed to predict.
@@ -101,30 +101,20 @@ def _bt_job(args: tuple[str, int | dict[str, object]]) -> tuple[str, pd.Series, 
     cfg: HermesConfig = _CTX["cfg"]  # type: ignore[assignment]
     start = _CTX["start"]
     if kind == "null":
-        score = block_permute(wf.score, ds.mask, seed=int(param))  # type: ignore[arg-type]
+        score = block_permute(wf.score, ds.mask, seed=int(param), block_bars=cfg.days(7))  # type: ignore[arg-type]
         sig = make_signal(score, ds, wf.prior_ic, cfg)
         c = cfg
     else:
         c = cfg.model_copy(update={"portfolio": cfg.portfolio.model_copy(update=param)})  # type: ignore[arg-type]
-        if kind == "costx2":
-            c = cfg.model_copy(
-                update={
-                    "costs": cfg.costs.model_copy(
-                        update={
-                            "maker_fee": cfg.costs.maker_fee * 2,
-                            "taker_fee": cfg.costs.taker_fee * 2,
-                            "min_half_spread_bps": cfg.costs.min_half_spread_bps * 2,
-                            "impact_coef": cfg.costs.impact_coef * 2,
-                        }
-                    )
-                }
-            )
         score = wf.score.shift(1) if kind == "lag1" else wf.score
         if kind == "market":
             sig = make_signal(score, ds, wf.prior_ic, c, wf.market_score, wf.market_prior_ic)
         else:
             sig = make_signal(score, ds, wf.prior_ic, c)
-    bt = run_backtest(ds.panel, ds.mask, ds.feats.aux, sig, c, start=start)  # type: ignore[arg-type]
+    # Cost stress: the book is built on the usual cost estimates, but every trade pays twice as much
+    # (fees, spread and impact) -- an execution that turns out worse than modelled, not a re-optimised book.
+    mult = 2.0 if kind == "costx2" else 1.0
+    bt = run_backtest(ds.panel, ds.mask, ds.feats.aux, sig, c, start=start, cost_multiplier=mult)  # type: ignore[arg-type]
     daily = (1 + bt.returns).groupby(bt.returns.index.floor("D")).prod() - 1
     return f"{kind}:{param}", daily, bt.summary(c.bars_per_year)
 
@@ -166,6 +156,38 @@ def _workers_for_memory(per_worker_gb: float = 2.5) -> int:
     except OSError:
         return 2
     return max(1, int(avail_gb // per_worker_gb))
+
+
+def trial_count_and_variance(ledger_trials: int, grid_daily: pd.DataFrame, n_days: int) -> tuple[int, float]:
+    """Trials and cross-trial Sharpe variance for the Deflated Sharpe Ratio.
+
+    * The robustness grid's variants are strongly correlated: they count as ``N_eff = rho + (1 - rho) N``
+      effective trials (``rho`` their mean pairwise correlation), times the configurations in the ledger.
+    * The Sharpe dispersion across trials is never taken below the sampling variance of one daily Sharpe
+      estimate under the null (``1 / (T - 1)``): near-identical grid variants would otherwise make the
+      expected best-of-N Sharpe, hence the deflation, vanish.
+    """
+    n_grid = grid_daily.shape[1]
+    null_var = 1.0 / max(n_days - 1, 1)
+    if n_grid < 2 or len(grid_daily) < 10:
+        return max(1, ledger_trials), null_var
+    corr = grid_daily.corr().to_numpy()
+    rho = float(np.clip(np.nanmean(corr[np.triu_indices(n_grid, 1)]), 0.0, 1.0))
+    n_eff = rho + (1.0 - rho) * n_grid
+    per_sr = grid_daily.mean() / grid_daily.std()
+    var = float(per_sr.var()) if np.isfinite(per_sr.var()) else 0.0
+    return max(1, round(ledger_trials * n_eff)), max(var, null_var)
+
+
+def positive_year_fraction(daily: pd.Series, min_days: int = 90) -> float:
+    """Share of calendar years with a positive return; stub years shorter than ``min_days`` do not vote."""
+    d = daily.dropna()
+    if d.empty:
+        return 0.0
+    by_year = (1 + d).groupby(d.index.year).agg(["prod", "size"])
+    full = by_year[by_year["size"] >= min_days]
+    use = full if len(full) else by_year
+    return float(((use["prod"] - 1) > 0).mean())
 
 
 @dataclass
@@ -280,12 +302,8 @@ def evaluate(
     # --- statistics -----------------------------------------------------------------------------------------
     d = daily.to_numpy()
     sr_d = sharpe(d, 365.0)
-    n_trials = v.n_trials * max(1, len(grid))
     grid_mat = pd.DataFrame(grid_daily).dropna()
-    trial_var = None
-    if grid_mat.shape[1] >= 2:
-        per_sr = grid_mat.mean() / grid_mat.std()
-        trial_var = float(per_sr.var())
+    n_trials, trial_var = trial_count_and_variance(v.n_trials, grid_mat, len(d))
     tests = {
         "sharpe_daily": sr_d,
         "psr": probabilistic_sharpe(d),
@@ -295,6 +313,8 @@ def evaluate(
         "spa_pvalue": spa_test(d, n_samples=v.bootstrap_samples, mean_block=5.0),
         "pbo": pbo(grid_mat.to_numpy(), n_splits=10) if grid_mat.shape[1] >= 2 else float("nan"),
         "null_percentile": float(np.mean(np.array(null_sr) < sr_d)) if null_sr else float("nan"),
+        # Exact permutation p-value (Phipson & Smyth 2010): its size is at most alpha for any null count.
+        "null_pvalue": float((1 + np.sum(np.array(null_sr) >= sr_d)) / (len(null_sr) + 1)) if null_sr else 1.0,
         "null_sharpe_p95": float(np.quantile(null_sr, 0.95)) if null_sr else float("nan"),
         "oos_months": float(len(d) / 30.4),
     }
@@ -304,15 +324,15 @@ def evaluate(
     tests["sharpe_ci_low"] = float(np.quantile(boot, 0.05))
     tests["sharpe_ci_high"] = float(np.quantile(boot, 0.95))
     tests.update(stress)
-    pos_years = float((yearly["return"] > 0).mean()) if len(yearly) else 0.0
+    pos_years = positive_year_fraction(daily)
     tests["positive_year_fraction"] = pos_years
 
     gate = {
         "dsr": {"value": tests["dsr"], "threshold": v.gate_min_dsr, "pass": tests["dsr"] >= v.gate_min_dsr},
-        "null_percentile": {
-            "value": tests["null_percentile"],
-            "threshold": v.gate_min_null_percentile,
-            "pass": tests["null_percentile"] >= v.gate_min_null_percentile,
+        "null_pvalue": {
+            "value": tests["null_pvalue"],
+            "threshold": 1.0 - v.gate_min_null_percentile,
+            "pass": tests["null_pvalue"] <= 1.0 - v.gate_min_null_percentile,
         },
         "pbo": {
             "value": tests["pbo"],

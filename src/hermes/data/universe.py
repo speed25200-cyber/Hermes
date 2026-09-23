@@ -163,10 +163,15 @@ def universe_mask(
     close = panel["close"]
     if daily_qv is None or daily_alive is None:
         daily_qv, daily_alive = daily_activity(panel)
-    daily_qv = daily_qv.reindex(columns=close.columns)
-    daily_alive = daily_alive.reindex(columns=close.columns).fillna(False).astype(bool)
-    mem = daily_membership(daily_qv, daily_alive, cfg)
     day_of_bar = close.index.floor("D")
+    # Day D only reads D-1, so it needs a row even when its own daily bar is not closed yet (live: today).
+    days = daily_qv.index
+    if len(day_of_bar) and (len(days) == 0 or days[-1] < day_of_bar[-1]):
+        first = days[0] if len(days) else day_of_bar[0]
+        days = pd.date_range(first, day_of_bar[-1], freq="1D")
+    daily_qv = daily_qv.reindex(index=days, columns=close.columns)
+    daily_alive = daily_alive.reindex(index=days, columns=close.columns).fillna(False).astype(bool)
+    mem = daily_membership(daily_qv, daily_alive, cfg)
     m = mem.reindex(day_of_bar).fillna(False).to_numpy(dtype=bool)
     mask = pd.DataFrame(m, index=close.index, columns=close.columns)
     # A member that stops trading (delisting, halt) leaves immediately.

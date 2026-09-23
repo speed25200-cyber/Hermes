@@ -34,6 +34,7 @@ class RiskState:
     halted: bool = False
     halt_reason: str = ""
     events: list[tuple[str, str]] = field(default_factory=list)
+    last_equity: float = 0.0  # equity at the previous observation (the start of a new UTC day)
 
 
 class RiskOverlay:
@@ -51,8 +52,10 @@ class RiskOverlay:
             s.peak_equity = equity
         day = ts.floor("D") if day is None else day
         if s.day != day:
+            # The day starts at the previous close: the first bar's own P&L counts toward the daily loss.
             s.day = day
-            s.day_start_equity = equity
+            s.day_start_equity = s.last_equity if s.last_equity > 0 else equity
+        s.last_equity = equity
         if not s.halted and self.drawdown(equity) >= self.cfg.drawdown_hard:
             self.halt(ts, f"drawdown {self.drawdown(equity):.1%} >= hard limit")
 

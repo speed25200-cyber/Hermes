@@ -149,7 +149,9 @@ def _run_backtest(
     end: pd.Timestamp | None = None,
     ic_ref: float | None = None,
     record_weights: bool = False,
+    cost_multiplier: float = 1.0,
 ) -> BacktestResult:
+    """``cost_multiplier`` scales what trades actually pay, not what the optimiser expects (cost stress)."""
     bpd = cfg.bars_per_day
     bpy = cfg.bars_per_year
     pc = cfg.portfolio
@@ -257,7 +259,7 @@ def _run_backtest(
                 if np.any(trade):
                     dollars = np.zeros(N)
                     dollars[idx] = trade * equity
-                    fees, spread, impact = costs.trade_cost(t, dollars)
+                    fees, spread, impact = (cost_multiplier * x for x in costs.trade_cost(t, dollars))
                     turnover = float(np.abs(trade).sum())
                     w[idx] = target
                     equity -= fees + spread + impact

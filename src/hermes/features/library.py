@@ -112,13 +112,17 @@ class FeatureSet:
 
 
 def _uniq_bars(minutes: tuple[int, ...], bar: str) -> list[tuple[int, int]]:
-    """(minutes, bars) pairs with duplicate bar counts removed (windows below one bar collapse to one)."""
+    """(effective minutes, bars) pairs with duplicate bar counts removed.
+
+    A window is rounded to whole bars (at least one); the name carries the minutes it really spans, so a
+    15-minute window on 30-minute bars becomes ``..._30m`` and merges with an explicit 30-minute window.
+    """
     out, seen = [], set()
     for m in minutes:
         b = bars_for(m, bar)
         if b not in seen:
             seen.add(b)
-            out.append((int(m), b))
+            out.append((b * BAR_MINUTES[bar], b))
     return out
 
 
@@ -160,13 +164,15 @@ def build_features(panel: Panel, mask: pd.DataFrame, cfg: FeatureConfig) -> Feat
         F[f"ret_{m}m"] = (rw / (vol_safe * np.sqrt(w))).clip(-8, 8)
         F[f"iret_{m}m"] = ((cum_resid - cum_resid.shift(w)) / (ivol * np.sqrt(w))).clip(-8, 8)
         ret_names[m] = f"ret_{m}m"
+    bm = BAR_MINUTES[bar]
     for fm, sm in cfg.trend_pairs_minutes:
         fast, slow = B(fm), B(sm)
-        if slow <= fast:
+        name = f"trend_{fast * bm}m_{slow * bm}m"
+        if slow <= fast or name in F:
             continue
         ema_f = logc.ewm(span=fast, adjust=False, min_periods=fast).mean()
         ema_s = logc.ewm(span=slow, adjust=False, min_periods=slow).mean()
-        F[f"trend_{fm}m_{sm}m"] = ((ema_f - ema_s) / (vol_safe * np.sqrt(slow))).clip(-8, 8)
+        F[name] = ((ema_f - ema_s) / (vol_safe * np.sqrt(slow))).clip(-8, 8)
     for m, w in _uniq_bars(cfg.range_minutes, bar):
         hh = high.rolling(w, min_periods=max(1, w // 2)).max()
         ll = low.rolling(w, min_periods=max(1, w // 2)).min()
@@ -178,7 +184,7 @@ def build_features(panel: Panel, mask: pd.DataFrame, cfg: FeatureConfig) -> Feat
     park = (np.log(high / low) ** 2) / (4 * np.log(2))
     gk = 0.5 * np.log(high / low) ** 2 - (2 * np.log(2) - 1) * np.log(close / open_) ** 2
     for m, w in _uniq_bars(cfg.vol_minutes, bar):
-        mp = max(2, w // 2)
+        mp = min(w, max(2, w // 2))
         rv = np.sqrt((r1**2).rolling(w, min_periods=mp).mean())
         F[f"rv_ratio_{m}m"] = np.log((rv + EPS) / (vol_safe + EPS)).clip(-3, 3)
         F[f"park_ratio_{m}m"] = np.log((np.sqrt(park.rolling(w, min_periods=mp).mean()) + EPS) / (vol_safe + EPS)).clip(

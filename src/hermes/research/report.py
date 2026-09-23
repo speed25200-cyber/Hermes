@@ -26,10 +26,10 @@ def _num(x: float, nd: int = 2) -> str:
 
 GATE_LABELS = {
     "dsr": "Sharpe dégonflé (DSR) — probabilité que le vrai Sharpe > le meilleur hasard parmi les essais",
-    "null_percentile": "Percentile face au nul (mêmes scores permutés entre contrats par blocs)",
+    "null_pvalue": "p-valeur exacte face au nul (mêmes scores permutés entre contrats par blocs d'une semaine)",
     "pbo": "Probabilité de sur-ajustement du backtest (PBO, CSCV sur la grille)",
     "sharpe": "Sharpe annualisé net de coûts (quotidien)",
-    "positive_years": "Part des années civiles positives",
+    "positive_years": "Part des années civiles positives (années de moins de 90 jours exclues)",
     "oos_months": "Mois hors échantillon",
     "cost_stress": "Sharpe avec coûts doublés",
     "latency_stress": "Sharpe avec une barre de latence en plus",
@@ -110,7 +110,7 @@ def render_markdown(meta: dict, ev: Evaluation, wf: WalkForwardResult) -> str:
         "|---|---:|---:|:-:|",
     ]
     for k, g in ev.gate.items():
-        op = "≤" if k == "pbo" else "≥"
+        op = "≤" if k in ("pbo", "null_pvalue") else "≥"
         L.append(
             f"| {GATE_LABELS.get(k, k)} | {_num(g['value'], 3)} | {op} {_num(g['threshold'], 2)} | "
             f"{'✅' if g['pass'] else '❌'} |"
@@ -195,8 +195,10 @@ def render_markdown(meta: dict, ev: Evaluation, wf: WalkForwardResult) -> str:
         "## Tests statistiques",
         "",
         f"- **Probabilistic Sharpe Ratio** (vrai Sharpe > 0) : {_num(t.get('psr'), 3)}.",
-        f"- **Deflated Sharpe Ratio** ({int(t.get('n_trials', 1))} configurations comptées) : {_num(t.get('dsr'), 3)}.",
-        f"- **Nul par permutation** : Sharpe réel au percentile {_pct(t.get('null_percentile'), 0)} ; "
+        f"- **Deflated Sharpe Ratio** ({int(t.get('n_trials', 1))} essais effectifs comptés) : "
+        f"{_num(t.get('dsr'), 3)}.",
+        f"- **Nul par permutation** : Sharpe réel au percentile {_pct(t.get('null_percentile'), 0)}, "
+        f"p-valeur exacte {_num(t.get('null_pvalue'), 3)} ; "
         f"95ᵉ percentile du nul {_num(t.get('null_sharpe_p95'))} ({len(ev.null_sharpes)} répliques).",
         f"- **Test SPA de Hansen** (p-valeur, H0 : aucun avantage) : {_num(t.get('spa_pvalue'), 3)}.",
         f"- **PBO** sur la grille : {_num(t.get('pbo'), 3)}.",

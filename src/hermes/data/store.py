@@ -8,6 +8,7 @@ import logging
 from datetime import UTC, date, datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from hermes.config import BAR_MINUTES, DataConfig
@@ -80,7 +81,7 @@ def load_panel(cfg: DataConfig, seed: int = 0) -> Panel:
     ).hexdigest()[:10]
     directory = Path(cfg.cache_dir) / "panels" / f"{cfg.bar}_{key}"
     if (directory / "_panel.json").exists():
-        return clean_panel(Panel.load(directory))
+        return trim_to_funding(clean_panel(Panel.load(directory)))
     panel = archive.build_panel(symbols, src_bar, start, end, cfg.include_premium, cfg.include_metrics)
     if src_bar != cfg.bar:
         panel = resample_panel(panel, cfg.bar)
@@ -100,4 +101,28 @@ def load_panel(cfg: DataConfig, seed: int = 0) -> Panel:
         }
         panel = panel.with_fields(extra)
     panel.save(directory)
-    return clean_panel(panel)
+    return trim_to_funding(clean_panel(panel))
+
+
+def trim_to_funding(panel: Panel) -> Panel:
+    """Cut the panel where the funding history ends.
+
+    Funding archives are monthly only: the current month has klines (daily archives) but no funding yet.
+    Keeping those weeks would give the model a zero carry and label returns gross of funding there -- a
+    different strategy from the one that trades live. They are dropped instead (the end of the UTC day of the
+    last settlement is kept).
+    """
+    if "funding_rate" not in panel:
+        return panel
+    has = panel["funding_rate"].notna().any(axis=1).to_numpy()
+    if not has.any():
+        return panel
+    last = panel.index[np.nonzero(has)[0][-1]]
+    cut = last.floor("D") + pd.Timedelta(days=1)
+    if panel.index[-1] < cut:
+        return panel
+    keep = int(panel.index.searchsorted(cut))
+    log.info("panel trimmed to the funding history: %s -> %s", panel.index[-1], panel.index[keep - 1])
+    out = panel.iloc(slice(0, keep))
+    out.meta["trimmed_to_funding"] = str(panel.index[keep - 1])
+    return out

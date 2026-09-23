@@ -31,7 +31,7 @@ def test_exclusions():
     assert np.all([not is_excluded(s, u) for s in ("SYRUPUSDT", "JUPUSDT", "SUPERUSDT")])
 
 
-def test_clean_panel_fills_only_short_interior_gaps(small_panel):
+def test_clean_panel_fills_short_gaps_causally(small_panel):
     from hermes.data.panel import clean_panel
 
     p = small_panel.subset(["BTCUSDT", "ETHUSDT"])
@@ -44,6 +44,10 @@ def test_clean_panel_fills_only_short_interior_gaps(small_panel):
     assert q["close"].iloc[100:102, 0].notna().all()
     assert (q["quote_volume"].iloc[100:102, 0] == 0).all()
     assert q["close"].iloc[200:203, 1].notna().all() and q["close"].iloc[203:210, 1].isna().all()
+    # Causal: truncating the future (the gap has not ended yet, as live sees it) changes nothing in the past.
+    cut = type(p)({k: v.iloc[:205] for k, v in fields.items()}, bar=p.bar)
+    q_cut = clean_panel(cut)
+    np.testing.assert_array_equal(q_cut["close"].to_numpy(), q["close"].iloc[:205].to_numpy())
 
 
 def test_panel_save_load_roundtrip(small_panel, tmp_path):

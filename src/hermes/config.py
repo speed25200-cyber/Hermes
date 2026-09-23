@@ -226,7 +226,9 @@ class LiveConfig(_Strict):
     bar_close_delay_s: float = Field(3.0, ge=0, description="Wait after the bar close before deciding")
     capital_fraction: float = Field(1.0, gt=0, le=1, description="Share of account equity the engine may use")
     paper_initial_equity: float = 10_000.0
-    history_days: float = Field(30, gt=0, description="Base-bar history kept by the live feed")
+    history_days: float | None = Field(
+        None, gt=0, description="Minimum base-bar history kept by the live feed (default: the feature warm-up)"
+    )
     candidates: int = Field(80, ge=5, description="Most traded contracts considered each day")
     allow_unpromoted: bool = Field(False, description="DANGER: trade real money with a model that failed the gate")
 
@@ -265,16 +267,27 @@ class HermesConfig(_Strict):
         return max(1, round(days * self.bars_per_day))
 
 
-def load_config(path: str | Path | None = None, **overrides: object) -> HermesConfig:
-    """Load a YAML config (or defaults) and apply dotted overrides, e.g. ``{"data.bar": "4h"}``."""
-    raw: dict[str, object] = {}
-    if path is not None:
-        with open(path, encoding="utf-8") as fh:
-            raw = yaml.safe_load(fh) or {}
+def _set_dotted(raw: dict[str, object], overrides: dict[str, object]) -> dict[str, object]:
     for dotted, value in overrides.items():
         node: dict[str, object] = raw
         *parents, leaf = dotted.split(".")
         for key in parents:
             node = node.setdefault(key, {})  # type: ignore[assignment]
         node[leaf] = value
-    return HermesConfig.model_validate(raw)
+    return raw
+
+
+def with_overrides(cfg: HermesConfig, overrides: dict[str, object]) -> HermesConfig:
+    """A copy of ``cfg`` with dotted overrides applied (validated like a config file)."""
+    if not overrides:
+        return cfg
+    return HermesConfig.model_validate(_set_dotted(cfg.model_dump(mode="json"), overrides))
+
+
+def load_config(path: str | Path | None = None, **overrides: object) -> HermesConfig:
+    """Load a YAML config (or defaults) and apply dotted overrides, e.g. ``{"data.bar": "4h"}``."""
+    raw: dict[str, object] = {}
+    if path is not None:
+        with open(path, encoding="utf-8") as fh:
+            raw = yaml.safe_load(fh) or {}
+    return HermesConfig.model_validate(_set_dotted(raw, overrides))

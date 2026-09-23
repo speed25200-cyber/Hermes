@@ -1,12 +1,14 @@
 # Bougies 1 min (décision chaque minute), horizons 5 / 15 / 30 min, top 15 contrats les plus liquides.
-# Historique court (les archives 1 min sont volumineuses) : 9 mois ; fenêtres de variables ramenées à ≤ 3 jours.
+# Historique depuis avril 2025 (≈ 17 mois ; les archives 1 min sont volumineuses) : après 60 jours de
+# préchauffage de l'univers et 60 jours d'entraînement minimal, il reste ≈ 13 mois hors échantillon, au-dessus
+# des 12 mois exigés par la porte. Fenêtres de variables ramenées à ≤ 3 jours.
 name: hermes-1m
 seed: 42
 data:
   source: binance_archive
   cache_dir: data
   bar: 1m
-  start: "2026-01-01"
+  start: "2025-04-01"
   include_premium: true
   intrabar: false
   universe:

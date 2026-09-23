@@ -77,6 +77,13 @@ Le même code sert à la recherche, au backtest, au papier et au réel : ce qui 
 5. **Hors échantillon uniquement.** Toute mesure de performance utilise les prédictions walk-forward.
 6. **Nombre d'essais compté.** Chaque configuration testée est inscrite dans `reports/trials/` et
    dégonfle le Sharpe (DSR).
+7. **Trous de données comblés causalement.** Une bougie manquante est remplacée par une bougie plate (au
+   plus 45 min) selon une règle qui ignore si la série reprend ensuite : identique en recherche et en live.
+8. **Pas de mois sans funding.** Les archives de funding sont mensuelles : les semaines du mois en cours
+   (bougies sans funding connu) sont retirées de la recherche plutôt que traitées comme un funding nul.
+9. **Découpage mémoire sans fuite.** Le jeu de données par tranches calcule chaque tranche sur tous les
+   contrats membres pendant la tranche *et* son préchauffage : le marché et les bêtas ne dépendent jamais
+   de l'appartenance future à l'univers.
 
 ## Pourquoi ces choix (résumé ; détails et références dans `RESEARCH.md`)
 

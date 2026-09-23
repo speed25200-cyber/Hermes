@@ -64,3 +64,15 @@ def test_cs_rank_gauss_is_standard_normal_scores():
     # Monotone within each row.
     r = df.iloc[0].rank()
     assert (g.iloc[0].rank() == r).all()
+
+
+def test_windows_are_named_by_the_minutes_they_span(small_panel):
+    from hermes.data.panel import resample_panel
+
+    p30 = resample_panel(small_panel, "30m")
+    mask = universe_mask(p30, UniverseConfig(top_n=8, min_history_days=3))
+    cfg = FeatureConfig(return_minutes=(15, 30, 60), vol_minutes=(15, 240), flow_minutes=(15, 60))
+    names = build_features(p30, mask, cfg).names
+    # A 15-minute window on 30-minute bars is one bar: it is the 30-minute window, named as such.
+    assert "ret_30m" in names and "ret_15m" not in names and "ret_60m" in names
+    assert "rv_ratio_30m" in names and "flow_30m" in names  # one-bar windows do not crash either

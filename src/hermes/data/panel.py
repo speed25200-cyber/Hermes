@@ -192,17 +192,20 @@ def resample_panel(panel: Panel, bar: str) -> Panel:
     return Panel(out, bar=bar, meta=dict(panel.meta))
 
 
-def clean_panel(panel: Panel, max_gap: int = 3) -> Panel:
-    """Fill short *interior* gaps (exchange maintenance, missing archive rows) with a flat bar.
+def clean_panel(panel: Panel, max_gap: int | None = None) -> Panel:
+    """Fill short gaps (exchange maintenance, missing archive rows, a failed live request) with a flat bar.
 
     A missing bar inside a contract's life would otherwise look like a delisting and force an exit and a
-    costly re-entry one bar later. Prices are carried forward for at most ``max_gap`` bars, activity fields
-    are set to zero; leading/trailing gaps (before listing, after delisting) are left untouched.
+    costly re-entry one bar later. The rule is **causal**, identical in research and live: after a listed
+    contract's last bar, its price is carried forward for at most ``max_gap`` bars (default: 45 minutes, at
+    least 3 bars), activity fields set to zero. Whether the series later resumes plays no role -- that would
+    be information from the future. Before listing nothing is filled.
     """
+    if max_gap is None:
+        max_gap = max(3, round(45 * 60 / pd.Timedelta(BAR_TO_OFFSET[panel.bar]).total_seconds()))
     close = panel["close"]
-    interior = close.ffill().notna() & close.bfill().notna()
     filled_close = close.ffill(limit=max_gap)
-    fill = close.isna() & interior & filled_close.notna()
+    fill = close.isna() & filled_close.notna()
     if not fill.to_numpy().any():
         return panel
     fields = dict(panel.fields)
