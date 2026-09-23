@@ -9,8 +9,9 @@ that cannot be executed: an audit of the best candidate found that names OKX did
 Source: OKX's per-instrument daily trade archives (``static.okx.com``, from late 2021), which also cover
 instruments delisted since; a file exists for day D if the swap traded on D. The current instrument list
 (public REST, ``instCategory == "1"``: crypto, not the equity or commodity swaps that share some tickers)
-short-cuts every day after a listing that is still live. Days are probed on a weekly grid within each
-contract's Binance life, then each status change is located to the day by bisection. Probes are cached;
+tells which contracts are live today. Days are probed on a grid within each contract's Binance life (monthly
+for contracts live today, weekly otherwise), then each status change is located to the day by bisection.
+Probes are cached;
 a probe that neither exists nor is missing (network failure) raises -- a guess would bias the universe.
 """
 
@@ -38,7 +39,7 @@ GRID_DAYS = 7
 
 
 class OkxListing:
-    def __init__(self, cache_dir: str | Path, client: httpx.Client | None = None, workers: int = 24):
+    def __init__(self, cache_dir: str | Path, client: httpx.Client | None = None, workers: int = 48):
         self.dir = Path(cache_dir) / "venue"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.client = client or httpx.Client(timeout=httpx.Timeout(30.0, connect=15.0), follow_redirects=True)
@@ -100,38 +101,50 @@ class OkxListing:
         return self.probes[f"{inst}|{day.isoformat()}"]
 
     # -- calendar ------------------------------------------------------------------------------------------
+    def archive_end(self) -> date:
+        """Latest day whose archives are published (they lag a day or two): later days are not probed."""
+        today = date.today()
+        for k in range(1, 15):
+            day = today - timedelta(days=k)
+            self._probe([("BTC-USDT-SWAP", day)])
+            if self._listed("BTC-USDT-SWAP", day):
+                return day
+        raise RuntimeError("no OKX trade archive published in the last two weeks")
+
     def calendar(self, windows: dict[str, tuple[date, date]]) -> pd.DataFrame:
         """(day x symbol) booleans: was ``okx_inst_id(symbol)`` a live crypto USDT swap on OKX that day?
 
         ``windows`` gives, per Binance symbol, the days that matter (its Binance life); outside them the
-        value is False. Days before ``ARCHIVE_START`` take the first known status."""
+        value is False. Every contract is probed, including those listed today: a ``listTime`` survives a
+        delisting and relisting (ZEC was off OKX from early 2024 to November 2025). Contracts listed today
+        are probed monthly (a gap shorter than a month may be missed), the others weekly. Days before
+        ``ARCHIVE_START`` take the first known status; days after the last published archive, today's."""
         cat = self.catalog()
         if not windows:
             return pd.DataFrame(dtype=bool)
+        last = self.archive_end()
         lo = min(a for a, _ in windows.values())
         hi = max(b for _, b in windows.values())
         days = pd.date_range(lo, hi, freq="1D", tz="UTC")
-        lo_ts, hi_ts = days[0], days[-1]
-        plans: dict[str, tuple[str, date, date, date | None]] = {}
-        grid: dict[str, list[date]] = {}
+        plans: dict[str, tuple[str, bool]] = {}
+        grid: dict[str, set[date]] = {}
         for sym, (a, b) in windows.items():
             inst = okx_inst_id(sym)
             entry = cat.get(inst)
             if entry is not None and entry[0] != "1":
                 continue  # an equity/commodity swap with the same ticker: never the crypto contract
-            known = entry[1] if entry is not None else None  # listed without interruption from this day
-            end = min(b, known - timedelta(days=1)) if known is not None else b
-            start = max(a, ARCHIVE_START)
-            plans[sym] = (inst, start, end, known)
+            plans[sym] = (inst, entry is not None)
+            start, end = max(a, ARCHIVE_START), min(b, last)
             if start <= end:
-                pts = [start + timedelta(days=k) for k in range(0, (end - start).days + 1, GRID_DAYS)]
-                grid[inst] = sorted(set(grid.get(inst, [])) | set(pts) | {end})
+                step = 28 if entry is not None else GRID_DAYS
+                pts = {start + timedelta(days=k) for k in range(0, (end - start).days + 1, step)} | {end}
+                grid.setdefault(inst, set()).update(pts)
         self._probe((inst, d) for inst, pts in grid.items() for d in pts)
         # Bisection between grid points whose status differs: each change located to the day.
         pending = [
             (inst, x, y)
             for inst, pts in grid.items()
-            for x, y in pairwise(pts)
+            for x, y in pairwise(sorted(pts))
             if (y - x).days > 1 and self._listed(inst, x) != self._listed(inst, y)
         ]
         while pending:
@@ -149,17 +162,17 @@ class OkxListing:
             i, d = key.split("|")
             by_inst.setdefault(i, []).append((pd.Timestamp(d, tz="UTC"), ok))
         out = pd.DataFrame(False, index=days, columns=sorted(windows))
-        for sym, (inst, _start, _end, known) in plans.items():
-            obs = [(d, ok) for d, ok in by_inst.get(inst, []) if lo_ts <= d <= hi_ts]
+        after = days > pd.Timestamp(last, tz="UTC")
+        for sym, (inst, listed_now) in plans.items():
+            obs = [(d, ok) for d, ok in by_inst.get(inst, []) if days[0] <= d <= days[-1]]
             status = pd.Series(pd.NA, index=days, dtype="boolean")
             if obs:
                 o = pd.Series(dict(obs)).sort_index()
                 status.loc[o.index] = o.to_numpy()
-            status = status.ffill().bfill().fillna(False).astype(bool)  # piecewise constant between probes
-            if known is not None:
-                status[status.index >= pd.Timestamp(known, tz="UTC")] = True
+            status[after] = listed_now
+            status = status.ffill().bfill().fillna(listed_now).astype(bool)  # piecewise constant between probes
             a, b = windows[sym]
-            inside = (status.index >= pd.Timestamp(a, tz="UTC")) & (status.index <= pd.Timestamp(b, tz="UTC"))
+            inside = (days >= pd.Timestamp(a, tz="UTC")) & (days <= pd.Timestamp(b, tz="UTC"))
             out[sym] = status & inside
         log.info("OKX listing calendar: %d symbols, %d listed symbol-days", out.shape[1], int(out.to_numpy().sum()))
         return out
