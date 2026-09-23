@@ -192,3 +192,24 @@ def test_worst_case_stop_fill_exits_at_the_bar_extreme(small_panel, setup):
     assert base.stats["stops"].iloc[k] >= 1 and worst.stats["stops"].iloc[k] >= 1
     assert worst.stats["pnl_long"].iloc[k] < base.stats["pnl_long"].iloc[k] - 1e-4
     assert np.allclose(base.returns.iloc[:k], worst.returns.iloc[:k])  # identical until the crash bar
+
+
+def test_decisions_fill_at_the_next_vwap(small_panel, setup):
+    # vwap_first[t+1] = close[t] * (1 + p): every decision is filled p away from its decision close.
+    cfg, mask, feats = setup
+    score = feats.frames["iret_120m"].where(mask) if "iret_120m" in feats.frames else None
+    score = score if score is not None else next(iter(feats.frames.values())).where(mask)
+    sig = SignalBundle(score, pd.Series(0.05, index=mask.index))
+    kw = {"start": mask.index[96 * 20]}
+    runs = {}
+    for p in (0.0, 0.01):
+        panel = small_panel.with_fields({"vwap_first": small_panel["close"].shift(1) * (1 + p)})
+        runs[p] = run_backtest(panel, mask, feats.aux, sig, cfg, **kw)
+    base = run_backtest(small_panel, mask, feats.aux, sig, cfg, **kw)
+    assert np.allclose(runs[0.0].returns, base.returns)  # filling at the decision close changes nothing
+    st = runs[0.01].stats
+    assert st["slippage"].abs().sum() > 0 and base.stats["slippage"].abs().sum() == 0
+    # Slippage of bar k comes from the trades of bar k-1: at most p times their turnover.
+    assert (st["slippage"].abs().iloc[1:].to_numpy() <= 0.01 * st["turnover"].iloc[:-1].to_numpy() + 1e-9).all()
+    approx = st["gross_pnl"] + st["funding"] - st["fees"] - st["spread"] - st["impact"]
+    assert np.allclose(approx, runs[0.01].returns, atol=1e-6)  # slippage is part of the price P&L
