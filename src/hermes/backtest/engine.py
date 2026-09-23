@@ -15,6 +15,7 @@ engine uses for its decision (``PortfolioConstructor`` + ``RiskOverlay``), only 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -164,8 +165,11 @@ def _run_backtest(
     ic_ref: float | None = None,
     record_weights: bool = False,
     cost_multiplier: float = 1.0,
+    stop_fill: Literal["stop", "extreme"] = "stop",
 ) -> BacktestResult:
-    """``cost_multiplier`` scales what trades actually pay, not what the optimiser expects (cost stress)."""
+    """``cost_multiplier`` scales what trades actually pay, not what the optimiser expects (cost stress).
+    ``stop_fill="extreme"`` fills every triggered stop at the bar's low (long) or high (short) instead of the stop
+    price: the worst case of a stop-market order in a flash crash, where the book is empty below the trigger."""
     bpd = cfg.bars_per_day
     bpy = cfg.bars_per_year
     pc = cfg.portfolio
@@ -246,6 +250,9 @@ def _run_backtest(
                     np.minimum(stop_px, np.nan_to_num(open_[t], nan=np.inf)),
                     np.maximum(stop_px, np.nan_to_num(open_[t], nan=-np.inf)),
                 )
+                if stop_fill == "extreme":
+                    worst = np.where(hit_long, low[t], high[t])
+                    exit_px = np.where(np.isfinite(worst), worst, exit_px)
                 rt = np.where(hit, exit_px / close_np[t - 1] - 1.0, rt)
         valid = np.isfinite(rt)
         contrib = np.where(valid & held, w * np.nan_to_num(rt), 0.0)

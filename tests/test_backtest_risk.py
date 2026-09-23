@@ -164,3 +164,31 @@ def test_catastrophe_stops_cap_a_crash_like_the_exchange_would(small_panel, setu
     st = with_stop.stats  # accounting still closes, stop exits included
     approx = st["gross_pnl"] + st["funding"] - st["fees"] - st["spread"] - st["impact"]
     assert np.allclose(approx, with_stop.returns, atol=1e-6)
+
+
+def test_worst_case_stop_fill_exits_at_the_bar_extreme(small_panel, setup):
+    # A flash crash wicks 40 % below the previous close inside one bar and closes only 5 % down: the default
+    # fill is the stop price, the stress fill is the bar's low -- never better than the default.
+    from hermes.data.panel import Panel
+
+    cfg, mask, feats = setup
+    members = [c for c in mask.columns[mask.iloc[96 * 25].to_numpy()] if c not in ("BTCUSDT", "ETHUSDT")]
+    sym = members[0]
+    T0 = 96 * 26
+    fields = {k: v.copy() for k, v in small_panel.fields.items()}
+    prev_close = fields["close"][sym].iloc[T0 - 1]
+    fields["open"].loc[fields["open"].index[T0], sym] = prev_close
+    fields["low"].loc[fields["low"].index[T0], sym] = prev_close * 0.6
+    fields["close"].loc[fields["close"].index[T0], sym] = prev_close * 0.95
+    fields["high"].loc[fields["high"].index[T0], sym] = prev_close
+    panel = Panel(fields, bar=small_panel.bar)
+    score = pd.DataFrame(0.0, index=mask.index, columns=mask.columns).where(mask)
+    score[sym] = score[sym] + 3.0
+    sig = SignalBundle(score, pd.Series(0.05, index=mask.index))
+    kw = {"start": mask.index[96 * 21], "end": mask.index[T0 + 3]}
+    base = run_backtest(panel, mask, feats.aux, sig, cfg, **kw)
+    worst = run_backtest(panel, mask, feats.aux, sig, cfg, stop_fill="extreme", **kw)
+    k = T0 - 96 * 21
+    assert base.stats["stops"].iloc[k] >= 1 and worst.stats["stops"].iloc[k] >= 1
+    assert worst.stats["pnl_long"].iloc[k] < base.stats["pnl_long"].iloc[k] - 1e-4
+    assert np.allclose(base.returns.iloc[:k], worst.returns.iloc[:k])  # identical until the crash bar
