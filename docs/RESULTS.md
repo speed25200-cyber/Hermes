@@ -9,8 +9,9 @@ compris, univers point-in-time des ~30 contrats les plus liquides (15 pour le 1 
 (DSR). Tableau régénérable par `hermes research compare reports/<dossiers>`.
 
 > **Aucune configuration n'a franchi la porte de promotion à ce jour ; le système refuse donc de trader de
-> l'argent réel.** Les meilleures (horizon 4-24 h) sont rentables sur l'ensemble de la période, mais le
-> gain vient surtout de 2024 : la porte les rejette, à juste titre.
+> l'argent réel.** Les meilleures (horizons 4-48 h) sont rentables sur l'ensemble de la période (+11 à
+> +13 %/an nets) et, à détention 24 h, résistent à des coûts doublés ; mais le gain vient surtout de 2024
+> et la significativité statistique n'est pas atteinte : la porte les rejette, à juste titre.
 
 ## Tous les essais
 
@@ -21,7 +22,10 @@ compris, univers point-in-time des ~30 contrats les plus liquides (15 pour le 1 
 | `research_15m` + lissage 1 horizon, plancher 0,5 (E1) | 15 min | 30 min-2 h | 2023-07 → 2026-08 | 0,053 (34,6) | 13,1 % | 17,9 % | −3,4 % | −0,26 | −22 % | 0,00 | 0,52 | 0,13 | −2,26 | −0,72 | ❌ |
 | `research_15m_long` | 15 min | 4 h-24 h | 2023-07 → 2026-08 | 0,063 (14,0) | 33,3 % | 20,5 % | **+11,1 %** | 0,71 | −20 % | 0,58 | 0,08 | 0,82 | −0,06 | 0,60 | ❌ |
 | `research_30m_long` | 30 min | 4 h-24 h | 2023-07 → 2026-08 | 0,063 (14,0) | 35,7 % | 21,6 % | **+13,2 %** | 0,80 | −20 % | 0,66 | **0,04** | 0,70 | 0,10 | 0,61 | ❌ |
+| `research_15m` + lissage 2 horizons, sans amortissement (E2) | 15 min | 30 min-2 h | 2023-07 → 2026-08 | 0,053 | −1,0 % | 1,1 % | −2,1 % | −0,23 | −14 % | 0,01 | 0,72 | 0,87 | −0,49 | 0,02 | ❌ |
+| `research_15m_intrabar` (agrégats 1 min) | 15 min | 30 min-2 h | 2023-07 → 2026-08 | 0,054 (35,7) | 3,8 % | 12,7 % | −8,9 % | −1,71 | −25 % (arrêt) | 0,00 | 1,00 | 0,60 | −1,07 | −2,22 | ❌ |
 | `research_1m_long` | 1 min | 1 h-8 h | 2025-07 → 2026-08 | 0,050 (9,1) | 5,3 % | 15,8 % | −9,1 % | −0,79 | −19 % | 0,01 | 0,72 | 0,79 | −1,66 | −0,84 | ❌ |
+| `research_30m_xl` | 30 min | 8 h-48 h (détention 24 h, aversion 2) | 2023-07 → 2026-08 | 0,074 (9,3) | 22,7 % | 8,5 % | **+11,9 %** | 0,77 | −20 % | 0,58 | **0,04** | 0,48 | **0,45** | **0,71** | ❌ |
 
 IC : Spearman transversal à l'horizon de détention, t de Newey-West sur les IC journaliers. En gras : ce
 qui franchit son seuil.
@@ -61,12 +65,27 @@ le livre trade à peine et garde des positions sans soutien. La porte rejette : 
 DSR 0,58-0,66, PBO 0,70-0,82 (la meilleure variante de la grille ne le reste pas hors échantillon), et le
 15 min ne tient pas les coûts doublés.
 
+Diagnostic « sans arrêt » (contrôles de drawdown désactivés, hors porte) du 30 min long : Sharpe 0,89,
+CAGR +17 %, **2025 à +14 %** au lieu de −0,5 % — la réduction de risque après le drawdown de début 2025 a
+coûté l'année ; 2026 reste négatif (−13 %). Le run a été exécuté deux fois : résultats identiques au
+chiffre près (pipeline déterministe).
+
+Détention 24 h (`research_30m_xl`) : la rotation tombe de 418 à 164 fois le capital par an, les coûts de
+21,6 % à 8,5 %/an ; le livre **tient désormais des coûts doublés** (Sharpe 0,45) et la PBO passe de 0,70 à
+0,48. L'IC continue de croître avec l'horizon (0,083 à 48 h). Mais le résultat dépend d'un trimestre
+(T4 2024 : +34 %), 2026 est négatif (−7,6 %) alors que l'IC y reste positif (0,042), le livre paie du
+funding en 2026 (biais net acheteur d'un livre bêta-neutre), et l'intervalle bootstrap du Sharpe
+([−0,26 ; 1,92], PSR 0,93) ne permet pas de conclure. Refus justifié.
+
+Les agrégats 1 min (variance réalisée, sauts, asymétrie, flux de fin de bougie) n'apportent rien de
+mesurable à 15 min (IC 0,0535 contre 0,0532).
+
 ## 4. En cours
 
-- `research_15m_xl` / `research_30m_xl` : détention 24 h, horizons 8 h / 24 h / 48 h, aversion aux coûts 2
-  (la grille de robustesse désigne cette zone ; choisie après coup, elle est comptée comme essai
-  supplémentaire) ;
-- E2 : lissage 2 horizons sans amortissement des coûts (15 min court) ;
-- 30 min long réévalué avec le diagnostic « sans arrêt » (économie du signal sans contrôles de drawdown).
+- `research_15m_xl` : détention 24 h sur bougies 15 min ;
+- `research_30m_xl` réévalué avec la décomposition du P&L par jambe (acheteuse / vendeuse) : vérifier si
+  2026 perd sur les ventes à découvert (hausses brutales) malgré un IC positif ;
+- `research_30m_xl_lb` : mêmes horizons avec des variables à fenêtres longues (momentum 14-30 jours,
+  funding cumulé 7-30 jours) — pour prédire 24-48 h, les variables ne regardaient qu'au plus 14 jours.
 
 Ce document est mis à jour avec chaque résultat, favorable ou non.
