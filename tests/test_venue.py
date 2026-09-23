@@ -146,3 +146,24 @@ def test_offline_catalog_uses_the_newest_snapshot_and_distrusts_unknown_contract
     cal = okx.calendar({"NEWUSDT": (date(2025, 2, 5), date(2025, 6, 20))})
     assert cal.loc["2025-02-20", "NEWUSDT"]  # traded, and known to the list of March 1st
     assert not cal.loc["2025-06-18", "NEWUSDT"]  # after that list, its category is unknown: not selectable
+
+
+def test_committed_snapshot_answers_offline_for_research_windows(tmp_path):
+    # OKX unreachable (the snapshot's purpose): the calendar must come entirely from the committed probes,
+    # on the anchored grid, for any window a configuration can ask for -- and keep the known transitions.
+    from hermes.data.venue import SEED
+
+    down = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
+    okx = OkxListing(tmp_path, client=down, workers=2, seed=SEED)
+    # Binance lives clipped to a configuration starting 2022-06-01 (windows start between grid days).
+    end = date(2026, 9, 1)
+    windows = {s: (date(2022, 6, 1), end) for s in ("BTCUSDT", "ETHUSDT", "ZECUSDT", "XMRUSDT")}
+    windows |= {"ENAUSDT": (date(2024, 4, 2), end), "TONUSDT": (date(2024, 3, 1), date(2026, 6, 23))}
+    windows |= {"JUPUSDT": (date(2024, 1, 31), end), "WLDUSDT": (date(2023, 7, 24), end)}
+    cal = okx.calendar(windows)
+    on = lambda s, d: bool(cal.loc[d, s])  # noqa: E731
+    assert cal["BTCUSDT"].loc["2022-06-01":"2026-09-01"].all()
+    assert on("ZECUSDT", "2023-12-19") and not on("ZECUSDT", "2024-06-15") and on("ZECUSDT", "2025-11-07")
+    assert on("XMRUSDT", "2023-06-01") and not on("XMRUSDT", "2024-06-01")
+    assert not on("ENAUSDT", "2025-06-01") and on("ENAUSDT", "2025-10-01")
+    assert cal["JUPUSDT"].any()
