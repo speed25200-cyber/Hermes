@@ -39,6 +39,13 @@ cat /opt/hermes/state/paper/status.json   # équité, positions, IC estimé, ris
 systemctl start hermes-retrain            # réentraîner maintenant (sinon chaque dimanche 02:30 UTC)
 ```
 
+## Unité de temps
+
+Le moteur trade l'unité de temps du modèle installé (15 min par défaut). Pour changer : entraîner avec
+`configs/research_30m.yaml` ou `configs/research_1m.yaml` (ou choisir `/etc/hermes/research_config` sur le
+VPS pour le réentraînement hebdomadaire), puis installer le modèle. L'exécution s'adapte seule : la phase
+passive (post-only) dure au plus 15 % de la bougie, puis bascule en IOC borné.
+
 ## Tableau de bord
 
 Lecture seule, processus séparé du moteur. Si le secret `HERMES_DASHBOARD_TOKEN` est défini, il est servi

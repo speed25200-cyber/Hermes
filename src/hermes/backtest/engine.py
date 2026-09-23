@@ -129,7 +129,16 @@ def _context(
     return ctx
 
 
-def run_backtest(
+def run_backtest(*args: object, **kwargs: object) -> BacktestResult:
+    """Simulate (see ``_run_backtest``) with single-threaded BLAS: the matrices are tiny and parallelism
+    comes from running several backtests in separate processes; threaded BLAS only adds contention."""
+    from threadpoolctl import threadpool_limits
+
+    with threadpool_limits(limits=1):
+        return _run_backtest(*args, **kwargs)  # type: ignore[arg-type]
+
+
+def _run_backtest(
     panel: Panel,
     mask: pd.DataFrame,
     aux: dict[str, pd.DataFrame],
@@ -159,7 +168,8 @@ def run_backtest(
     cscale = signal.cost_scale.reindex(index).fillna(1.0).to_numpy() if signal.cost_scale is not None else None
 
     constructor = PortfolioConstructor(pc, bpy, ic_ref if ic_ref is not None else pc.ic_ref)
-    overlay = RiskOverlay(cfg.risk)
+    overlay = RiskOverlay(cfg.risk, check_kill_file=False)
+    day_keys = index.floor("D").asi8
     N = close.shape[1]
     cov_hl = cfg.days(pc.cov_halflife_days)
     ewma = EwmaCovariance(N, cov_hl)
@@ -212,7 +222,7 @@ def run_backtest(
         w = w * grow / (1.0 + pnl)
         w[held & ~valid] = 0.0  # contract stopped trading: exited at the last price
         ewma.update(np.where(member[t], rt, np.nan))
-        overlay.observe(ts, equity)
+        overlay.observe(ts, equity, day=int(day_keys[t]))
         out["gross_pnl"][k] = gross_pnl
         out["funding"][k] = -fpay
 

@@ -372,11 +372,14 @@ class BinanceArchive:
         include_metrics: bool = False,
     ) -> Panel:
         frames = {}
+        lo = pd.Timestamp(start, tz="UTC")
         for i, sym in enumerate(symbols):
             f = self.symbol_frame(sym, bar, start, end, include_premium, include_metrics)
             if len(f):
-                frames[sym] = f
-            log.info("archive %s (%d) rows=%d", sym, i, len(f))
+                # float32 per contract right away: a 15-minute panel of hundreds of contracts must fit in RAM.
+                frames[sym] = f.loc[lo:].astype("float32")
+            if i % 25 == 0:
+                log.info("archive %s (%d) rows=%d", sym, i, len(f))
         panel = Panel.from_long(frames, bar)
         panel.meta["source"] = "binance_archive"
         return panel
