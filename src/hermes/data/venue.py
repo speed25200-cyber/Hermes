@@ -17,6 +17,7 @@ a probe that neither exists nor is missing (network failure) raises -- a guess w
 
 from __future__ import annotations
 
+import gzip
 import json
 import logging
 from collections.abc import Iterable
@@ -36,16 +37,27 @@ ARCHIVE = "https://static.okx.com/cdn/okex/traderecords/trades/daily/{ymd}/{inst
 INSTRUMENTS = "https://www.okx.com/api/v5/public/instruments?instType=SWAP"
 ARCHIVE_START = date(2021, 12, 1)  # first day of OKX's daily trade archives (earlier days: status unknown)
 GRID_DAYS = 7
+# Snapshot of probes and of the instrument list (committed): research is reproducible and does not depend on
+# reaching OKX (its site may refuse some regions); the network only completes what the snapshot lacks.
+SEED = Path(__file__).parent / "okx_seed"
 
 
 class OkxListing:
-    def __init__(self, cache_dir: str | Path, client: httpx.Client | None = None, workers: int = 48):
+    def __init__(
+        self, cache_dir: str | Path, client: httpx.Client | None = None, workers: int = 48, seed: Path | None = SEED
+    ):
         self.dir = Path(cache_dir) / "venue"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.client = client or httpx.Client(timeout=httpx.Timeout(30.0, connect=15.0), follow_redirects=True)
         self.workers = workers
         self._probes_file = self.dir / "okx_probes.json"
-        self.probes: dict[str, bool] = json.loads(self._probes_file.read_text()) if self._probes_file.exists() else {}
+        self.probes: dict[str, bool] = {}
+        self.seed = seed
+        if seed is not None and (seed / "probes.json.gz").exists():
+            with gzip.open(seed / "probes.json.gz", "rt") as fh:
+                self.probes.update(json.load(fh))
+        if self._probes_file.exists():
+            self.probes.update(json.loads(self._probes_file.read_text()))
         self._catalog: dict[str, tuple[str, date]] | None = None
 
     # -- sources -------------------------------------------------------------------------------------------
@@ -57,10 +69,21 @@ class OkxListing:
         if snap.exists():
             data = json.loads(snap.read_text())
         else:
-            r = self.client.get(INSTRUMENTS)
-            r.raise_for_status()
-            data = r.json().get("data", [])
-            snap.write_text(json.dumps(data))
+            try:
+                r = self.client.get(INSTRUMENTS)
+                r.raise_for_status()
+                data = r.json().get("data", [])
+                if not data:
+                    raise ValueError("empty instrument list")
+                snap.write_text(json.dumps(data))
+            except (httpx.HTTPError, ValueError) as exc:
+                older = sorted(self.dir.glob("okx_instruments_*.json"))
+                if not older and self.seed is None:
+                    raise
+                src = older[-1] if older else self.seed / "instruments.json"  # type: ignore[operator]
+                log.warning("OKX instrument list unavailable (%s): using %s", exc, src.name)
+                raw = json.loads(src.read_text())
+                data = raw["data"] if isinstance(raw, dict) else raw
         out = {}
         for d in data:
             inst = str(d.get("instId", ""))
@@ -104,12 +127,19 @@ class OkxListing:
     def archive_end(self) -> date:
         """Latest day whose archives are published (they lag a day or two): later days are not probed."""
         today = date.today()
-        for k in range(1, 15):
-            day = today - timedelta(days=k)
-            self._probe([("BTC-USDT-SWAP", day)])
-            if self._listed("BTC-USDT-SWAP", day):
-                return day
-        raise RuntimeError("no OKX trade archive published in the last two weeks")
+        try:
+            for k in range(1, 15):
+                day = today - timedelta(days=k)
+                self._probe([("BTC-USDT-SWAP", day)])
+                if self._listed("BTC-USDT-SWAP", day):
+                    return day
+        except RuntimeError as exc:  # archives unreachable: the snapshot's last published day
+            log.warning("OKX archives unreachable (%s): using the probe snapshot", exc)
+        btc = "BTC-USDT-SWAP|"
+        known = [date.fromisoformat(k[len(btc) :]) for k, ok in self.probes.items() if ok and k.startswith(btc)]
+        if not known:
+            raise RuntimeError("no OKX trade archive known")
+        return max(known)
 
     def calendar(self, windows: dict[str, tuple[date, date]]) -> pd.DataFrame:
         """(day x symbol) booleans: was ``okx_inst_id(symbol)`` a live crypto USDT swap on OKX that day?
@@ -136,8 +166,11 @@ class OkxListing:
             plans[sym] = (inst, entry is not None)
             start, end = max(a, ARCHIVE_START), min(b, last)
             if start <= end:
+                # A calendar-anchored grid: the same days whatever the window, so probes are shared across
+                # configurations and with the committed snapshot.
                 step = 28 if entry is not None else GRID_DAYS
-                pts = {start + timedelta(days=k) for k in range(0, (end - start).days + 1, step)} | {end}
+                k0, k1 = -(-(start - ARCHIVE_START).days // step), (end - ARCHIVE_START).days // step
+                pts = [ARCHIVE_START + timedelta(days=step * k) for k in range(k0, k1 + 1)]
                 grid.setdefault(inst, set()).update(pts)
         self._probe((inst, d) for inst, pts in grid.items() for d in pts)
         # Bisection between grid points whose status differs: each change located to the day.

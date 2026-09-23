@@ -47,7 +47,7 @@ def _okx(request: httpx.Request) -> httpx.Response:
 
 def test_listing_calendar_locates_each_change_to_the_day(tmp_path):
     client = httpx.Client(transport=httpx.MockTransport(_okx))
-    okx = OkxListing(tmp_path, client=client, workers=4)
+    okx = OkxListing(tmp_path, client=client, workers=4, seed=None)
     windows = {s: (date(2022, 6, 1), date(2023, 6, 30)) for s in ("AAAUSDT", "BBUSDT", "CCCUSDT", "DDDUSDT", "ZZZUSDT")}
     windows["AAAUSDT"] = (date(2022, 6, 1), date.today())  # up to today: the unpublished days are not delistings
     cal = okx.calendar(windows)
@@ -66,7 +66,8 @@ def test_listing_calendar_locates_each_change_to_the_day(tmp_path):
     n = len(okx.probes)
     assert n < 500  # grid + bisection, not one probe per day
     # Probes are cached: a second calendar makes no request at all.
-    offline = OkxListing(tmp_path, client=httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500))))
+    down = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
+    offline = OkxListing(tmp_path, client=down, seed=None)
     offline._catalog = okx.catalog()
     pd.testing.assert_frame_equal(offline.calendar(windows), cal)
 
