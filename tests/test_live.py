@@ -327,3 +327,33 @@ def test_regime_gate_is_the_same_in_research_and_live(cfg_small, tmp_path):
     assert d.risk["regime_scale"] == research[day]
     gated = research[research < 1].index
     assert len(gated) and (research.loc[gated] == 0.5).all()  # the synthetic BTC does cross the threshold
+
+
+@pytest.mark.slow
+def test_status_details_positions_for_the_dashboard(cfg_small, tmp_path):
+    import json
+
+    panel, bundle, broker, store, cfg = _engine(cfg_small, tmp_path)
+    t = 96 * 45 + 40
+    feed = FakeFeed(panel, t, 96 * 30)
+    eng = LiveEngine(cfg, bundle, feed, broker, store, mode="paper")
+    asyncio.run(eng.step())
+    st = json.loads((tmp_path / "state" / "status.json").read_text())
+    det = st["positions_detail"]
+    assert det and {p["symbol"] for p in det} == set(st["positions"])
+    for p in det:
+        side = 1 if p["side"] == "long" else -1
+        assert np.sign(p["notional"]) == side and p["entry"] > 0 and p["mark"] > 0
+        assert p["stop"] is not None and side * (p["mark"] - p["stop"]) > 0  # the stop is on the losing side
+        assert abs(p["upnl"] - p["notional"] * (1 - p["entry"] / p["mark"])) < 0.02
+        assert p["opened"] and p["weight"] is not None
+    assert st["account"]["initial"] == cfg.live.paper_initial_equity and st["strategy"]["bar"] == cfg.data.bar
+    first = {p["symbol"]: p["opened"] for p in det}
+    feed.t = t + 1
+    asyncio.run(eng.step())
+    again = json.loads((tmp_path / "state" / "status.json").read_text())["positions_detail"]
+    for p in again:  # a position keeps its opening time while it keeps its side
+        if p["symbol"] in first:
+            assert p["opened"] == first[p["symbol"]]
+    kinds = {r[0] for r in store.db.execute("SELECT DISTINCT kind FROM fills")}
+    assert kinds == {"trade"}
