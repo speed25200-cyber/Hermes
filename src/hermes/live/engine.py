@@ -1045,6 +1045,7 @@ class LiveEngine:
             "beta_neutral": pc.beta_neutral,
             "style_neutral": pc.style_neutral,
             "cost_aversion": pc.cost_aversion,
+            "books": [[b.holding_horizon, b.cost_aversion] for b in pc.books],
             "signal_halflife": pc.signal_halflife,
             "rebalance_every": pc.rebalance_every,
             "ensemble": c.model.ensemble,
