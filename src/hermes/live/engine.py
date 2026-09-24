@@ -201,7 +201,10 @@ class LiveEngine:
             self._model_mtime = m
             return False
         if self.mode == "live" and not new.promoted and not self.cfg.live.allow_unpromoted:
-            if new.meta.get("config_hash") != self.bundle.meta.get("config_hash"):
+            # Same strategy? Identities recomputed by this code (a recorded hash depends on the code that trained).
+            from hermes.research.run import config_hash
+
+            if config_hash(new.config) != config_hash(self.bundle.config):
                 self.store.event("WARNING", "nouveau modèle non promu : le modèle actuel reste en service en réel")
                 self._model_mtime = m
                 return False

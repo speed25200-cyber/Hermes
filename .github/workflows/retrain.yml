@@ -4,6 +4,9 @@
 # - le code est celui installé sur le VPS (fichier /opt/hermes/REVISION écrit par le déploiement) : un modèle
 #   produit par un code plus récent ne peut pas arriver dans un moteur qui ne le comprendrait pas ;
 # - la configuration est celle du champion (/etc/hermes/research_config, écrite par le déploiement) ;
+# - l'entraînement tourne dans un job SANS aucun secret (il exécute du code tiers : dépendances PyPI) et n'en
+#   sort qu'un modèle, donnée sans code (pas de pickle) ; le job d'installation, qui seul reçoit le mot de passe
+#   du VPS, n'exécute ni dépendance téléchargée ni code choisi par le VPS ;
 # - deploy/challenger.sh décide du remplacement (même règle que retrain.sh) ; le moteur recharge à chaud.
 # Sans le secret VPS_PASSWORD (dépôt de recherche), rien ne tourne.
 name: Retrain
@@ -38,6 +41,7 @@ jobs:
     steps:
       - name: Lire l'installation du VPS
         id: read
+        shell: bash
         env:
           SSHPASS: ${{ secrets.VPS_PASSWORD }}
         run: |
@@ -47,12 +51,12 @@ jobs:
           CONF=$(sshpass -e ssh $SSHOPTS "root@$VPS" \
             'cat /etc/hermes/research_config 2>/dev/null || echo configs/research_30m_xl_lb_sres.yaml')
           [[ "$REV" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::version du code du VPS inconnue : redéployer (workflow Deploy)"; exit 1; }
-          [[ "$CONF" =~ ^configs/[a-z0-9_]+\.yaml$ ]] || { echo "::error::configuration du champion invalide : $CONF"; exit 1; }
+          [[ "$CONF" =~ ^configs/[a-z0-9_]+\.yaml$ ]] || { echo "::error::configuration du champion invalide"; exit 1; }
           echo "revision=$REV" >> "$GITHUB_OUTPUT"
           echo "config=$CONF" >> "$GITHUB_OUTPUT"
           echo "code du VPS : $REV ; configuration : $CONF"
 
-  retrain:
+  train:
     needs: vps
     if: ${{ needs.vps.outputs.revision != '' }}
     runs-on: ubuntu-24.04
@@ -64,6 +68,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.vps.outputs.revision }}
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -76,31 +81,59 @@ jobs:
           key: binance-parsed-retrain-${{ github.run_id }}
           restore-keys: binance-parsed-
       - name: Entraînement
+        shell: bash
         run: |
-          pip install -q -e .
+          # Versions exactes et empreintes vérifiées quand le code du VPS les fixe (requirements.lock).
+          if [ -f requirements.lock ]; then
+            pip install -q --require-hashes -r requirements.lock && pip install -q --no-deps -e .
+          else
+            pip install -q -e .
+          fi
           hermes research run -c "$CONF" --out "$OUT" --n-null 24 2>&1 | tee retrain.log | tail -80
           [ -f "$OUT/model/bundle.json" ] || { echo "::error::pas de modèle produit"; exit 1; }
-      - uses: actions/upload-artifact@v4
+      - name: Rapport
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
         with:
           name: retrain-${{ github.run_id }}
           path: |
             ${{ env.OUT }}
             retrain.log
           retention-days: 90
+      - name: Modèle
+        uses: actions/upload-artifact@v4
+        with:
+          name: model-${{ github.run_id }}
+          path: ${{ env.OUT }}/model
+          retention-days: 90
+
+  install:
+    needs: [vps, train]
+    if: ${{ github.event_name == 'schedule' || inputs.install }}
+    runs-on: ubuntu-24.04
+    steps:
+      # Les scripts de ce commit (challenger.sh, status.sh) sont envoyés par l'entrée standard de ssh : ni le
+      # code du VPS ni aucune dépendance téléchargée ne tourne dans le job qui détient le mot de passe.
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          name: model-${{ github.run_id }}
+          path: model
       - name: Outils SSH
-        if: ${{ github.event_name == 'schedule' || inputs.install }}
         run: sudo apt-get update -qq && sudo apt-get install -y -qq sshpass rsync
       - name: Champion / challenger
-        if: ${{ github.event_name == 'schedule' || inputs.install }}
+        shell: bash
         env:
           SSHPASS: ${{ secrets.VPS_PASSWORD }}
         run: |
+          [ -f model/bundle.json ] || { echo "::error::modèle absent de l'artefact"; exit 1; }
           sshpass -e ssh $SSHOPTS "root@$VPS" 'rm -rf /opt/hermes/artifacts/incoming && mkdir -p /opt/hermes/artifacts/incoming'
-          sshpass -e rsync -az -e "ssh $SSHOPTS" "$OUT/model/" "root@$VPS:/opt/hermes/artifacts/incoming/"
-          sshpass -e ssh $SSHOPTS "root@$VPS" \
-            'chown -R hermes:hermes /opt/hermes/artifacts && bash /opt/hermes/deploy/challenger.sh artifacts/incoming'
+          sshpass -e rsync -az -e "ssh $SSHOPTS" model/ "root@$VPS:/opt/hermes/artifacts/incoming/"
+          sshpass -e ssh $SSHOPTS "root@$VPS" 'chown -R hermes:hermes /opt/hermes/artifacts'
+          sshpass -e ssh $SSHOPTS "root@$VPS" 'bash -s -- artifacts/incoming' < deploy/challenger.sh
       - name: État
-        if: ${{ github.event_name == 'schedule' || inputs.install }}
         env:
           SSHPASS: ${{ secrets.VPS_PASSWORD }}
         run: sshpass -e ssh $SSHOPTS "root@$VPS" bash -s < deploy/status.sh
