@@ -103,10 +103,20 @@ Il affiche aussi deux contrôles de qualité :
   de la bougie), pondéré par le notionnel, en points de base, frais exclus ; il inclut la base Binance/OKX.
   Le backtest suppose environ le demi-spread plus l'impact : un écart durablement supérieur signale une
   exécution plus chère que modélisée ;
-- **dérive des variables** (PSI) : distribution des variables des membres sur les dernières 24 h comparée
-  à celle des 90 derniers jours d'entraînement (profil stocké dans le modèle). Au-delà de 0,25 sur plus de
-  10 % des variables, une note l'indique : changement de régime ou problème de données. Simple alerte,
-  jamais une entrée de trading.
+- **dérive des variables** (PSI) : distribution des variables en direct comparée à celle des 90 derniers
+  jours d'entraînement (profil stocké dans le modèle) : les lignes des membres sur les dernières 24 h pour les
+  variables propres à chaque contrat, une ligne par bougie sur les 7 derniers jours pour les variables de
+  marché (calendrier, breadth, funding moyen : une seule valeur par bougie pour tous les contrats). Le seuil
+  de chaque variable est calibré à l'entraînement : le PSI que ces mêmes fenêtres atteignent 1 fois sur 100
+  sans aucune dérive, sur les 90 jours précédents (au moins 0,25). Un seuil fixe prenait une variable lente
+  ou cyclique pour une dérive : 75 fausses alertes en papier, dont un PSI de 17 sur le jour de la semaine,
+  arrondi en float16 à l'entraînement et pas en direct (les lignes en direct sont désormais arrondies comme
+  à l'entraînement, et le modèle note les mêmes valeurs qu'en recherche). Au-delà du seuil sur plus de 10 %
+  des variables, une note l'indique : changement de régime ou problème de données. Une variable dont plus
+  de la moitié des valeurs tombe là où l'entraînement n'en avait aucune (manquante, hors support) est
+  signalée à part, même pour un modèle entraîné avant la calibration (qui n'a pas de verdict de dérive).
+  Recalculé à chaque bougie depuis l'historique chargé (pas de mémoire à reconstruire après un
+  redémarrage). Simple alerte, jamais une entrée de trading.
 
 ## Arrêt d'urgence
 

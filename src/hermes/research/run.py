@@ -161,11 +161,26 @@ def train_final(
         market = RidgeModel(LinearConfig(alpha=3000.0)).fit(
             TrainData(ds.market_X[ok], ds.market_y[ok], np.zeros(len(ok), dtype=np.int64))
         )
-    # Reference distribution of the features for train/serve drift checks (most recent 90 days of training).
-    from hermes.models.drift import feature_profile
+    # Reference distribution of the features for train/serve drift checks (most recent 90 days of training),
+    # with each feature's alert threshold: the PSI that live-sized windows of the 90 days before reach against
+    # it (one day of member rows; a week, one row a bar, for market-level features), so a slow or cyclical
+    # feature is not read as drift by construction.
+    from hermes.models.drift import DRIFT_MARKET_DAYS, feature_profile, null_quantiles
 
     recent = np.nonzero((ds.t_pos < last) & (ds.t_pos >= last - cfg.days(90)))[0]
     profile = feature_profile(ds.X[recent], ds.feature_names) if len(recent) else {}
+    calib = np.nonzero((ds.t_pos < last - cfg.days(90)) & (ds.t_pos >= last - cfg.days(180)))[0]
+    thresholds = null_quantiles(
+        profile,
+        ds.X[calib],
+        ds.t_pos[calib],
+        ds.feature_names,
+        set(ds.market_names),
+        cfg.bars_per_day,
+        cfg.days(DRIFT_MARKET_DAYS),
+    )
+    for name, v in thresholds.items():
+        profile[name]["null_q99"] = [v]
     return ModelBundle(
         config=cfg,
         feature_names=ds.feature_names,

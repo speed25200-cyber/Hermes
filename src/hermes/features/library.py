@@ -84,6 +84,10 @@ def rolling_beta(returns: pd.DataFrame, mkt: pd.Series, halflife: int) -> pd.Dat
     return (w * beta + (1 - w) * 1.0).clip(-1.0, 4.0)
 
 
+# Precision of the stored feature rows the models are fit on (research dataset); live rows are rounded the same way.
+STORAGE_DTYPE = np.float16
+
+
 @dataclass
 class FeatureSet:
     frames: dict[str, pd.DataFrame]
