@@ -6,7 +6,7 @@
 |---|---|---|---|---|
 | `paper` | Binance live | simulés (compte papier persistant) | aucune | — |
 | `demo` | Binance live | compte **démo** OKX (`x-simulated-trading`) | clés démo OKX | — |
-| `live` | Binance live | OKX **réel** | clés OKX | refuse un modèle non promu ; fraction de capital `live.capital_fraction` |
+| `live` | Binance live | OKX **réel** | clés OKX | refuse de trader un modèle non promu (il ferme alors le livre et reste à plat) ; fraction de capital `live.capital_fraction` |
 
 Ordre recommandé : `paper` (≥ 2 semaines) → `demo` (vérifie l'exécution réelle : remplissages maker,
 arrondis, stops) → `live` avec `capital_fraction` 0,25, puis augmentation si le suivi confirme.
@@ -56,8 +56,12 @@ Sur un petit VPS (moins de 12 Go), le walk-forward complet tourne sur un runner 
 ou à la demande. Il entraîne **avec le code installé sur le VPS** (`/opt/hermes/REVISION`, écrit par le
 déploiement) et **la configuration du champion** (`/etc/hermes/research_config`, écrite par le déploiement),
 publie le rapport en artefact, puis `deploy/challenger.sh` applique la règle champion / challenger : même
-configuration, le nouveau modèle remplace toujours l'ancien (une rétrogradation aplatit le livre réel) ; autre
-configuration, seulement s'il est promu ou si le champion ne l'est pas. Le moteur recharge le modèle à chaud.
+stratégie (identité recalculée par le code installé), le nouveau modèle remplace toujours l'ancien (une
+rétrogradation aplatit le livre réel) ; autre stratégie, seulement s'il est promu ou si le champion ne l'est pas.
+Le moteur recharge le modèle à chaud ; l'installation copie à côté puis échange par renommage. Sécurité :
+l'entraînement, qui exécute des dépendances téléchargées (versions et empreintes de `requirements.lock`), tourne
+dans un job sans aucun secret ; seul le job d'installation reçoit le mot de passe du VPS et il n'exécute que les
+scripts du dépôt, envoyés par l'entrée standard de ssh.
 Comme en recherche, où chaque pli de 60 jours est ré-entraîné, le modèle en service ne vieillit pas au-delà d'un
 mois. Sur un VPS d'au moins 12 Go, `hermes-retrain.timer` fait la même chose chaque semaine, sur place.
 
