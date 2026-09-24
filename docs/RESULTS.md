@@ -466,4 +466,20 @@ Décision fixée d'avance : si la sélection bat le réglage fixe sur le Sharpe 
 variante candidate (moteur à adapter, puis papier) ; sinon le réglage fixe reste, et l'écart de la grille est
 attribué au hasard du choix.
 
+**Résultat (24 septembre, 03 h UTC) : la sélection ne franchit pas la décision fixée d'avance ; le réglage fixe
+reste.** Run `35942639721` : le livre de référence est reproduit à l'identique (Sharpe 1,096, mêmes années, 7 critères
+sur 9, DSR 0,42 avec un essai de plus au registre), ce qui vérifie au passage la reproductibilité du pipeline.
+
+| | Réglage fixe (24 h, aversion 2) | Sélection sur le passé | Meilleure ligne de la grille (a posteriori) |
+|---|---:|---:|---:|
+| Sharpe / CAGR | 1,10 / +12,6 % | **1,18** / +15,2 % | 1,62 / +21,7 % |
+| Drawdown max | **−11,0 %** | −13,7 % | −12,9 % |
+| 2023 / 2024 / 2025 / 2026 | +0,6 / +12,4 / +36,7 / **−6,8 %** | +0,6 / +9,2 / +56,1 / −9,7 % | — |
+
+La sélection a passé 71 % des mois sur la détention 8 h, avec 8 changements de réglage. Elle gagne un peu en Sharpe,
+entièrement grâce à 2025, et perd davantage en 2026 : **Sharpe mieux, 2026 moins bien, donc refusée** selon la
+règle. L'essentiel de l'écart de la grille (1,62 contre 1,10) disparaît dès qu'on choisit sans connaître l'avenir :
+c'est la mesure directe de ce que coûterait un choix fait après coup. Le code reste (diagnostic à chaque rapport,
+rendements de la grille enregistrés dans `grid_daily.csv`).
+
 Ce document est mis à jour avec chaque résultat, favorable ou non.
