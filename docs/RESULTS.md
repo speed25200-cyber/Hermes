@@ -395,4 +395,24 @@ Lecture : au-delà de ce que le modèle sait déjà, la répartition de l'activi
 prédit rien de mesurable à 24 h. La seule piste proche du seuil (croissance du volume au comptant, t 2,1) change
 de signe en 2026. L'hypothèse de l'excès de levier est écartée pour cet horizon.
 
+## 14. Pré-enregistrement : la profondeur du carnet d'ordres (24 septembre 2026, 01 h UTC)
+
+Troisième source jamais utilisée : les archives Binance « bookDepth » (instantanés toutes les ~30 s de la valeur
+cumulée des ordres à ±1 %, ±2 %… ±5 % du prix, disponibles depuis janvier 2023). Idée : un carnet durablement
+plus garni à l'achat qu'à la vente (ou l'inverse), ou une liquidité qui se retire, annonce la suite au-delà de ce
+que le modèle voit déjà dans les prix et les volumes. **Mêmes règles qu'aux § 11 et § 13** (IC de rang partiel à
+24 h en plus du score du modèle, sélection 2023-08 → 2025-12 à |t| ≥ 3 avec même signe en 2024 et 2025, contrôle
+2026 à même signe et au moins la moitié de l'effet, un essai seulement si une variable franchit les deux). Pour
+chaque bougie de 30 min : le dernier instantané avant la clôture ; variables lues une bougie en retard ; six en
+tout (31 variables criblées au total, t de 3 ≈ p corrigée 0,08) :
+
+| Variable | Définition |
+|---|---|
+| `depth_imb_1pct` | log(ordres d'achat à −1 % / ordres de vente à +1 %), moyenne sur 1 jour |
+| `depth_imb_5pct` | même rapport à ±5 %, moyenne sur 1 jour |
+| `depth_imb_1pct_z` | `depth_imb_1pct`, z-score sur 30 jours |
+| `depth_imb_chg_1d` | `depth_imb_1pct` moins sa valeur de la veille |
+| `depth_adv_2pct` | log(profondeur totale à ±2 %, moyenne 1 jour / volume échangé sur 1 jour) |
+| `depth_chg_7d` | variation sur 7 jours du log de la profondeur totale à ±2 % (moyenne 1 jour) |
+
 Ce document est mis à jour avec chaque résultat, favorable ou non.
