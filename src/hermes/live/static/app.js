@@ -467,12 +467,13 @@ function positionsList(D) {
     <div class="plist">${body}</div></div>`;
 }
 function driftText(r) {
-  if (!fin(r.psi_max)) return "Pas encore lu : il faut une journée de données entièrement chauffées (une semaine pour les variables de marché).";
-  const base = "PSI max " + num(r.psi_max, 2) + " ; ";
-  const unseen = r.psi_unseen > 0 ? num(r.psi_unseen, 0) + " variable(s) avec des valeurs jamais vues à l'entraînement (défaut de données probable). " : "";
-  if (r.psi_calibrated !== 1) return base + unseen + "Seuils non calibrés pour ce modèle (entraîné avant la calibration) : seules les valeurs jamais vues sont signalées.";
-  return base + num(r.psi_drifted, 0) + " variable(s) au-delà de leur seuil calibré (le PSI atteint 1 fois sur 100 sans dérive ; alerte au-delà de 10 % des variables). " + unseen
-    + (r.psi_market === 1 ? "" : "Variables de marché pas encore lues (une semaine d'historique).");
+  if (r.psi_error === 1) return "Le contrôle a échoué à cette bougie (voir le journal) ; le trading continue.";
+  if (!fin(r.psi_max)) return "Pas encore lu : il faut une journée de données entièrement chauffées.";
+  const unseen = r.psi_unseen > 0 ? num(r.psi_unseen, 0) + " variable(s) avec des valeurs jamais vues à l'entraînement (manquantes ou très hors plage : défaut de données probable). " : "";
+  if (r.psi_calibrated !== 1) return unseen + "Seuils de dérive non calibrés pour ce modèle (modèle antérieur à la calibration ou historique d'entraînement trop court) : seules les valeurs jamais vues sont signalées.";
+  const market = r.psi_market !== 1 ? "Variables de marché pas encore lues (une semaine d'historique chauffé)."
+    : r.psi_market_calibrated !== 1 ? "Variables de marché non calibrées pour ce modèle." : "";
+  return num(r.psi_drifted, 0) + " variable(s) au-delà de leur seuil calibré (le PSI que des fenêtres de même forme atteignaient sur le trimestre précédant le profil) ; la plus éloignée est à " + num(r.psi_ratio_max, 2) + " fois son seuil. Alerte au-delà de 10 % des variables. " + unseen + market;
 }
 function flatReason(D) {
   const ic = D.st.ic_est;

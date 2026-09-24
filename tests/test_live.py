@@ -491,16 +491,22 @@ def test_live_rows_are_rounded_like_training_and_drift_is_read_on_calibrated_win
     seen: list[np.ndarray] = []
     score = bundle.score
     bundle.score = lambda X, g: (seen.append(np.array(X)), score(X, g))[1]
+    assert not bundle.meta["drift_windows"]["contract"]  # 45 days of training: too short to calibrate
     for p in bundle.meta["feature_profile"].values():
         p["null_q99"] = [1.0]
+    bundle.meta["drift_windows"] = {"contract_bars": 96, "market_bars": 96 * 7, "contract": True, "market": True}
     eng = LiveEngine(cfg, bundle, None, broker, store, mode="paper")
     d = eng.decide(panel.iloc(slice(96 * 5, 96 * 58)), {}, 10_000.0)
     X = seen[-1]
     assert X.dtype == np.float32 and np.array_equal(X, X.astype(np.float16).astype(np.float32), equal_nan=True)
-    assert d.risk["psi_market"] == 1 and d.risk["psi_calibrated"] == 1
+    assert d.risk["psi_market"] == 1 and d.risk["psi_calibrated"] == 1 and d.risk["psi_market_calibrated"] == 1
     assert d.risk["psi_unseen"] == 0 and not any("jamais vues" in n for n in d.notes)
     short = eng.decide(panel.iloc(slice(96 * 28, 96 * 58)), {}, 10_000.0)  # under warm-up + a week: not read
     assert short.risk["psi_market"] == 0 and "psi_max" not in short.risk
+    # A monitoring failure (here a malformed threshold) is logged and never stops the book.
+    next(iter(bundle.meta["feature_profile"].values()))["null_q99"] = ["not a number"]
+    broken = eng.decide(panel.iloc(slice(96 * 5, 96 * 58)), {}, 10_000.0)
+    assert broken.risk["psi_error"] == 1 and broken.targets == d.targets
 
 
 def test_sub_books_drift_with_prices_and_follow_the_real_positions(cfg_small, tmp_path):

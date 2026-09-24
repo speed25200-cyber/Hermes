@@ -128,7 +128,9 @@ def test_drift_thresholds_are_calibrated_on_the_live_windows():
     names, market = ["fast", "slow", "dow_cos"], {"slow", "dow_cos"}
     ref = t_pos >= T - 90 * bpd
     prof = feature_profile(X[ref].astype(np.float32), names)
-    q = null_quantiles(prof, X[~ref], t_pos[~ref], names, market, bpd, 7 * bpd)
+    q = null_quantiles(prof, X[~ref], t_pos[~ref], names, market, bpd, 7 * bpd, min_span_bars=30 * bpd, stride=4)
+    short = t_pos < 20 * bpd  # too little history to calibrate: no thresholds rather than noisy ones
+    assert null_quantiles(prof, X[short], t_pos[short], names, market, bpd, 7 * bpd, 30 * bpd) == {}
     assert q["fast"] < 0.1 and q["dow_cos"] < 0.25 and q["slow"] > 0.5
 
     def windows(fast_shift=0.0, fast_value=None):
@@ -149,6 +151,10 @@ def test_drift_thresholds_are_calibrated_on_the_live_windows():
     assert risk["psi_drifted"] == 1 and "dérive" in notes[0] and "fast" in notes[0]
     risk, notes = drift_report(prof, windows(fast_value=np.nan))  # a feature gone missing live
     assert risk["psi_unseen"] == 1 and any("jamais vues" in n for n in notes) and risk["psi_alert"] == 1
+    risk, _ = drift_report(prof, windows(fast_value=1e4))  # a unit bug: far outside the training range
+    assert risk["psi_unseen"] == 1
+    risk, _ = drift_report(prof, windows(fast_shift=1.5), calibrated=False)  # windows unlike the calibration's
+    assert risk["psi_calibrated"] == 0 and risk["psi_drifted"] == 0
 
 
 def test_null_permutation_is_a_stable_derangement_within_blocks():

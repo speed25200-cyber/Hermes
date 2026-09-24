@@ -35,7 +35,7 @@ from hermes.data.universe import is_excluded, universe_mask
 from hermes.data.venue import OkxListing
 from hermes.execution.broker import Broker, Fill, PaperBroker, Position
 from hermes.execution.okx.instruments import okx_inst_id
-from hermes.features.library import STORAGE_DTYPE, FeatureSet, build_features
+from hermes.features.library import STORAGE_DTYPE, FeatureSet, build_features, feature_warmup_bars
 from hermes.labels.targets import build_targets
 from hermes.live.alerts import alert
 from hermes.live.state import StateStore
@@ -90,24 +90,20 @@ def live_config(
     return cfg.model_copy(update={"execution": ex})
 
 
-def feature_warmup_bars(cfg: HermesConfig) -> int:
-    """Bars of history after which every feature equals its research value."""
-    f = cfg.features
-    return 2 * cfg.bars(f.max_lookback_minutes) + 8 * cfg.bars(f.vol_halflife_minutes)
-
-
 def live_history_bars(cfg: HermesConfig) -> int:
     """Base bars the live feed keeps: the research warm-up (so features equal the research values) plus a
-    week (the drift check's window of market-level features), the covariance and volume windows, and never
-    less than ``live.history_days`` when set."""
+    week (the drift check's window of market-level features, with two bars to spare: the feed starts a bar
+    short) -- a day at 1-minute bars, whose week would weigh on a small server --, the covariance and volume
+    windows, and never less than ``live.history_days`` when set."""
     warm = feature_warmup_bars(cfg)
+    drift = cfg.days(DRIFT_MARKET_DAYS) + 2 if cfg.bar_minutes >= 15 else cfg.bars_per_day
     cov = 2 * cfg.days(cfg.portfolio.cov_halflife_days) + 1
     # Style exposures (book and target) use the full ADV window; without them the cost model's ADV is a mean
     # over whatever history is held, which keeps the 1-minute live window small.
     styles = cfg.portfolio.style_neutral or cfg.labels.residualize == "style"
     adv = cfg.days(ADV_DAYS) + cfg.bars_per_day if styles else 0
     floor = cfg.days(cfg.live.history_days) if cfg.live.history_days else 0
-    return int(max(warm + cfg.days(DRIFT_MARKET_DAYS), cov, adv, floor))
+    return int(max(warm + drift, cov, adv, floor))
 
 
 def intrabar_history_minutes(cfg: HermesConfig) -> int:
@@ -328,19 +324,25 @@ class LiveEngine:
             return
         warm = feature_warmup_bars(self.cfg)
         names = feats.names
+        week = self.cfg.days(DRIFT_MARKET_DAYS)
+        design = self.bundle.meta.get("drift_windows")
+        same = isinstance(design, dict) and (design.get("contract_bars"), design.get("market_bars")) == (
+            self.bpd,
+            week,
+        )
         blocks: list[tuple[np.ndarray, list[str]]] = []
         if t + 1 - self.bpd >= warm:
             X, _ = feats.stack(mask, rows=np.arange(t + 1 - self.bpd, t + 1), dtype=STORAGE_DTYPE)
             cols = [j for j, k in enumerate(names) if k not in feats.market]
             blocks.append((X[:, cols].astype(np.float32), [names[j] for j in cols]))
-        week = self.cfg.days(DRIFT_MARKET_DAYS)
         market = list(feats.market)
         d.risk["psi_market"] = float(bool(market) and t + 1 - week >= warm)
+        d.risk["psi_market_calibrated"] = float(same and bool(design.get("market")))  # type: ignore[union-attr]
         if d.risk["psi_market"]:
             rows = np.arange(t + 1 - week, t + 1)
             Xm = np.column_stack([feats.market[k].iloc[rows].to_numpy(STORAGE_DTYPE) for k in market])
             blocks.append((Xm.astype(np.float32), market))
-        risk, notes = drift_report(profile, blocks)
+        risk, notes = drift_report(profile, blocks, calibrated=same)
         d.risk.update(risk)
         d.notes.extend(notes)
 
@@ -538,7 +540,11 @@ class LiveEngine:
         X = X.astype(np.float32)
         members = list(mi.get_level_values(1))
         d.n_members = len(members)
-        self._check_drift(feats, mask, t, d)
+        try:  # a monitoring failure must never stop the book from trading
+            self._check_drift(feats, mask, t, d)
+        except Exception:
+            log.exception("drift check failed")
+            d.risk["psi_error"] = 1.0
         scores = pd.Series(self.bundle.score(X, np.zeros(len(X), dtype=np.int64)), index=members, dtype=float)
         d.scores = {k: round(float(v), 4) for k, v in scores.items() if np.isfinite(v)}
         self.store.add_scores(ts, scores)
