@@ -348,4 +348,31 @@ gagne moins et 2026 reste négatif (IC réalisé −0,023) : l'hypothèse « du 
 modèle de direction du marché (un quatrième changement, sans effet sur la porte). En cours : le
 positionnement des gros comptes (`sres_pos`).
 
+## 13. Pré-enregistrement : l'activité au comptant face aux perpétuels (24 septembre 2026, 00 h 45 UTC)
+
+Deuxième source d'information jamais utilisée : les bougies **au comptant** de Binance (archives publiques,
+30 minutes), comparées à celles du perpétuel. Idée : un contrat dont l'activité se fait surtout à effet de levier
+(perpétuel) plutôt qu'au comptant, ou dont les acheteurs agressifs sont sur le perpétuel plutôt qu'au comptant,
+porte un excès de spéculation qui se retourne. **Règles fixées avant tout résultat, identiques au § 11** : IC de
+rang *partiel* contre la cible nette des styles à 24 h, en plus du score walk-forward du modèle (jumeau à 30
+contrats) ; sélection sur 2023-08 → 2025-12 seulement (|t| de Newey-West ≥ 3 et même signe en 2024 et en 2025) ;
+contrôle sur 2026 (même signe et au moins la moitié de l'effet) ; un essai n'est dépensé que si une variable
+franchit les deux. Variables calculées seulement où le comptant existe (couverture publiée), lues **une bougie en
+retard**, huit en tout :
+
+| Variable | Définition |
+|---|---|
+| `perp_share_7d` | log(volume perpétuel / volume comptant), sommes sur 7 jours |
+| `perp_share_z` | même rapport sur 1 jour, z-score sur 30 jours |
+| `perp_share_chg_7d` | variation sur 7 jours du rapport sur 1 jour |
+| `spot_taker_1d` | part des achats agressifs au comptant sur 1 jour, moins ½ |
+| `spot_taker_z` | même part, z-score sur 30 jours |
+| `taker_gap_1d` | part des achats agressifs au comptant moins celle du perpétuel, 1 jour |
+| `spot_vol_growth` | log(volume comptant moyen 7 jours / volume comptant moyen 30 jours) |
+| `spot_perp_ret_gap_1d` | rendement 1 jour au comptant moins rendement 1 jour du perpétuel (a priori redondant avec la prime) |
+
+Correspondance des noms : le même symbole au comptant s'il existe, sinon sans le préfixe « 1000 » / « 1000000 » /
+« 1M » (1000PEPEUSDT → PEPEUSDT), LUNA2USDT → LUNAUSDT. Avec les 17 variables du § 11, 25 variables ont
+désormais été criblées par cette règle : un t de 3 garde une p corrigée (Bonferroni) d'environ 0,07.
+
 Ce document est mis à jour avec chaque résultat, favorable ou non.
