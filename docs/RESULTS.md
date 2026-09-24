@@ -482,4 +482,14 @@ règle. L'essentiel de l'écart de la grille (1,62 contre 1,10) disparaît dès 
 c'est la mesure directe de ce que coûterait un choix fait après coup. Le code reste (diagnostic à chaque rapport,
 rendements de la grille enregistrés dans `grid_daily.csv`).
 
+## 16. Pré-enregistrement : ne pas choisir, répartir (24 septembre 2026, 03 h 20 UTC)
+
+Constat du run `35942639721` : **toute la perte de 2026 tombe en janvier et février** (−4,5 % puis −2,5 %) ; dès mars
+l'IC estimé est nul et le livre est à plat, comme le moteur en papier aujourd'hui. Alternative au choix d'un
+réglage (§ 15) : la règle 1/N (DeMiguel, Garlappi et Uppal 2009), qui ne choisit rien. Règle fixée ici, avant
+calcul : le capital est réparti à parts égales et fixes entre les **9 réglages de la grille** (détention 8 h, 24 h,
+48 h × aversion 0,5 / 1 / 2), rééquilibrés chaque jour, chaque sous-livre payant ses propres coûts (aucune
+compensation entre sous-livres : estimation prudente). Calcul hors ligne sur `grid_daily.csv` ; compté comme un
+essai. Même décision qu'au § 15 : retenue seulement si elle bat le réglage fixe sur le Sharpe **et** sur 2026.
+
 Ce document est mis à jour avec chaque résultat, favorable ou non.
