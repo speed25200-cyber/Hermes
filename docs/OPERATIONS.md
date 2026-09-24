@@ -46,12 +46,24 @@ Sur le VPS :
 systemctl status hermes@paper            # ou demo / live
 journalctl -u hermes@paper -f
 cat /opt/hermes/state/paper/status.json   # équité, positions, IC estimé, risque, exécution
-systemctl start hermes-retrain            # réentraîner maintenant (sinon chaque dimanche 02:30 UTC)
+systemctl start hermes-retrain            # VPS d'au moins 12 Go : réentraîner maintenant (sinon chaque dimanche)
 ```
+
+## Réentraînement
+
+Sur un petit VPS (moins de 12 Go), le walk-forward complet tourne sur un runner GitHub : workflow **Retrain**
+(`.github/workflows/retrain.yml`), le 2 de chaque mois à 04:00 UTC (le funding du mois écoulé est alors publié)
+ou à la demande. Il entraîne **avec le code installé sur le VPS** (`/opt/hermes/REVISION`, écrit par le
+déploiement) et **la configuration du champion** (`/etc/hermes/research_config`, écrite par le déploiement),
+publie le rapport en artefact, puis `deploy/challenger.sh` applique la règle champion / challenger : même
+configuration, le nouveau modèle remplace toujours l'ancien (une rétrogradation aplatit le livre réel) ; autre
+configuration, seulement s'il est promu ou si le champion ne l'est pas. Le moteur recharge le modèle à chaud.
+Comme en recherche, où chaque pli de 60 jours est ré-entraîné, le modèle en service ne vieillit pas au-delà d'un
+mois. Sur un VPS d'au moins 12 Go, `hermes-retrain.timer` fait la même chose chaque semaine, sur place.
 
 ## Unité de temps
 
-Le moteur trade l'unité de temps du modèle installé. Le réentraînement hebdomadaire utilise par défaut le
+Le moteur trade l'unité de temps du modèle installé. Le réentraînement utilise par défaut le
 meilleur candidat exécutable, `configs/research_30m_xl_lb_sres.yaml` (bougies de 30 min, détention 24 h,
 voir `RESULTS.md`) ; pour changer, écrire un autre chemin dans `/etc/hermes/research_config` sur le VPS (par
 ex. `configs/research_15m_long.yaml` ou `configs/research_1m_long.yaml`), puis installer le modèle. L'exécution s'adapte seule : la phase
