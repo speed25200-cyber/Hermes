@@ -38,7 +38,7 @@ from hermes.execution.okx.instruments import okx_inst_id
 from hermes.features.library import STORAGE_DTYPE, FeatureSet, build_features, feature_warmup_bars
 from hermes.labels.targets import build_targets
 from hermes.live.alerts import alert
-from hermes.live.listing_sleeve import ListingSleeve
+from hermes.live.listing_sleeve import HEDGE, ListingSleeve
 from hermes.live.state import StateStore
 from hermes.models.bundle import ModelBundle
 from hermes.models.drift import DRIFT_MARKET_DAYS, drift_report
@@ -773,6 +773,10 @@ class LiveEngine:
     async def _flatten(self, reason: str) -> None:
         """Close everything at once (kill switch, hard drawdown halt); works without market data."""
         positions = await self.broker.positions()
+        if self.sleeve is not None and self.sleeve.open:
+            conv = getattr(self.broker, "price_to_model", None) or (lambda _s, px: px)
+            marks = {s: float(conv(s, p.mark_px)) for s, p in positions.items() if p.mark_px}
+            self.sleeve.close_all(marks, self.clock(), "halt")
         if positions:
             rep = await self.broker.rebalance({}, urgent=True)
             self.store.add_fills(rep.fills, "flatten", getattr(self.broker, "price_to_model", None))
@@ -811,6 +815,7 @@ class LiveEngine:
                 "risk_limits": self._risk_limits(),
                 "account": self._account(equity),
                 "strategy": self._strategy_summary(),
+                "listing_sleeve": self.sleeve.summary({}) if self.sleeve is not None else {"enabled": False},
             }
         )
 
@@ -845,20 +850,23 @@ class LiveEngine:
         self._reconcile_external(positions)
         extra: list[str] = []
         if self.sleeve is not None:
-            try:
-                await self.sleeve.refresh(self.feed, self.clock())
-                extra = self.tradable(self.sleeve.symbols_needed(self.clock()))
-            except Exception:  # the sleeve never blocks the book
+            try:  # the sleeve never blocks the book: a short budget, and a failed refresh is retried in an hour
+                await asyncio.wait_for(self.sleeve.refresh(self.feed, self.clock()), timeout=20.0)
+            except Exception:
                 log.exception("listing sleeve: calendar refresh failed")
+                self.sleeve.backoff(self.clock())
+            extra = self.tradable(self.sleeve.symbols_needed(self.clock()))
         symbols = await self.refresh_candidates(list(positions) + extra)
         # Market data must arrive within the bar; otherwise the cycle fails and the guard runs again.
         budget = 0.6 * self.cfg.bar_minutes * 60.0
         panel = await asyncio.wait_for(self.feed.update(symbols), timeout=budget)
         daily = await asyncio.wait_for(self.feed.daily(symbols), timeout=budget)
         now = self.clock()
+        stop_fills: dict[str, float | None] = {}
         if isinstance(self.broker, PaperBroker):
             last = {f: panel[f].iloc[-1].dropna().to_dict() for f in ("open", "high", "low", "close")}
             stopped = self.broker.check_stops(last["high"], last["low"], last["open"])  # before the new marks
+            stop_fills = {f.symbol: f.price for f in stopped}
             if stopped:
                 self.store.add_fills(stopped, "stop")
                 self._closed_now.update(f.symbol for f in stopped)
@@ -871,10 +879,16 @@ class LiveEngine:
         prices = {s: float(v) for s, v in panel["close"].iloc[-1].dropna().items()}
         if self.sleeve is not None:
             # The book is decided on the account net of the sleeve's legs; the two target lists are added below.
-            self.sleeve.on_stops({s: None for s in self._closed_now}, prices, now)
+            self.sleeve.set_nav(self.strategy_nav(equity))
+            self._sleeve_funding(panel, prices)
+            hedge_pre = self.sleeve.holdings(prices).get(HEDGE, 0.0)  # still on the account until this rebalance
+            self.sleeve.on_stops({**{s: None for s in self._closed_now}, **stop_fills}, prices, now)
             self.sleeve.reconcile(notional, prices, now)
             held = self.sleeve.holdings(prices)
-            notional = {s: v - held.get(s, 0.0) for s, v in notional.items()}
+            # A released hedge stays on the account until the summed targets unwind it; a stopped BTC position
+            # took the hedge with it.
+            held[HEDGE] = 0.0 if HEDGE in self._closed_now else hedge_pre
+            notional = {s: notional.get(s, 0.0) - held.get(s, 0.0) for s in set(notional) | set(held)}
             notional = {s: v for s, v in notional.items() if abs(v) >= 1.0}
         d = self.decide(panel, notional, equity, now=now, daily=daily, nav=self.strategy_nav(equity))
         if not decision_bar:
@@ -887,6 +901,8 @@ class LiveEngine:
         urgent = self.overlay.state.halted
         targets = dict(d.targets)
         if self.sleeve is not None:
+            if urgent:  # the halt found in this decision closes the sleeve's legs in the same urgent rebalance
+                self.sleeve.close_all(prices, now, "halt")
             for s_, v_ in self._sleeve_targets(panel, prices, now, float(d.risk.get("nav", equity)), d).items():
                 targets[s_] = targets.get(s_, 0.0) + v_
         self._remember_traded([s for s, v in targets.items() if v != 0])
@@ -910,6 +926,8 @@ class LiveEngine:
             for s_ in self.sleeve.coins():
                 stops.pop(s_, None)
             stops.update(self.sleeve.stop_fractions(prices))
+            if not d.targets.get(HEDGE):  # BTC held only as the hedge: no stop on half of a hedged pair
+                stops.pop(HEDGE, None)
         await self.broker.protect(stops)
         equity_after = await self.broker.equity()
         pos_after = await self.broker.positions()
@@ -949,7 +967,7 @@ class LiveEngine:
             "risk_limits": self._risk_limits(),
             "halted": self.overlay.state.halted,
             "halt_reason": self.overlay.state.halt_reason,
-            "positions_detail": await self._positions_detail(pos_after, d, capital_after, now),
+            "positions_detail": await self._positions_detail(pos_after, d, capital_after, now, targets),
             "account": self._account(equity_after),
             "strategy": self._strategy_summary(),
             "listing_sleeve": self.sleeve.summary(prices) if self.sleeve is not None else {"enabled": False},
@@ -994,7 +1012,15 @@ class LiveEngine:
                 r = np.log(close[s].dropna()).diff().iloc[2:]  # skip the listing bar, as in research
                 if len(r) >= max(2, self.bpd // 4):  # at least 6 hours of bars
                     vol[s] = float(r.std() * np.sqrt(self.bpd))
-            entries = not d.stale and not self.overlay.state.halted
+            # No new short while the book is restricted: stale data, a halt, the daily-loss breaker or any
+            # drawdown de-risking (the overlay's limits bind the whole account, not only the book).
+            r = d.risk
+            entries = (
+                not d.stale
+                and not self.overlay.state.halted
+                and not r.get("reduce_only")
+                and float(r.get("budget", 1.0)) >= 0.999
+            )
             return self.sleeve.targets(now, prices, nav, set(self.tradable(due)), vol, entries=entries)
         except Exception:
             log.exception("listing sleeve: targets failed, legs kept")
@@ -1047,7 +1073,12 @@ class LiveEngine:
         )
 
     async def _positions_detail(
-        self, positions: dict[str, Position], d: Decision, capital: float, now: pd.Timestamp
+        self,
+        positions: dict[str, Position],
+        d: Decision,
+        capital: float,
+        now: pd.Timestamp,
+        targets: dict[str, float] | None = None,
     ) -> list[dict[str, object]]:
         """Open positions as the dashboard shows them: prices in the model's (Binance) units, the catastrophe
         stop's trigger, unrealised P&L at mark, and when the position was opened (kept while its side is)."""
@@ -1059,6 +1090,7 @@ class LiveEngine:
         conv = getattr(self.broker, "price_to_model", None) or (lambda _s, px: px)
         self._save_book(positions, stops)
         prev = self.store.get("opened", {}) or {}
+        sleeve_coins = self.sleeve.coins() if self.sleeve is not None else set()
         opened: dict[str, list[object]] = {}
         out = []
         for s, p in sorted(positions.items(), key=lambda kv: -abs(kv[1].notional)):
@@ -1083,7 +1115,8 @@ class LiveEngine:
                     "stop": stop,
                     "stop_dist": round(side * (mark - stop) / mark, 5) if stop and mark > 0 else None,
                     "score": d.scores.get(s),
-                    "target": round(d.targets.get(s, 0.0), 2),
+                    "target": round((targets if targets is not None else d.targets).get(s, 0.0), 2),
+                    "sleeve": s in sleeve_coins,
                     "opened": opened[s][1],
                 }
             )
@@ -1176,6 +1209,17 @@ class LiveEngine:
             num += (1.0 if f.qty > 0 else -1.0) * (px / p0 - 1.0) * w
             den += w
         return 1e4 * num / den if den > 0 else float("nan")
+
+    def _sleeve_funding(self, panel: Panel, prices: dict[str, float]) -> None:
+        """Funding settled on the sleeve's legs since its last accrual (its own P&L, which the kill rule judges)."""
+        if self.sleeve is None or "funding_rate" not in panel:
+            return
+        last_acc = self.store.get("sleeve_funding_until")
+        fr = panel["funding_rate"]
+        rows = fr.iloc[-1:] if last_acc is None else fr[fr.index > pd.Timestamp(str(last_acc))]
+        if not rows.empty:
+            self.sleeve.accrue_funding(rows.fillna(0.0).sum().to_dict(), prices)
+            self.store.put("sleeve_funding_until", str(panel.index[-1]))
 
     def _accrue_paper_funding(self, panel: Panel) -> None:
         """Paper account: charge every funding settlement since the last accrued bar (none is skipped when a

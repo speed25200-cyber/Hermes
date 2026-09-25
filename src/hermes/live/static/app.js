@@ -607,6 +607,7 @@ function sleevePanel(D) {
   const L = D.st.listing_sleeve || {};
   if (!L.enabled) return "";
   const openT = L.open || [], cov = L.coverage || {}, watch = Object.keys(L.watch || {}).length;
+  const ent = Array.isArray(L.entries) && L.entries.length ? L.entries : [24, 72], killN = fin(L.kill_trades) ? L.kill_trades : 25;
   const markOf = sym => {const p = posOf(D, sym); return p && fin(p.mark) ? p.mark : null};
   const rows = openT.map(t => {
     const m = markOf(t.symbol), pnl = fin(m) ? t.qty * (m - t.entry_px) : null;
@@ -614,7 +615,7 @@ function sleevePanel(D) {
   });
   const cols = [
     {k: "symbol", h: "Contrat", l: true, cl: "sym"},
-    {k: "tranche", h: "Entrée", l: true, f: r => ["+24 h", "+72 h"][r.tranche] || ("n°" + (r.tranche + 1))},
+    {k: "tranche", h: "Entrée", l: true, f: r => fin(ent[r.tranche]) ? "+" + num(ent[r.tranche], 0) + " h" : "n°" + (r.tranche + 1)},
     {k: "entry", h: "Ouverte", cl: "num", v: r => toMs(r.entry), f: r => dt(r.entry)},
     {k: "notional", h: "Short", cl: "num", f: r => usd(r.notional, 0)},
     {k: "entry_px", h: "Prix d'entrée", cl: "num", f: r => price(r.entry_px)},
@@ -625,14 +626,14 @@ function sleevePanel(D) {
   ];
   return `<div class="c12"><div class="panel"><div class="ph"><h2>Poche « nouvelles cotations »</h2><span class="sub">${esc(L.rule || "")}</span></div>
    <div class="stats">
-    <div><div class="label">Shorts ouverts</div><div class="v">${openT.length}</div><div class="x">${watch} nouveau(x) token(s) surveillé(s)</div></div>
-    <div><div class="label">P&L ouvert</div><div class="v ${cls(L.open_pnl)}">${usd(L.open_pnl, 2, true)}</div><div class="x">couverture BTC comprise</div></div>
+    <div><div class="label">Tokens shortés</div><div class="v">${num(fin(L.tokens_open) ? L.tokens_open : openT.length, 0)}</div><div class="x">${openT.length} tranche(s) · ${watch} nouveau(x) token(s) surveillé(s)</div></div>
+    <div><div class="label">P&L ouvert</div><div class="v ${cls(L.open_pnl)}">${usd(L.open_pnl, 2, true)}</div><div class="x">couverture BTC, funding et coûts compris</div></div>
     <div><div class="label">P&L réalisé</div><div class="v ${cls(L.closed_pnl)}">${usd(L.closed_pnl, 2, true)}</div><div class="x">${(L.closed || []).length} opération(s) récente(s)</div></div>
     <div><div class="label">Couverture OKX</div><div class="v">${num(cov.on_okx || 0, 0)} / ${num(cov.new_tokens_due || 0, 0)}</div><div class="x">nouveaux tokens cotés sur OKX à l'échéance</div></div>
-    <div><div class="label">État</div><div class="v ${L.suspended ? "down" : ""}">${L.suspended ? "suspendue" : "active"}</div><div class="x">${L.suspended ? "règle d'arrêt : 25 dernières opérations perdantes" : "règle d'arrêt fixée d'avance"}</div></div>
+    <div><div class="label">État</div><div class="v ${L.suspended ? "down" : ""}">${L.suspended ? "suspendue" : "active"}</div><div class="x">${L.suspended ? "règle d'arrêt : " + killN + " dernières opérations perdantes" : "règle d'arrêt fixée d'avance"}</div></div>
    </div>
-   <div class="tw">${table("t-sleeve", cols, rows, {sort: {k: "entry", dir: "desc"}, empty: "<b>Aucun short ouvert</b>La poche entre sur un nouveau token 24 h puis 72 h après la cotation de son perpétuel, s'il est coté sur OKX."})}</div>
-   <p class="cap" style="padding:12px 16px 0">Court sur chaque nouveau token coté en perpétuel sur Binance et présent sur OKX, en deux fois (24 h et 72 h après la cotation), fermé 7 jours après, couvert par un long BTC de même montant, stop à +50 % de la première entrée. Test en papier : Sharpe hors échantillon 2,1 en recherche, attendu plutôt autour de 1 ; la poche s'arrête d'elle-même si ses 25 dernières opérations perdent en moyenne.</p></div></div>`;
+   <div class="tw">${table("t-sleeve", cols, rows, {sort: {k: "entry", dir: "desc"}, empty: "<b>Aucun short ouvert</b>La poche entre sur un nouveau token " + ent.map(h => num(h, 0) + " h").join(" puis ") + " après la cotation de son perpétuel, s'il est coté sur OKX."})}</div>
+   <p class="cap" style="padding:12px 16px 0">Court sur chaque nouveau token coté en perpétuel sur Binance et présent sur OKX, en tranches (${ent.map(h => num(h, 0) + " h").join(" et ")} après la cotation, chacune dans les 3 heures, jamais rattrapée), fermées 7 jours après, couvertes par un long BTC de même montant, stop à +50 % de la première entrée. Test en papier : Sharpe hors échantillon 2,1 en recherche, attendu plutôt autour de 1 ; le P&L de la poche compte le funding et des coûts de recherche (0,15 % par côté), et elle s'arrête d'elle-même si ses ${killN} dernières opérations perdent en moyenne.</p></div></div>`;
 }
 
 function contribution(D) {

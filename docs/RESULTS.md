@@ -602,8 +602,9 @@ et au plus le demi-Kelly en échantillon. Chaque piste a été rejouée par un v
 
 **L'effet « nouvelles cotations » est réel** : de J+1/J+3 à J+7, un nouveau token a perdu 7 à 16 % de plus que BTC
 par opération chaque année de 2023 à 2026 (t de 2 à 4), dont une petite part seulement est le bêta des alts
-(achats d'airdrops et déblocages). **Mais son avenir est plus mince que son passé** : OKX cote de moins en moins
-les nouveaux tokens de Binance à J+3 (44 % en 2023, 38 % en 2024, 27 % en 2025, 10 % en 2026), soit 25 à 33
+(ventes d'airdrops et déblocages). **Mais son avenir est plus mince que son passé** : Binance cote moins de nouveaux
+tokens crypto (74 de janvier à août 2026 contre 228 en 2025 ; OKX en cote environ 28 % à J+3, une part stable depuis
+2025 — le « 10 % en 2026 » d'abord mesuré comptait les perpétuels sur actions et matières premières), soit 25 à 33
 opérations par an au lieu de 61, et la queue des squeezes s'est alourdie (13 % des opérations montent de plus de
 50 % hors échantillon, contre 2 % avant). Sharpe attendu pour la suite : environ 1 (0,5 à 1,5).
 
@@ -616,9 +617,14 @@ départ** tant que la poche n'a pas fait ses preuves en direct. C'est plus que c
 de façon robuste, mais loin des 10-20×.
 
 **Décision** : la poche est construite (`live/listing_sleeve.py`) sous la forme la plus robuste, deux tranches
-d'entrée (J+1 et J+3) fermées à J+7, couverture BTC 1:1, un stop à +50 % de la première entrée, cinq nouveaux
-tokens au plus, taille inversement proportionnelle à la volatilité, plafond 0,8× de la NAV, et tourne en papier à
-côté du livre depuis le 25 septembre 2026. Règles d'arrêt fixées d'avance : la poche s'arrête si ses 25 dernières
+d'entrée (J+1 et J+3, chacune dans les 3 heures qui suivent, jamais rattrapée) fermées à J+7, couverture BTC 1:1,
+un stop à +50 % de la première entrée, cinq nouveaux tokens au plus, taille inversement proportionnelle à la
+volatilité, plafond 0,8× de la NAV, et tourne en papier à côté du livre depuis le 25 septembre 2026. Rejouée sur les
+données de recherche avec exactement ces règles : Sharpe hors échantillon 2,09, retrait d'un mois 1,47 (l'ensemble
+avec une moitié sans stop ferait 2,22 ; des entrées rattrapées en retard l'auraient ramenée à 1,81). Une relecture
+adverse du code a fait corriger avant le déploiement : la couverture BTC orpheline après un stop, l'arrêt d'urgence
+qui ne fermait pas la poche, les limites de risque du livre (perte journalière, budget de drawdown) qui ne freinaient
+pas ses entrées, les entrées tardives, et les jetons préfixés « 1000 » pris pour neufs. Règles d'arrêt fixées d'avance : la poche s'arrête si ses 25 dernières
 opérations perdent en moyenne ou plus de 10 % de son plafond ; revue après 12 mois et au moins 30 opérations ; le
 passage en argent réel n'est envisageable qu'à 2× combiné, puis 3× si le Sharpe prospectif dépasse 1.
 

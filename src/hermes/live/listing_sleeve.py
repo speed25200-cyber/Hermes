@@ -1,19 +1,21 @@
 """New-listing short sleeve: a second, weakly correlated return stream run next to the book.
 
-Rule (docs/RESULTS.md, § 17; research in research/leverage_2026-09/newlisting): short every newly listed Binance
+Rule (docs/RESULTS.md, § 18; research in research/leverage_2026-09/newlisting): short every newly listed Binance
 USDT-M perpetual whose token is new -- no Binance spot market, or one opened at most ``new_token_days`` before the
 perpetual -- and that OKX lists, in tranches entered at each of ``entries`` hours after the perpetual's launch and all
 closed at ``exit_hours``, hedged with a BTC long of ``hedge_beta`` times the notional, with a stop ``stop`` above the
 first entry. New tokens drift down in their first week (airdrop and unlock selling): the day-1/3 -> day-7 short earned
 +7 to +16 % per event vs BTC in each of 2023-2026 (t 2-4). The equal-weight plateau of in-sample configurations (entry
 day 1 or 3, exit day 7, BTC hedge) made an out-of-sample Sharpe of 2.1 (2025-01 -> 2026-08, OKX prices; leave-one-
-month-out 1.5, bootstrap 90 % [0.7, 3.6]); the honest forward expectation is about 1, since OKX lists fewer and fewer
-new tokens (38-44 % of Binance's in 2023-24, 10 % in 2026) and the squeeze tail grew. Paper only: a forward test with a
-kill rule fixed in advance (``kill_trades``).
+month-out 1.5, bootstrap 90 % [0.7, 3.6]); rebuilt with the live rules (entry windows, one 50 % stop per contract): 2.09
+and 1.47. The honest forward expectation is about 1: Binance lists fewer new crypto tokens (74 in Jan-Aug 2026 against
+228 in 2025; OKX lists about 28 % of them by +72 h), and the squeeze tail grew. Paper only: a forward test with a kill
+rule fixed in advance (``kill_trades``), judged on P&L net of research-level costs and funding.
 
 Sizing as in research: a listing gets NAV x leverage / slots x clip(sigma_ref / sigma, 0.25, 1), split equally
 across its tranches, where sigma is the coin's realised daily volatility since listing (scale 0.5 without enough
-bars); the sleeve's short notional never exceeds leverage x NAV. Quantities stay fixed until the exit. The sleeve
+bars); the sleeve's short notional never exceeds leverage x NAV. A tranche enters only within ``entry_grace_hours`` of
+its hour (a missed window is not caught up later). Quantities stay fixed until the exit. The sleeve
 tracks its own trades; the book is decided on the positions net of them, and the two target lists are added before
 execution. One stop per contract (the brokers place one per position), at ``stop`` above the first tranche's entry.
 """
@@ -47,6 +49,8 @@ class ListingTrade:
     hedge_qty: float  # BTC quantity (positive: long)
     hedge_px: float
     stop_px: float | None
+    funding: float = 0.0  # funding received (+) or paid (-) on both legs, USDT
+    costs: float = 0.0  # research-level trading costs charged so far, USDT
 
 
 class ListingSleeve:
@@ -63,6 +67,7 @@ class ListingSleeve:
         self.listings: dict[str, dict[str, object]] = dict(st.get("listings", {}) or {})  # symbol -> launch, newtok
         self.coverage: dict[str, bool] = dict(st.get("coverage", {}) or {})  # new token -> OKX-listed when due
         self.calendar_at: str | None = st.get("calendar_at")  # type: ignore[assignment]
+        self._nav = float(st.get("nav", 0.0) or 0.0)  # type: ignore[arg-type]
 
     # -- calendar ---------------------------------------------------------------------------------------------
     async def refresh(self, feed: object, now: pd.Timestamp) -> None:
@@ -76,6 +81,9 @@ class ListingSleeve:
             t0 = pd.Timestamp(ms, unit="ms", tz="UTC")
             if t0 < horizon or sym in self.listings or sym == HEDGE:
                 continue
+            first = getattr(feed, "first_trade", None)  # first 1-minute candle, as research; else onboardDate
+            t_first = await first(sym) if first is not None else None
+            t0 = t_first if t_first is not None else t0
             spot = await feed.spot_first_open(sym)  # type: ignore[attr-defined]
             newtok = spot is None or (t0 - spot) <= pd.Timedelta(days=self.cfg.new_token_days)
             self.listings[sym] = {"launch": t0.isoformat(), "new_token": bool(newtok)}
@@ -83,6 +91,13 @@ class ListingSleeve:
         self.listings = {s: v for s, v in self.listings.items() if pd.Timestamp(str(v["launch"])) >= horizon}
         self.calendar_at = now.isoformat()
         self._save()
+
+    def backoff(self, now: pd.Timestamp) -> None:
+        """After a failed calendar refresh: retry in about an hour rather than on every bar."""
+        self.calendar_at = (now - pd.Timedelta(hours=5)).isoformat()
+
+    def set_nav(self, nav: float) -> None:
+        self._nav = float(nav)
 
     def _taken(self) -> set[tuple[str, int]]:
         return {(t.symbol, t.tranche) for t in self.open} | {
@@ -94,13 +109,15 @@ class ListingSleeve:
         """(listing, tranche) pairs of new tokens inside their entry window and not yet traded."""
         taken = self._taken()
         end = pd.Timedelta(hours=self.cfg.exit_hours)
+        grace = pd.Timedelta(hours=self.cfg.entry_grace_hours)
         out = []
         for sym, v in self.listings.items():
             if not v.get("new_token"):
                 continue
             t0 = pd.Timestamp(str(v["launch"]))
             for k, h in enumerate(self.cfg.entries):
-                if (sym, k) not in taken and t0 + pd.Timedelta(hours=h) <= now < t0 + end:
+                start = t0 + pd.Timedelta(hours=h)
+                if (sym, k) not in taken and start <= now < min(start + grace, t0 + end):
                     out.append((sym, k))
         return sorted(out)
 
@@ -119,8 +136,11 @@ class ListingSleeve:
             return False
         last = closed[-n:]
         mean = float(np.mean([float(t["pnl"]) / float(t["notional"]) for t in last]))  # type: ignore[arg-type]
-        capital = float(last[-1].get("nav", 0.0) or 0.0) * self.cfg.leverage  # type: ignore[arg-type]
-        loss = -sum(float(t["pnl"]) for t in last) / max(capital, 1e-9)  # type: ignore[arg-type]
+        navs = [float(t.get("nav", 0.0) or 0.0) for t in last]  # type: ignore[arg-type]
+        nav = next((v for v in reversed(navs) if v > 0), 0.0)
+        if nav <= 0:
+            return mean <= 0.0
+        loss = -sum(float(t["pnl"]) for t in last) / (nav * self.cfg.leverage)  # type: ignore[arg-type]
         return mean <= 0.0 or loss > self.cfg.kill_loss
 
     # -- positions --------------------------------------------------------------------------------------------
@@ -137,6 +157,23 @@ class ListingSleeve:
 
     def coins(self) -> set[str]:
         return {t.symbol for t in self.open}
+
+    def accrue_funding(self, rates: dict[str, float], prices: dict[str, float]) -> None:
+        """Funding settled since the last call (sum of rates per contract): a position pays qty x price x rate."""
+        for t in self.open:
+            r = rates.get(t.symbol, 0.0)
+            if r and np.isfinite(r):
+                t.funding -= t.qty * prices.get(t.symbol, t.entry_px) * r
+            rh = rates.get(HEDGE, 0.0)
+            if rh and np.isfinite(rh):
+                t.funding -= t.hedge_qty * prices.get(HEDGE, t.hedge_px) * rh
+        self._save()
+
+    def close_all(self, prices: dict[str, float], now: pd.Timestamp, reason: str) -> None:
+        """A halt or a kill closes every leg: the trades are booked (and counted by the kill rule) at ``prices``."""
+        for t in list(self.open):
+            self._close(t, prices.get(t.symbol, t.entry_px), prices, now, reason)
+        self._save()
 
     def reconcile(self, held: dict[str, float], prices: dict[str, float], now: pd.Timestamp) -> None:
         """Forget trades whose short is no longer on the account (flattened by a halt, closed by hand, an order
@@ -199,6 +236,7 @@ class ListingSleeve:
                     hedge_qty=c.hedge_beta * notional / hpx,
                     hedge_px=float(hpx),
                     stop_px=first[0] if first else (float(px * (1.0 + c.stop)) if c.stop > 0 else None),
+                    costs=notional * c.coin_cost + c.hedge_beta * notional * c.hedge_cost,
                 )
                 self.open.append(trade)
                 log.info("listing sleeve: short %s tranche %d, %.2f USDT (scale %.2f)", sym, k, notional, scale)
@@ -211,21 +249,23 @@ class ListingSleeve:
         out: dict[str, float] = {}
         for t in self.open:
             px = prices.get(t.symbol)
-            if t.stop_px and px and px > 0 and t.symbol not in out:
-                out[t.symbol] = max(t.stop_px / px - 1.0, 0.005)
+            if t.symbol in out or not px or px <= 0:
+                continue
+            # No stop configured: a level no price reaches (the brokers otherwise apply their 15 % default).
+            out[t.symbol] = max(t.stop_px / px - 1.0, 0.005) if t.stop_px else 100.0
         return out
 
     def summary(self, prices: dict[str, float]) -> dict[str, object]:
-        pnl = 0.0
-        for t in self.open:
-            px = prices.get(t.symbol, t.entry_px)
-            pnl += t.qty * (px - t.entry_px) + t.hedge_qty * (prices.get(HEDGE, t.hedge_px) - t.hedge_px)
+        pnl = sum(self._pnl(t, prices.get(t.symbol, t.entry_px), prices, exit_costs=False) for t in self.open)
         entries = " et ".join(f"+{h:.0f} h" for h in self.cfg.entries)
         return {
             "enabled": True,
             "rule": f"court nouveaux tokens (entrées {entries}, sortie +{self.cfg.exit_hours:.0f} h), "
             f"couverture BTC x{self.cfg.hedge_beta:g}, stop +{self.cfg.stop:.0%}, plafond {self.cfg.leverage:g}x",
             "suspended": self.suspended(),
+            "entries": list(self.cfg.entries),
+            "kill_trades": self.cfg.kill_trades,
+            "tokens_open": len(self.coins()),
             "open": [asdict(t) for t in self.open],
             "open_pnl": round(pnl, 2),
             "closed": self.done[-20:],
@@ -235,8 +275,15 @@ class ListingSleeve:
         }
 
     # -- internals --------------------------------------------------------------------------------------------
+    def _pnl(self, t: ListingTrade, px: float, prices: dict[str, float], exit_costs: bool = True) -> float:
+        """Net P&L of a trade: both legs' price moves, funding, and research-level costs (entry, and exit)."""
+        hpx = prices.get(HEDGE, t.hedge_px)
+        gross = t.qty * (px - t.entry_px) + t.hedge_qty * (hpx - t.hedge_px)
+        out = abs(t.qty) * px * self.cfg.coin_cost + abs(t.hedge_qty) * hpx * self.cfg.hedge_cost if exit_costs else 0.0
+        return gross + t.funding - t.costs - out
+
     def _close(self, t: ListingTrade, px: float, prices: dict[str, float], now: pd.Timestamp, reason: str) -> None:
-        pnl = t.qty * (px - t.entry_px) + t.hedge_qty * (prices.get(HEDGE, t.hedge_px) - t.hedge_px)
+        pnl = self._pnl(t, px, prices)
         self.done.append(
             {
                 "symbol": t.symbol,
@@ -247,7 +294,8 @@ class ListingSleeve:
                 "exit_px": px,
                 "notional": round(abs(t.qty) * t.entry_px, 2),
                 "pnl": round(pnl, 2),
-                "nav": round(float(getattr(self, "_nav", 0.0)), 2),
+                "funding": round(t.funding, 2),
+                "nav": round(self._nav, 2),
                 "reason": reason,
             }
         )
@@ -263,5 +311,6 @@ class ListingSleeve:
                 "listings": self.listings,
                 "coverage": dict(list(self.coverage.items())[-500:]),
                 "calendar_at": self.calendar_at,
+                "nav": self._nav,
             },
         )
