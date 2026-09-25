@@ -38,6 +38,7 @@ from hermes.execution.okx.instruments import okx_inst_id
 from hermes.features.library import STORAGE_DTYPE, FeatureSet, build_features, feature_warmup_bars
 from hermes.labels.targets import build_targets
 from hermes.live.alerts import alert
+from hermes.live.listing_sleeve import ListingSleeve
 from hermes.live.state import StateStore
 from hermes.models.bundle import ModelBundle
 from hermes.models.drift import DRIFT_MARKET_DAYS, drift_report
@@ -164,6 +165,9 @@ class LiveEngine:
         self._model_mtime = self._bundle_mtime()
         self._cache: dict[str, pd.DataFrame] = {}
         self.clock = lambda: pd.Timestamp.now(tz="UTC")  # replaced in tests and demonstrations
+        # New-listing short sleeve (paper and demo only: real money needs an explicit decision and a promotion).
+        sl = cfg.live.listing_sleeve
+        self.sleeve = ListingSleeve(sl, store) if sl.enabled and mode != "live" else None
         self.last_cycle_s: float | None = None
         self._closed_now: set[str] = set()  # contracts closed this cycle before the rebalance (stops)
 
@@ -839,7 +843,14 @@ class LiveEngine:
             decision_bar = bool(is_rebalance_bar(pd.DatetimeIndex([last]), bar, every)[0])
         positions = await self.broker.positions()
         self._reconcile_external(positions)
-        symbols = await self.refresh_candidates(list(positions))
+        extra: list[str] = []
+        if self.sleeve is not None:
+            try:
+                await self.sleeve.refresh(self.feed, self.clock())
+                extra = self.tradable(self.sleeve.symbols_needed(self.clock()))
+            except Exception:  # the sleeve never blocks the book
+                log.exception("listing sleeve: calendar refresh failed")
+        symbols = await self.refresh_candidates(list(positions) + extra)
         # Market data must arrive within the bar; otherwise the cycle fails and the guard runs again.
         budget = 0.6 * self.cfg.bar_minutes * 60.0
         panel = await asyncio.wait_for(self.feed.update(symbols), timeout=budget)
@@ -857,6 +868,14 @@ class LiveEngine:
         equity = await self.broker.equity()
         positions = await self.broker.positions()
         notional = {s: p.notional for s, p in positions.items()}
+        prices = {s: float(v) for s, v in panel["close"].iloc[-1].dropna().items()}
+        if self.sleeve is not None:
+            # The book is decided on the account net of the sleeve's legs; the two target lists are added below.
+            self.sleeve.on_stops({s: None for s in self._closed_now}, prices, now)
+            self.sleeve.reconcile(notional, prices, now)
+            held = self.sleeve.holdings(prices)
+            notional = {s: v - held.get(s, 0.0) for s, v in notional.items()}
+            notional = {s: v for s, v in notional.items() if abs(v) >= 1.0}
         d = self.decide(panel, notional, equity, now=now, daily=daily, nav=self.strategy_nav(equity))
         if not decision_bar:
             # Scores, realised IC and the smoothed signal are updated every bar, as in research; the book only
@@ -866,8 +885,12 @@ class LiveEngine:
         if d.stale:
             await alert(f"données périmées ({d.ts}) : aucune nouvelle prise de risque", "WARNING")
         urgent = self.overlay.state.halted
-        self._remember_traded([s for s, v in d.targets.items() if v != 0])
-        rep = await self.broker.rebalance(d.targets, urgent=urgent, hold=set(d.hold))
+        targets = dict(d.targets)
+        if self.sleeve is not None:
+            for s_, v_ in self._sleeve_targets(panel, prices, now, float(d.risk.get("nav", equity)), d).items():
+                targets[s_] = targets.get(s_, 0.0) + v_
+        self._remember_traded([s for s, v in targets.items() if v != 0])
+        rep = await self.broker.rebalance(targets, urgent=urgent, hold=set(d.hold))
         self.store.add_fills(rep.fills, "flatten" if urgent else "trade", getattr(self.broker, "price_to_model", None))
         for e in rep.errors:
             self.store.event("ERROR", e)
@@ -880,9 +903,11 @@ class LiveEngine:
         sig_d = (vol.iloc[-1] * np.sqrt(self.bpd)).fillna(0.05)
         stops = {
             s: float(np.clip(self.cfg.risk.stop_loss_daily_sigmas * sig_d.get(s, 0.05), 0.03, 0.5))
-            for s, v in d.targets.items()
+            for s, v in targets.items()
             if v != 0
         }
+        if self.sleeve is not None:
+            stops.update(self.sleeve.stop_fractions(prices))  # the sleeve's own stop on its shorts
         await self.broker.protect(stops)
         equity_after = await self.broker.equity()
         pos_after = await self.broker.positions()
@@ -925,6 +950,7 @@ class LiveEngine:
             "positions_detail": await self._positions_detail(pos_after, d, capital_after, now),
             "account": self._account(equity_after),
             "strategy": self._strategy_summary(),
+            "listing_sleeve": self.sleeve.summary(prices) if self.sleeve is not None else {"enabled": False},
             "n_members": d.n_members,
             "cycle_s": self.last_cycle_s,
         }
@@ -949,6 +975,28 @@ class LiveEngine:
             100 * rep.maker_share,
         )
         return d
+
+    def _sleeve_targets(
+        self, panel: Panel, prices: dict[str, float], now: pd.Timestamp, nav: float, d: Decision
+    ) -> dict[str, float]:
+        """The listing sleeve's targets for this bar; no new entry on stale data or while halted, and any failure
+        keeps its current legs rather than stopping the book."""
+        assert self.sleeve is not None
+        try:
+            due = self.sleeve.due(now)
+            close = panel["close"]
+            vol: dict[str, float] = {}
+            for s in due:
+                if s not in close:
+                    continue
+                r = np.log(close[s].dropna()).diff().iloc[2:]  # skip the listing bar, as in research
+                if len(r) >= max(2, self.bpd // 4):  # at least 6 hours of bars
+                    vol[s] = float(r.std() * np.sqrt(self.bpd))
+            entries = not d.stale and not self.overlay.state.halted
+            return self.sleeve.targets(now, prices, nav, set(self.tradable(due)), vol, entries=entries)
+        except Exception:
+            log.exception("listing sleeve: targets failed, legs kept")
+            return self.sleeve.holdings(prices)
 
     def _reconcile_external(self, positions: dict[str, Position]) -> None:
         """Record what changed on the exchange since the engine's last cycle without going through it (an
