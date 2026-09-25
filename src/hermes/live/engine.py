@@ -906,8 +906,10 @@ class LiveEngine:
             for s, v in targets.items()
             if v != 0
         }
-        if self.sleeve is not None:
-            stops.update(self.sleeve.stop_fractions(prices))  # the sleeve's own stop on its shorts
+        if self.sleeve is not None:  # the sleeve's own stop (or none) on its shorts, not the book's
+            for s_ in self.sleeve.coins():
+                stops.pop(s_, None)
+            stops.update(self.sleeve.stop_fractions(prices))
         await self.broker.protect(stops)
         equity_after = await self.broker.equity()
         pos_after = await self.broker.positions()
@@ -983,7 +985,7 @@ class LiveEngine:
         keeps its current legs rather than stopping the book."""
         assert self.sleeve is not None
         try:
-            due = self.sleeve.due(now)
+            due = sorted({s for s, _ in self.sleeve.due(now)})
             close = panel["close"]
             vol: dict[str, float] = {}
             for s in due:

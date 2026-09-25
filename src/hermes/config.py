@@ -291,17 +291,21 @@ class ListingSleeveConfig(_Strict):
     enabled: bool = False
     leverage: float = Field(1.0, gt=0, le=3, description="Cap of the sleeve's short notional, multiple of the NAV")
     slots: int = Field(5, ge=1, le=20, description="Listings held at once; each gets leverage/slots of the NAV")
-    entry_hours: float = Field(72, ge=0, description="Entry after the perpetual's launch")
-    exit_hours: float = Field(168, gt=0, description="Exit after the perpetual's launch")
-    stop: float = Field(0.5, ge=0, description="Stop above the entry price (0 = none)")
+    entries: tuple[float, ...] = Field(
+        (24.0, 72.0), min_length=1, description="Tranche entries, hours after the perpetual's launch"
+    )
+    exit_hours: float = Field(168, gt=0, description="Exit of every tranche, hours after the perpetual's launch")
+    stop: float = Field(0.5, ge=0, description="Stop above the first tranche's entry price (0 = none)")
     hedge_beta: float = Field(1.0, ge=0, description="BTC long per unit of short notional")
     new_token_days: float = Field(30, ge=0, description="A token is new if its first Binance spot market is younger")
     sigma_ref: float = Field(0.124, gt=0, description="Daily volatility of full size (research's in-sample median)")
+    kill_trades: int = Field(25, ge=0, description="Kill rule window: closed trades judged together (0 = off)")
+    kill_loss: float = Field(0.10, gt=0, description="Kill rule: loss over the window, share of the sleeve's cap")
 
     @model_validator(mode="after")
     def _window(self) -> ListingSleeveConfig:
-        if self.exit_hours <= self.entry_hours:
-            raise ValueError("listing_sleeve.exit_hours must exceed entry_hours")
+        if self.exit_hours <= max(self.entries) or min(self.entries) < 0:
+            raise ValueError("listing_sleeve: every entry must fall between the launch and exit_hours")
         return self
 
 
